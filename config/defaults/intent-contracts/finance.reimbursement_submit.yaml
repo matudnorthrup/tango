@@ -1,0 +1,24 @@
+id: finance.reimbursement_submit
+domain: finance
+display_name: Submit Reimbursement
+description: Submit a reimbursement or expense repayment request in an external finance system, gather supporting evidence, and record submission status.
+mode: write
+route:
+  kind: worker
+  target_id: personal-assistant
+slots:
+  - name: reimbursement_scope
+    required: false
+    inferable: true
+  - name: merchant_scope
+    required: false
+    inferable: true
+  - name: reimbursement_system
+    required: false
+    inferable: true
+examples:
+  - Submit the Walmart delivery-tip reimbursements to Ramp.
+  - File those reimbursable Walmart driver tips in Ramp and record that they were submitted.
+classifier_hints:
+  - Use for explicit reimbursement submission, repayment filing, or expense-report browser flows that require evidence gathering and a real external submission.
+  - Prefer finance.receipt_lookup when the user only wants to inspect receipt details or find possible reimbursement candidates without submitting anything.

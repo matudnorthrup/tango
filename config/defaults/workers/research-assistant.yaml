@@ -1,0 +1,45 @@
+id: research-assistant
+type: researcher
+display_name: Research Assistant
+owner_agent: sierra
+description: Web research (EXA), 3D printing pipeline, travel/navigation, and procurement tools for Sierra.
+provider:
+  default: claude-oauth
+  reasoning_effort: high
+  fallback:
+    - claude-oauth-secondary
+    - codex
+tool_contract_ids:
+  - exa_search
+  - exa_answer
+  - printer_command
+  - openscad_render
+  - prusa_slice
+  - location_read
+  - find_diesel
+  - walmart
+  - browser
+  - file_ops
+  - obsidian
+  - onepassword
+  - memory_search
+  - memory_add
+  - memory_reflect
+  - slack
+  - youtube_transcript
+  - youtube_analyze
+inactivity_timeout_seconds: 600
+skill_doc_ids:
+  - deep_research
+  - printing_profile_selection
+  - travel_routing
+  - osrm_routing
+  - open_meteo_weather
+  - chipotle_ordering
+  - walmart_shopping
+  - slack_digest
+policy:
+  write_scope: limited
+  confirm_before_write: false
+execution: agent
+prompt_file: ../../../agents/workers/research-assistant/soul.md

@@ -1,0 +1,38 @@
+id: victor
+type: developer
+display_name: Victor
+provider:
+  default: claude-oauth
+  reasoning_effort: max
+  fallback:
+    - claude-oauth-secondary
+    - codex
+default_project: personal
+voice:
+  call_signs:
+    - Victor
+  kokoro_voice: am_liam
+  default_channel_id: "100000000000000004"
+  smoke_test_channel_id: "100000000000001004"
+response_mode: concise
+tools:
+  mode: default
+  permission_mode: bypass
+orchestration:
+  worker_ids:
+    - dev-assistant
+  write_confirmation: on-ambiguity
+deterministic_routing:
+  enabled: true
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex
+access:
+  mode: allowlist
+  allowlist_user_ids:
+    - "100000000000002001"
+prompt_file: ../../../agents/assistants/victor/soul.md

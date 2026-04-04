@@ -1,0 +1,64 @@
+id: morning-planning
+display_name: Morning Planning Backstop
+description: >
+  Generate the morning planning briefing if the user hasn't already done it
+  manually. Checks calendar, email priorities, and outstanding tasks.
+enabled: true
+
+schedule:
+  cron: "15 8 * * *"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: agent
+  worker_id: personal-assistant
+  intent_ids:
+    - planning.morning_review
+  task: |
+    Run the morning planning session. Follow the daily_planning skill
+    guidance for Morning Planning phases.
+
+    Phase 0: Gather today's and yesterday's daily notes from Obsidian
+    (Planning/Daily/YYYY-MM-DD.md), today's calendar events from both
+    accounts (use --all for non-primary calendars), and the current week
+    plan. Calculate available hours.
+
+    Phase 1-4: Walk through data completion, framing, planning, and
+    confirm/create as described in the skill. Create calendar blocks for
+    agreed tasks, update the daily note.
+
+    Since this is a backstop (not interactive), skip the conversational
+    wait-for-response steps. Instead, make reasonable decisions:
+    - Carry over incomplete tasks from yesterday
+    - Schedule around existing calendar events
+    - Create time blocks for the top priority tasks
+    - Update the daily note with the plan
+
+    Present a concise summary of what was planned.
+  timeout_seconds: 300
+
+provider:
+  model: sonnet
+
+delivery:
+  channel_id: "100000000000000025"
+  agent_id: watson
+
+completion:
+  workflow_id: morning-planning
+  scope: daily
+
+policy:
+  max_consecutive_failures: 3
+  alert_channel_id: "100000000000000010"
+  concurrency_group: watson-tasks
+  priority: 10
+  backoff:
+    enabled: true
+    initial_seconds: 120
+    max_seconds: 3600
+
+tags:
+  - watson
+  - morning
+  - planning

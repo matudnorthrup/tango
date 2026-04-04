@@ -1,0 +1,59 @@
+id: evening-review
+display_name: Evening Review Backstop
+description: >
+  Run the evening review if the user hasn't already done it manually.
+  Summarizes the day's accomplishments and plans for tomorrow.
+enabled: true
+
+schedule:
+  cron: "30 20 * * *"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: agent
+  worker_id: personal-assistant
+  intent_ids:
+    - planning.evening_review
+  task: |
+    Run the evening check-in. Follow the daily_planning skill guidance
+    for Evening Check-in steps.
+
+    Since this is a backstop (not interactive), complete what you can
+    autonomously:
+
+    1. Read today's daily note from Obsidian (Planning/Daily/YYYY-MM-DD.md).
+    2. Check today's calendar to see what events occurred.
+    3. Compare planned tasks vs calendar activity to infer completions.
+    4. Fetch tomorrow's calendar to preview what's ahead.
+    5. Update the daily note: mark completed tasks, note carryovers,
+       add an "Energy Reflection" placeholder, and write a brief
+       "Notes from Last Night" section in tomorrow's daily note.
+
+    Present a concise summary of the day's status and tomorrow's outlook.
+  timeout_seconds: 300
+
+provider:
+  model: sonnet
+
+delivery:
+  channel_id: "100000000000000025"
+  agent_id: watson
+
+completion:
+  workflow_id: evening-review
+  scope: daily
+
+policy:
+  max_consecutive_failures: 3
+  alert_channel_id: "100000000000000010"
+  concurrency_group: watson-tasks
+  priority: 5
+  backoff:
+    enabled: true
+    initial_seconds: 120
+    max_seconds: 3600
+
+tags:
+  - watson
+  - evening
+  - planning

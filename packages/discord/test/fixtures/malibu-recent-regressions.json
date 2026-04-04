@@ -1,0 +1,75 @@
+[
+  {
+    "turnId": "21e2aa5b-4e7c-47b6-ac45-eee16d606dc1",
+    "createdAt": "2026-04-02 03:59:45",
+    "sessionId": "project:wellness",
+    "agentId": "malibu",
+    "routeOutcome": "executed",
+    "hasWriteOperations": false,
+    "intentIds": [
+      "nutrition.log_food"
+    ],
+    "fallbackReason": null,
+    "requestText": "i'll probably have a yogurt snack. 200g light yogurt, 10g cocoa, 6g cacao nibs, 1tbsp pb powder.",
+    "responseText": "That snack comes out to about **206 calories and 23 grams of protein**. Clean little chocolate-y beach bowl, dude.\n\nBut it **did not get written to your diary** in this run, so your day total is still floating offshore unconfirmed. If you want, re-send it and use **pb powder in grams** next time so the little nutrition goblins have less to trip over.",
+    "receiptWarnings": [
+      "Worker reported blocked result.",
+      "FatSecret serving verification could not be completed in this run, so the diary write was not confirmed.",
+      "FatSecret serving metadata was recovered after runtime replay, but the diary write was not attempted in the original run.",
+      "Local fallback `~/clawd/fatsecret-venv/bin/python ~/clawd/scripts/fatsecret-api.py food_get ...` failed with DNS/name-resolution errors for `platform.fatsecret.com`.",
+      "No write operation was recorded for this write step. Do not claim that any change was applied unless a later receipt proves it."
+    ],
+    "workerText": "{\"action\":\"nutrition.log_food\",\"status\":\"blocked\",\"logged\":[],\"unresolved\":[{\"name\":\"light yogurt\",\"quantity\":\"200g\",\"resolution\":\"Atlas match found: Light Greek Yogurt (food_id 38834732, serving_id 34139206, grams_per_serving 170)\",\"reason\":\"FatSecret serving verification could not be completed in this run, so the diary write was not confirmed.\"},{\"name\":\"cocoa\",\"quantity\":\"10g\",\"resolution\":\"Atlas match found: Cocoa Powder (food_id 81066433, serving_id 65455423)\",\"reason\":\"FatSecret serving verification could not be completed in this run, so the diary write was not confirmed.\"},{\"name\":\"cacao nibs\",\"quantity\":\"6g\",\"resolution\":\"Atlas match found: Cocoa Nibs (food_id 18750682, serving_id 17670786, grams_per_serving 28)\",\"reason\":\"FatSecret serving verification could not be completed in this run, so the diary write was not confirmed.\"},{\"name\":\"pb powder\",\"quantity\":\"1 tbsp\",\"resolution\":\"Atlas match found: Peanut Butter Powder (food_id 45580247, serving_id 39194697)\",\"reason\":\"FatSecret serving metadata was recovered after runtime replay, but the diary write was not attempted in the original run.\"}],\"totals\":{\"date\":\"2026-04-01\",\"meal\":\"snack\",\"day_totals\":\"unresolved\",\"status\":\"unconfirmed\",\"reason\":\"FatSecret serving metadata was recovered after runtime replay, but no diary write was executed in the original run.\"},\"errors\":[\"Local fallback `~/clawd/fatsecret-venv/bin/python ~/clawd/scripts/fatsecret-api.py food_get ...` failed with DNS/name-resolution errors for `platform.fatsecret.com`.\"],\"follow_up\":[\"Retry once network/DNS access to FatSecret is working.\",\"If retrying before FatSecret metadata is available, provide pb powder in grams instead of `1 tbsp`.\",\"Retry once to commit the diary write now that FatSecret metadata has been recovered.\"],\"runtimeReplay\":{\"fatsecretApiCalls\":8,\"readMetadataRecovered\":true,\"diaryWriteRecovered\":false,\"diaryRefreshRecovered\":false}}",
+    "operationNames": [
+      "atlas_sql",
+      "fatsecret_api"
+    ]
+  },
+  {
+    "turnId": "1f250f8d-1527-424a-816a-470c1000d093",
+    "createdAt": "2026-04-02 00:45:17",
+    "sessionId": "project:wellness",
+    "agentId": "malibu",
+    "routeOutcome": "clarification",
+    "hasWriteOperations": false,
+    "intentIds": [
+      "nutrition.log_food"
+    ],
+    "fallbackReason": null,
+    "requestText": "Log 40g raspberries and 100g light yogurt",
+    "responseText": "Snack or a different meal, dude?",
+    "receiptWarnings": [],
+    "workerText": null,
+    "operationNames": []
+  },
+  {
+    "turnId": "9e53a748-edd3-404d-881b-140d76e69d40",
+    "createdAt": "2026-04-01 23:23:23",
+    "sessionId": "project:wellness",
+    "agentId": "malibu",
+    "routeOutcome": "fallback",
+    "hasWriteOperations": false,
+    "intentIds": [],
+    "fallbackReason": "Classification confidence was below the deterministic routing threshold.",
+    "requestText": "I might need to stop early. My back and knees aren’t feeling super great. I may end early and just go for a walk instead.",
+    "responseText": "Smart call, dude. Two solid supersets is real work — don't let the ego talk you into grinding through warning signs from your back and knees. That's how a leg day becomes a six-week layoff.\n\nWalk is actually a *perfect* swap — active recovery, still gets blood moving, doesn't stress the joints. Plus you already banked 16k steps yesterday, so your body's clearly down with the movement.\n\nWhenever you're done, just say the word and I'll close the session. Want me to log the walk too when you finish?",
+    "receiptWarnings": [],
+    "workerText": null,
+    "operationNames": []
+  },
+  {
+    "turnId": "75ca7a86-4635-4ff9-af39-13c528ee542c",
+    "createdAt": "2026-04-01 22:56:28",
+    "sessionId": "project:wellness",
+    "agentId": "malibu",
+    "routeOutcome": "fallback",
+    "hasWriteOperations": false,
+    "intentIds": [],
+    "fallbackReason": "Classification confidence was below the deterministic routing threshold.",
+    "requestText": "You already know the first move lol",
+    "responseText": "Ha, fair. **KB Swings, 50 lbs, 3×20** — that's the warmup wave. Go get 'em and report back with your sets. 🤙",
+    "receiptWarnings": [],
+    "workerText": null,
+    "operationNames": []
+  }
+]

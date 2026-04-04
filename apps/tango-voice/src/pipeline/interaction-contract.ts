@@ -1,0 +1,110 @@
+import type { PipelineState } from './pipeline-state.js';
+
+export type InteractionContractId =
+  | 'channel-selection'
+  | 'queue-choice'
+  | 'switch-choice'
+  | 'route-confirmation'
+  | 'new-post-forum'
+  | 'new-post-title'
+  | 'inbox-flow';
+
+export interface InteractionContract {
+  id: InteractionContractId;
+  defaultTimeoutMs: number;
+  repromptText: string;
+  timeoutText: string;
+  acceptedIntents: readonly string[];
+  feedbackOnRecognized: 'acknowledged';
+  readyCueAfterHandling: true;
+}
+
+export const INTERACTION_CONTRACTS: Record<InteractionContractId, InteractionContract> = {
+  'channel-selection': {
+    id: 'channel-selection',
+    defaultTimeoutMs: 15_000,
+    repromptText: 'Say a number or channel name, or cancel.',
+    timeoutText: 'Selection timed out. You can try again.',
+    acceptedIntents: ['select-number', 'select-name', 'cancel'],
+    feedbackOnRecognized: 'acknowledged',
+    readyCueAfterHandling: true,
+  },
+  'queue-choice': {
+    id: 'queue-choice',
+    defaultTimeoutMs: 20_000,
+    repromptText: 'Say send to inbox, wait here, or cancel.',
+    timeoutText: 'Choice timed out.',
+    acceptedIntents: ['inbox', 'wait', 'silent', 'cancel', 'navigate'],
+    feedbackOnRecognized: 'acknowledged',
+    readyCueAfterHandling: true,
+  },
+  'switch-choice': {
+    id: 'switch-choice',
+    defaultTimeoutMs: 30_000,
+    repromptText: 'Say last message, new prompt, or cancel.',
+    timeoutText: 'Switch choice timed out.',
+    acceptedIntents: ['read', 'prompt', 'cancel'],
+    feedbackOnRecognized: 'acknowledged',
+    readyCueAfterHandling: true,
+  },
+  'route-confirmation': {
+    id: 'route-confirmation',
+    defaultTimeoutMs: 20_000,
+    repromptText: 'Say yes, no, or cancel.',
+    timeoutText: 'Route confirmation timed out.',
+    acceptedIntents: ['yes', 'no', 'cancel'],
+    feedbackOnRecognized: 'acknowledged',
+    readyCueAfterHandling: true,
+  },
+  'new-post-forum': {
+    id: 'new-post-forum',
+    defaultTimeoutMs: 30_000,
+    repromptText: 'Say a forum name, or cancel.',
+    timeoutText: 'New post flow timed out.',
+    acceptedIntents: ['forum-name', 'cancel'],
+    feedbackOnRecognized: 'acknowledged',
+    readyCueAfterHandling: true,
+  },
+  'new-post-title': {
+    id: 'new-post-title',
+    defaultTimeoutMs: 30_000,
+    repromptText: 'Say the title, or cancel.',
+    timeoutText: 'New post flow timed out.',
+    acceptedIntents: ['title', 'cancel'],
+    feedbackOnRecognized: 'acknowledged',
+    readyCueAfterHandling: true,
+  },
+  'inbox-flow': {
+    id: 'inbox-flow',
+    defaultTimeoutMs: 120_000,
+    repromptText: 'Say next, done, or cancel.',
+    timeoutText: 'Inbox flow timed out.',
+    acceptedIntents: ['inbox-next', 'inbox-clear', 'switch', 'default', 'cancel'],
+    feedbackOnRecognized: 'acknowledged',
+    readyCueAfterHandling: true,
+  },
+};
+
+export function getInteractionContractById(id: InteractionContractId): InteractionContract {
+  return INTERACTION_CONTRACTS[id];
+}
+
+export function getInteractionContractForState(state: PipelineState): InteractionContract | null {
+  switch (state.type) {
+    case 'AWAITING_CHANNEL_SELECTION':
+      return INTERACTION_CONTRACTS['channel-selection'];
+    case 'AWAITING_QUEUE_CHOICE':
+      return INTERACTION_CONTRACTS['queue-choice'];
+    case 'AWAITING_SWITCH_CHOICE':
+      return INTERACTION_CONTRACTS['switch-choice'];
+    case 'AWAITING_ROUTE_CONFIRMATION':
+      return INTERACTION_CONTRACTS['route-confirmation'];
+    case 'NEW_POST_FLOW':
+      if (state.step === 'forum') return INTERACTION_CONTRACTS['new-post-forum'];
+      return INTERACTION_CONTRACTS['new-post-title'];
+    case 'INBOX_FLOW':
+      return INTERACTION_CONTRACTS['inbox-flow'];
+    default:
+      return null;
+  }
+}

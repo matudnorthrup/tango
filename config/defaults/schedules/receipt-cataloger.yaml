@@ -1,0 +1,66 @@
+id: receipt-cataloger
+display_name: Receipt Cataloger
+description: >
+  Check Lunch Money for uncategorized Amazon, Walmart, Costco, and Venmo
+  transactions, look up matching orders/receipts, and create Obsidian
+  receipt files.
+enabled: true
+
+schedule:
+  cron: "0 2 * * *"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: agent
+  worker_id: personal-assistant
+  intent_ids:
+    - finance.receipt_catalog
+  task: |
+    Daily receipt cataloging task.
+
+    1. Check Lunch Money for new uncategorized transactions from Amazon,
+       Walmart, Costco, and Venmo in the past 7 days.
+    2. For each uncategorized transaction, look up the receipt:
+       - **Amazon / Walmart / Costco**: Use the browser to look up the
+         matching order on the retailer's website. Use 1Password for
+         credentials if login is needed.
+       - **Venmo**: Use gog_email to search Gmail for the Venmo payment
+         confirmation email matching the amount and approximate date.
+         Venmo emails contain the recipient, note, and payment details.
+    3. Create an Obsidian receipt file following the receipt_logging
+       skill format at Records/Receipts/{Retailer}/.
+    4. Use the transaction_categorization skill rules to suggest
+       categories for non-grocery items.
+
+    If a login page appears, use 1Password to retrieve credentials and
+    log in (item names: "Amazon" for Amazon, "Walmart" for Walmart).
+    If 2FA is prompted or login fails after entering credentials, report
+    the error clearly and stop — don't retry.
+
+    If the browser tool itself fails to connect (e.g. no browser running),
+    report the error and stop.
+
+    Summarize what was processed or say "No new uncategorized transactions."
+  timeout_seconds: 600
+
+provider:
+  model: sonnet
+
+delivery:
+  channel_id: "100000000000000013"
+  agent_id: watson
+
+policy:
+  max_consecutive_failures: 3
+  alert_channel_id: "100000000000000010"
+  concurrency_group: watson-tasks
+  priority: 2
+  backoff:
+    enabled: true
+    initial_seconds: 300
+    max_seconds: 7200
+
+tags:
+  - watson
+  - finance
+  - daily

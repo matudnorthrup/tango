@@ -1,0 +1,76 @@
+id: weekly-finance-review
+display_name: Weekly Finance Review
+description: >
+  Monday morning review of month-to-date spending vs budgets, sinking
+  fund transfers, and fixed cost anomalies.
+enabled: true
+
+schedule:
+  cron: "0 7 * * 1"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: agent
+  worker_id: personal-assistant
+  intent_ids:
+    - finance.budget_review
+  task: |
+    Weekly finance review for the Watson finance thread.
+
+    IMPORTANT: Before doing anything, check the current date and time.
+    Use a tool call or system check to confirm today's date — do NOT
+    rely on your training data or assumptions about what day it is.
+    Use the confirmed date for all date calculations below.
+
+    Follow the weekly_finance_review skill guidance:
+
+    1. Fetch all Lunch Money categories (GET /categories) and current
+       month budgets (GET /budgets?start_date=YYYY-MM-01&end_date=YYYY-MM-DD
+       using confirmed today's date).
+    2. Compare month-to-date actuals vs budget for each category.
+       Flag any category that's already over 80% of monthly budget
+       before the month is 80% elapsed.
+    3. Check "Discretionary Spending" category — flag if spending pace
+       suggests it will exceed the monthly disbursement backstop.
+    4. Verify sinking fund transfers from month-to-date transaction
+       history in the known sinking-fund categories instead of using a
+       recurring-items endpoint.
+    5. Scan Fixed Costs categories for anomalies — anything materially
+       different (>20%) from prior month's amount for the same payee.
+    6. Return a summary (it will be delivered to Discord automatically).
+       Do NOT post to Slack or any other channel. Include:
+       - Budget status table (category, budget, spent, remaining, %)
+       - Any flags or warnings
+       - Sinking fund transfer status
+       - Fixed cost anomalies (or "none")
+    7. If everything looks clean, still return a brief all-clear with
+       the budget summary table.
+
+    Rate limit: wait 0.3s between Lunch Money API calls.
+  timeout_seconds: 300
+
+provider:
+  model: sonnet
+
+delivery:
+  channel_id: "100000000000000013"
+  agent_id: watson
+
+completion:
+  workflow_id: weekly-finance-review
+  scope: weekly
+
+policy:
+  max_consecutive_failures: 3
+  alert_channel_id: "100000000000000010"
+  concurrency_group: watson-tasks
+  priority: 5
+  backoff:
+    enabled: true
+    initial_seconds: 120
+    max_seconds: 3600
+
+tags:
+  - watson
+  - finance
+  - weekly

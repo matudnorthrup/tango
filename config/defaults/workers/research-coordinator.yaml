@@ -1,0 +1,17 @@
+id: research-coordinator
+type: researcher
+display_name: Research Coordinator
+owner_agent: sierra
+description: Parallel research coordinator that decomposes deep or multi-document requests into focused sub-agents and synthesizes the results.
+provider:
+  default: codex
+  reasoning_effort: medium
+  fallback:
+    - claude-oauth-secondary
+    - claude-oauth
+policy:
+  write_scope: limited
+  confirm_before_write: false
+execution: agent
+inactivity_timeout_seconds: 600
+prompt_file: ../../../agents/workers/research-coordinator/soul.md

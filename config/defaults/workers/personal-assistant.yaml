@@ -1,0 +1,49 @@
+id: personal-assistant
+type: assistant
+display_name: Personal Assistant
+owner_agent: watson
+description: Email, calendar, finance, Obsidian, and health briefing tools for Watson.
+provider:
+  default: claude-oauth
+  reasoning_effort: high
+  fallback:
+    - claude-oauth-secondary
+    - codex
+tool_contract_ids:
+  - gog_email
+  - gog_calendar
+  - gog_docs
+  - obsidian
+  - health_morning
+  - lunch_money
+  - receipt_registry
+  - ramp_reimbursement
+  - agent_docs
+  - browser
+  - onepassword
+  - memory_search
+  - memory_add
+  - memory_reflect
+  - linear
+  - imessage
+  - latitude_run
+  - slack
+inactivity_timeout_seconds: 600
+skill_doc_ids:
+  - daily_planning
+  - email_review
+  - obsidian_note_conventions
+  - backlog_management
+  - health_baselines
+  - receipt_logging
+  - amazon_orders
+  - walmart_orders
+  - ramp_reimbursements
+  - transaction_categorization
+  - weekly_finance_review
+  - slack_digest
+policy:
+  write_scope: limited
+  confirm_before_write: false
+execution: agent
+prompt_file: ../../../agents/workers/personal-assistant/soul.md

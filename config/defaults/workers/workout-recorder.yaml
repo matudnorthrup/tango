@@ -1,0 +1,23 @@
+id: workout-recorder
+type: recorder
+display_name: Workout Recorder
+owner_agent: malibu
+description: Workout session, set logging, and history summaries for strength training.
+provider:
+  default: claude-oauth
+  reasoning_effort: low
+  fallback:
+    - claude-oauth-secondary
+    - codex
+tool_contract_ids:
+  - workout_sql
+  - memory_search
+  - memory_add
+  - memory_reflect
+skill_doc_ids:
+  - workout_logging
+policy:
+  write_scope: limited
+  confirm_before_write: true
+execution: agent
+prompt_file: ../../../agents/workers/workout-recorder/soul.md

@@ -1,0 +1,30 @@
+id: obsidian.recipe_notes.write
+family: obsidian.recipe_notes
+description: Create or update a Markdown recipe note in the Obsidian nutrition recipe folder.
+owner_worker: recipe-librarian
+mode: write
+status: implemented
+confirmation_required: true
+live_execution:
+  enabled: true
+  write_enabled: true
+integration:
+  system: obsidian
+  target: nutrition-recipes
+input_fields:
+  - title
+  - frontmatter
+  - ingredients
+  - instructions
+  - notes?
+output_fields:
+  - file_path
+  - updated
+legacy:
+  read_paths:
+    - ~/.tango/profiles/default/notes/recipes/*.md
+    - ~/.tango/profiles/default/notes/templates/Recipe Template.md
+  write_paths:
+    - ~/.tango/profiles/default/notes/recipes/<Recipe Name>.md
+  notes:
+    - Legacy recipe writes were Markdown note edits, not a deterministic CLI.

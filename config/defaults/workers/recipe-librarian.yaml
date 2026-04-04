@@ -1,0 +1,27 @@
+id: recipe-librarian
+type: librarian
+display_name: Recipe Librarian
+owner_agent: malibu
+description: Recipe management, ingredient resolution, and nutrition data lookup.
+provider:
+  default: claude-oauth
+  reasoning_effort: medium
+  fallback:
+    - claude-oauth-secondary
+    - codex
+tool_contract_ids:
+  - atlas_sql
+  - recipe_list
+  - recipe_read
+  - recipe_write
+  - fatsecret_api
+  - memory_search
+  - memory_add
+  - memory_reflect
+skill_doc_ids:
+  - recipe_format
+policy:
+  write_scope: limited
+  confirm_before_write: true
+execution: agent
+prompt_file: ../../../agents/workers/recipe-librarian/soul.md

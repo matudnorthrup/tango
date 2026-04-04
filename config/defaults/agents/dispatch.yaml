@@ -1,0 +1,16 @@
+id: dispatch
+type: router
+display_name: Tango
+provider:
+  default: claude-oauth
+  fallback:
+    - claude-oauth-secondary
+    - codex
+default_topic: system/default
+default_project: personal
+voice:
+  call_signs:
+    - Tango
+  default_prompt_agent: watson
+response_mode: concise
+prompt_file: ../../../agents/system/dispatch/soul.md

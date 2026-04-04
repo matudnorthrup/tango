@@ -1,0 +1,39 @@
+id: malibu
+type: wellness
+display_name: Malibu
+provider:
+  default: claude-oauth
+  reasoning_effort: medium
+  fallback:
+    - claude-oauth-secondary
+    - codex
+default_project: wellness
+voice:
+  call_signs:
+    - Malibu
+    - Malibooth
+    - Coach Malibu
+  kokoro_voice: am_puck
+  default_channel_id: "100000000000000002"
+  smoke_test_channel_id: "100000000000001002"
+response_mode: concise
+tools:
+  mode: off
+orchestration:
+  worker_ids:
+    - health-analyst
+    - nutrition-logger
+    - recipe-librarian
+    - workout-recorder
+  write_confirmation: on-ambiguity
+deterministic_routing:
+  enabled: true
+  project_scope: wellness
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex
+prompt_file: ../../../agents/assistants/malibu/soul.md

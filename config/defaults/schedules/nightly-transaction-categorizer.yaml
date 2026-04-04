@@ -1,0 +1,65 @@
+id: nightly-transaction-categorizer
+display_name: Nightly Transaction Categorizer
+description: >
+  Fetch uncategorized Lunch Money transactions from the last 48 hours,
+  apply categorization rules, and post a summary. Exit silently if none.
+enabled: true
+
+schedule:
+  cron: "0 23 * * *"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: conditional-agent
+  pre_check:
+    handler: watson-unreviewed-transactions
+  worker_id: personal-assistant
+  intent_ids:
+    - finance.transaction_categorization
+  task_template: |
+    Nightly transaction categorization run.
+
+    The scheduler pre-check already confirmed the current date and found
+    {{unreviewedCount}} unreviewed Lunch Money transactions between
+    {{startDate}} and {{endDate}}.
+
+    1. Fetch the uncategorized (status=unreviewed) Lunch Money
+       transactions for exactly that date window.
+    2. If the follow-up fetch unexpectedly returns zero transactions,
+       return EXACTLY the text "__NO_OUTPUT__" and nothing else.
+    3. Read the categorization rules from
+       ~/.tango/profiles/default/notes/finance/Lunch Money Rules.md
+    4. Follow the transaction_categorization skill to apply rules,
+       handle splits, and flag ambiguous vendors for review.
+    5. Apply categories via the Lunch Money API (PUT with category_id
+       and status: "cleared").
+    6. Return a concise summary for the finance thread:
+       "Categorized N transactions tonight — here's what I did.
+       Reply to correct anything."
+       Then list each transaction: payee, amount, applied category.
+       If any were ambiguous or need review, list those separately.
+
+    Rate limit: wait 0.3s between Lunch Money API calls.
+  timeout_seconds: 420
+
+provider:
+  model: sonnet
+
+delivery:
+  channel_id: "100000000000000013"
+  agent_id: watson
+
+policy:
+  max_consecutive_failures: 3
+  alert_channel_id: "100000000000000010"
+  concurrency_group: watson-tasks
+  priority: 3
+  backoff:
+    enabled: true
+    initial_seconds: 120
+    max_seconds: 3600
+
+tags:
+  - watson
+  - finance
+  - daily

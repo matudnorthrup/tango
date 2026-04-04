@@ -1,0 +1,133 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+function parseAudioProcessingMode(value: string | undefined): 'discord' | 'local' {
+  return value?.toLowerCase() === 'local' ? 'local' : 'discord';
+}
+
+function parseEndpointingMode(value: string | undefined): 'silence' | 'indicate' {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return 'silence';
+  if (normalized === 'indicate' || normalized === 'manual') return 'indicate';
+  return 'silence';
+}
+
+function parseFloatWithFallback(value: string | undefined, fallback: number): number {
+  const parsed = parseFloat(value || '');
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseIntWithFallback(value: string | undefined, fallback: number): number {
+  const parsed = parseInt(value || '', 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBooleanWithFallback(value: string | undefined, fallback: boolean): boolean {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') return true;
+  if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') return false;
+  return fallback;
+}
+
+function parseVadFrameSamples(value: string | undefined): 512 | 1024 | 1536 {
+  const parsed = parseInt(value || '512', 10);
+  if (parsed === 512 || parsed === 1024 || parsed === 1536) return parsed;
+  return 512;
+}
+
+function parseCloseWords(value: string | undefined, fallback: string[]): string[] {
+  if (!value) return fallback;
+  const parsed = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return parsed.length > 0 ? parsed : fallback;
+}
+
+function expandHomePath(value: string): string {
+  if (value.startsWith('~/') && process.env['HOME']) {
+    return `${process.env['HOME']}${value.slice(1)}`;
+  }
+  return value;
+}
+
+function deriveVoiceCompletionUrl(value: string | undefined): string {
+  const normalized = value?.trim();
+  if (!normalized) return '';
+  try {
+    const url = new URL(normalized);
+    url.pathname = '/voice/completion';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function required(key: string): string {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
+export const config = {
+  discordToken: required('DISCORD_TOKEN'),
+  openaiApiKey: process.env['OPENAI_API_KEY'] || '',
+  anthropicApiKey: process.env['ANTHROPIC_API_KEY'] || '',
+  whisperUrl: process.env['WHISPER_URL'] || '',
+  whisperPartialsUrl: process.env['WHISPER_PARTIALS_URL'] || '',
+  tangoVoiceTurnUrl: process.env['TANGO_VOICE_TURN_URL'] || '',
+  tangoVoiceCompletionUrl: process.env['TANGO_VOICE_COMPLETION_URL'] || deriveVoiceCompletionUrl(process.env['TANGO_VOICE_TURN_URL']),
+  tangoVoiceApiKey: process.env['TANGO_VOICE_API_KEY'] || '',
+  tangoVoiceAgentId: process.env['TANGO_VOICE_AGENT_ID'] || 'main',
+  tangoVoiceTimeoutMs: parseIntWithFallback(process.env['TANGO_VOICE_TIMEOUT_MS'], 0), // 0 = no client timeout; server watchdog is authoritative
+  tangoVoiceMaxRetries: Math.max(0, parseIntWithFallback(process.env['TANGO_VOICE_MAX_RETRIES'], 2)),
+  ttsBackend: process.env['TTS_BACKEND'] || 'elevenlabs',
+  ttsFallbackBackend: process.env['TTS_FALLBACK_BACKEND'] || '',
+  ttsPrimaryRetryMs: parseInt(process.env['TTS_PRIMARY_RETRY_MS'] || '30000', 10),
+  elevenLabsApiKey: process.env['ELEVENLABS_API_KEY'] || '',
+  elevenLabsVoiceId: process.env['ELEVENLABS_VOICE_ID'] || 'JBFqnCBsd6RMkjVDRZzb',
+  kokoroUrl: process.env['KOKORO_URL'] || 'http://127.0.0.1:8880',
+  kokoroVoice: process.env['KOKORO_VOICE'] || 'af_bella',
+  chatterboxUrl: process.env['CHATTERBOX_URL'] || 'http://127.0.0.1:4123',
+  chatterboxVoice: process.env['CHATTERBOX_VOICE'] || 'default',
+  earconMinGapMs: Math.max(0, parseInt(process.env['EARCON_MIN_GAP_MS'] || '500', 10)),
+  discordGuildId: required('DISCORD_GUILD_ID'),
+  discordVoiceChannelId: required('DISCORD_VOICE_CHANNEL_ID'),
+  silenceDurationMs: parseInt(process.env['SILENCE_DURATION_MS'] || '500', 10),
+  speechThreshold: parseInt(process.env['SPEECH_THRESHOLD'] || '500', 10),
+  minSpeechDurationMs: parseInt(process.env['MIN_SPEECH_DURATION_MS'] || '600', 10),
+  audioProcessing: parseAudioProcessingMode(process.env['AUDIO_PROCESSING']),
+  endpointingMode: parseEndpointingMode(process.env['ENDPOINTING_MODE']),
+  indicateCloseWords: parseCloseWords(
+    process.env['INDICATE_CLOSE_WORDS'],
+    ['go ahead', "i'm done", "i'm finished"],
+  ),
+  indicateTimeoutMs: parseIntWithFallback(process.env['INDICATE_TIMEOUT_MS'], 20000),
+  sttStreamingEnabled: parseBooleanWithFallback(process.env['STT_STREAMING_ENABLED'], false),
+  sttStreamingChunkMs: Math.max(250, parseIntWithFallback(process.env['STT_STREAMING_CHUNK_MS'], 900)),
+  sttStreamingMinChunkMs: Math.max(200, parseIntWithFallback(process.env['STT_STREAMING_MIN_CHUNK_MS'], 450)),
+  sttStreamingOverlapMs: Math.max(0, parseIntWithFallback(process.env['STT_STREAMING_OVERLAP_MS'], 180)),
+  sttStreamingMaxChunks: Math.max(1, parseIntWithFallback(process.env['STT_STREAMING_MAX_CHUNKS'], 8)),
+  vadPositiveSpeechThreshold: parseFloatWithFallback(process.env['VAD_POSITIVE_SPEECH_THRESHOLD'], 0.5),
+  vadNegativeSpeechThreshold: parseFloatWithFallback(process.env['VAD_NEGATIVE_SPEECH_THRESHOLD'], 0.35),
+  vadFrameSamples: parseVadFrameSamples(process.env['VAD_FRAME_SAMPLES']),
+  localStreamIdleMs: parseIntWithFallback(process.env['LOCAL_STREAM_IDLE_MS'], 4000),
+  botName: process.env['BOT_NAME'] || 'Assistant',
+  logChannelId: process.env['LOG_CHANNEL_ID'] || '',
+  utilityChannelId: process.env['UTILITY_CHANNEL_ID'] || process.env['DISCORD_VOICE_CHANNEL_ID'] || '',
+  sessionsDir: expandHomePath(process.env['SESSIONS_DIR'] || `${process.env['HOME']}/.tango/voice/sessions`),
+  dependencyHealthcheckMs: parseInt(process.env['DEPENDENCY_HEALTHCHECK_MS'] || '15000', 10),
+  dependencyAutoRestart: process.env['DEPENDENCY_AUTO_RESTART'] === 'true',
+  whisperRestartCommand: process.env['WHISPER_RESTART_COMMAND'] || '',
+  kokoroRestartCommand: process.env['KOKORO_RESTART_COMMAND'] || './scripts/restart-kokoro.sh',
+  chatterboxRestartCommand: process.env['CHATTERBOX_RESTART_COMMAND'] || './scripts/restart-chatterbox.sh',
+};
+
+if (!config.whisperUrl && !config.openaiApiKey) {
+  throw new Error('At least one STT backend required: set WHISPER_URL (local) or OPENAI_API_KEY (cloud)');
+}

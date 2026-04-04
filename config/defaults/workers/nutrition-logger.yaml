@@ -1,0 +1,28 @@
+id: nutrition-logger
+type: logger
+display_name: Nutrition Logger
+owner_agent: malibu
+description: FatSecret diary logging and Atlas ingredient catalog maintenance.
+provider:
+  default: claude-oauth
+  reasoning_effort: medium
+  fallback:
+    - claude-oauth-secondary
+    - codex
+tool_contract_ids:
+  - atlas_sql
+  - recipe_read
+  - fatsecret_api
+  - health_query
+  - memory_search
+  - memory_add
+  - memory_reflect
+skill_doc_ids:
+  - food_logging
+  - recipe_format
+  - evening_checkin
+policy:
+  write_scope: limited
+  confirm_before_write: true
+execution: agent
+prompt_file: ../../../agents/workers/nutrition-logger/soul.md

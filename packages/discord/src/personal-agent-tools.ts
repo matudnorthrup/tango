@@ -1,0 +1,910 @@
+/**
+ * Personal Agent Tools — Tool definitions for Watson (personal assistant) worker agents.
+ *
+ * Tools:
+ *   - gog_email: Gmail operations via gog CLI
+ *   - gog_calendar: Google Calendar operations via gog CLI
+ *   - obsidian: Obsidian vault operations via obsidian-cli
+ *   - health_morning: Morning health briefing via health-query script
+ *   - lunch_money: Lunch Money REST API for finance
+ *   - imessage: iMessage read/send via imsg CLI
+ */
+
+import * as os from "node:os";
+import * as path from "node:path";
+import { spawn } from "node:child_process";
+import type { AgentTool } from "@tango/core";
+import { getBrowserManager } from "./browser-manager.js";
+import { getSecret } from "./op-secret.js";
+import {
+  backfillWalmartReceiptNote,
+  findWalmartReceiptRecord,
+  listWalmartDeliveryCandidates,
+  upsertWalmartReimbursementTracking,
+} from "./receipt-reimbursement-registry.js";
+
+// ---------------------------------------------------------------------------
+// Command runner (shared)
+// ---------------------------------------------------------------------------
+
+interface CommandResult {
+  stdout: string;
+  stderr: string;
+  code: number | null;
+}
+
+function execCommand(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+  env?: Record<string, string>,
+): Promise<CommandResult> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const child = spawn(command, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: env ? { ...process.env, ...env } : undefined,
+    });
+
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      setTimeout(() => { if (!child.killed) child.kill("SIGKILL"); }, 2000).unref();
+    }, timeoutMs);
+    timer.unref();
+
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.on("error", (err) => { clearTimeout(timer); reject(err); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, code });
+    });
+    child.stdin.end();
+  });
+}
+
+async function runCommand(
+  command: string,
+  args: string[],
+  timeoutMs = 30_000,
+  env?: Record<string, string>,
+): Promise<string> {
+  const result = await execCommand(command, args, timeoutMs, env);
+  if (result.code !== 0 && result.stderr) {
+    return `Error (exit ${result.code}): ${result.stderr.trim()}\n${result.stdout.trim()}`.trim();
+  }
+  return result.stdout.trim();
+}
+
+// ---------------------------------------------------------------------------
+// Path resolution
+// ---------------------------------------------------------------------------
+
+export interface PersonalToolPaths {
+  gogCommand?: string;
+  obsidianCliCommand?: string;
+  healthScript?: string;
+  imsgCommand?: string;
+}
+
+function resolvePaths(overrides?: PersonalToolPaths) {
+  const home = os.homedir();
+  return {
+    gogCommand: overrides?.gogCommand ?? "/opt/homebrew/bin/gog",
+    obsidianCliCommand: overrides?.obsidianCliCommand ?? "/opt/homebrew/bin/obsidian-cli",
+    healthScript:
+      overrides?.healthScript
+      ?? process.env.TANGO_HEALTH_QUERY_SCRIPT?.trim()
+      ?? path.join(home, ".tango", "bin", "health-query.js"),
+    imsgCommand: overrides?.imsgCommand ?? "/opt/homebrew/bin/imsg",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Email tools
+// ---------------------------------------------------------------------------
+
+export function createEmailTools(overrides?: PersonalToolPaths): AgentTool[] {
+  const paths = resolvePaths(overrides);
+
+  return [
+    {
+      name: "gog_email",
+      description: [
+        "Run Gmail operations via the gog CLI. Supports search, thread fetch, archive, draft creation.",
+        "",
+        "Commands:",
+        "  gog gmail messages search '<query>' [--max N] [--account <email>]",
+        "    Search Gmail. Query uses Gmail syntax: from:, to:, subject:, is:unread, newer_than:1d, etc.",
+        "    Accounts are installation-specific. Common patterns are personal@example.com and work@example.com.",
+        "",
+        "  gog gmail thread <thread_id> [--account <email>]",
+        "    Fetch full thread conversation by ID.",
+        "",
+        "  gog gmail thread modify <thread_id> --remove INBOX [--account <email>]",
+        "    Archive a thread (remove from inbox).",
+        "",
+        "  gog gmail drafts create --to <email> --subject '<subject>' --body '<body>' [--reply-to-message-id <id>] [--account <email>]",
+        "    Create a draft email. Use --reply-to-message-id to reply to an existing thread.",
+        "",
+        "  gog gmail messages list [--max N] [--account <email>]",
+        "    List recent inbox messages.",
+        "",
+        "Output: JSON. Thread objects include messages with from, to, subject, body, date.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "Full gog gmail command (everything after 'gog'). Example: \"gmail messages search 'is:unread newer_than:1d' --max 20\"",
+          },
+        },
+        required: ["command"],
+      },
+      handler: async (input) => {
+        const cmdStr = String(input.command).trim();
+        // Parse the command string into args, respecting quotes
+        const args = parseShellArgs(cmdStr);
+        const stdout = await runCommand(paths.gogCommand, args, 60_000);
+        return { result: stdout };
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Calendar tools
+// ---------------------------------------------------------------------------
+
+export function createCalendarTools(overrides?: PersonalToolPaths): AgentTool[] {
+  const paths = resolvePaths(overrides);
+
+  return [
+    {
+      name: "gog_calendar",
+      description: [
+        "Run Google Calendar operations via the gog CLI.",
+        "",
+        "Commands:",
+        "  gog calendar events [--today] [--all] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--days N] [--max N] [--account <email>] [--json]",
+        "    List calendar events. Use --today for today, --days 7 for next week, or --from/--to for ranges.",
+        "    IMPORTANT: --to is EXCLUSIVE — for a single day, use --today or set --to to the NEXT day.",
+        "    Use --all to include all calendars (not just primary). Use --json for structured output.",
+        "    Accounts are installation-specific. Common patterns are personal@example.com and work@example.com.",
+        "",
+        "  gog calendar create --title '<title>' --start '<ISO datetime>' --end '<ISO datetime>' [--description '<desc>'] [--account <email>]",
+        "    Create a calendar event.",
+        "",
+        "Output: JSON with event details (summary, start, end, location, attendees).",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "Full gog calendar command (everything after 'gog'). Example: \"calendar events --today --all --json\"",
+          },
+        },
+        required: ["command"],
+      },
+      handler: async (input) => {
+        const cmdStr = String(input.command).trim();
+        const args = parseShellArgs(cmdStr);
+        const stdout = await runCommand(paths.gogCommand, args, 30_000);
+        return { result: stdout };
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Obsidian tools
+// ---------------------------------------------------------------------------
+
+export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] {
+  const paths = resolvePaths(overrides);
+
+  return [
+    {
+      name: "obsidian",
+      description: [
+        "Obsidian vault operations via obsidian-cli against the configured vault for this installation.",
+        "Always include the active vault name in commands.",
+        "",
+        "Commands:",
+        "  print '<note name>' --vault main",
+        "    Read a note's full content (markdown with YAML frontmatter).",
+        "    Note name is the display name, not file path (e.g. '3D Printing Setup', '2026 Week 10 Plan').",
+        "",
+        "  search-content '<term>' --vault main",
+        "    Search note contents for a term.",
+        "",
+        "  create '<note name>' --vault main [--append] [--overwrite]",
+        "    Create a new note or update an existing one. NEVER create new folders.",
+        "    Pass note body via the separate 'content' parameter (NOT --content in the command string).",
+        "    --append            Append to existing note instead of failing if it exists.",
+        "    --overwrite         Replace existing note content. REQUIRED when updating an existing note.",
+        "    For daily notes: create 'Planning/Daily/YYYY-MM-DD' --vault main --overwrite",
+        "",
+        "  frontmatter '<note name>' --vault main --edit --key '<key>' --value '<value>'",
+        "    Modify a single frontmatter key. Also supports --print and --delete --key '<key>'.",
+        "",
+        "  move '<source>' '<dest>' --vault main",
+        "    Move/rename a note.",
+        "",
+        "For bulk search/read, use shell commands against the configured notes root directly.",
+        "",
+        "Conventions:",
+        "  Frontmatter: date, areas, types (always required for new notes)",
+        "  Areas are installation-specific. Common examples: Family, Health, Home, Personal, Projects, Travel, Work.",
+        "  Tappable links depend on the local note-link service for this installation",
+        "  Task format: - [ ] Task description—YYYY-MM-DD (em-dash + date)",
+        "  Key folders: Planning/ (Daily/Weekly), Records/ (Health Daily, Nutrition, Finance), References/",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "CLI command (everything after 'obsidian-cli'). For writes, omit --content here and use the 'content' parameter instead. Example: \"create 'Planning/Daily/2026-03-13' --vault main --overwrite\"",
+          },
+          content: {
+            type: "string",
+            description: "Note body text (markdown). Used with create command — passed directly to obsidian-cli, bypassing shell quoting issues. Always use this instead of --content in the command string.",
+          },
+        },
+        required: ["command"],
+      },
+      handler: async (input) => {
+        const cmdStr = String(input.command).trim();
+        const args = parseShellArgs(cmdStr);
+
+        if (input.content != null) {
+          args.push("--content", String(input.content));
+        }
+
+        const stdout = await runCommand(paths.obsidianCliCommand, args, 30_000);
+        return { result: stdout };
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Health morning briefing
+// ---------------------------------------------------------------------------
+
+export function createHealthBriefingTools(overrides?: PersonalToolPaths): AgentTool[] {
+  const paths = resolvePaths(overrides);
+
+  return [
+    {
+      name: "health_morning",
+      description: [
+        "Get the morning health briefing — sleep, recovery (HRV, RHR), and today's activity.",
+        "Calls health-query.js --morning. Returns JSON with sleep hours, HRV, RHR, steps, exercise.",
+        "",
+        "Health baselines:",
+        "  RHR: normal 46-48 bpm, good 40-43 bpm",
+        "  HRV: normal 35-40ms, good 47-55ms",
+        "  Steps: normal 8-10k, good 15k+",
+        "  Sleep: normal 6-7h, good 8h+",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          mode: {
+            type: "string",
+            enum: ["morning", "recovery", "checkin", "trend"],
+            description: "Query mode: morning (default), recovery, checkin, or trend",
+          },
+          days: {
+            type: "number",
+            description: "For trend mode: number of days (default 7)",
+          },
+          date: {
+            type: "string",
+            description: "Specific date in YYYY-MM-DD format (optional)",
+          },
+        },
+      },
+      handler: async (input) => {
+        const mode = String(input.mode ?? "morning");
+        const args: string[] = [`--${mode}`];
+        if (mode === "trend" && typeof input.days === "number") {
+          args.push(String(Math.round(input.days)));
+        }
+        if (input.date) {
+          args.push("--date", String(input.date));
+        }
+        const stdout = await runCommand(process.execPath, [paths.healthScript, ...args], 60_000);
+        try {
+          return JSON.parse(stdout);
+        } catch {
+          return { result: stdout };
+        }
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Lunch Money API
+// ---------------------------------------------------------------------------
+
+export function createFinanceTools(overrides?: PersonalToolPaths): AgentTool[] {
+  const paths = resolvePaths(overrides);
+
+  let cachedApiKey: string | null = null;
+  async function getApiKey(): Promise<string> {
+    if (!cachedApiKey) {
+      // Prefer env var — op CLI hangs on macOS when desktop app integration is active
+      const envKey = process.env.LUNCH_MONEY_ACCESS_TOKEN;
+      if (envKey) {
+        cachedApiKey = envKey;
+      } else {
+        const opKey = await getSecret("Watson", "Lunch Money API Key");
+        if (!opKey) throw new Error("Lunch Money API key not found. Set LUNCH_MONEY_ACCESS_TOKEN in .env or add 'Lunch Money API Key' to Watson vault in 1Password.");
+        cachedApiKey = opKey;
+      }
+    }
+    return cachedApiKey;
+  }
+
+  return [
+    {
+      name: "lunch_money",
+      description: [
+        "Lunch Money REST API for personal finance — transactions, categories, and budgets.",
+        "Base URL: https://dev.lunchmoney.app/v1",
+        "",
+        "Common endpoints:",
+        "  GET /transactions?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD — list transactions",
+        "  GET /transactions?status=unreviewed — uncategorized transactions",
+        "  PUT /transactions/:id — update transaction (body: {\"transaction\": {\"category_id\": N, \"notes\": \"...\"}})",
+        "  POST /transactions/:id/group — split transaction",
+        "  GET /categories — list all categories with IDs",
+        "  GET /budgets?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD — budget summaries",
+        "",
+        "Notes:",
+        "  - Split amounts are DOLLAR STRINGS, not cents",
+        "  - Updates require {\"transaction\": {...}} wrapper",
+        "  - Rate limit: ~0.3s between calls",
+        "  - Rules reference: use the installation's active finance rules note or profile override",
+        "  - This environment does not expose a working recurring-items endpoint; verify recurring transfers/subscriptions from transactions instead.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          method: {
+            type: "string",
+            enum: ["GET", "PUT", "POST", "DELETE"],
+            description: "HTTP method",
+          },
+          endpoint: {
+            type: "string",
+            description: "API endpoint path (e.g. '/transactions?start_date=2026-03-01&end_date=2026-03-09')",
+          },
+          body: {
+            type: "object",
+            description: "Request body for PUT/POST requests (optional)",
+          },
+        },
+        required: ["method", "endpoint"],
+      },
+      handler: async (input) => {
+        const method = String(input.method ?? "GET").toUpperCase();
+        const endpoint = String(input.endpoint);
+        const url = `https://dev.lunchmoney.app/v1${endpoint.startsWith("/") ? endpoint : "/" + endpoint}`;
+
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${await getApiKey()}`,
+          "Content-Type": "application/json",
+        };
+
+        const fetchOptions: RequestInit = { method, headers };
+        if (input.body && (method === "PUT" || method === "POST")) {
+          fetchOptions.body = JSON.stringify(input.body);
+        }
+
+        const response = await fetch(url, fetchOptions);
+        const text = await response.text();
+
+        if (!response.ok) {
+          return { error: `HTTP ${response.status}: ${text}` };
+        }
+
+        try {
+          return JSON.parse(text);
+        } catch {
+          return { result: text };
+        }
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Receipt reimbursement tracking
+// ---------------------------------------------------------------------------
+
+export function createReceiptRegistryTools(): AgentTool[] {
+  return [
+    {
+      name: "receipt_registry",
+      description: [
+        "Structured receipt and reimbursement tracking for cataloged Obsidian receipt notes.",
+        "",
+        "Actions:",
+        "  list_walmart_delivery_candidates",
+        "    List Walmart receipt notes that include a delivery driver tip and are still missing reimbursement submission state.",
+        "    Optional params: since (YYYY-MM-DD), include_submitted (boolean).",
+        "",
+        "  backfill_walmart_delivery_candidates",
+        "    Scan live Walmart purchase history for delivery-from-store orders with driver tips, create missing receipt notes,",
+        "    and return the pending reimbursement candidates Watson can file next.",
+        "    Optional params: since (YYYY-MM-DD), until (YYYY-MM-DD), include_submitted (boolean), max_pages (number).",
+        "",
+        "  upsert_walmart_reimbursement",
+        "    Create or update the standardized reimbursement tracking block inside a Walmart receipt note.",
+        "    Provide either note_path or order_id, plus status.",
+        "",
+        "Tracking block fields:",
+        "  status, system, reimbursable item, amount, submitted, note, evidence path, evidence provenance, Ramp report id",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: [
+              "list_walmart_delivery_candidates",
+              "backfill_walmart_delivery_candidates",
+              "upsert_walmart_reimbursement",
+            ],
+            description: "Receipt-registry action to perform.",
+          },
+          since: {
+            type: "string",
+            description: "For list_walmart_delivery_candidates: optional lower date bound in YYYY-MM-DD format.",
+          },
+          until: {
+            type: "string",
+            description: "For backfill_walmart_delivery_candidates: optional upper date bound in YYYY-MM-DD format.",
+          },
+          include_submitted: {
+            type: "boolean",
+            description: "For list/backfill actions: include already-submitted or reimbursed notes.",
+          },
+          max_pages: {
+            type: "number",
+            description: "For backfill_walmart_delivery_candidates: maximum Walmart history pages to scan (default 8).",
+          },
+          note_path: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: absolute note path.",
+          },
+          order_id: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: Walmart order id if note_path is omitted.",
+          },
+          status: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: tracking status such as submitted, reimbursed, skipped, or not_submitted.",
+          },
+          system: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: reimbursement system name, e.g. Ramp.",
+          },
+          reimbursable_item: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: what is being reimbursed, e.g. Driver tip.",
+          },
+          amount: {
+            type: "number",
+            description: "For upsert_walmart_reimbursement: reimbursed or submitted amount in dollars.",
+          },
+          submitted: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: submission date in YYYY-MM-DD format.",
+          },
+          note: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: note or memo used on the submission.",
+          },
+          evidence_path: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: screenshot or file path used as evidence.",
+          },
+          ramp_report_id: {
+            type: "string",
+            description: "For upsert_walmart_reimbursement: optional Ramp report or reimbursement identifier.",
+          },
+        },
+        required: ["action"],
+      },
+      handler: async (input) => {
+        const action = String(input.action);
+        switch (action) {
+          case "list_walmart_delivery_candidates":
+            return {
+              retailer: "Walmart",
+              results: listWalmartDeliveryCandidates({
+                since: typeof input.since === "string" ? input.since : undefined,
+                includeSubmitted: input.include_submitted === true,
+              }),
+            };
+          case "backfill_walmart_delivery_candidates": {
+            const bm = getBrowserManager();
+            await bm.launch(9223);
+            const discovered = await bm.discoverWalmartDeliveryCandidates({
+              since: typeof input.since === "string" ? input.since : undefined,
+              until: typeof input.until === "string" ? input.until : undefined,
+              maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+            });
+            const includeSubmitted = input.include_submitted === true;
+            const results = discovered
+              .map((candidate) => {
+                const existing = findWalmartReceiptRecord(candidate.orderId);
+                const noteRecord = existing ?? backfillWalmartReceiptNote({
+                  orderId: candidate.orderId,
+                  date: candidate.date,
+                  total: candidate.total,
+                  cardCharge: candidate.cardCharge,
+                  itemsLine: candidate.itemsLine,
+                  grocerySummary: "Walmart grocery delivery. Full item breakdown not yet backfilled into the note.",
+                  notes: candidate.notes,
+                  driverTip: candidate.driverTip,
+                });
+                return {
+                  ...candidate,
+                  note_path: noteRecord.filePath,
+                  reimbursement_status: noteRecord.reimbursement.status ?? "not_submitted",
+                };
+              })
+              .filter((candidate) => {
+                if (includeSubmitted) {
+                  return true;
+                }
+                return candidate.reimbursement_status !== "submitted"
+                  && candidate.reimbursement_status !== "reimbursed";
+              });
+            return {
+              retailer: "Walmart",
+              results,
+            };
+          }
+          case "upsert_walmart_reimbursement":
+            if (typeof input.status !== "string" || input.status.trim().length === 0) {
+              return { error: "upsert_walmart_reimbursement requires 'status'" };
+            }
+            return {
+              retailer: "Walmart",
+              result: upsertWalmartReimbursementTracking({
+                notePath: typeof input.note_path === "string" ? input.note_path : undefined,
+                orderId: typeof input.order_id === "string" ? input.order_id : undefined,
+                status: input.status,
+                system: typeof input.system === "string" ? input.system : undefined,
+                reimbursableItem: typeof input.reimbursable_item === "string" ? input.reimbursable_item : undefined,
+                amount: typeof input.amount === "number" ? input.amount : undefined,
+                submitted: typeof input.submitted === "string" ? input.submitted : undefined,
+                note: typeof input.note === "string" ? input.note : undefined,
+                evidencePath: typeof input.evidence_path === "string" ? input.evidence_path : undefined,
+                rampReportId: typeof input.ramp_report_id === "string" ? input.ramp_report_id : undefined,
+              }),
+            };
+          default:
+            return { error: `Unknown receipt_registry action: ${action}` };
+        }
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Ramp reimbursement automation
+// ---------------------------------------------------------------------------
+
+export function createReimbursementAutomationTools(): AgentTool[] {
+  return [
+    {
+      name: "ramp_reimbursement",
+      description: [
+        "Deterministic Ramp reimbursement browser automation for Walmart delivery-tip reimbursements.",
+        "",
+        "Actions:",
+        "  capture_walmart_tip_evidence",
+        "    Open a Walmart order page and capture archived evidence that shows Driver tip plus an explicit visible date.",
+        "",
+        "  submit_ramp_reimbursement",
+        "    Create and submit a Ramp reimbursement draft with archived screenshot evidence, amount, date, memo, and merchant.",
+        "",
+        "  replace_ramp_reimbursement_receipt",
+        "    Open an existing Ramp reimbursement review page and replace or add receipt evidence, then capture a Ramp confirmation screenshot.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: [
+              "capture_walmart_tip_evidence",
+              "submit_ramp_reimbursement",
+              "replace_ramp_reimbursement_receipt",
+            ],
+            description: "Ramp reimbursement automation action to perform.",
+          },
+          order_url: {
+            type: "string",
+            description: "For capture_walmart_tip_evidence: absolute Walmart order url.",
+          },
+          output_path: {
+            type: "string",
+            description: "For capture_walmart_tip_evidence: optional destination png path.",
+          },
+          amount: {
+            type: "number",
+            description: "For submit_ramp_reimbursement: amount in dollars.",
+          },
+          transaction_date: {
+            type: "string",
+            description: "For submit_ramp_reimbursement: date in YYYY-MM-DD or MM/DD/YYYY.",
+          },
+          memo: {
+            type: "string",
+            description: "For submit_ramp_reimbursement: reimbursement memo text.",
+          },
+          evidence_path: {
+            type: "string",
+            description: "For submit or replace actions: absolute screenshot path.",
+          },
+          merchant: {
+            type: "string",
+            description: "For submit_ramp_reimbursement: merchant name. Defaults to Walmart.",
+          },
+          review_url: {
+            type: "string",
+            description: "For replace_ramp_reimbursement_receipt: absolute Ramp reimbursement review url.",
+          },
+        },
+        required: ["action"],
+      },
+      handler: async (input) => {
+        const bm = getBrowserManager();
+        await bm.launch(9223);
+        const action = String(input.action ?? "");
+        switch (action) {
+          case "capture_walmart_tip_evidence":
+            if (typeof input.order_url !== "string" || input.order_url.trim().length === 0) {
+              return { error: "capture_walmart_tip_evidence requires order_url" };
+            }
+            return {
+              result: await bm.captureWalmartTipEvidence({
+                orderUrl: input.order_url,
+                outputPath: typeof input.output_path === "string" ? input.output_path : undefined,
+              }),
+            };
+          case "submit_ramp_reimbursement":
+            if (typeof input.amount !== "number") {
+              return { error: "submit_ramp_reimbursement requires amount" };
+            }
+            if (typeof input.transaction_date !== "string" || input.transaction_date.trim().length === 0) {
+              return { error: "submit_ramp_reimbursement requires transaction_date" };
+            }
+            if (typeof input.memo !== "string" || input.memo.trim().length === 0) {
+              return { error: "submit_ramp_reimbursement requires memo" };
+            }
+            if (typeof input.evidence_path !== "string" || input.evidence_path.trim().length === 0) {
+              return { error: "submit_ramp_reimbursement requires evidence_path" };
+            }
+            return {
+              result: await bm.submitRampReimbursement({
+                amount: input.amount,
+                transactionDate: input.transaction_date,
+                memo: input.memo,
+                evidencePath: input.evidence_path,
+                merchant: typeof input.merchant === "string" ? input.merchant : undefined,
+              }),
+            };
+          case "replace_ramp_reimbursement_receipt":
+            if (typeof input.review_url !== "string" || input.review_url.trim().length === 0) {
+              return { error: "replace_ramp_reimbursement_receipt requires review_url" };
+            }
+            if (typeof input.evidence_path !== "string" || input.evidence_path.trim().length === 0) {
+              return { error: "replace_ramp_reimbursement_receipt requires evidence_path" };
+            }
+            return {
+              result: await bm.replaceRampReimbursementReceipt({
+                reviewUrl: input.review_url,
+                evidencePath: input.evidence_path,
+              }),
+            };
+          default:
+            return { error: `Unknown ramp_reimbursement action: ${action}` };
+        }
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// iMessage tools
+// ---------------------------------------------------------------------------
+
+export function createIMessageTools(overrides?: PersonalToolPaths): AgentTool[] {
+  const paths = resolvePaths(overrides);
+
+  return [
+    {
+      name: "imessage",
+      description: [
+        "Read and send iMessages via the imsg CLI. Supports listing conversations, reading history, and sending messages.",
+        "",
+        "Commands:",
+        "  imsg chats [--limit N] [--json]",
+        "    List recent conversations. Use --json for structured output.",
+        "    Output includes chat_id, display_name, participant handles, last message date.",
+        "",
+        "  imsg history --chat-id <id> [--limit N] [--start <ISO8601>] [--end <ISO8601>] [--attachments] [--json]",
+        "    Read message history for a conversation. chat-id comes from 'chats' output.",
+        "    Use --start/--end for date ranges (--end is exclusive).",
+        "    Use --json for structured output with sender, text, timestamps.",
+        "",
+        "  imsg send --to <handle> --text '<message>'",
+        "    Send a message to a phone number or email address.",
+        "    Handle format: +15551234567 (E.164 phone) or email@example.com",
+        "",
+        "  imsg send --chat-id <id> --text '<message>'",
+        "    Send a message to an existing conversation by chat ID.",
+        "",
+        "Notes:",
+        "  - Always use --json for chats and history to get structured output.",
+        "  - Use 'chats' first to find the chat_id for a person, then 'history' to read.",
+        "  - For send: prefer --chat-id over --to when the conversation already exists.",
+        "  - Sending is a real action — the recipient will see the message immediately.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "Full imsg command (everything after 'imsg'). Example: \"chats --limit 10 --json\"",
+          },
+        },
+        required: ["command"],
+      },
+      handler: async (input) => {
+        const cmdStr = String(input.command).trim();
+        const args = parseShellArgs(cmdStr);
+        const stdout = await runCommand(paths.imsgCommand, args, 30_000);
+        try {
+          return JSON.parse(stdout);
+        } catch {
+          return { result: stdout };
+        }
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Google Docs tools
+// ---------------------------------------------------------------------------
+
+export function createDocsTools(overrides?: PersonalToolPaths): AgentTool[] {
+  const paths = resolvePaths(overrides);
+
+  return [
+    {
+      name: "gog_docs",
+      description: [
+        "Run Google Docs operations via the gog CLI. Supports list, read, create, write, insert, rename, delete, share, export.",
+        "",
+        "Commands:",
+        "  gog docs list [--account <email>]",
+        "    List Google Docs in the account.",
+        "",
+        "  gog docs cat <docId> [--account <email>]",
+        "  gog docs read <docId> [--account <email>]",
+        "    Read the full content of a document by ID.",
+        "",
+        "  gog docs create --title '<title>' [--account <email>]",
+        "    Create a new empty Google Doc.",
+        "",
+        "  gog docs write <docId> --content '<text>' [--account <email>]",
+        "    Overwrite a document's content.",
+        "",
+        "  gog docs insert <docId> --content '<text>' [--index N] [--account <email>]",
+        "    Insert text at a position in a document.",
+        "",
+        "  gog docs rename <docId> --title '<new title>' [--account <email>]",
+        "    Rename a document.",
+        "",
+        "  gog docs delete <docId> [--account <email>]",
+        "    Delete a document.",
+        "",
+        "  gog docs share <docId> --email <email> [--role reader|writer|commenter] [--account <email>]",
+        "    Share a document with another user.",
+        "",
+        "  gog docs export <docId> --format <pdf|docx|txt|html> [--output <path>] [--account <email>]",
+        "    Export a document in a different format.",
+        "",
+        "Accounts are installation-specific. Common patterns are personal@example.com and work@example.com.",
+        "Output: Returns CLI output in `result`. Use --json where supported for structured output.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "Full gog docs command (everything after 'gog'). Example: \"docs list --account work@example.com\" or \"docs cat <docId> --account personal@example.com\"",
+          },
+        },
+        required: ["command"],
+      },
+      handler: async (input) => {
+        const cmdStr = String(input.command).trim();
+        const args = parseShellArgs(cmdStr);
+        const stdout = await runCommand(paths.gogCommand, args, 60_000);
+        return { result: stdout };
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// All personal tools combined
+// ---------------------------------------------------------------------------
+
+export function createAllPersonalTools(overrides?: PersonalToolPaths): AgentTool[] {
+  return [
+    ...createEmailTools(overrides),
+    ...createCalendarTools(overrides),
+    ...createDocsTools(overrides),
+    ...createObsidianTools(overrides),
+    ...createHealthBriefingTools(overrides),
+    ...createFinanceTools(overrides),
+    ...createReceiptRegistryTools(),
+    ...createReimbursementAutomationTools(),
+    ...createIMessageTools(overrides),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a shell-like command string into args, respecting single/double quotes.
+ */
+function parseShellArgs(input: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let inSingle = false;
+  let inDouble = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]!;
+
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+    } else if (ch === " " && !inSingle && !inDouble) {
+      if (current.length > 0) {
+        args.push(current);
+        current = "";
+      }
+    } else {
+      current += ch;
+    }
+  }
+
+  if (current.length > 0) {
+    args.push(current);
+  }
+
+  return args;
+}

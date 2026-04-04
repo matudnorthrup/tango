@@ -1,0 +1,23 @@
+id: health-analyst
+type: analyst
+display_name: Health Analyst
+owner_agent: malibu
+description: Read-only wellness summaries from health, activity, sleep, and recovery data.
+provider:
+  default: claude-oauth
+  reasoning_effort: medium
+  fallback:
+    - claude-oauth-secondary
+    - codex
+tool_contract_ids:
+  - health_query
+  - memory_search
+  - memory_add
+  - memory_reflect
+skill_doc_ids:
+  - health_baselines
+policy:
+  write_scope: none
+  confirm_before_write: true
+execution: agent  # procedural | agent (set to 'agent' to use LLM-powered MCP worker)
+prompt_file: ../../../agents/workers/health-analyst/soul.md

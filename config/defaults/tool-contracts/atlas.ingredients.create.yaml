@@ -1,0 +1,33 @@
+id: atlas.ingredients.create
+family: atlas.ingredients
+description: Insert a new ingredient into the Atlas ingredient catalog after FatSecret confirmation.
+owner_worker: nutrition-logger
+mode: write
+status: implemented
+live_execution:
+  enabled: true
+  write_enabled: true
+integration:
+  system: atlas
+  target: ingredients
+input_fields:
+  - name
+  - brand?
+  - product?
+  - food_id
+  - serving_id
+  - grams_per_serving?
+  - aliases?
+  - tags?
+output_fields:
+  - ingredient_id
+  - created_at
+legacy:
+  commands:
+    - source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && node ~/bin/atlas insert ingredients --data '{...}'
+  read_paths:
+    - "~/atlas/atlas.db table: ingredients"
+  write_paths:
+    - "~/atlas/atlas.db table: ingredients"
+  notes:
+    - Legacy skill guidance required searching FatSecret first and confirming the match with the user before insert.

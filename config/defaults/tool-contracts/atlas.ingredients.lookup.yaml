@@ -1,0 +1,32 @@
+id: atlas.ingredients.lookup
+family: atlas.ingredients
+description: Resolve an ingredient from the Atlas ingredient catalog by name or alias.
+mode: read
+status: implemented
+live_execution:
+  enabled: true
+  write_enabled: false
+integration:
+  system: atlas
+  target: ingredients
+input_fields:
+  - query
+output_fields:
+  - ingredient_id
+  - name
+  - aliases
+  - food_id
+  - serving_id
+  - grams_per_serving
+legacy:
+  commands:
+    - node ~/.tango/tools/nutrition-coach/scripts/nutrition-helper.js lookup "<ingredient>"
+    - source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && node ~/bin/atlas query ingredients --name "<ingredient>" --compact
+  read_paths:
+    - "~/atlas/atlas.db table: ingredients"
+    - ~/.tango/profiles/default/notes/recipes/*.md (recipe ingredients reference Atlas entries by name)
+  write_paths:
+    - none (legacy lookup flow was read-only)
+  notes:
+    - The legacy helper switched from Obsidian ingredient notes to Atlas ingredients.
+    - Atlas CLI requires a Node 22-compatible runtime; invoking it under Node 24 caused a better-sqlite3 ABI mismatch during this audit.

@@ -1,0 +1,27 @@
+id: atlas.recipes.upsert
+family: atlas.recipes
+description: Future Atlas recipe persistence contract for structured recipe records.
+owner_worker: recipe-librarian
+mode: write
+status: scaffold
+live_execution:
+  enabled: false
+  write_enabled: false
+integration:
+  system: atlas
+  target: recipes
+input_fields:
+  - title
+  - ingredients
+  - macros
+  - notes?
+output_fields:
+  - recipe_id
+  - updated_at
+legacy:
+  read_paths:
+    - ~/.tango/profiles/default/notes/recipes/*.md
+  write_paths:
+    - none (legacy recipe persistence was Markdown-only)
+  notes:
+    - This is a new Tango contract; legacy recipe persistence stayed in Markdown rather than Atlas.

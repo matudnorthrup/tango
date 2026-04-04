@@ -1,0 +1,21 @@
+id: workout.log
+domain: wellness
+display_name: Log Workout
+description: Log workout sets, reps, weights, or workout session progress.
+mode: write
+route:
+  kind: worker
+  target_id: workout-recorder
+slots:
+  - name: exercise
+    required: false
+    inferable: true
+  - name: sets
+    required: false
+    inferable: true
+examples:
+  - Bench 185 for 8
+  - Set 2 was 15 at 45 lbs
+  - Log three sets of Arnold press
+classifier_hints:
+  - Use for workout progress updates, set logging, reps, weights, and active session notes.

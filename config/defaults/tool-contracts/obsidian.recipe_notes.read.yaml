@@ -1,0 +1,26 @@
+id: obsidian.recipe_notes.read
+family: obsidian.recipe_notes
+description: Read a structured recipe note from the Obsidian nutrition recipe folder.
+owner_worker: recipe-librarian
+mode: read
+status: implemented
+live_execution:
+  enabled: true
+  write_enabled: false
+integration:
+  system: obsidian
+  target: nutrition-recipes
+input_fields:
+  - recipe_name
+output_fields:
+  - file_path
+  - frontmatter
+  - ingredients
+  - instructions
+legacy:
+  commands:
+    - node ~/.tango/tools/nutrition-coach/scripts/nutrition-helper.js recipe "<name>"
+  read_paths:
+    - ~/.tango/profiles/default/notes/recipes/*.md
+  write_paths:
+    - none (legacy flow was read-only)

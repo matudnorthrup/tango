@@ -1,0 +1,24 @@
+id: obsidian.recipe_notes.validate_frontmatter
+family: obsidian.recipe_notes
+description: Validate recipe note frontmatter and section structure against the established vault template.
+owner_worker: recipe-librarian
+mode: validate
+status: implemented
+live_execution:
+  enabled: true
+  write_enabled: false
+integration:
+  system: obsidian
+  target: nutrition-recipes
+input_fields:
+  - file_path
+  - frontmatter
+output_fields:
+  - valid
+  - errors
+legacy:
+  read_paths:
+    - ~/.tango/profiles/default/notes/templates/Recipe Template.md
+    - ~/.tango/profiles/default/notes/recipes/*.md
+  write_paths:
+    - none (validation only)

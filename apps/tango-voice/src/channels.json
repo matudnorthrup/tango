@@ -1,0 +1,27 @@
+{
+  "default": {
+    "displayName": "General",
+    "channelId": "",
+    "topicPrompt": null
+  },
+  "watson": {
+    "displayName": "Watson",
+    "channelId": "100000000000000001",
+    "topicPrompt": "Watson handles planning, coordination, inbox review, finance summaries, and general personal-assistant workflows."
+  },
+  "malibu": {
+    "displayName": "Malibu",
+    "channelId": "100000000000000002",
+    "topicPrompt": "Malibu handles wellness topics such as health metrics, nutrition, workouts, recovery, and recipes."
+  },
+  "sierra": {
+    "displayName": "Sierra",
+    "channelId": "100000000000000003",
+    "topicPrompt": "Sierra handles research, shopping, comparisons, fabrication, and procurement workflows."
+  },
+  "victor": {
+    "displayName": "Victor",
+    "channelId": "100000000000000004",
+    "topicPrompt": "Victor handles engineering, code changes, debugging, and operational maintenance."
+  }
+}

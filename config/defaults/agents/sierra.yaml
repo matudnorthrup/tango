@@ -1,0 +1,41 @@
+id: sierra
+type: research
+display_name: Sierra
+provider:
+  default: claude-oauth
+  reasoning_effort: high
+  fallback:
+    - claude-oauth-secondary
+    - codex
+default_project: personal
+voice:
+  call_signs:
+    - Sierra
+  kokoro_voice: af_heart
+  default_channel_id: "100000000000000003"
+  smoke_test_channel_id: "100000000000001003"
+response_mode: concise
+tools:
+  mode: allowlist
+  allowlist:
+    - WebSearch
+    - WebFetch
+orchestration:
+  worker_ids:
+    - research-coordinator
+    - research-assistant
+  write_confirmation: on-ambiguity
+deterministic_routing:
+  enabled: true
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex
+access:
+  mode: allowlist
+  allowlist_user_ids:
+    - "100000000000002001"
+prompt_file: ../../../agents/assistants/sierra/soul.md

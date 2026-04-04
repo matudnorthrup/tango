@@ -1,0 +1,24 @@
+id: dev-assistant
+type: developer
+display_name: Dev Assistant
+owner_agent: victor
+description: Full development environment with built-in Claude tools plus Discord management.
+provider:
+  default: claude-oauth
+  reasoning_effort: max
+  fallback:
+    - claude-oauth-secondary
+    - codex
+tool_contract_ids:
+  - discord_manage
+  - tango_shell
+  - tango_file
+  - memory_search
+  - memory_add
+  - memory_reflect
+policy:
+  write_scope: full
+  confirm_before_write: false
+execution: agent
+inactivity_timeout_seconds: 600
+prompt_file: ../../../agents/workers/dev-assistant/soul.md

@@ -1,0 +1,13 @@
+{
+  "name": "@tango/owntracks-receiver",
+  "version": "0.1.0",
+  "description": "OwnTracks HTTP location receiver for Tango",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

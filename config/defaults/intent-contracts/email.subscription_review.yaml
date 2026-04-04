@@ -1,0 +1,24 @@
+id: email.subscription_review
+domain: email
+display_name: Subscription Review
+description: Review subscription or newsletter email patterns, recommend unsubscribes or cleanup, and update supporting notes if needed.
+mode: mixed
+route:
+  kind: worker
+  target_id: personal-assistant
+slots:
+  - name: date_scope
+    required: false
+    inferable: true
+  - name: mailbox_scope
+    required: false
+    inferable: true
+  - name: focus
+    required: false
+    inferable: true
+examples:
+  - Review new subscriptions and recommend unsubscribes.
+  - What newsletters am I getting that I should probably clean up?
+classifier_hints:
+  - Use for subscription, newsletter, or inbox-cleanup review requests rather than general unread-email summaries.
+  - Prefer email.inbox_review when the request is simply what unread or actionable messages need attention today.

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+.env
+.DS_Store
+*.log
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+data/imports/
+data/browser-profile/
+data/reports/
+data/tango.db
+data/tango.db-shm
+data/tango.db-wal
+.mcp.json

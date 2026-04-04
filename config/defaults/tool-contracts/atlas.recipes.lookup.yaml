@@ -1,0 +1,28 @@
+id: atlas.recipes.lookup
+family: atlas.recipes
+description: Future Atlas recipe lookup contract; legacy recipe reads came from Obsidian notes.
+owner_worker: recipe-librarian
+mode: read
+status: scaffold
+live_execution:
+  enabled: false
+  write_enabled: false
+integration:
+  system: atlas
+  target: recipes
+input_fields:
+  - recipe_name
+output_fields:
+  - recipe_id
+  - title
+  - ingredients
+  - macros
+legacy:
+  commands:
+    - node ~/.tango/tools/nutrition-coach/scripts/nutrition-helper.js recipe "<name>"
+  read_paths:
+    - ~/.tango/profiles/default/notes/recipes/*.md
+  write_paths:
+    - none (legacy Atlas did not have a recipes table)
+  notes:
+    - The audited Atlas database contains an `ingredients` table but no `recipes` table.

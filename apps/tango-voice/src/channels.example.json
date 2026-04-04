@@ -1,0 +1,13 @@
+{
+  "default": {
+    "displayName": "General",
+    "channelId": "",
+    "topicPrompt": null
+  },
+  "example-topic": {
+    "displayName": "Example Topic",
+    "channelId": "DISCORD_CHANNEL_ID_HERE",
+    "topicPrompt": "This is the #example-topic channel. Customize this prompt to give the bot context about the channel's purpose.",
+    "sessionKey": "agent:main:discord:channel:DISCORD_CHANNEL_ID_HERE"
+  }
+}
