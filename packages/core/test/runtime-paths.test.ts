@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   buildRuntimePathEnv,
   resolveDatabasePath,
+  resolveConfiguredConfigDir,
   resolveTangoHome,
   resolveTangoProfileCacheDir,
   resolveTangoProfileDataDir,
@@ -108,6 +109,30 @@ describe("runtime path helpers", () => {
       TANGO_HOME: homeDir,
       TANGO_PROFILE: "observed",
       TANGO_CONFIG_DIR: path.join(os.homedir(), "tango-tests", "config"),
+    });
+  });
+
+  it("normalizes a repo config root to config/defaults when inheriting runtime env", () => {
+    const repoDir = createTempDir("tango-env-defaults-root-");
+    const homeDir = createTempDir("tango-env-defaults-home-");
+    fs.mkdirSync(path.join(repoDir, "config", "defaults", "sessions"), { recursive: true });
+    process.chdir(repoDir);
+    process.env.TANGO_HOME = homeDir;
+    process.env.TANGO_PROFILE = "default";
+
+    expect(fs.realpathSync(resolveConfiguredConfigDir("./config"))).toBe(
+      fs.realpathSync(path.join(repoDir, "config", "defaults")),
+    );
+
+    const runtimeEnv = buildRuntimePathEnv({
+      configDir: "./config",
+    });
+
+    expect(runtimeEnv).toEqual({
+      TANGO_DB_PATH: path.join(homeDir, "profiles", "default", "data", "tango.sqlite"),
+      TANGO_HOME: homeDir,
+      TANGO_PROFILE: "default",
+      TANGO_CONFIG_DIR: fs.realpathSync(path.join(repoDir, "config", "defaults")),
     });
   });
 });

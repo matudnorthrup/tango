@@ -9,6 +9,7 @@ import {
 } from "./config-layering.js";
 import { assembleAgentPrompt } from "./prompt-assembly.js";
 import {
+  resolveConfiguredConfigDir,
   resolveConfiguredPath,
   resolveTangoProfileAgentPromptDir,
   resolveTangoProfileConfigDir,
@@ -241,10 +242,10 @@ const intentContractSchema = z.object({
 
 export function resolveConfigDir(explicitDir?: string): string {
   if (explicitDir?.trim()) {
-    return resolveConfiguredPath(explicitDir);
+    return resolveConfiguredConfigDir(explicitDir);
   }
   if (process.env.TANGO_CONFIG_DIR?.trim()) {
-    return resolveConfiguredPath(process.env.TANGO_CONFIG_DIR);
+    return resolveConfiguredConfigDir(process.env.TANGO_CONFIG_DIR);
   }
 
   const repoDefaultsConfigDir = resolveRepoDefaultsConfigDir();

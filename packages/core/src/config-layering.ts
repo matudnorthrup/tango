@@ -3,6 +3,7 @@ import path from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
 import {
+  resolveConfiguredConfigDir,
   resolveConfiguredPath,
   resolveTangoProfileConfigDir,
 } from "./runtime-paths.js";
@@ -126,11 +127,11 @@ export function resolveConfigLayers(configDir?: string): ConfigLayer[] {
   const requestedDir = normalizeOptionalString(configDir);
 
   if (requestedDir) {
-    const resolvedRequestedDir = resolveConfiguredPath(requestedDir);
+    const resolvedRequestedDir = resolveConfiguredConfigDir(requestedDir);
     const defaultsDir = resolveRepoDefaultsConfigDir();
     const profileDir = resolveTangoProfileConfigDir();
 
-    if (explicitEnvDir && sameResolvedPath(resolvedRequestedDir, resolveConfiguredPath(explicitEnvDir))) {
+    if (explicitEnvDir && sameResolvedPath(resolvedRequestedDir, resolveConfiguredConfigDir(explicitEnvDir))) {
       return [
         {
           label: "explicit",
@@ -168,7 +169,7 @@ export function resolveConfigLayers(configDir?: string): ConfigLayer[] {
       {
         label: "explicit",
         role: "explicit",
-        dir: resolveConfiguredPath(explicitEnvDir),
+        dir: resolveConfiguredConfigDir(explicitEnvDir),
       },
     ];
   }

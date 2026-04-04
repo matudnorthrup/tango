@@ -44,6 +44,35 @@ export function resolveConfiguredPath(input: string): string {
   return path.resolve(expandHomePath(input.trim()));
 }
 
+const CONFIG_CATEGORY_DIRS = [
+  "agents",
+  "intent-contracts",
+  "projects",
+  "schedules",
+  "sessions",
+  "tool-contracts",
+  "workflows",
+  "workers",
+];
+
+function directoryContainsConfigCategories(dir: string): boolean {
+  return CONFIG_CATEGORY_DIRS.some((name) => fs.existsSync(path.join(dir, name)));
+}
+
+export function resolveConfiguredConfigDir(input: string): string {
+  const resolved = resolveConfiguredPath(input);
+  const defaultsDir = path.join(resolved, "defaults");
+
+  if (
+    !directoryContainsConfigCategories(resolved)
+    && directoryContainsConfigCategories(defaultsDir)
+  ) {
+    return defaultsDir;
+  }
+
+  return resolved;
+}
+
 export function resolveTangoHome(explicitHome?: string): string {
   const configuredHome =
     normalizeOptionalString(explicitHome) ?? normalizeOptionalString(process.env.TANGO_HOME);
@@ -176,7 +205,7 @@ export function buildRuntimePathEnv(input: {
   const configuredConfigDir =
     normalizeOptionalString(input.configDir) ?? normalizeOptionalString(process.env.TANGO_CONFIG_DIR);
   if (configuredConfigDir) {
-    env.TANGO_CONFIG_DIR = resolveConfiguredPath(configuredConfigDir);
+    env.TANGO_CONFIG_DIR = resolveConfiguredConfigDir(configuredConfigDir);
   }
 
   return env;

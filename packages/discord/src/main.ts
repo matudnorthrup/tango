@@ -578,6 +578,7 @@ const capabilityRegistry = new CapabilityRegistry({
   })),
   intentContracts: intentContractConfigs,
 });
+const dbPath = resolveDatabasePath(env.TANGO_DB_PATH);
 const orchestratorMcpServers = buildOrchestratorMcpServers(agentConfigs, workerConfigById);
 const scheduleConfigs = loadScheduleConfigs(configDir);
 const memoryEvalConfig = loadMemoryEvalConfig(configDir);
@@ -592,7 +593,6 @@ const smokeTestChannelIds = new Set(
     .filter((channelId): channelId is string => Boolean(channelId))
 );
 const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !== undefined).length;
-const dbPath = resolveDatabasePath(env.TANGO_DB_PATH);
 const storage = new TangoStorage(dbPath);
 let embeddingProvider: EmbeddingProvider | null | undefined;
 

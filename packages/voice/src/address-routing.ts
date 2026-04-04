@@ -299,7 +299,7 @@ function resolveBundledConfigDir(): string {
 function resolveDefaultVoiceConfigDir(): string {
   const explicitEnvDir = process.env.TANGO_CONFIG_DIR?.trim();
   if (explicitEnvDir) {
-    return path.resolve(explicitEnvDir);
+    return resolveConfigDir(explicitEnvDir);
   }
 
   const cwdConfigDir = path.resolve("./config");

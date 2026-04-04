@@ -96,6 +96,18 @@ describe("resolveConfigDir", () => {
     );
   });
 
+  it("normalizes an explicit legacy config root to repo defaults when only config/defaults exists", () => {
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-config-explicit-defaults-"));
+    tempDirs.push(repoDir);
+    fs.mkdirSync(path.join(repoDir, "config", "defaults", "sessions"), { recursive: true });
+    process.chdir(repoDir);
+    process.env.TANGO_CONFIG_DIR = "./config";
+
+    expect(fs.realpathSync(resolveConfigDir())).toBe(
+      fs.realpathSync(path.join(repoDir, "config", "defaults")),
+    );
+  });
+
   it("finds repo defaults from a nested workspace directory", () => {
     const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-config-nested-"));
     tempDirs.push(repoDir);
