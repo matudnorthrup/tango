@@ -825,6 +825,56 @@ registerPreCheckHandler("watson-unreviewed-transactions", async () => {
   };
 });
 
+registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
+  const timeZone = "America/Los_Angeles";
+  const endDate = formatDateInTimeZone(new Date(), timeZone);
+  const startDate = formatDateInTimeZone(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), timeZone);
+  const response = await fetch(
+    `https://dev.lunchmoney.app/v1/transactions?status=unreviewed&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${await getLunchMoneyApiKey()}`,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Lunch Money receipt pre-check failed: HTTP ${response.status}: ${text}`);
+  }
+
+  const parsed = JSON.parse(text) as { transactions?: Array<Record<string, unknown>> };
+  const transactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+  const retailerCandidates = transactions.filter((transaction) => {
+    if (String(transaction.status ?? "") !== "unreviewed") {
+      return false;
+    }
+    const haystack = [
+      String(transaction.payee ?? ""),
+      String(transaction.original_name ?? ""),
+      String(transaction.notes ?? ""),
+    ].join(" ").toLowerCase();
+    return /(amazon|walmart|costco|venmo)/u.test(haystack);
+  });
+
+  if (retailerCandidates.length === 0) {
+    return {
+      action: "skip" as const,
+      reason: "No uncategorized Amazon/Walmart/Costco/Venmo transactions in the last 7 days.",
+    };
+  }
+
+  return {
+    action: "proceed" as const,
+    context: {
+      startDate,
+      endDate,
+      retailerCandidateCount: retailerCandidates.length,
+    },
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Persistent MCP server — eliminates 60-90s cold start per worker task
 // ---------------------------------------------------------------------------
