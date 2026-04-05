@@ -12,7 +12,10 @@
  *   5. <agentDir>/knowledge.md (orchestrator domain knowledge)
  *   6. <agentDir>/workers.md   (worker dispatch rules)
  *   7. agents/tools/*.md       (tool docs loaded from tool IDs)
- *   8. agents/skills/*.md      (skill docs loaded from skill IDs)
+ *   8. prompts/tools/*.md      (optional profile-owned tool overlays)
+ *   9. agents/skills/*.md      (skill docs loaded from skill IDs)
+ *  10. prompts/skills/*.md     (optional profile-owned skill overlays)
+ *  11. prompts/<kind>/<id>/*   (optional profile-owned agent/worker overlays)
  *
  * Missing files are silently skipped. If no files are found at all,
  * returns a minimal fallback prompt.
@@ -92,6 +95,7 @@ export interface PromptAssemblyOptions {
   skillIds?: string[];
   agentsRootDir?: string;
   overlayDir?: string;
+  overlayRootDir?: string;
 }
 
 export type PromptSectionKind =
@@ -165,6 +169,9 @@ export function traceAgentPrompt(
       ids: options.toolIds,
       docMap: TOOL_DOC_MAP,
       docsDir: path.join(agentsRootDir, "tools"),
+      overlayDocsDir: options.overlayRootDir
+        ? path.join(options.overlayRootDir, "tools")
+        : undefined,
       sections,
       kind: "tool",
     });
@@ -176,6 +183,9 @@ export function traceAgentPrompt(
       ids: options.skillIds,
       docMap: SKILL_DOC_MAP,
       docsDir: path.join(agentsRootDir, "skills"),
+      overlayDocsDir: options.overlayRootDir
+        ? path.join(options.overlayRootDir, "skills")
+        : undefined,
       sections,
       kind: "skill",
     });
@@ -216,6 +226,7 @@ function appendMappedDocs(input: {
   ids?: string[];
   docMap: Record<string, string>;
   docsDir: string;
+  overlayDocsDir?: string;
   sections: PromptSectionTrace[];
   kind: "skill" | "tool";
 }): void {
@@ -234,6 +245,15 @@ function appendMappedDocs(input: {
       label: docFile,
       sections: input.sections,
     });
+
+    if (input.overlayDocsDir) {
+      appendFileSection({
+        filePath: path.join(input.overlayDocsDir, `${docFile}.md`),
+        kind: "overlay",
+        label: `${input.kind}:${docFile}`,
+        sections: input.sections,
+      });
+    }
   }
 }
 

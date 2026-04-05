@@ -1,6 +1,8 @@
 # weekly_finance_review
 
-Weekly review of Lunch Money budgets, spending pace, sinking fund transfers, and fixed cost anomalies. Delivered to the Lunch Money Discord channel every Monday morning. Do NOT post to Slack — just return the summary and the scheduler handles delivery.
+Weekly review of Lunch Money budgets, spending pace, sinking fund transfers, and
+fixed cost anomalies. Return the summary to the orchestrator or scheduler; the
+delivery destination is installation-specific.
 
 ## When to use
 
@@ -62,12 +64,12 @@ Fetch last month's transactions for Fixed Costs categories and compare:
 
 **Anomaly threshold:** Flag any fixed-cost payee whose amount differs by >20% from the same payee last month. Common causes: rate increases, double charges, missed payments.
 
-Fixed cost categories to check:
-- Cell Phones (2413606)
-- Insurance (2413605)
-- Electricity (2413613)
-- Internet (2413615)
-- Software & Subscriptions (2413629)
+Fixed cost categories are installation-specific. Common examples include:
+- Cell Phones
+- Insurance
+- Electricity
+- Internet
+- Software & Subscriptions
 
 ## Step 6: Format the summary (returned as output, NOT posted to Slack)
 

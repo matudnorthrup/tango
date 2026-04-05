@@ -56,7 +56,7 @@ Any relevant context (partial shipment, return pending, Walmart Cash used, etc.)
 - System: Ramp
 - Reimbursable Item: Driver tip
 - Amount: ${driver_tip_amount} (include only when a reimbursable tip exists)
-- Note: executive buy back time
+- Note: use the installation's configured reimbursement memo or leave blank
 ```
 
 ## Category assignment rules
@@ -78,7 +78,7 @@ Common product-to-category mappings for receipt items:
 ## Rules
 
 - Always include the Lunch Money transaction ID if known.
-- Use the `obsidian` tool with `create` command and `--vault main`.
+- Use the `obsidian` tool with `create` command and the installation's default vault.
 - Keep grocery summaries brief — don't list every item, just note the approximate total and key items.
 - Non-grocery items need individual line items with prices for accurate splits later.
 - If the order was split across multiple shipments/charges, note all transaction IDs.

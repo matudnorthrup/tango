@@ -11,7 +11,7 @@
 
 Tools: `exa_search`, `exa_answer`, `printer_command`, `openscad_render`, `prusa_slice`, `location_read`, `find_diesel`, `walmart`, `browser`, `file_ops`, `obsidian`, `onepassword`, `memory_search`, `memory_add`, `memory_reflect`, `slack`
 
-Dispatch when you need to: search the web via EXA, get quick factual answers, manage 3D-printing work, use live location and diesel tools, manage Walmart queue/history, drive authenticated shopping flows in the browser, move/copy/list files (Downloads, 3d-printing, Documents directories), read/write Obsidian vault notes (vault: main), retrieve credentials from 1Password, or manage agent memory.
+Dispatch when you need to: search the web via EXA, get quick factual answers, manage 3D-printing work, use live location and diesel tools, manage Walmart queue/history, drive authenticated shopping flows in the browser, move/copy/list files in configured working directories, read/write notes in the configured vault, retrieve credentials from 1Password, or manage agent memory.
 
 Tool-call example:
 `dispatch_worker(worker_id="research-assistant", task="Search EXA for \"best budget 3D printer filament 2026\" with 10 results including highlights. Also search for \"PLA vs PETG strength comparison\" with text content.")`

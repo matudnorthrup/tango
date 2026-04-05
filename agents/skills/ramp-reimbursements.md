@@ -9,7 +9,8 @@ Use this when the user wants reimbursement submissions prepared or filed in Ramp
 ## Core policy
 
 - Reimbursable amount: the Walmart **driver tip only**
-- Reimbursement note / memo: `executive buy back time`
+- Reimbursement note / memo: follow the installation's reimbursement policy or
+  profile-owned template
 - Evidence: archived screenshot of the Walmart order-detail area showing the driver tip plus an explicit visible date/order header so Ramp can verify it
 
 ## Tooling
@@ -41,7 +42,7 @@ Use this when the user wants reimbursement submissions prepared or filed in Ramp
    - use `ramp_reimbursement submit_ramp_reimbursement`
    - use the driver tip as the reimbursement amount
    - use Ramp transaction dates in `MM/DD/YYYY` format
-   - set the memo/note to `executive buy back time`
+   - set the memo/note according to the installation's configured reimbursement policy
    - do not use generic `browser` actions in the normal submission path
 4. After successful submission, update the receipt note with `receipt_registry upsert_walmart_reimbursement`.
    - If a receipt replacement or submission fails, do not overwrite the note’s evidence path or report id with speculative values.

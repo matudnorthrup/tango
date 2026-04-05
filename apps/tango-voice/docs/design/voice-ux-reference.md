@@ -1,8 +1,8 @@
 # Voice UX Reference
 
 **Status:** Current as of 2026-03-08 (Phases 1-4 of Voice UX v2)
-**Design doc:** `docs/plans/voice-ux-v2-the-office.md`
-**Supersedes:** `inbox-mission-control.md` (modes evolving toward table model)
+**Design doc:** `../../../docs/voice-state-machine-v2-design.md`
+**Supersedes:** earlier inbox mission-control notes
 
 ## How It Works
 
