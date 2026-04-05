@@ -1,12 +1,12 @@
 id: weekly-finance-review
 display_name: Weekly Finance Review
 description: >
-  Monday morning review of month-to-date spending vs budgets, sinking
+  Sunday morning review of month-to-date spending vs budgets, sinking
   fund transfers, and fixed cost anomalies.
 enabled: true
 
 schedule:
-  cron: "0 7 * * 1"
+  cron: "0 7 * * 0"
   timezone: America/Los_Angeles
 
 execution:

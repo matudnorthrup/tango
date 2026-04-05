@@ -11,15 +11,22 @@ schedule:
   timezone: America/Los_Angeles
 
 execution:
-  mode: agent
+  mode: conditional-agent
+  pre_check:
+    handler: watson-receipt-catalog-candidates
   worker_id: personal-assistant
   intent_ids:
     - finance.receipt_catalog
-  task: |
+  task_template: |
     Daily receipt cataloging task.
 
+    The scheduler pre-check already confirmed {{retailerCandidateCount}} uncategorized
+    retailer transactions between {{startDate}} and {{endDate}}.
+
     1. Check Lunch Money for new uncategorized transactions from Amazon,
-       Walmart, Costco, and Venmo in the past 7 days.
+       Walmart, Costco, and Venmo for exactly that date window.
+    1a. If the follow-up fetch unexpectedly returns zero matching transactions,
+        return EXACTLY the text "__NO_OUTPUT__" and nothing else.
     2. For each uncategorized transaction, look up the receipt:
        - **Amazon / Walmart / Costco**: Use the browser to look up the
          matching order on the retailer's website. Use 1Password for

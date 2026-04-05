@@ -70,7 +70,10 @@ export class SchedulerEngine {
 
       if (nextRunAt) {
         console.error(
-          `[scheduler] loaded schedule=${config.id} next=${new Date(nextRunAt).toISOString()}`
+          `[scheduler] loaded schedule=${config.id} next=${formatScheduleInstant(
+            nextRunAt,
+            config.schedule.timezone ?? "America/Los_Angeles",
+          )}`
         );
       }
     }
@@ -444,4 +447,14 @@ export class SchedulerEngine {
       });
     }
   }
+}
+
+function formatScheduleInstant(timestampMs: number, timezone: string): string {
+  const date = new Date(timestampMs);
+  const local = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    dateStyle: "medium",
+    timeStyle: "long",
+  }).format(date);
+  return `${date.toISOString()} (${timezone} ${local})`;
 }
