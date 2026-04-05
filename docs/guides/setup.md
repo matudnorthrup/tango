@@ -57,6 +57,8 @@ By default Tango resolves:
 - Profile: `~/.tango/profiles/default`
 - Config overrides: `~/.tango/profiles/default/config`
 - Prompt overrides: `~/.tango/profiles/default/prompts`
+- Tool prompt overlays: `~/.tango/profiles/default/prompts/tools`
+- Skill prompt overlays: `~/.tango/profiles/default/prompts/skills`
 - Runtime data: `~/.tango/profiles/default/data`
 
 Repo defaults continue to live in `config/defaults`.

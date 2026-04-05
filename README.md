@@ -83,8 +83,6 @@ agent display names, schedules, or private knowledge.
 - Profile/config model: [`docs/guides/profile-model.md`](./docs/guides/profile-model.md)
 - Agent structure: [`docs/guides/agents-structure.md`](./docs/guides/agents-structure.md)
 - Tool wiring guide: [`docs/guides/adding-tools.md`](./docs/guides/adding-tools.md)
-- Active refactor plan:
-  [`docs/plans/active/profile-runtime-separation-refactor.md`](./docs/plans/active/profile-runtime-separation-refactor.md)
 
 ## Contributing
 
@@ -103,7 +101,6 @@ Tango is licensed under Apache-2.0. See [`LICENSE`](./LICENSE) and
 
 ## Status
 
-The repository structure is mid-migration toward public defaults plus
-profile-owned config. Some tracked content is still personal or private, so the
-architecture is ahead of the final sanitization pass. The profile tooling and
-default/override model are now in place to finish that cleanup safely.
+The repository now ships with public defaults plus profile-owned overlays.
+Installation-specific names, rules, secrets, and operating conventions belong
+under `~/.tango/profiles/<profile>/`, not in tracked repo files.

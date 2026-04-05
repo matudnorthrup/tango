@@ -11,7 +11,7 @@ When the user asks to categorize transactions, review spending, or clean up thei
 ```json
 {
   "method": "GET",
-  "endpoint": "/transactions?status=unreviewed&start_date=2026-01-01&end_date=2026-03-10"
+  "endpoint": "/transactions?status=unreviewed&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD"
 }
 ```
 
@@ -20,13 +20,14 @@ Adjust date range as needed. Also check for explicitly uncategorized:
 ```json
 {
   "method": "GET",
-  "endpoint": "/transactions?status=unreviewed&start_date=2026-01-01&end_date=2026-03-10"
+  "endpoint": "/transactions?status=unreviewed&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD"
 }
 ```
 
 ## Step 2: Apply automatic rules
 
-Read the active finance rules note for this installation (for example `~/.tango/profiles/default/notes/finance/Lunch Money Rules.md`).
+Read the active finance rules note for this installation from the profile-owned
+finance guidance or configured notes system.
 
 For each uncategorized transaction, check payee against rules (first match wins). Auto-categorizable transactions can be updated directly:
 

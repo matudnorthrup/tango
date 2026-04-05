@@ -9,7 +9,7 @@ When the user asks to add items to their Walmart cart, do a Walmart grocery run,
 ## Prerequisites
 
 1. **Launch the browser first.** Use `browser` tool with `action: "launch"` — this starts Brave with remote debugging and connects automatically. If it's already running, it reconnects.
-2. **Store must be set.** The store selector (top of page) should show the user's local store (Newport Supercenter, 97365). If it shows the wrong store, click the store selector and change it before searching.
+2. **Store must be set.** The store selector (top of page) should show the user's configured local store. If it shows the wrong store, click the store selector and change it before searching.
 
 ## Workflow
 
@@ -72,7 +72,7 @@ Before searching on walmart.com, use the `walmart` tool to check if the user has
 ## Login
 
 Walmart cart works without login. However, checkout requires authentication. If you encounter a login wall:
-1. Use `onepassword` tool: item "Walmart", vault "Watson"
+1. Use `onepassword` tool with the installation's configured Walmart credential entry
 2. Fill email, click Continue, fill password, click Sign In
 3. Watch for MFA — if a verification code is needed, tell the user
 

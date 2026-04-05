@@ -13,6 +13,7 @@ import {
   resolveConfiguredPath,
   resolveTangoProfileAgentPromptDir,
   resolveTangoProfileConfigDir,
+  resolveTangoProfilePromptsDir,
   resolveTangoProfileWorkerPromptDir,
 } from "./runtime-paths.js";
 import type {
@@ -296,6 +297,7 @@ function resolvePromptFields(
               : kind === "Worker"
                 ? resolveTangoProfileWorkerPromptDir(parsed.id)
                 : undefined,
+          overlayRootDir: resolveTangoProfilePromptsDir(),
         })
       : fs.readFileSync(resolvedPromptFile, "utf8");
 

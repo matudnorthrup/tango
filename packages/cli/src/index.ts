@@ -28,6 +28,8 @@ import {
   resolveTangoProfileLogsDir,
   resolveTangoProfileName,
   resolveTangoProfilePromptsDir,
+  resolveTangoProfileSkillPromptsDir,
+  resolveTangoProfileToolPromptsDir,
   resolveTangoProfileWorkerPromptDir,
   traceAgentPrompt,
   traceConfigCategory,
@@ -370,6 +372,8 @@ program
     console.log(`resolved_profile_cache_dir=${resolveTangoProfileCacheDir()}`);
     console.log(`resolved_profile_logs_dir=${resolveTangoProfileLogsDir()}`);
     console.log(`resolved_profile_prompts_dir=${resolveTangoProfilePromptsDir()}`);
+    console.log(`resolved_profile_tool_prompts_dir=${resolveTangoProfileToolPromptsDir()}`);
+    console.log(`resolved_profile_skill_prompts_dir=${resolveTangoProfileSkillPromptsDir()}`);
     console.log(`resolved_config_dir=${resolveConfigDir()}`);
     console.log(`resolved_db_path=${resolveDatabasePath()}`);
     console.log(`legacy_repo_config_dir=${resolveLegacyConfigPath()}`);
@@ -402,6 +406,8 @@ program
       resolveTangoProfileCacheDir(profileOptions),
       resolveTangoProfileLogsDir(profileOptions),
       path.join(profilePromptsDir, "agents"),
+      path.join(profilePromptsDir, "skills"),
+      path.join(profilePromptsDir, "tools"),
       path.join(profilePromptsDir, "workers"),
     ];
 
@@ -674,6 +680,7 @@ promptCommand
       if (agent.promptFile && path.basename(agent.promptFile) === "soul.md") {
         promptTrace = traceAgentPrompt(path.dirname(agent.promptFile), {
           overlayDir: resolveTangoProfileAgentPromptDir(agent.id),
+          overlayRootDir: resolveTangoProfilePromptsDir(),
         });
       } else {
         promptTrace = {
@@ -701,6 +708,7 @@ promptCommand
           toolIds: worker.toolContractIds,
           skillIds: worker.skillDocIds,
           overlayDir: resolveTangoProfileWorkerPromptDir(worker.id),
+          overlayRootDir: resolveTangoProfilePromptsDir(),
         });
       } else {
         promptTrace = {

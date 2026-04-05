@@ -11,6 +11,13 @@ Tango loads configuration in this order:
 For prompts, Tango loads the repo-owned base prompt first and then appends any
 profile-owned overlay files from `~/.tango/profiles/<profile>/prompts`.
 
+That overlay surface can include:
+
+- `prompts/agents/<agent-id>/` for agent persona and knowledge
+- `prompts/workers/<worker-id>/` for worker-specific guidance
+- `prompts/tools/<doc-name>.md` for installation-specific tool instructions
+- `prompts/skills/<doc-name>.md` for installation-specific skill guidance
+
 ## What Belongs In The Repo
 
 - Product code
@@ -26,7 +33,7 @@ profile-owned overlay files from `~/.tango/profiles/<profile>/prompts`.
 - Schedule overrides
 - Private knowledge
 - Real account mappings
-- Any machine- or person-specific prompt overlays
+- Any machine- or person-specific prompt overlays for agents, workers, tools, or skills
 
 ## What Belongs In Runtime Data
 

@@ -83,4 +83,8 @@ Returns parsed JSON with `data` key on success. GraphQL errors appear in `errors
 
 ## 1Password credential
 
-The MCP server fetches the API key from 1Password vault **Watson**, item **"Linear API key devin-watson"** (field: `credential`). If the tool errors with "not found", the MCP server code is looking for the wrong item name — the correct item is `"Linear API key devin-watson"`, not `"Linear API Key"`. Workaround: retrieve the key manually and call the GraphQL endpoint via curl with `Authorization: <key>` header against `https://api.linear.app/graphql`.
+The MCP server should fetch the API key from the installation's configured
+secret manager entry for Linear. If the tool errors with "not found", verify
+the configured item name for this installation. As a fallback, retrieve the key
+manually and call the GraphQL endpoint via curl with `Authorization: <key>`
+against `https://api.linear.app/graphql`.

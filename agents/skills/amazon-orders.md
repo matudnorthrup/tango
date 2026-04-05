@@ -50,7 +50,7 @@ From the order details page, collect:
 ## Login
 
 Amazon should have a persistent session in Brave. If you hit a login page:
-1. Use the `onepassword` tool to get credentials: item name "Amazon", vault "Watson"
+1. Use the `onepassword` tool to get the installation's configured Amazon credentials
 2. Enter email, click Continue
 3. Enter password, click Sign-In
 4. **2FA may be required** — if prompted, report back and ask the user to complete it
