@@ -85,22 +85,36 @@ describe("assembleAgentPrompt", () => {
   it("appends profile overlay prompt sections after the base prompt", () => {
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "watson");
-    const overlayDir = path.join(agentsDir, "profile-overrides", "watson");
+    const overlayRootDir = path.join(agentsDir, "profile-overrides");
+    const overlayDir = path.join(overlayRootDir, "agents", "watson");
     fs.mkdirSync(agentDir, { recursive: true });
     fs.mkdirSync(overlayDir, { recursive: true });
+    fs.mkdirSync(path.join(overlayRootDir, "tools"), { recursive: true });
+    fs.mkdirSync(path.join(overlayRootDir, "skills"), { recursive: true });
 
     fs.writeFileSync(path.join(agentDir, "soul.md"), "base soul");
     fs.writeFileSync(path.join(agentDir, "knowledge.md"), "base knowledge");
+    fs.writeFileSync(path.join(agentsDir, "tools", "exa.md"), "base tool");
+    fs.writeFileSync(path.join(agentsDir, "skills", "deep-research.md"), "base skill");
+    fs.writeFileSync(path.join(overlayRootDir, "tools", "exa.md"), "profile tool overlay");
+    fs.writeFileSync(path.join(overlayRootDir, "skills", "deep-research.md"), "profile skill overlay");
     fs.writeFileSync(path.join(overlayDir, "persona.md"), "profile persona");
     fs.writeFileSync(path.join(overlayDir, "knowledge.md"), "profile knowledge");
 
     const prompt = assembleAgentPrompt(agentDir, {
       agentsRootDir: agentsDir,
       overlayDir,
+      overlayRootDir,
+      toolIds: ["exa_search"],
+      skillIds: ["deep_research"],
     });
 
     expect(prompt).toContain("base soul");
     expect(prompt).toContain("base knowledge");
+    expect(prompt).toContain("base tool");
+    expect(prompt).toContain("profile tool overlay");
+    expect(prompt).toContain("base skill");
+    expect(prompt).toContain("profile skill overlay");
     expect(prompt).toContain("profile persona");
     expect(prompt).toContain("profile knowledge");
     expect(prompt.indexOf("profile persona")).toBeGreaterThan(prompt.indexOf("base knowledge"));

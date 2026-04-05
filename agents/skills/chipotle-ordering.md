@@ -14,7 +14,7 @@ When the user asks to place a Chipotle order, queue up Chipotle, or get their us
 ## Login
 
 Chipotle should have a persistent session in Brave. If you hit a login page:
-1. Use the `onepassword` tool to get credentials: item name "Chipotle", vault "Watson"
+1. Use the `onepassword` tool to get the installation's configured Chipotle credentials
 2. Enter email/phone and password
 3. Complete any verification if prompted
 

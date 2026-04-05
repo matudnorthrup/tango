@@ -8,8 +8,8 @@ Retrieve credentials and secrets from 1Password via service account.
 
 | Param   | Required | Default    | Description |
 |---------|----------|------------|-------------|
-| vault   | yes      | —          | Vault name (e.g. "Watson") |
-| item    | yes      | —          | Item title (e.g. "Lunch Money", "Amazon") |
+| vault   | yes      | —          | Vault name (for example an installation-specific automation vault) |
+| item    | yes      | —          | Item title (for example "Finance API", "Amazon", or "Slack Bot") |
 | field   | no       | "password" | Field name: password, username, credential, url, notesPlain |
 | section | no       | —          | Section name if the field is nested |
 
@@ -34,10 +34,10 @@ No params. Returns vault names and IDs.
 ## Examples
 
 ```json
-{ "action": "get", "vault": "Watson", "item": "Lunch Money", "field": "credential" }
-{ "action": "get", "vault": "Watson", "item": "Amazon", "field": "password" }
-{ "action": "get", "vault": "Watson", "item": "Amazon", "field": "username" }
-{ "action": "list", "vault": "Watson" }
+{ "action": "get", "vault": "Automation", "item": "Finance API", "field": "credential" }
+{ "action": "get", "vault": "Automation", "item": "Amazon", "field": "password" }
+{ "action": "get", "vault": "Automation", "item": "Amazon", "field": "username" }
+{ "action": "list", "vault": "Automation" }
 ```
 
 ## Field naming conventions

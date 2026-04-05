@@ -54,7 +54,7 @@ From the order details page, collect:
 ## Login
 
 Walmart should have a persistent session in Brave. If you hit a login page:
-1. Use the `onepassword` tool to get credentials: item name "Walmart", vault "Watson"
+1. Use the `onepassword` tool to get the installation's configured Walmart credentials
 2. Enter email and password
 3. Click Sign In
 

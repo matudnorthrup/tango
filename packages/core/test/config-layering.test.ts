@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   loadAgentConfigs,
+  loadWorkerConfigs,
   resolveConfigDir,
   traceConfigCategory,
 } from "../src/config.js";
@@ -257,5 +258,53 @@ describe("layered config loading", () => {
     expect(agent.prompt).toContain("shared agents");
     expect(agent.prompt).toContain("profile persona");
     expect(agent.prompt).toContain("profile knowledge");
+  });
+
+  it("applies profile-owned tool and skill overlays when assembling worker prompts", () => {
+    const repoRoot = createTempDir("tango-worker-overlay-repo-");
+    const homeDir = createTempDir("tango-worker-overlay-home-");
+    process.chdir(repoRoot);
+    process.env.TANGO_HOME = homeDir;
+    process.env.TANGO_PROFILE = "default";
+
+    writeFile(
+      path.join(repoRoot, "config", "defaults", "workers", "research-assistant.yaml"),
+      [
+        "id: research-assistant",
+        "type: researcher",
+        "owner_agent: sierra",
+        "provider:",
+        "  default: claude-oauth",
+        "tool_contract_ids:",
+        "  - exa_search",
+        "skill_doc_ids:",
+        "  - deep_research",
+        "prompt_file: ../../../agents/workers/research-assistant/soul.md",
+      ].join("\n"),
+    );
+    writeFile(path.join(repoRoot, "agents", "shared", "AGENTS.md"), "shared agents");
+    writeFile(path.join(repoRoot, "agents", "workers", "research-assistant", "soul.md"), "worker soul");
+    writeFile(path.join(repoRoot, "agents", "tools", "exa.md"), "base exa tool");
+    writeFile(path.join(repoRoot, "agents", "skills", "deep-research.md"), "base deep research");
+    writeFile(
+      path.join(homeDir, "profiles", "default", "prompts", "tools", "exa.md"),
+      "profile exa overlay",
+    );
+    writeFile(
+      path.join(homeDir, "profiles", "default", "prompts", "skills", "deep-research.md"),
+      "profile deep research overlay",
+    );
+    writeFile(
+      path.join(homeDir, "profiles", "default", "prompts", "workers", "research-assistant", "knowledge.md"),
+      "worker profile knowledge",
+    );
+
+    const [worker] = loadWorkerConfigs(resolveConfigDir());
+    expect(worker.prompt).toContain("worker soul");
+    expect(worker.prompt).toContain("base exa tool");
+    expect(worker.prompt).toContain("profile exa overlay");
+    expect(worker.prompt).toContain("base deep research");
+    expect(worker.prompt).toContain("profile deep research overlay");
+    expect(worker.prompt).toContain("worker profile knowledge");
   });
 });

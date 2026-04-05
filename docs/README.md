@@ -1,12 +1,10 @@
 # Docs
 
-This directory is split by purpose:
+This directory contains:
 
 - `guides/`: operator and contributor documentation
-- `plans/`: tracked implementation/refactor plans
 - `specs/`: implementation-facing product specs
-- `research/`: exploratory notes and design learnings
-- `dev-logs/`: dated execution logs
+- root-level design references for longer-lived architecture notes
 
 Start here:
 

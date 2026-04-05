@@ -67,7 +67,7 @@ A Discord voice bot runtime for hands-free conversational AI. Tango Voice joins 
 
 ## Prerequisites
 
-- **Node.js 18+** (run `nvm use` if you have nvm — the repo includes `.nvmrc`)
+- **Node.js 22** (run `nvm use` if you have nvm — the repo includes `.nvmrc`)
 - **System build tools** for native dependencies (`@discordjs/opus`, `sodium-native`):
   - macOS: `xcode-select --install`
   - Ubuntu/Debian: `sudo apt install build-essential python3`
@@ -102,10 +102,12 @@ cp .env.example .env
 
 ```bash
 cp src/channels.example.json src/channels.json
-# Edit src/channels.json with your Discord channel IDs and topic prompts
+# Edit src/channels.json with your installation's Discord channel IDs and topic prompts
 ```
 
-The `default` entry is required. Additional entries let you switch to topic-specific channels via voice command or `~switch`. Each entry has:
+The tracked file ships with placeholder IDs and generic agent topics. The
+`default` entry is required. Additional entries let you switch to topic-specific
+channels via voice command or `~switch`. Each entry has:
 - `displayName`: Human-readable name shown in channel listings
 - `channelId`: Discord channel ID where transcripts are logged (leave empty for default log channel)
 - `topicPrompt`: Additional system prompt context appended to the base voice prompt (`null` for default behavior)

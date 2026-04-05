@@ -7,7 +7,7 @@
 **Impact:** Medium — must use Node 22 for runtime.
 - Node 24: fails loading `@discordjs/opus` native binary
 - Node 18: misses runtime features the voice app now expects
-- **Workaround:** Pin to Node 22 in tmux start command: `/opt/homebrew/opt/node@22/bin/node dist/index.js`
+- **Workaround:** Start the runtime with Node 22 (`nvm use 22` or equivalent).
 
 ## Resolved
 
