@@ -24,12 +24,13 @@ export class SchedulerStore {
     executionMode: ScheduleExecutionMode;
     workerId?: string;
   }): number {
+    const startedAt = nowUtcIso();
     const result = this.db
       .prepare(
-        `INSERT INTO schedule_runs (schedule_id, execution_mode, worker_id)
-         VALUES (?, ?, ?)`
+        `INSERT INTO schedule_runs (schedule_id, started_at, execution_mode, worker_id)
+         VALUES (?, ?, ?, ?)`
       )
-      .run(input.scheduleId, input.executionMode, input.workerId ?? null);
+      .run(input.scheduleId, startedAt, input.executionMode, input.workerId ?? null);
     return Number(result.lastInsertRowid);
   }
 
@@ -47,10 +48,11 @@ export class SchedulerStore {
       metadata?: Record<string, unknown>;
     },
   ): void {
+    const finishedAt = nowUtcIso();
     this.db
       .prepare(
         `UPDATE schedule_runs SET
-           finished_at = datetime('now'),
+           finished_at = ?,
            status = ?,
            duration_ms = ?,
            error = ?,
@@ -63,6 +65,7 @@ export class SchedulerStore {
          WHERE id = ?`
       )
       .run(
+        finishedAt,
         update.status,
         update.durationMs,
         update.error ?? null,
@@ -168,8 +171,8 @@ export class SchedulerStore {
       .prepare(
         `INSERT INTO schedule_state (
            schedule_id, last_run_at, last_status, last_duration_ms, last_error,
-           consecutive_failures, backoff_until, total_runs, total_ok, total_errors, total_skipped
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+           consecutive_failures, backoff_until, total_runs, total_ok, total_errors, total_skipped, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
          ON CONFLICT(schedule_id) DO UPDATE SET
            last_run_at = excluded.last_run_at,
            last_status = excluded.last_status,
@@ -181,7 +184,7 @@ export class SchedulerStore {
            total_ok = schedule_state.total_ok + ?,
            total_errors = schedule_state.total_errors + ?,
            total_skipped = schedule_state.total_skipped + ?,
-           updated_at = datetime('now')`
+           updated_at = excluded.updated_at`
       )
       .run(
         scheduleId,
@@ -194,6 +197,7 @@ export class SchedulerStore {
         okInc,
         errInc,
         skipInc,
+        nowUtcIso(),
         okInc,
         errInc,
         skipInc,
@@ -227,11 +231,12 @@ export class SchedulerStore {
     metadata?: Record<string, unknown>;
   }): void {
     const completedDate = formatCompletionDate(input.scope);
+    const completedAt = nowUtcIso();
     this.db
       .prepare(
         `INSERT OR IGNORE INTO schedule_completions
-           (workflow_id, completed_date, completed_by, schedule_run_id, metadata)
-         VALUES (?, ?, ?, ?, ?)`
+           (workflow_id, completed_date, completed_by, schedule_run_id, metadata, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.workflowId,
@@ -239,6 +244,7 @@ export class SchedulerStore {
         input.completedBy,
         input.scheduleRunId ?? null,
         input.metadata ? JSON.stringify(input.metadata) : null,
+        completedAt,
       );
   }
 }
@@ -262,4 +268,8 @@ function formatCompletionDate(scope: CompletionScope): string {
     case "monthly":
       return now.toISOString().slice(0, 7); // YYYY-MM
   }
+}
+
+function nowUtcIso(): string {
+  return new Date().toISOString();
 }
