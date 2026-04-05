@@ -5,7 +5,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-DB_PATH="$ROOT/data/tango.sqlite"
+DB_PATH="$(
+  node --import tsx -e '
+    const dotenv = await import("dotenv");
+    dotenv.default.config();
+    const runtimePaths = await import("./packages/core/src/runtime-paths.ts");
+    console.log(runtimePaths.resolveDatabasePath(process.env.TANGO_DB_PATH));
+  '
+)"
 
 run_schedule() {
   local schedule_id="$1"
@@ -92,14 +99,15 @@ curl -fsS http://127.0.0.1:8787/health
 echo
 
 status=0
-if ! run_schedule "manual-test-weekly-finance-review" 480; then
-  status=$?
-elif ! run_schedule "manual-test-nightly-transaction-categorizer" 480; then
-  status=$?
-elif ! run_schedule "manual-test-receipt-cataloger" 900; then
-  status=$?
-elif ! run_schedule "manual-test-daily-email-review" 600; then
-  status=$?
+run_schedule "manual-test-weekly-finance-review" 480 || status=$?
+if [ "$status" -eq 0 ]; then
+  run_schedule "manual-test-nightly-transaction-categorizer" 480 || status=$?
+fi
+if [ "$status" -eq 0 ]; then
+  run_schedule "manual-test-receipt-cataloger" 1200 || status=$?
+fi
+if [ "$status" -eq 0 ]; then
+  run_schedule "manual-test-daily-email-review" 600 || status=$?
 fi
 
 if [ "$status" -eq 0 ]; then

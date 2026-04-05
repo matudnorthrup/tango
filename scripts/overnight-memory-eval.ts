@@ -14,7 +14,12 @@ import { DatabaseSync } from "node:sqlite";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { loadAgentConfigs, resolveConfigDir } from "@tango/core";
+import {
+  loadAgentConfigs,
+  resolveConfigDir,
+  resolveDatabasePath,
+  resolveTangoDataPath,
+} from "@tango/core";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,10 +33,8 @@ const VOICE_URL = `http://127.0.0.1:${VOICE_PORT}/voice/turn`;
 const VOICE_API_KEY =
   process.env["TANGO_VOICE_BRIDGE_API_KEY"]?.trim() || "";
 
-const DB_PATH =
-  process.env["TANGO_DB_PATH"]?.trim() ||
-  path.resolve(__dirname, "../data/tango.sqlite");
-const REPORTS_DIR = path.resolve(__dirname, "../data/reports");
+const DB_PATH = resolveDatabasePath(process.env["TANGO_DB_PATH"]);
+const REPORTS_DIR = resolveTangoDataPath("reports");
 const DATE_TAG = new Date().toISOString().slice(0, 10);
 const EVAL_SESSION_PREFIX = "memory-eval-overnight";
 const SESSION_SUFFIX = process.env["EVAL_SESSION_SUFFIX"]?.trim() || "";

@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
-import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { resolveDatabasePath } from "@tango/core";
 import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
 dotenv.config();
@@ -218,8 +218,7 @@ function getBridgeHeaders(): Record<string, string> {
 }
 
 function getDbPath(): string {
-  const configured = process.env["TANGO_DB_PATH"]?.trim() || "./data/tango.sqlite";
-  return path.resolve(configured);
+  return resolveDatabasePath(process.env["TANGO_DB_PATH"]);
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

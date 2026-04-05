@@ -1366,6 +1366,7 @@ describe("deterministic router", () => {
     expect(result.plan?.steps[0]?.task).toContain("PREVIEW-ONLY step");
     expect(result.plan?.steps[0]?.task).toContain("dry_run: true");
     expect(result.plan?.steps[0]?.task).toContain("do not upload, start, or stop printer jobs");
+    expect(result.plan?.steps[0]?.safeNoopAllowed).toBe(true);
   });
 
   it("builds Sierra diesel and Walmart queue plans through the research-assistant worker", () => {

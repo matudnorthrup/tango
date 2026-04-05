@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { resolveDatabasePath } from "@tango/core";
 
 dotenv.config();
 
@@ -53,8 +54,7 @@ function hasFlag(flag: string): boolean {
 }
 
 function getDbPath(): string {
-  const configured = process.env["TANGO_DB_PATH"]?.trim() || "./data/tango.sqlite";
-  return path.resolve(configured);
+  return resolveDatabasePath(process.env["TANGO_DB_PATH"]);
 }
 
 function parseJsonArray(value: string | null): string[] {

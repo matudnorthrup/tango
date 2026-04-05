@@ -31,8 +31,4 @@ deterministic_routing:
     fallback:
       - claude-oauth-secondary
       - codex
-access:
-  mode: allowlist
-  allowlist_user_ids:
-    - "100000000000002001"
 prompt_file: ../../../agents/assistants/victor/soul.md

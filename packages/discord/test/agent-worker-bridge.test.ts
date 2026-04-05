@@ -3225,6 +3225,201 @@ describe("executeAgentWorker", () => {
     expect(readReport.operations[0]?.mode).toBe("read");
   });
 
+  it("infers a verified write from structured worker output when tool metadata is missing", () => {
+    const report = workerAgentResultToReport(
+      {
+        text: JSON.stringify({
+          action: "notes.note_update",
+          status: "success",
+          results: {
+            resolved_file: "/tmp/smoke-note.md",
+            edit_outcome: "Appended exact line at end of file, with prior contents preserved.",
+            appended_line: "Codex Sierra write smoke marker 123",
+            verified_excerpt: "Initial content.\nCodex Sierra write smoke marker 123",
+          },
+          artifacts: ["/tmp/smoke-note.md"],
+          errors: [],
+        }),
+        toolCalls: [],
+        durationMs: 123,
+      },
+      "research-assistant",
+      "Intent mode: write\nWRITE step: perform the requested file mutation now.",
+    );
+
+    expect(report.hasWriteOperations).toBe(true);
+    expect(report.operations).toEqual([
+      expect.objectContaining({
+        name: "agent_response",
+        mode: "write",
+      }),
+    ]);
+    expect(report.data?.committedStateVerified).toBe(true);
+    expect(report.data?.verifiedWriteOutcome).toBe(true);
+    expect(report.data?.qualityWarnings).toEqual([]);
+  });
+
+  it("replays cancelled recipe writes at runtime and marks the write as verified", async () => {
+    const provider = new ScriptedProvider(() => ({
+      text: JSON.stringify({
+        action: "recipe.update",
+        status: "blocked",
+        recipe: "Protein Bowl",
+        results: [
+          "Read the existing recipe successfully.",
+          "Prepared a full-file rewrite that preserved all existing content and added the requested note.",
+        ],
+        unresolved: [
+          "The recipe write was not confirmed. `recipe_write` returned `user cancelled MCP tool call` twice in this run.",
+        ],
+        errors: [
+          "Unable to verify the mutation because no successful write result was recorded.",
+        ],
+        follow_up: [
+          "Retry the same `recipe_write` operation when cancellation is no longer occurring.",
+        ],
+      }),
+      toolCalls: [
+        {
+          name: "mcp__wellness__recipe_read",
+          serverName: "wellness",
+          toolName: "recipe_read",
+          input: { name: "Protein Bowl" },
+          output: {
+            found: true,
+            matches: [{ title: "Protein Bowl", content: "# Protein Bowl\n\n## Notes\n- Existing note.\n" }],
+          },
+        },
+        {
+          name: "mcp__wellness__recipe_write",
+          serverName: "wellness",
+          toolName: "recipe_write",
+          input: {
+            name: "Protein Bowl",
+            content: "# Protein Bowl\n\n## Notes\n- Existing note.\n- Added by runtime replay.\n",
+          },
+          output: { message: "user cancelled MCP tool call" },
+        },
+      ],
+    }));
+
+    const replayedWrites: Array<{ name: string; content: string }> = [];
+
+    const report = await executeAgentWorker(
+      "recipe-librarian",
+      [
+        "Handle this request in your domain now.",
+        "Intent contract: recipe.update",
+        "Intent mode: write",
+        "User message: Add a note to the Protein Bowl recipe.",
+      ].join("\n"),
+      "You are Malibu's recipe worker.",
+      {
+        mcpServerScript: "/tmp/mcp-recipe-server.js",
+        mcpServerName: "wellness",
+        providerChain: [{ providerName: "codex", provider }],
+        providerRetryLimit: 0,
+        toolIds: ["recipe_read", "recipe_write"],
+        recipeWriteExecutor: async (input) => {
+          replayedWrites.push(input);
+          return { success: true, action: "updated", file: `${input.name}.md` };
+        },
+      },
+    );
+
+    expect(provider.calls).toHaveLength(2);
+    expect(replayedWrites).toEqual([
+      {
+        name: "Protein Bowl",
+        content: "# Protein Bowl\n\n## Notes\n- Existing note.\n- Added by runtime replay.\n",
+      },
+    ]);
+    expect(report.hasWriteOperations).toBe(true);
+    expect(report.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "recipe_write",
+          mode: "write",
+          output: expect.objectContaining({ success: true, action: "updated", file: "Protein Bowl.md" }),
+        }),
+      ]),
+    );
+    expect(report.data?.qualityWarnings).toEqual([]);
+    expect(report.data?.workerText).toContain("\"recipeWriteRecovered\":true");
+    expect(report.data?.workerText).toContain("\"verifiedWriteOutcome\":true");
+  });
+
+  it("treats dry-run printer commands as reads", () => {
+    const report = workerAgentResultToReport(
+      {
+        text: "Previewed upload and start without mutating printer state.",
+        toolCalls: [
+          {
+            name: "mcp__wellness__printer_command",
+            input: {
+              action: "upload",
+              file_path: "/tmp/example.gcode",
+              dry_run: true,
+            },
+            output: { ok: true, preview: true },
+            durationMs: 0,
+          },
+          {
+            name: "mcp__wellness__printer_command",
+            input: {
+              action: "start",
+              file_path: "example.gcode",
+              dry_run: true,
+            },
+            output: { ok: true, preview: true },
+            durationMs: 0,
+          },
+        ],
+        durationMs: 123,
+      },
+      "research-assistant",
+      "Intent mode: write\nPREVIEW-ONLY step: do not upload, start, or stop printer jobs in this run.",
+    );
+
+    expect(report.hasWriteOperations).toBe(false);
+    expect(report.operations.map((operation) => operation.mode)).toEqual(["read", "read"]);
+  });
+
+  it("treats local editor tools as writes", () => {
+    const report = workerAgentResultToReport(
+      {
+        text: "Updated the local file.",
+        toolCalls: [
+          {
+            name: "Edit",
+            input: {
+              file_path: "/tmp/example.md",
+              old_string: "before",
+              new_string: "after",
+            },
+            output: { success: true },
+            durationMs: 0,
+          },
+          {
+            name: "MultiEdit",
+            input: {
+              file_path: "/tmp/example.md",
+              edits: [{ old_string: "one", new_string: "two" }],
+            },
+            output: { success: true },
+            durationMs: 0,
+          },
+        ],
+        durationMs: 123,
+      },
+      "research-assistant",
+      "Intent mode: write\nWRITE step: update the local file now.",
+    );
+
+    expect(report.hasWriteOperations).toBe(true);
+    expect(report.operations.map((operation) => operation.mode)).toEqual(["write", "write"]);
+  });
+
   it("normalizes MCP-prefixed tool names before inferring write operations", () => {
     const report = workerAgentResultToReport(
       {

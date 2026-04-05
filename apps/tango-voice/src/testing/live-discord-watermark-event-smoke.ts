@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
-import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { resolveDatabasePath } from "@tango/core";
 import {
   ChannelType,
   Client,
@@ -8,6 +8,7 @@ import {
   type AnyThreadChannel,
   type TextBasedChannel,
 } from "discord.js";
+import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
 dotenv.config();
 
@@ -23,8 +24,7 @@ function getArg(flag: string): string | null {
 }
 
 function getDbPath(): string {
-  const configured = process.env["TANGO_DB_PATH"]?.trim() || "./data/tango.sqlite";
-  return path.resolve(configured);
+  return resolveDatabasePath(process.env["TANGO_DB_PATH"]);
 }
 
 function loadWatermark(db: DatabaseSync, channelId: string): StoredWatermark {
@@ -64,7 +64,10 @@ function isTextSendableChannel(value: unknown): value is TextBasedChannel & { se
     && typeof (value as any).send === "function";
 }
 
-async function resolveTargetChannel(client: Client): Promise<TextBasedChannel & { send: Function; id: string; name?: string }> {
+async function resolveTargetChannel(
+  client: Client,
+  token: string,
+): Promise<TextBasedChannel & { send: Function; id: string; name?: string }> {
   const explicit = getArg("--channel");
   if (explicit) {
     const byId = await client.channels.fetch(explicit).catch(() => null);
@@ -77,6 +80,27 @@ async function resolveTargetChannel(client: Client): Promise<TextBasedChannel & 
       if (match && isTextSendableChannel(match)) return match;
     }
     throw new Error(`Could not resolve channel/thread '${explicit}'.`);
+  }
+
+  const fallbackAgentId = process.env["TANGO_VOICE_DEFAULT_AGENT_ID"]?.trim() || "watson";
+  const ensuredThreadId = await ensureSmokeThread({
+    token,
+    agentId: fallbackAgentId,
+    explicitThreadName: "codex-voice-watermark-live",
+  });
+  if (ensuredThreadId) {
+    const ensuredChannel = await client.channels.fetch(ensuredThreadId).catch(() => null);
+    if (isTextSendableChannel(ensuredChannel)) {
+      return ensuredChannel;
+    }
+  }
+
+  const configuredChannelId = process.env["DISCORD_TEST_CHANNEL_ID"]?.trim();
+  if (configuredChannelId) {
+    const configuredChannel = await client.channels.fetch(configuredChannelId).catch(() => null);
+    if (isTextSendableChannel(configuredChannel)) {
+      return configuredChannel;
+    }
   }
 
   for (const guild of client.guilds.cache.values()) {
@@ -124,7 +148,7 @@ async function main(): Promise<void> {
       });
     });
 
-    const channel = await resolveTargetChannel(client);
+    const channel = await resolveTargetChannel(client, token);
     const originalWatermark = loadWatermark(db, channel.id);
     const smokeBody = `\u200Bsmoke voice-user-sync ${new Date().toISOString()}`;
 

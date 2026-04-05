@@ -23,13 +23,56 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const polyline = require('@mapbox/polyline');
 const geolib = require('geolib');
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const LOCATION_FILE = process.env.TANGO_LOCATION_FILE
-  || path.join(__dirname, '../data/location/latest.json');
+function normalizeOptionalString(value) {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function expandHomePath(value) {
+  if (value === '~') {
+    return os.homedir();
+  }
+  if (value?.startsWith('~/')) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return value;
+}
+
+function resolveConfiguredPath(value) {
+  return path.resolve(expandHomePath(value));
+}
+
+function resolveProfileLocationFile() {
+  const explicitLocationFile = normalizeOptionalString(process.env.TANGO_LOCATION_FILE);
+  if (explicitLocationFile) {
+    return resolveConfiguredPath(explicitLocationFile);
+  }
+
+  const explicitLocationDir = normalizeOptionalString(process.env.TANGO_LOCATION_DIR);
+  if (explicitLocationDir) {
+    return path.join(resolveConfiguredPath(explicitLocationDir), 'latest.json');
+  }
+
+  const explicitHome = normalizeOptionalString(process.env.TANGO_HOME);
+  const explicitProfile = normalizeOptionalString(process.env.TANGO_PROFILE);
+  if (explicitHome || explicitProfile) {
+    const tangoHome = explicitHome
+      ? resolveConfiguredPath(explicitHome)
+      : path.join(os.homedir(), '.tango');
+    const profile = explicitProfile || 'default';
+    return path.join(tangoHome, 'profiles', profile, 'data', 'location', 'latest.json');
+  }
+
+  return path.join(__dirname, '../data/location/latest.json');
+}
+
+const LOCATION_FILE = resolveProfileLocationFile();
 const CORRIDOR_WIDTH = 5000; // meters from route centerline
 const MAX_CORRIDOR_POINTS = 50;
 const TOP_N = 5;

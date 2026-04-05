@@ -7,8 +7,8 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import { YoutubeTranscript } from "youtube-transcript";
 import type { AgentTool } from "@tango/core";
+import type { TranscriptConfig, TranscriptResponse } from "youtube-transcript";
 
 const debug = (...args: unknown[]) => {
   console.error("[youtube-tools]", ...args);
@@ -19,6 +19,9 @@ const debug = (...args: unknown[]) => {
 // ---------------------------------------------------------------------------
 
 let genaiInstance: GoogleGenAI | null = null;
+let youtubeTranscriptModulePromise:
+  Promise<{ fetchTranscript(videoId: string, config?: TranscriptConfig): Promise<TranscriptResponse[]> }>
+  | null = null;
 
 function getGenAI(): GoogleGenAI {
   if (genaiInstance) return genaiInstance;
@@ -36,6 +39,22 @@ function getGenAI(): GoogleGenAI {
 
   debug(`Gemini client initialized (project=${project}, location=${process.env.GCP_LOCATION || "us-central1"})`);
   return genaiInstance;
+}
+
+async function fetchYouTubeTranscript(
+  videoId: string,
+  config?: TranscriptConfig,
+): Promise<TranscriptResponse[]> {
+  if (!youtubeTranscriptModulePromise) {
+    youtubeTranscriptModulePromise = import(
+      "youtube-transcript/dist/youtube-transcript.esm.js"
+    ) as Promise<{
+      fetchTranscript(videoId: string, config?: TranscriptConfig): Promise<TranscriptResponse[]>;
+    }>;
+  }
+
+  const module = await youtubeTranscriptModulePromise;
+  return module.fetchTranscript(videoId, config);
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +89,7 @@ export function createYouTubeTools(): AgentTool[] {
         const url = String(input.url);
         debug(`Fetching transcript for: ${url}`);
         try {
-          const segments = await YoutubeTranscript.fetchTranscript(url);
+          const segments = await fetchYouTubeTranscript(url);
           const fullText = segments.map((s) => s.text).join(" ");
 
           if (input.timestamps) {

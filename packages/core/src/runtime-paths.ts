@@ -30,6 +30,13 @@ function normalizeOptionalString(value?: string): string | undefined {
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+function hasExplicitProfileRuntimeSelection(): boolean {
+  return Boolean(
+    normalizeOptionalString(process.env.TANGO_HOME)
+    || normalizeOptionalString(process.env.TANGO_PROFILE),
+  );
+}
+
 export function expandHomePath(input: string): string {
   if (input === "~") {
     return os.homedir();
@@ -163,6 +170,10 @@ export function resolveTangoDataDir(explicitDir?: string): string {
     return resolveConfiguredPath(configuredDir);
   }
 
+  if (hasExplicitProfileRuntimeSelection()) {
+    return resolveTangoProfileDataDir();
+  }
+
   const legacyDir = resolveLegacyDataDir();
   if (fs.existsSync(legacyDir)) {
     return legacyDir;
@@ -180,6 +191,14 @@ export function resolveDatabasePath(explicitPath?: string): string {
     normalizeOptionalString(explicitPath) ?? normalizeOptionalString(process.env.TANGO_DB_PATH);
   if (configuredPath) {
     return resolveConfiguredPath(configuredPath);
+  }
+
+  if (normalizeOptionalString(process.env.TANGO_DATA_DIR)) {
+    return path.join(resolveTangoDataDir(), "tango.sqlite");
+  }
+
+  if (hasExplicitProfileRuntimeSelection()) {
+    return path.join(resolveTangoProfileDataDir(), "tango.sqlite");
   }
 
   const legacyPath = resolveLegacyDatabasePath();

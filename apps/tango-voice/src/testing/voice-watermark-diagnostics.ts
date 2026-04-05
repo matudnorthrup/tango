@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
-import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { resolveDatabasePath } from "@tango/core";
 import {
   ChannelType,
   Client,
@@ -56,8 +56,7 @@ function getArg(flag: string): string | null {
 }
 
 function getDbPath(): string {
-  const configured = process.env["TANGO_DB_PATH"]?.trim() || "./data/tango.sqlite";
-  return path.resolve(configured);
+  return resolveDatabasePath(process.env["TANGO_DB_PATH"]);
 }
 
 function getBridgeBaseUrl(): string {

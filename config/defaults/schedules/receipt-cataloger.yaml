@@ -41,7 +41,7 @@ execution:
     report the error and stop.
 
     Summarize what was processed or say "No new uncategorized transactions."
-  timeout_seconds: 600
+  timeout_seconds: 900
 
 provider:
   model: sonnet

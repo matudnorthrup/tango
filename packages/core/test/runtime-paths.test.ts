@@ -81,6 +81,23 @@ describe("runtime path helpers", () => {
     );
   });
 
+  it("prefers the profile data directory when profile mode is explicitly selected", () => {
+    const repoDir = createTempDir("tango-explicit-profile-db-");
+    const homeDir = createTempDir("tango-explicit-profile-home-");
+    fs.mkdirSync(path.join(repoDir, "data"), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, "data", "tango.sqlite"), "");
+    process.chdir(repoDir);
+    process.env.TANGO_HOME = homeDir;
+    process.env.TANGO_PROFILE = "default";
+
+    expect(resolveTangoProfileDataDir()).toBe(
+      path.join(homeDir, "profiles", "default", "data"),
+    );
+    expect(resolveDatabasePath()).toBe(
+      path.join(homeDir, "profiles", "default", "data", "tango.sqlite"),
+    );
+  });
+
   it("falls back to the profile data directory for a clean install", () => {
     const repoDir = createTempDir("tango-clean-install-");
     const homeDir = createTempDir("tango-home-");

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { resolveDatabasePath } from "@tango/core";
 import { getBrowserManager } from "../../../../packages/discord/src/browser-manager.js";
 import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
@@ -81,14 +82,31 @@ function getRequiredEnv(name: string): string {
 
 function getRecipeSmokeDir(): string {
   const configured = getOptionalEnv("TANGO_RECIPE_SMOKE_DIR");
-  const dir = configured ? path.resolve(configured) : path.join(os.tmpdir(), "tango-recipe-smoke");
+  const configuredRecipesDir = getOptionalEnv("TANGO_RECIPES_DIR");
+  const profileRecipesDir = path.join(os.homedir(), ".tango", "profiles", "default", "notes", "recipes");
+  const legacyRecipesDir = path.join(os.homedir(), "Documents", "main", "Records", "Nutrition", "Recipes");
+  const dir = configured
+    ? path.resolve(configured)
+    : configuredRecipesDir
+      ? path.resolve(configuredRecipesDir)
+      : fs.existsSync(profileRecipesDir)
+        ? profileRecipesDir
+        : fs.existsSync(legacyRecipesDir)
+          ? legacyRecipesDir
+          : profileRecipesDir;
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 function getDbPath(): string {
-  const configured = process.env["TANGO_DB_PATH"]?.trim() || "./data/tango.sqlite";
-  return path.resolve(configured);
+  return resolveDatabasePath(process.env["TANGO_DB_PATH"]);
+}
+
+function suiteMatchesCurrentAgent(suite: string, agentId: string, group: "malibu" | "sierra" | "watson"): boolean {
+  if (suite !== "all") {
+    return false;
+  }
+  return agentId === group;
 }
 
 function parseJsonArray(value: string | null): string[] {
@@ -345,6 +363,12 @@ function tomorrowDateString(now = new Date()): string {
   return tomorrow.toISOString().slice(0, 10);
 }
 
+function offsetDateString(offsetDays: number, now = new Date()): string {
+  const date = new Date(now);
+  date.setDate(date.getDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
 async function runCommand(command: string, args: string[]): Promise<string> {
   const { execFile } = await import("node:child_process");
   return await new Promise<string>((resolve, reject) => {
@@ -376,6 +400,23 @@ async function deleteFatSecretEntries(entryIds: readonly string[]): Promise<void
   for (const entryId of entryIds) {
     await callFatSecret("food_entry_delete", { food_entry_id: entryId });
   }
+}
+
+async function resolveFatSecretSmokeDate(): Promise<string> {
+  const configured = getOptionalEnv("TANGO_FATSECRET_SMOKE_DATE");
+  if (configured) {
+    return configured;
+  }
+
+  for (let offset = 1; offset <= 21; offset += 1) {
+    const candidate = offsetDateString(offset);
+    const entries = await getFatSecretEntries(candidate);
+    if (entries.length === 0) {
+      return candidate;
+    }
+  }
+
+  return tomorrowDateString();
 }
 
 async function runTurn(input: {
@@ -462,7 +503,7 @@ async function runNutritionWriteSmoke(input: {
   channelId?: string | null;
   discordUserId: string;
 }): Promise<void> {
-  const date = tomorrowDateString();
+  const date = await resolveFatSecretSmokeDate();
   const beforeEntries = await getFatSecretEntries(date);
   const beforeIds = new Set(beforeEntries.map((entry) => entry.food_entry_id));
   const previousTurn = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
@@ -933,7 +974,7 @@ async function runNutritionWriteThenSummarySmoke(input: {
   channelId?: string | null;
   discordUserId: string;
 }): Promise<void> {
-  const date = tomorrowDateString();
+  const date = await resolveFatSecretSmokeDate();
   const beforeEntries = await getFatSecretEntries(date);
   const beforeIds = new Set(beforeEntries.map((entry) => entry.food_entry_id));
   const previousTurn = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
@@ -1013,7 +1054,7 @@ async function runNutritionRepairContinuationSmoke(input: {
   channelId?: string | null;
   discordUserId: string;
 }): Promise<void> {
-  const date = tomorrowDateString();
+  const date = await resolveFatSecretSmokeDate();
   const taskId = `codex-live-write-repair-${Date.now()}`;
   const beforeEntries = await getFatSecretEntries(date);
   const beforeIds = new Set(beforeEntries.map((entry) => entry.food_entry_id));
@@ -1144,7 +1185,7 @@ async function main(): Promise<void> {
 
   const db = new DatabaseSync(getDbPath());
   try {
-    if (suite === "all" || suite === "simple-writes") {
+    if (suiteMatchesCurrentAgent(suite, agentId, "malibu") || suite === "simple-writes") {
       await runNutritionWriteSmoke({
         db,
         baseUrl,
@@ -1164,7 +1205,7 @@ async function main(): Promise<void> {
         discordUserId,
       });
     }
-    if (suite === "all" || suite === "repair-flow") {
+    if (suiteMatchesCurrentAgent(suite, agentId, "malibu") || suite === "repair-flow") {
       await runNutritionRepairContinuationSmoke({
         db,
         baseUrl,
@@ -1175,7 +1216,7 @@ async function main(): Promise<void> {
         discordUserId,
       });
     }
-    if (suite === "all" || suite === "phase3-mixed") {
+    if (suiteMatchesCurrentAgent(suite, agentId, "malibu") || suite === "phase3-mixed") {
       await runNutritionWriteThenSummarySmoke({
         db,
         baseUrl,
@@ -1186,7 +1227,7 @@ async function main(): Promise<void> {
         discordUserId,
       });
     }
-    if (suite === "all" || suite === "sierra-file-write") {
+    if (suiteMatchesCurrentAgent(suite, agentId, "sierra") || suite === "sierra-file-write") {
       await runSierraLocalFileWriteSmoke({
         db,
         baseUrl,
@@ -1197,7 +1238,7 @@ async function main(): Promise<void> {
         discordUserId,
       });
     }
-    if (suite === "all" || suite === "sierra-walmart-write") {
+    if (suiteMatchesCurrentAgent(suite, agentId, "sierra") || suite === "sierra-walmart-write") {
       await runSierraWalmartWriteSmoke({
         db,
         baseUrl,
@@ -1208,7 +1249,7 @@ async function main(): Promise<void> {
         discordUserId,
       });
     }
-    if (suite === "watson-ramp-reimbursement-repair") {
+    if (suiteMatchesCurrentAgent(suite, agentId, "watson") || suite === "watson-ramp-reimbursement-repair") {
       await runWatsonRampReimbursementRepairSmoke({
         db,
         baseUrl,
@@ -1219,7 +1260,7 @@ async function main(): Promise<void> {
         discordUserId,
       });
     }
-    if (suite === "watson-ramp-reimbursement-backfill-repair") {
+    if (suiteMatchesCurrentAgent(suite, agentId, "watson") || suite === "watson-ramp-reimbursement-backfill-repair") {
       await runWatsonRampReimbursementBackfillRepairSmoke({
         db,
         baseUrl,
@@ -1232,6 +1273,11 @@ async function main(): Promise<void> {
     }
   } finally {
     db.close();
+    try {
+      await getBrowserManager().close();
+    } catch {
+      // Best-effort cleanup so live smoke scripts do not keep the process alive.
+    }
   }
 
   console.log("[write-smoke] live deterministic wellness write validation passed");

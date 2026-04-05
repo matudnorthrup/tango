@@ -34,7 +34,7 @@ import {
   findLikelyHistoryMatches,
   parseReceipts,
 } from "./walmart-history-parser.js";
-import { callFatsecretApi } from "./wellness-agent-tools.js";
+import { callFatsecretApi, callRecipeWrite } from "./wellness-agent-tools.js";
 import type { WellnessToolPaths } from "./wellness-agent-tools.js";
 
 const FATSECRET_WRITE_METHODS = new Set([
@@ -117,6 +117,10 @@ function inferToolMode(
   const readOnlyTask = typeof task === "string" && isReadOnlyWorkerStep(task);
 
   switch (normalizedName) {
+    case "Edit":
+    case "MultiEdit":
+    case "Write":
+      return "write";
     case "recipe_write":
       return "write";
     case "fatsecret_api": {
@@ -176,6 +180,10 @@ function inferToolMode(
       const action = typeof toolCall.input?.["action"] === "string"
         ? toolCall.input["action"].trim()
         : "";
+      const dryRun = toolCall.input?.["dry_run"] === true;
+      if (dryRun) {
+        return "read";
+      }
       return ["upload", "start", "stop"].includes(action) ? "write" : "read";
     }
     case "browser": {
@@ -208,6 +216,10 @@ function isFatsecretToolCall(toolCall: Pick<ProviderToolCall, "name" | "toolName
     ? toolCall.toolName.trim()
     : toolCall.name;
   return normalizeToolName(rawName) === "fatsecret_api";
+}
+
+function isRecipeWriteToolCall(toolCall: Pick<ProviderToolCall, "name" | "toolName">): boolean {
+  return isToolCallNamed(toolCall, "recipe_write");
 }
 
 function isToolCallNamed(
@@ -382,6 +394,92 @@ function parseStructuredWorkerPayload(value: unknown): Record<string, unknown> |
   } catch {
     return null;
   }
+}
+
+function taskRequestsMutation(task: string | undefined): boolean {
+  if (typeof task !== "string" || task.trim().length === 0) {
+    return false;
+  }
+  return /\bWRITE step:/u.test(task) || /\bIntent mode:\s*(?:write|mixed)\b/iu.test(task);
+}
+
+function recordHasTruthyWriteFlag(record: Record<string, unknown>): boolean {
+  return [
+    "committedStateVerified",
+    "verifiedWriteOutcome",
+    "writeVerified",
+    "mutationVerified",
+    "updated",
+    "created",
+    "success",
+    "ok",
+  ].some((key) => record[key] === true);
+}
+
+function recordHasAnyNonEmptyString(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  return keys.some((key) => typeof record[key] === "string" && record[key].trim().length > 0);
+}
+
+function textLooksLikeConfirmedMutation(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  if (/\b(blocked|failed|cancelled|unconfirmed|not completed|not updated|not confirmed|could not)\b/iu.test(normalized)) {
+    return false;
+  }
+  return /\b(updated?|created?|added?|appended?|rewrote?|wrote|preserved|verified|committed)\b/iu.test(normalized);
+}
+
+function structuredPayloadIndicatesConfirmedWriteOutcome(payload: Record<string, unknown> | null): boolean {
+  if (!payload) {
+    return false;
+  }
+  if (recordHasTruthyWriteFlag(payload)) {
+    return true;
+  }
+
+  const status = typeof payload.status === "string" ? payload.status.trim().toLowerCase() : "";
+  if (!["completed", "success", "ok"].includes(status)) {
+    return false;
+  }
+
+  const candidates: Record<string, unknown>[] = [payload];
+  const runtimeReplay = asRecord(payload.runtimeReplay);
+  if (runtimeReplay) {
+    candidates.push(runtimeReplay);
+  }
+  const resultsRecord = asRecord(payload.results);
+  if (resultsRecord) {
+    candidates.push(resultsRecord);
+  }
+  if (Array.isArray(payload.results)) {
+    candidates.push(
+      ...payload.results
+        .map((item) => asRecord(item))
+        .filter((item): item is Record<string, unknown> => item !== null),
+    );
+  }
+
+  return candidates.some((record) => {
+    if (recordHasTruthyWriteFlag(record)) {
+      return true;
+    }
+    if (recordHasAnyNonEmptyString(record, ["verified_excerpt", "final_excerpt", "resolved_file", "appended_line"])) {
+      return true;
+    }
+    const editOutcome = typeof record.edit_outcome === "string" ? record.edit_outcome : "";
+    const mutationOutcome = typeof record.mutation_outcome === "string" ? record.mutation_outcome : "";
+    if (textLooksLikeConfirmedMutation(editOutcome) || textLooksLikeConfirmedMutation(mutationOutcome)) {
+      return true;
+    }
+    return Array.isArray(record.artifacts)
+      && record.artifacts.length > 0
+      && (
+        recordHasAnyNonEmptyString(record, ["edit_outcome", "verified_excerpt", "final_excerpt"])
+        || recordHasTruthyWriteFlag(record)
+      );
+  });
 }
 
 function extractClarificationFromWorkerText(value: unknown): string | undefined {
@@ -2970,6 +3068,12 @@ interface ShoppingMutationRecoveryOutcome {
   replayFailureMessages: string[];
 }
 
+interface RecipeReplayOutcome {
+  result: WorkerAgentResult;
+  replayedCallCount: number;
+  replayFailureMessages: string[];
+}
+
 interface ShoppingRecoveryTarget {
   targetItem: string;
   targetQuantity: number;
@@ -3239,6 +3343,60 @@ function rewriteRecoveredShoppingMutationPayload(
       writeVerified: true,
       finalQuantity,
       cartSummary,
+    },
+  };
+}
+
+function recipeWriteSucceeded(output: unknown): boolean {
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    return false;
+  }
+  const record = output as Record<string, unknown>;
+  if (record.success === true || record.ok === true) {
+    return true;
+  }
+  const action = typeof record.action === "string" ? record.action.trim().toLowerCase() : "";
+  if (action === "updated" || action === "created") {
+    return true;
+  }
+  return typeof record.file === "string" && record.file.trim().length > 0;
+}
+
+function rewriteRecoveredRecipeWritePayload(
+  payload: Record<string, unknown>,
+  recipeName: string,
+  replayedCallCount: number,
+): Record<string, unknown> {
+  const existingArtifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
+  const priorResults = Array.isArray(payload.results)
+    ? payload.results.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+
+  return {
+    ...payload,
+    status: "completed",
+    results: [
+      ...priorResults,
+      `Runtime replay confirmed the recipe write for "${recipeName}".`,
+    ],
+    unresolved: [],
+    errors: [],
+    follow_up: [],
+    artifacts: [
+      ...existingArtifacts,
+      {
+        type: "recovered_runtime_commit",
+        details: `Runtime replayed recipe_write for "${recipeName}" and confirmed the file write.`,
+      },
+    ],
+    committedStateVerified: true,
+    verifiedWriteOutcome: true,
+    runtimeReplay: {
+      ...(asRecord(payload.runtimeReplay) ?? {}),
+      recipeWriteRecovered: true,
+      writeVerified: true,
+      recipeWriteCalls: replayedCallCount,
+      recipe: recipeName,
     },
   };
 }
@@ -4014,6 +4172,85 @@ async function synthesizeShoppingMutationFromAvailableState(
   }
 }
 
+async function replayCancelledRecipeWriteToolCalls(
+  result: WorkerAgentResult,
+  options: Pick<AgentWorkerOptions, "recipeWriteExecutor" | "wellnessToolPaths">,
+): Promise<RecipeReplayOutcome> {
+  const cancelledRecipeWrites = result.toolCalls.filter((toolCall) =>
+    isRecipeWriteToolCall(toolCall) && toolCallLooksCancelled(toolCall),
+  );
+  if (cancelledRecipeWrites.length === 0) {
+    return {
+      result,
+      replayedCallCount: 0,
+      replayFailureMessages: [],
+    };
+  }
+
+  const executeReplay = options.recipeWriteExecutor
+    ?? (async (input: { name: string; content: string }) => callRecipeWrite(input.name, input.content, options.wellnessToolPaths));
+
+  const replayFailureMessages: string[] = [];
+  let replayedCallCount = 0;
+  const replayedToolCalls = await Promise.all(result.toolCalls.map(async (toolCall) => {
+    if (!isRecipeWriteToolCall(toolCall) || !toolCallLooksCancelled(toolCall)) {
+      return toolCall;
+    }
+
+    const name = typeof toolCall.input?.name === "string" ? toolCall.input.name.trim() : "";
+    const content = typeof toolCall.input?.content === "string" ? toolCall.input.content : "";
+    if (!name || !content) {
+      replayFailureMessages.push("Recipe write replay skipped because the cancelled tool call did not include both name and content.");
+      return toolCall;
+    }
+
+    try {
+      const startedAt = Date.now();
+      const output = await executeReplay({ name, content });
+      replayedCallCount += 1;
+      return {
+        ...toolCall,
+        output,
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      replayFailureMessages.push(`Runtime replay of recipe_write for ${name} failed: ${detail}`);
+      return toolCall;
+    }
+  }));
+
+  const payload = parseStructuredWorkerPayload(result.text);
+  const remainingCancelledRecipeWrites = replayedToolCalls.some((toolCall) =>
+    isRecipeWriteToolCall(toolCall) && toolCallLooksCancelled(toolCall),
+  );
+  const successfulRecipeWrite = replayedToolCalls
+    .filter((toolCall) => isRecipeWriteToolCall(toolCall) && recipeWriteSucceeded(toolCall.output))
+    .at(-1);
+  const recipeName = typeof successfulRecipeWrite?.input?.name === "string"
+    ? successfulRecipeWrite.input.name.trim()
+    : typeof payload?.recipe === "string"
+      ? payload.recipe.trim()
+      : "recipe";
+  const nextText =
+    payload
+    && !remainingCancelledRecipeWrites
+    && replayFailureMessages.length === 0
+    && successfulRecipeWrite
+      ? JSON.stringify(rewriteRecoveredRecipeWritePayload(payload, recipeName, replayedCallCount))
+      : result.text;
+
+  return {
+    result: {
+      ...result,
+      text: nextText,
+      toolCalls: replayedToolCalls,
+    },
+    replayedCallCount,
+    replayFailureMessages,
+  };
+}
+
 function shouldRecoverShoppingBootstrap(result: WorkerAgentResult): boolean {
   const cancelledCalls = result.toolCalls.filter((toolCall) => toolCallLooksCancelled(toolCall));
   if (cancelledCalls.length === 0) {
@@ -4058,17 +4295,20 @@ export function workerAgentResultToReport(
       input: tc.input,
     }, task),
   }));
+  const inferredStructuredWrite =
+    taskRequestsMutation(task)
+    && structuredPayloadIndicatesConfirmedWriteOutcome(parseStructuredWorkerPayload(result.text));
 
   // If no tool calls were extracted from metadata, try to infer from text
   // The CLI JSON output may not include tool call details, but the text
   // response contains the agent's findings.
-  if (operations.length === 0 && result.text) {
+  if (result.text && (operations.length === 0 || (inferredStructuredWrite && !operations.some((op) => op.mode === "write")))) {
     operations.push({
       name: "agent_response",
       toolNames: [],
       input: {},
       output: result.text,
-      mode: "read",
+      mode: inferredStructuredWrite ? "write" : "read",
     });
   }
 
@@ -4078,6 +4318,7 @@ export function workerAgentResultToReport(
     operations,
     hasWriteOperations: operations.some((op) => op.mode === "write"),
     data: {
+      ...(inferredStructuredWrite ? { committedStateVerified: true, verifiedWriteOutcome: true } : {}),
       workerText: result.text,
       toolCalls: result.toolCalls,
       numTurns: result.numTurns,
@@ -4121,6 +4362,11 @@ export interface AgentWorkerOptions {
   fatsecretReplayExecutor?: (input: {
     method: string;
     params: Record<string, unknown>;
+  }) => Promise<unknown>;
+  /** Optional runtime executor for deterministic recipe write replay. */
+  recipeWriteExecutor?: (input: {
+    name: string;
+    content: string;
   }) => Promise<unknown>;
   /** Optional runtime executor for safe browser bootstrap recovery. */
   browserLaunchExecutor?: (input: { port: number }) => Promise<unknown>;
@@ -4541,6 +4787,13 @@ export async function executeAgentWorker(
     isFatsecretToolCall(toolCall) && toolCallLooksCancelled(toolCall),
   )) {
     const replayOutcome = await replayCancelledFatsecretToolCalls(result, task, options);
+    result = replayOutcome.result;
+  }
+
+  if ((toolIds?.length ?? 0) > 0 && result.toolCalls.some((toolCall) =>
+    isRecipeWriteToolCall(toolCall) && toolCallLooksCancelled(toolCall),
+  )) {
+    const replayOutcome = await replayCancelledRecipeWriteToolCalls(result, options);
     result = replayOutcome.result;
   }
 

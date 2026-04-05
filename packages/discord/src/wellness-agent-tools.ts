@@ -187,6 +187,19 @@ export async function callFatsecretApi(
   }
 }
 
+export async function callRecipeWrite(
+  name: string,
+  content: string,
+  overrides?: WellnessToolPaths,
+): Promise<unknown> {
+  const paths = resolvePaths(overrides);
+  const filename = `${name}.md`;
+  const filepath = path.join(paths.recipesDir, filename);
+  const existed = fs.existsSync(filepath);
+  fs.writeFileSync(filepath, content, "utf8");
+  return { success: true, action: existed ? "updated" : "created", file: filename };
+}
+
 function normalizeRecipeSearchText(value: string): string[] {
   return value
     .toLowerCase()
@@ -595,11 +608,7 @@ export function createRecipeTools(overrides?: WellnessToolPaths): AgentTool[] {
         required: ["name", "content"],
       },
       handler: async (input) => {
-        const filename = `${String(input.name)}.md`;
-        const filepath = path.join(paths.recipesDir, filename);
-        const existed = fs.existsSync(filepath);
-        fs.writeFileSync(filepath, String(input.content), "utf8");
-        return { success: true, action: existed ? "updated" : "created", file: filename };
+        return callRecipeWrite(String(input.name), String(input.content), overrides);
       },
     },
   ];

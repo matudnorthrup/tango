@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
-import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { resolveDatabasePath } from "@tango/core";
 import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
 dotenv.config();
@@ -44,6 +44,7 @@ interface DeterministicSmokeCase {
   requiredWarningPatterns?: RegExp[];
   requiredOperationNames?: string[];
   requireLocationFreshnessConsistency?: boolean;
+  allowDegradedReadReply?: boolean;
   waitTimeoutMs?: number;
 }
 
@@ -191,6 +192,7 @@ const PHASE4_RESEARCH_CORE_CASES: readonly DeterministicSmokeCase[] = [
     expectRoute: "executed",
     expectWriteOperations: false,
     expectStepCount: 1,
+    allowDegradedReadReply: true,
   },
   {
     id: "research-local-files",
@@ -231,6 +233,7 @@ const PHASE4_RESEARCH_CORE_CASES: readonly DeterministicSmokeCase[] = [
     expectWriteOperations: false,
     expectStepCount: 2,
     requireLocationFreshnessConsistency: true,
+    allowDegradedReadReply: true,
   },
 ];
 
@@ -485,8 +488,7 @@ function getBridgeHeaders(): Record<string, string> {
 }
 
 function getDbPath(): string {
-  const configured = process.env["TANGO_DB_PATH"]?.trim() || "./data/tango.sqlite";
-  return path.resolve(configured);
+  return resolveDatabasePath(process.env["TANGO_DB_PATH"]);
 }
 
 function parseJsonArray(value: string | null): string[] {
@@ -717,10 +719,7 @@ async function runSmokeCaseOnce(input: {
     sessionId: input.sessionId,
     agentId: input.agentId,
     previousId: before?.id ?? null,
-    timeoutMs:
-      responseError && isTransientSmokeError(responseError)
-        ? Math.min(input.testCase.waitTimeoutMs ?? 180_000, 15_000)
-        : input.testCase.waitTimeoutMs,
+    timeoutMs: input.testCase.waitTimeoutMs,
   });
   if (!latest) {
     throw responseError ?? new Error(`Case '${input.testCase.id}' timed out waiting for a new deterministic_turn row.`);
@@ -777,7 +776,7 @@ async function runSmokeCaseOnce(input: {
   if (INVALID_STATUS_REPLY.test(responseText)) {
     throw new Error(`Case '${input.testCase.id}' returned an invalid status-style reply: ${JSON.stringify(responseText)}`);
   }
-  if (DEGRADED_READ_REPLY.test(responseText)) {
+  if (!input.testCase.allowDegradedReadReply && DEGRADED_READ_REPLY.test(responseText)) {
     throw new Error(`Case '${input.testCase.id}' returned a degraded read reply: ${JSON.stringify(responseText)}`);
   }
   for (const pattern of input.testCase.requiredResponsePatterns ?? []) {

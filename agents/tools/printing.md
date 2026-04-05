@@ -56,8 +56,8 @@ Input:
 
 ```json
 {
-  "input_file": "~/Documents/3d-printing/gridfinity/stl/bin.stl",
-  "output_file": "~/Documents/3d-printing/gridfinity/gcode/bin.gcode",
+  "input_file": "/absolute/path/to/gridfinity/stl/bin.stl",
+  "output_file": "/absolute/path/to/gridfinity/gcode/bin.gcode",
   "print_profile": "0.20mm SPEED @MK4IS 0.4",
   "material_profile": "Generic PLA @PGIS",
   "infill": 5
@@ -65,6 +65,7 @@ Input:
 ```
 
 Notes:
+- Prefer absolute paths for `input_file` and `output_file`. In some environments the tool may not expand `~`.
 - Common valid print profiles include `0.10mm FAST DETAIL`, `0.15mm SPEED`, `0.20mm SPEED @MK4IS 0.4`, and `0.20mm STRUCTURAL`.
 - Common valid material profiles include `Generic PLA @PGIS`, `Generic PETG @PGIS`, and `Prusament PLA @PGIS`.
 - The slicer tool truncates long comment lines after slicing to avoid MK4 buffer issues.
@@ -82,7 +83,7 @@ Notes:
 
 Pass it via `--load` when invoking PrusaSlicer CLI directly. The `prusa_slice` tool handles this automatically — but if you're calling PrusaSlicer manually, do **not** use `--printer-profile` alone.
 
-**Verification:** After slicing, confirm the G-code contains at least 5 `M862` lines before uploading. If missing, the print will fail at the printer.
+**Verification:** After slicing, confirm the G-code contains the MK4 validation block from the resolved profile before uploading. In this workspace that block is 4 lines: `M862.1`, `M862.3`, `M862.5`, and `M862.6`. If those lines are missing, the print will fail at the printer.
 
 **Post-slice comment truncation:** Always run after slicing to prevent MK4 buffer overflow:
 ```bash

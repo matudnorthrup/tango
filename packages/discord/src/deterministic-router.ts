@@ -490,7 +490,11 @@ export function buildDeterministicExecutionPlan(input: {
       allowedToolIds,
       excludedToolIds: excludedToolIds.length > 0 ? excludedToolIds : undefined,
       reasoningEffort: resolveStepReasoningEffort(entry),
-      safeNoopAllowed: entry.evaluation?.safeNoopAllowed === true ? true : undefined,
+      safeNoopAllowed:
+        entry.evaluation?.safeNoopAllowed === true
+        || (entry.id === "printing.job_prepare_or_start" && isPreviewOnlyRequest(input.userMessage, envelope))
+          ? true
+          : undefined,
     });
   }
 
