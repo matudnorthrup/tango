@@ -2,6 +2,7 @@ import type { AgentConfig } from "@tango/core";
 import { describe, expect, it, vi } from "vitest";
 import {
   createReplyPresenter,
+  resolveSpeakerAvatarURL,
   resolveSpeakerDisplayName,
   type ReplyChannelLike
 } from "../src/reply-presentation.js";
@@ -57,6 +58,33 @@ describe("resolveSpeakerDisplayName", () => {
         "Tango"
       )
     ).toBe("Tango");
+  });
+});
+
+describe("resolveSpeakerAvatarURL", () => {
+  it("uses the agent avatar when one is configured", () => {
+    expect(
+      resolveSpeakerAvatarURL(
+        createAgent({
+          id: "watson",
+          type: "personal",
+          avatarURL: "https://example.com/watson.webp"
+        }),
+        "https://example.com/fallback.webp"
+      )
+    ).toBe("https://example.com/watson.webp");
+  });
+
+  it("falls back when the speaker has no avatar", () => {
+    expect(
+      resolveSpeakerAvatarURL(
+        createAgent({
+          id: "voice-agent",
+          type: "system"
+        }),
+        "https://example.com/fallback.webp"
+      )
+    ).toBe("https://example.com/fallback.webp");
   });
 });
 

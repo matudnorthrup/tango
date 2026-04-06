@@ -68,6 +68,7 @@ describe("layered config loading", () => {
         "id: watson",
         "type: personal",
         "display_name: Watson",
+        "avatar_url: https://example.com/default-watson.webp",
         "provider:",
         "  default: claude-oauth",
         "voice:",
@@ -85,6 +86,7 @@ describe("layered config loading", () => {
       [
         "id: watson",
         "display_name: My Watson",
+        "avatar_url: https://example.com/profile-watson.webp",
         "voice:",
         "  call_signs:",
         "    - doc",
@@ -102,6 +104,7 @@ describe("layered config loading", () => {
     expect(agent).toMatchObject({
       id: "watson",
       displayName: "My Watson",
+      avatarURL: "https://example.com/profile-watson.webp",
       provider: {
         default: "claude-oauth",
       },
@@ -124,6 +127,9 @@ describe("layered config loading", () => {
       fs.realpathSync(profileFile),
     ]);
     expect(fs.realpathSync(trace.fieldSources.display_name)).toBe(
+      fs.realpathSync(profileFile),
+    );
+    expect(fs.realpathSync(trace.fieldSources.avatar_url)).toBe(
       fs.realpathSync(profileFile),
     );
     expect(fs.realpathSync(trace.fieldSources.provider)).toBe(
