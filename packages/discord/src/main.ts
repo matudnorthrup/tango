@@ -152,7 +152,11 @@ import {
   buildVoiceTurnResultFromReceipt,
   waitForVoiceTurnReceiptResolution
 } from "./voice-turn-receipts.js";
-import { createReplyPresenter, resolveSpeakerDisplayName } from "./reply-presentation.js";
+import {
+  createReplyPresenter,
+  resolveSpeakerAvatarURL,
+  resolveSpeakerDisplayName,
+} from "./reply-presentation.js";
 import { resolveVoiceWatermarkTarget } from "./voice-watermarks.js";
 import { IMessageListener, type IMessageInboundMessage } from "./imessage-listener.js";
 import { parseNaturalTextRoute, type NaturalTextSystemCommand } from "./natural-routing.js";
@@ -2720,7 +2724,7 @@ async function sendPresentedReply(
   return replyPresenter.sendChunked(channel, text, {
     speaker,
     botDisplayName: client.user?.username ?? systemDisplayName,
-    avatarURL: speaker?.avatarURL ?? client.user?.displayAvatarURL()
+    avatarURL: resolveSpeakerAvatarURL(speaker, client.user?.displayAvatarURL())
   });
 }
 
@@ -3158,7 +3162,7 @@ async function syncVoiceAgentResponseToDiscord(
     const agentResult = await replyPresenter.sendChunked(channel, responseText, {
       speaker: { id: "voice-agent", displayName: agentVoiceLabel } as AgentConfig,
       botDisplayName: agentVoiceLabel,
-      avatarURL: speaker.avatarURL,
+      avatarURL: resolveSpeakerAvatarURL(speaker, client.user?.displayAvatarURL()),
     });
     console.log(
       `[tango-voice] voice-discord-sync agent-msg channel=${channelId} delivery=${agentResult.delivery} displayName=${agentResult.actualDisplayName}`
