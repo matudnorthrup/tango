@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEmailEvidenceHtml,
   buildRampReviewUrl,
   buildRampReviewVisualState,
   countRampReceiptSubmissionEvents,
@@ -9,8 +10,10 @@ import {
   flattenWalmartOrderId,
   formatRampTransactionDate,
   normalizeWalmartOrderId,
+  parseGogEmailFullOutput,
   parseFlexibleDateToIso,
   rampPageLooksSignedOut,
+  rampReimbursementLooksSubmitted,
   rampReviewBodyLooksAutoVerified,
   rampReviewVisualStateChanged,
   rampReviewVisualStateLooksReceiptLike,
@@ -134,6 +137,27 @@ describe("reimbursement-automation helpers", () => {
     ).toBe(false);
   });
 
+  it("detects submitted Ramp reimbursement detail pages", () => {
+    const submittedBody = [
+      "$350.00 at Maid in Newport",
+      "Memo",
+      "executive buyback time",
+      "Approve reimbursement",
+      "Requested a reimbursement",
+      "Submitted $350.00 reimbursement",
+      "Auto-verified · Submitted on 04/07/2026 by Devin",
+    ].join("\n");
+    const draftBody = [
+      "$600.00 at Kip Everitt",
+      "Memo (required)",
+      "Saved",
+      "Submit",
+    ].join("\n");
+
+    expect(rampReimbursementLooksSubmitted(submittedBody)).toBe(true);
+    expect(rampReimbursementLooksSubmitted(draftBody)).toBe(false);
+  });
+
   it("tracks meaningful Ramp receipt preview changes", () => {
     const before = buildRampReviewVisualState([
       {
@@ -159,5 +183,27 @@ describe("reimbursement-automation helpers", () => {
     expect(rampReviewVisualStateChanged(before, after)).toBe(true);
     expect(rampReviewVisualStateLooksReceiptLike(after)).toBe(true);
     expect(rampReviewVisualStateLooksReceiptLike(before)).toBe(false);
+  });
+
+  it("parses raw gog email output and renders receipt-style evidence html", () => {
+    const raw = [
+      "id\tabc123",
+      "from\tVenmo <venmo@venmo.com>",
+      "to\tmatu.dnorthrup@gmail.com",
+      "subject\tYou paid Kip Everitt $600.00",
+      "date\tSat, 4 Apr 2026 17:20:29 +0000",
+      "",
+      "<!DOCTYPE html><html><body><h1>You paid Kip Everitt</h1><p>$600.00</p><p>Date</p><p>Apr 04, 2026</p></body></html>",
+    ].join("\n");
+
+    const parsed = parseGogEmailFullOutput(raw);
+    expect(parsed.headers["subject"]).toBe("You paid Kip Everitt $600.00");
+    expect(parsed.bodyFormat).toBe("html");
+    expect(parsed.body).toContain("$600.00");
+
+    const rendered = buildEmailEvidenceHtml(parsed);
+    expect(rendered).toContain("You paid Kip Everitt $600.00");
+    expect(rendered).toContain("Venmo &lt;venmo@venmo.com&gt;");
+    expect(rendered).toContain("$600.00");
   });
 });

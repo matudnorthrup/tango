@@ -112,12 +112,18 @@ export function createEmailTools(overrides?: PersonalToolPaths): AgentTool[] {
     {
       name: "gog_email",
       description: [
-        "Run Gmail operations via the gog CLI. Supports search, thread fetch, archive, draft creation.",
+        "Run Gmail operations via the gog CLI. Supports search, message fetch, attachment download, thread fetch, archive, and draft creation.",
         "",
         "Commands:",
         "  gog gmail messages search '<query>' [--max N] [--account <email>]",
         "    Search Gmail. Query uses Gmail syntax: from:, to:, subject:, is:unread, newer_than:1d, etc.",
         "    Accounts are installation-specific. Common patterns are personal@example.com and work@example.com.",
+        "",
+        "  gog gmail get <messageId> --format full [--account <email>]",
+        "    Fetch a specific message with body text and attachment metadata.",
+        "",
+        "  gog gmail attachment <messageId> <attachmentId> --out /tmp --name '<filename>' [--account <email>]",
+        "    Download a specific attachment to a real local file path for use as evidence in another tool.",
         "",
         "  gog gmail thread <thread_id> [--account <email>]",
         "    Fetch full thread conversation by ID.",
@@ -131,7 +137,7 @@ export function createEmailTools(overrides?: PersonalToolPaths): AgentTool[] {
         "  gog gmail messages list [--max N] [--account <email>]",
         "    List recent inbox messages.",
         "",
-        "Output: JSON. Thread objects include messages with from, to, subject, body, date.",
+        "Output: JSON. Message/thread objects include from, to, subject, body, date, and attachment metadata when present.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -612,14 +618,17 @@ export function createReimbursementAutomationTools(): AgentTool[] {
     {
       name: "ramp_reimbursement",
       description: [
-        "Deterministic Ramp reimbursement browser automation for Walmart delivery-tip reimbursements.",
+        "Deterministic Ramp reimbursement browser automation for both generic invoice-backed submissions and Walmart delivery-tip reimbursements.",
         "",
         "Actions:",
         "  capture_walmart_tip_evidence",
         "    Open a Walmart order page and capture archived evidence that shows Driver tip plus an explicit visible date.",
         "",
+        "  capture_email_reimbursement_evidence",
+        "    Render a raw reimbursement email body into an archived screenshot evidence file for Ramp uploads.",
+        "",
         "  submit_ramp_reimbursement",
-        "    Create and submit a Ramp reimbursement draft with archived screenshot evidence, amount, date, memo, and merchant.",
+        "    Create and submit a Ramp reimbursement draft with archived evidence, amount, date, memo, and merchant.",
         "",
         "  replace_ramp_reimbursement_receipt",
         "    Open an existing Ramp reimbursement review page and replace or add receipt evidence, then capture a Ramp confirmation screenshot.",
@@ -631,6 +640,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             type: "string",
             enum: [
               "capture_walmart_tip_evidence",
+              "capture_email_reimbursement_evidence",
               "submit_ramp_reimbursement",
               "replace_ramp_reimbursement_receipt",
             ],
@@ -642,7 +652,15 @@ export function createReimbursementAutomationTools(): AgentTool[] {
           },
           output_path: {
             type: "string",
-            description: "For capture_walmart_tip_evidence: optional destination png path.",
+            description: "For capture_walmart_tip_evidence or capture_email_reimbursement_evidence: optional destination png path.",
+          },
+          email_content: {
+            type: "string",
+            description: "For capture_email_reimbursement_evidence: raw `gog gmail get --format full` output for the reimbursement email.",
+          },
+          label: {
+            type: "string",
+            description: "For capture_email_reimbursement_evidence: optional evidence label.",
           },
           amount: {
             type: "number",
@@ -683,6 +701,17 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             return {
               result: await bm.captureWalmartTipEvidence({
                 orderUrl: input.order_url,
+                outputPath: typeof input.output_path === "string" ? input.output_path : undefined,
+              }),
+            };
+          case "capture_email_reimbursement_evidence":
+            if (typeof input.email_content !== "string" || input.email_content.trim().length === 0) {
+              return { error: "capture_email_reimbursement_evidence requires email_content" };
+            }
+            return {
+              result: await bm.captureEmailReimbursementEvidence({
+                emailContent: input.email_content,
+                label: typeof input.label === "string" ? input.label : undefined,
                 outputPath: typeof input.output_path === "string" ? input.output_path : undefined,
               }),
             };

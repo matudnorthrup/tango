@@ -1898,6 +1898,7 @@ describe("deterministic router", () => {
     expect(watsonReimbursementResult.plan?.steps[0]?.allowedToolIds).toEqual([
       "receipt_registry",
       "ramp_reimbursement",
+      "gog_email",
       "onepassword",
       "obsidian",
     ]);
@@ -1907,6 +1908,44 @@ describe("deterministic router", () => {
     expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
       "Use the raw browser tool only for login, page-state inspection, or debugging",
     );
+    expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
+      "If this reimbursement's invoice or receipt lives in Gmail, use gog_email",
+    );
+  });
+
+  it("normalizes reimbursement email-account aliases before worker execution", () => {
+    const registry = createRegistry();
+    const catalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "watson",
+    });
+
+    const result = buildDeterministicExecutionPlan({
+      userMessage: "Submit that MAID reimbursement in Ramp.",
+      envelopes: [
+        makeEnvelope({
+          intentId: "finance.reimbursement_submit",
+          mode: "write",
+          domain: "finance",
+          entities: {
+            reimbursement_system: "Ramp",
+            receipt_source: "email",
+            email_account: "matu.northrup",
+          },
+        }),
+      ],
+      catalog,
+      registry,
+    });
+
+    expect(result.outcome).toBe("executed");
+    expect(result.plan?.steps[0]?.input).toMatchObject({
+      reimbursement_system: "Ramp",
+      receipt_source: "email",
+      email_account: "matu.dnorthrup@gmail.com",
+    });
+    expect(result.plan?.steps[0]?.task).toContain("matu.dnorthrup@gmail.com");
+    expect(result.plan?.steps[0]?.task).toContain("capture_email_reimbursement_evidence");
   });
 
   it("builds Victor repo-status and codebase-read plans through the dev-assistant worker", () => {
