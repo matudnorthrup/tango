@@ -71,9 +71,13 @@ export function operationLooksLikeSuccessfulWrite(operation: WorkerReportOperati
     return false;
   }
 
+  const textLooksLikeFailure = (value: string): boolean =>
+    /\berror\b|\bfailed\b|\bblocked\b|\bcancelled\b|\bpermission denied\b|\bno tty available\b|\bcannot\b|\bcan't\b|\bcould not\b|\bdid not\b/iu
+      .test(value);
+
   const output = operation.output;
   if (typeof output === "string") {
-    return !/\berror\b|\bfailed\b|\bblocked\b|\bcancelled\b/iu.test(output);
+    return !textLooksLikeFailure(output);
   }
   if (!output || typeof output !== "object" || Array.isArray(output)) {
     return output !== null;
@@ -83,14 +87,32 @@ export function operationLooksLikeSuccessfulWrite(operation: WorkerReportOperati
   if (typeof record.error === "string" && record.error.trim().length > 0) {
     return false;
   }
-  if (typeof record.message === "string" && /\bcancelled\b|\bfailed\b|\berror\b/iu.test(record.message)) {
+  if (typeof record.message === "string" && textLooksLikeFailure(record.message)) {
     return false;
+  }
+  if (typeof record.result === "string" && textLooksLikeFailure(record.result)) {
+    return false;
+  }
+  if (typeof record.stdout === "string" && textLooksLikeFailure(record.stdout)) {
+    return false;
+  }
+  if (typeof record.status === "string") {
+    const normalizedStatus = record.status.trim().toLowerCase();
+    if (["error", "failed", "blocked", "cancelled", "canceled"].includes(normalizedStatus)) {
+      return false;
+    }
+    if (["ok", "success", "succeeded", "completed", "applied"].includes(normalizedStatus)) {
+      return true;
+    }
   }
   if (record.ok === true || record.success === true) {
     return true;
   }
   if (typeof record.value === "string" && record.value.trim().length > 0) {
-    return true;
+    return !textLooksLikeFailure(record.value);
+  }
+  if (typeof record.result === "string" && record.result.trim().length > 0) {
+    return !textLooksLikeFailure(record.result);
   }
   return Object.keys(record).length > 0;
 }
@@ -100,6 +122,9 @@ export function dataIndicatesVerifiedWriteOutcome(data: Record<string, unknown> 
     return false;
   }
   if (data["committedStateVerified"] === true || data["verifiedWriteOutcome"] === true) {
+    return true;
+  }
+  if (textIndicatesVerifiedWriteOutcome(data["workerText"])) {
     return true;
   }
   const workerText = parseStructuredWorkerText(data["workerText"]);
@@ -116,6 +141,50 @@ export function dataIndicatesVerifiedWriteOutcome(data: Record<string, unknown> 
   return (runtimeReplay as Record<string, unknown>)["diaryWriteRecovered"] === true
     || (runtimeReplay as Record<string, unknown>)["diaryRefreshRecovered"] === true
     || (runtimeReplay as Record<string, unknown>)["writeVerified"] === true;
+}
+
+function textIndicatesVerifiedWriteOutcome(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const text = value.trim();
+  if (text.length === 0) {
+    return false;
+  }
+
+  if (
+    /\b(?:blocked|failed|cancelled|canceled|needs_clarification|awaiting_user|awaiting_input)\b/iu.test(text)
+    || /\b(?:did(?: not|n't)\s+get\s+a\s+confirmed\s+write|can't\s+say\s+it\s+was\s+logged\s+yet|cannot\s+say\s+it\s+was\s+logged\s+yet)\b/iu.test(text)
+  ) {
+    return false;
+  }
+
+  if (/\b(?:committedStateVerified|verifiedWriteOutcome)\b\s*[:=]\s*true\b/iu.test(text)) {
+    return true;
+  }
+
+  const hasDiaryVerification =
+    /\bstatus:\s*`?(?:already_logged|logged|verified)`?/iu.test(text)
+    && (
+      /\bfood_entry_id:\s*\d+\b/iu.test(text)
+      || /\bconfirmed\s+in\s+(?:today'?s\s+)?diary\b/iu.test(text)
+      || /\bprevious\s+write\s+confirmed\s+present\s+in\s+diary\b/iu.test(text)
+      || /\bno\s+new\s+entry\s+created\s+to\s+avoid\s+duplication\b/iu.test(text)
+    );
+  if (hasDiaryVerification) {
+    return true;
+  }
+
+  const hasReceiptVerification =
+    /\bstatus:\s*`?(?:completed|success|ok)`?/iu.test(text)
+    && (
+      /\bwrite\s+confirmed\s+by\s+revision\s+receipt\b/iu.test(text)
+      || /\brevision(?:\s+token)?\s*:\s*`?[\w.-]+`?/iu.test(text)
+      || /\bwrite\s+confirmed\b/iu.test(text)
+    );
+
+  return hasReceiptVerification;
 }
 
 function extractStructuredReportCandidates(data: Record<string, unknown> | undefined): Record<string, unknown>[] {
