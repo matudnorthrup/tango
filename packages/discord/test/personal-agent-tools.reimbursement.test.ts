@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const manager = {
   launch: vi.fn(),
   captureWalmartTipEvidence: vi.fn(),
+  captureEmailReimbursementEvidence: vi.fn(),
   submitRampReimbursement: vi.fn(),
   replaceRampReimbursementReceipt: vi.fn(),
 };
@@ -86,6 +87,42 @@ describe("personal-agent-tools reimbursement automation", () => {
         amount: 27.38,
         transactionDate: "03/08/2026",
         memo: "executive buy back time",
+      },
+    });
+  });
+
+  it("captures Gmail receipt evidence through BrowserManager", async () => {
+    manager.captureEmailReimbursementEvidence.mockResolvedValue({
+      screenshotPath: "/tmp/ramp-email.png",
+      archivedPath: "/tmp/archive/ramp-email.png",
+      sha256: "abc123",
+      bodyFormat: "html",
+      subject: "You paid Kip Everitt $600.00",
+    });
+
+    const tool = createReimbursementAutomationTools()[0];
+    if (!tool) throw new Error("Missing tool");
+
+    const result = await tool.handler({
+      action: "capture_email_reimbursement_evidence",
+      email_content: "subject\tYou paid Kip Everitt $600.00\n\n<html>Receipt</html>",
+      output_path: "/tmp/ramp-email.png",
+      label: "tree-service",
+    });
+
+    expect(manager.launch).toHaveBeenCalledWith(9223);
+    expect(manager.captureEmailReimbursementEvidence).toHaveBeenCalledWith({
+      emailContent: "subject\tYou paid Kip Everitt $600.00\n\n<html>Receipt</html>",
+      outputPath: "/tmp/ramp-email.png",
+      label: "tree-service",
+    });
+    expect(result).toEqual({
+      result: {
+        screenshotPath: "/tmp/ramp-email.png",
+        archivedPath: "/tmp/archive/ramp-email.png",
+        sha256: "abc123",
+        bodyFormat: "html",
+        subject: "You paid Kip Everitt $600.00",
       },
     });
   });

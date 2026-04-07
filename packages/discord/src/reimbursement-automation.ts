@@ -5,6 +5,12 @@ export const WALMART_PAYMENT_SUMMARY_SELECTORS = [
   "div.mv2:has-text('Driver tip')",
 ] as const;
 
+export interface ParsedGogEmailFullOutput {
+  headers: Record<string, string>;
+  body: string;
+  bodyFormat: "html" | "text";
+}
+
 const MONTH_INDEX = new Map<string, string>([
   ["jan", "01"],
   ["january", "01"],
@@ -63,6 +69,92 @@ function normalizeText(text: string): string {
   return text.replace(/\s+/gu, " ").trim();
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;")
+    .replace(/'/gu, "&#39;");
+}
+
+export function parseGogEmailFullOutput(raw: string): ParsedGogEmailFullOutput {
+  const normalized = raw.replace(/\r\n/gu, "\n");
+  const lines = normalized.split("\n");
+  const headers: Record<string, string> = {};
+  let bodyStartIndex = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (line.trim().length === 0) {
+      bodyStartIndex = index + 1;
+      break;
+    }
+    if (/^\s*</u.test(line)) {
+      bodyStartIndex = index;
+      break;
+    }
+    const headerMatch = /^([a-z0-9_ -]+)\t(.*)$/iu.exec(line);
+    if (!headerMatch) {
+      bodyStartIndex = index;
+      break;
+    }
+    headers[headerMatch[1]!.trim().toLowerCase().replace(/\s+/gu, "_")] = headerMatch[2]!.trim();
+    bodyStartIndex = index + 1;
+  }
+
+  const body = lines.slice(bodyStartIndex).join("\n").trim();
+  const bodyFormat = /<(?:!doctype|html|body|table|div|p|span)\b/iu.test(body) ? "html" : "text";
+  return { headers, body, bodyFormat };
+}
+
+export function buildEmailEvidenceHtml(parsed: ParsedGogEmailFullOutput): string {
+  const from = escapeHtml(parsed.headers["from"] ?? "");
+  const to = escapeHtml(parsed.headers["to"] ?? "");
+  const subject = escapeHtml(parsed.headers["subject"] ?? "");
+  const date = escapeHtml(parsed.headers["date"] ?? "");
+  const bodyContent =
+    parsed.bodyFormat === "html"
+      ? parsed.body
+      : `<pre>${escapeHtml(parsed.body)}</pre>`;
+
+  return [
+    "<!DOCTYPE html>",
+    "<html lang=\"en\">",
+    "<head>",
+    "<meta charset=\"utf-8\" />",
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />",
+    "<title>Email Receipt Evidence</title>",
+    "<style>",
+    "body { margin: 0; padding: 32px; background: #f3f5f8; color: #111827; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
+    ".frame { max-width: 1024px; margin: 0 auto; background: #ffffff; border: 1px solid #d0d7de; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08); }",
+    ".meta { padding: 24px 28px; border-bottom: 1px solid #e5e7eb; background: #fbfbfc; }",
+    ".meta h1 { margin: 0 0 18px; font-size: 28px; line-height: 1.2; }",
+    ".grid { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; font-size: 15px; line-height: 1.45; }",
+    ".label { color: #6b7280; font-weight: 600; }",
+    ".value { color: #111827; word-break: break-word; }",
+    ".body { padding: 24px 28px; }",
+    ".body pre { white-space: pre-wrap; word-break: break-word; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0; }",
+    ".body img { max-width: 100%; height: auto; }",
+    "</style>",
+    "</head>",
+    "<body>",
+    "<div class=\"frame\">",
+    "<section class=\"meta\">",
+    `<h1>${subject || "Email receipt evidence"}</h1>`,
+    "<div class=\"grid\">",
+    `<div class=\"label\">From</div><div class=\"value\">${from}</div>`,
+    `<div class=\"label\">To</div><div class=\"value\">${to}</div>`,
+    `<div class=\"label\">Date</div><div class=\"value\">${date}</div>`,
+    "</div>",
+    "</section>",
+    `<section class=\"body\">${bodyContent}</section>`,
+    "</div>",
+    "</body>",
+    "</html>",
+  ].join("");
+}
+
 export function extractWalmartExplicitDates(text: string): string[] {
   const normalized = normalizeText(text);
   const matches = normalized.match(WALMART_EXPLICIT_DATE_PATTERN) ?? [];
@@ -75,6 +167,17 @@ export function walmartTextLooksDateVerifiable(text: string): boolean {
 
 export function rampReviewBodyLooksAutoVerified(text: string): boolean {
   return /\bauto-verified\b/iu.test(normalizeText(text));
+}
+
+export function rampReimbursementLooksSubmitted(text: string): boolean {
+  const normalized = normalizeText(text);
+  return (
+    /\brequested a reimbursement\b/iu.test(normalized)
+    || /\bsubmitted\s+\$[\d,.]+\s+reimbursement\b/iu.test(normalized)
+    || /\bsubmitted on\s+\d{2}\/\d{2}\/\d{4}\b/iu.test(normalized)
+    || /\bapprove reimbursement\b/iu.test(normalized)
+    || /\bawaiting reviewer\b/iu.test(normalized)
+  );
 }
 
 export function rampPageLooksSignedOut(input: {

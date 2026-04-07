@@ -13,6 +13,8 @@ Gmail operations through the `gog` CLI.
 ## Common commands
 
 - `gmail messages search '<query>' [--max N] [--account <email>]`
+- `gmail get <messageId> --format full [--account <email>]`
+- `gmail attachment <messageId> <attachmentId> --out /tmp --name <filename> [--account <email>]`
 - `gmail messages list [--max N] [--account <email>]`
 - `gmail thread <thread_id> [--account <email>]`
 - `gmail thread modify <thread_id> --remove INBOX [--account <email>]`
@@ -22,6 +24,8 @@ Gmail operations through the `gog` CLI.
 
 - Gmail search syntax works here: `from:`, `to:`, `subject:`, `is:unread`, `newer_than:1d`, and so on.
 - Accounts are installation-specific. Common patterns are `personal@example.com` and `work@example.com`.
+- Use `gmail get` when you need message body text, headers, or attachment metadata for a specific message.
+- Use `gmail attachment` with an absolute `--out` path or a stable directory like `/tmp` plus `--name` when another tool needs the actual file.
 
 ## Output
 

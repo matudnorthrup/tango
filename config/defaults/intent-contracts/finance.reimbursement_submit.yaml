@@ -19,6 +19,9 @@ slots:
 examples:
   - Submit the Walmart delivery-tip reimbursements to Ramp.
   - File those reimbursable Walmart driver tips in Ramp and record that they were submitted.
+  - Submit this MAID invoice reimbursement in Ramp using the receipt from Gmail.
+  - File the Venmo tree service reimbursement in Ramp from the email receipt.
 classifier_hints:
   - Use for explicit reimbursement submission, repayment filing, or expense-report browser flows that require evidence gathering and a real external submission.
+  - This includes non-Walmart reimbursements when the invoice or receipt lives in Gmail and the task is to actually file it in Ramp.
   - Prefer finance.receipt_lookup when the user only wants to inspect receipt details or find possible reimbursement candidates without submitting anything.
