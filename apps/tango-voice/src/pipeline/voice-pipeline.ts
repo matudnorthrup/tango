@@ -1319,7 +1319,18 @@ export class VoicePipeline {
             await this.router.switchTo(cs.fallbackChannelId);
           }
           console.log('Route confirmation timed out — dispatching transcript to fallback');
-          await this.dispatchPromptWithIntent(cs.userId, cs.transcript, cs.deliveryMode, cs.closeType);
+          try {
+            await this.dispatchPromptWithIntent(cs.userId, cs.transcript, cs.deliveryMode, cs.closeType);
+          } finally {
+            // dispatchPromptWithIntent sets PROCESSING but relies on
+            // handleUtterance's finally block to transition back to IDLE.
+            // From the timeout handler there is no wrapping handleUtterance,
+            // so we must clean up ourselves to avoid a stuck PROCESSING state.
+            const st = this.stateMachine.getStateType();
+            if (st === 'PROCESSING') {
+              this.transitionAndResetWatchdog({ type: 'PROCESSING_COMPLETE' });
+            }
+          }
         }
       })();
     });
