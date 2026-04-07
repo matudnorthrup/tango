@@ -29,6 +29,12 @@ export interface DeterministicRoutingResult {
   reason?: string;
 }
 
+const REIMBURSEMENT_EMAIL_ACCOUNT_ALIASES = new Map<string, string>([
+  ["matu.northrup", "matu.dnorthrup@gmail.com"],
+  ["matu.northrup@gmail.com", "matu.dnorthrup@gmail.com"],
+  ["matu.dnorthrup", "matu.dnorthrup@gmail.com"],
+]);
+
 export function getDeterministicIntentCatalog(input: {
   registry: CapabilityRegistry;
   agentId: string;
@@ -93,17 +99,19 @@ function buildExecutionConstraintLines(
   const reimbursementLines =
     entry.id === "finance.reimbursement_submit"
       ? [
-          "Start by using receipt_registry to find outstanding Walmart delivery-tip reimbursement candidates unless the user already pinned a specific order.",
-          "If the requested history window is not fully cataloged yet, use receipt_registry backfill_walmart_delivery_candidates before filing reimbursements.",
+          "If this is a Walmart delivery-tip reimbursement, start by using receipt_registry to find outstanding candidates unless the user already pinned a specific order.",
+          "If the requested Walmart history window is not fully cataloged yet, use receipt_registry backfill_walmart_delivery_candidates before filing reimbursements.",
           "If the user already pinned a specific Walmart order or receipt note, do not browse general Walmart order history first.",
-          "If the receipt catalog does not cover the requested history window, backfill missing Walmart delivery receipts before submitting reimbursements.",
-          "For each submission, use ramp_reimbursement as the primary execution path: capture_walmart_tip_evidence first, then submit_ramp_reimbursement.",
+          "If this reimbursement's invoice or receipt lives in Gmail, use gog_email to search the specified account, inspect the matching message, and download the attachment before filing in Ramp.",
+          "If the Gmail evidence is an HTML receipt email rather than a downloadable attachment, use ramp_reimbursement capture_email_reimbursement_evidence on the raw gog_email full-message output before submitting the reimbursement.",
+          "Use receipt_registry and capture_walmart_tip_evidence only for Walmart delivery-tip reimbursements, not for generic vendor invoices or Venmo receipts.",
+          "For each submission, use ramp_reimbursement as the primary execution path once you have the right evidence file.",
           "Use the raw browser tool only for login, page-state inspection, or debugging when ramp_reimbursement cannot complete the step.",
           "Do not try to recreate the screenshot or Ramp form flow by hand with generic browser snapshot/click heuristics if ramp_reimbursement is available.",
-          "For each submission, capture screenshot evidence from the Walmart order page before opening or updating the Ramp reimbursement form.",
+          "For Walmart order pages, capture screenshot evidence before opening or updating the Ramp reimbursement form.",
           "On Walmart order pages, prefer the order payment summary block that contains Driver tip instead of screenshotting the inline Driver tip label itself.",
           "When filling Ramp reimbursement drafts, use transaction dates in MM/DD/YYYY format.",
-          "Use the exact reimbursement memo text: executive buy back time.",
+          "Use the exact reimbursement memo text the user requested. If they did not specify one, fall back to the installation default.",
           "Only mark the receipt note submitted after the Ramp reimbursement was actually filed.",
           "If Walmart or Ramp requires login or MFA, pause cleanly and report that the managed Brave session needs user authentication.",
         ]
@@ -196,6 +204,42 @@ function extractEntityValues(
   }
 
   return collected;
+}
+
+function normalizeReimbursementEmailAccount(value: unknown): string | null {
+  const normalized = normalizeEntityString(value);
+  if (!normalized) {
+    return null;
+  }
+  const canonical = REIMBURSEMENT_EMAIL_ACCOUNT_ALIASES.get(normalized.toLowerCase());
+  if (canonical) {
+    return canonical;
+  }
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/u.test(normalized)) {
+    return normalized;
+  }
+  return normalized;
+}
+
+function normalizeExecutionEntities(
+  intentId: string,
+  entities: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!entities) {
+    return {};
+  }
+  if (intentId !== "finance.reimbursement_submit") {
+    return entities;
+  }
+
+  const normalized = { ...entities };
+  const canonicalEmail =
+    normalizeReimbursementEmailAccount(normalized["email_account"])
+    ?? normalizeReimbursementEmailAccount(normalized["emailAccount"]);
+  if (canonicalEmail) {
+    normalized["email_account"] = canonicalEmail;
+  }
+  return normalized;
 }
 
 function buildEvaluationContractLines(
@@ -383,7 +427,7 @@ function resolveAllowedToolIds(entry: DeterministicIntentCatalogEntry): string[]
     return ["walmart", "browser", "onepassword"];
   }
   if (entry.id === "finance.reimbursement_submit") {
-    return ["receipt_registry", "ramp_reimbursement", "onepassword", "obsidian"];
+    return ["receipt_registry", "ramp_reimbursement", "gog_email", "onepassword", "obsidian"];
   }
   return undefined;
 }
@@ -437,6 +481,11 @@ export function buildDeterministicExecutionPlan(input: {
         ? input.registry.getWorkflow(entry.route.targetId)?.ownerWorkerId ?? entry.route.targetId
         : entry.route.targetId;
     const mode = envelope.mode ?? entry.mode;
+    const normalizedEntities = normalizeExecutionEntities(envelope.intentId, envelope.entities);
+    const normalizedEnvelope =
+      normalizedEntities === envelope.entities
+        ? envelope
+        : { ...envelope, entities: normalizedEntities };
     const excludedToolIds = resolveExcludedToolIds(entry);
     const allowedToolIds = resolveAllowedToolIds(entry);
     const dependsOn = steps
@@ -468,7 +517,7 @@ export function buildDeterministicExecutionPlan(input: {
         entry.route.kind === "workflow"
           ? buildWorkflowTask(
               entry,
-              envelope,
+              normalizedEnvelope,
               input.userMessage,
               input.conversationContext,
               excludedToolIds,
@@ -477,7 +526,7 @@ export function buildDeterministicExecutionPlan(input: {
             )
           : buildWorkerTask(
               entry,
-              envelope,
+              normalizedEnvelope,
               input.userMessage,
               input.conversationContext,
               excludedToolIds,
@@ -486,7 +535,7 @@ export function buildDeterministicExecutionPlan(input: {
             ),
       dependsOn,
       parallelGroup: envelope.canRunInParallel ? undefined : "exclusive",
-      input: envelope.entities,
+      input: normalizedEntities,
       allowedToolIds,
       excludedToolIds: excludedToolIds.length > 0 ? excludedToolIds : undefined,
       reasoningEffort: resolveStepReasoningEffort(entry),
