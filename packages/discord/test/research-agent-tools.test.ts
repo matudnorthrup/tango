@@ -56,7 +56,9 @@ describe("file ops tools", () => {
   });
 
   it("supports append writes inside allowed directories", async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.homedir(), "Documents", "codex-file-ops-"));
+    const documentsDir = path.join(os.homedir(), "Documents");
+    fs.mkdirSync(documentsDir, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(documentsDir, "codex-file-ops-"));
     const targetPath = path.join(tempDir, "smoke.txt");
     fs.writeFileSync(targetPath, "hello", "utf8");
 
