@@ -173,6 +173,12 @@ function resolvePaths(overrides?: WellnessToolPaths) {
   };
 }
 
+const FATSECRET_WRITE_METHODS_SET = new Set([
+  "food_entry_create",
+  "food_entry_edit",
+  "food_entry_delete",
+]);
+
 export async function callFatsecretApi(
   method: string,
   params: Record<string, unknown> = {},
@@ -180,11 +186,27 @@ export async function callFatsecretApi(
 ): Promise<unknown> {
   const paths = resolvePaths(overrides);
   const stdout = await runPythonScript(paths.fatsecretApiScript, [method, JSON.stringify(params)]);
+  let parsed: unknown;
   try {
-    return JSON.parse(stdout);
+    parsed = JSON.parse(stdout);
   } catch {
     return { result: stdout };
   }
+
+  // Normalize write responses so the LLM gets an unambiguous confirmation.
+  // food_entry_create returns {"value": "<id>"} on success — which the LLM
+  // can misread as inconclusive.
+  if (FATSECRET_WRITE_METHODS_SET.has(method)) {
+    if (parsed && typeof parsed === "object" && "value" in (parsed as Record<string, unknown>)) {
+      return { success: true, method, food_entry_id: (parsed as Record<string, unknown>).value };
+    }
+    // Null/empty response from delete/edit also indicates success
+    if (parsed == null || (typeof parsed === "object" && Object.keys(parsed as object).length === 0)) {
+      return { success: true, method };
+    }
+  }
+
+  return parsed;
 }
 
 export async function callRecipeWrite(
@@ -338,10 +360,18 @@ Provide a method name and a JSON params object. Returns the full API response.
       },
       handler: async (input) => {
         const method = String(input.method);
-        const params =
+        let params: Record<string, unknown> =
           input.params && typeof input.params === "object" && !Array.isArray(input.params)
             ? input.params as Record<string, unknown>
             : {};
+        // Fallback: if the LLM placed API parameters at the top level instead
+        // of nesting them inside `params`, gather them so the call still works.
+        if (Object.keys(params).length === 0) {
+          const { method: _m, params: _p, ...rest } = input as Record<string, unknown>;
+          if (Object.keys(rest).length > 0) {
+            params = rest;
+          }
+        }
         return callFatsecretApi(method, params, {
           fatsecretApiScript: paths.fatsecretApiScript,
         });
