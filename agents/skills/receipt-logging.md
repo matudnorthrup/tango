@@ -9,7 +9,7 @@ After extracting order details from a retailer (Amazon, Walmart, Costco, etc.), 
 ## File structure
 
 ```
-{notes-root}/Receipts/
+Records/Finance/Receipts/
 ├── Amazon/
 │   └── 2026-02-01 Order 114-1354245-9764620.md
 └── Walmart/
@@ -22,7 +22,7 @@ Create retailer subfolders as needed. Do NOT create other folder nesting.
 
 **Filename:** `YYYY-MM-DD Order {ORDER_ID}.md`
 
-Use the `obsidian` tool to create the file at `Records/Receipts/{Retailer}/` with this format:
+Use the `obsidian` tool to create the file at `Records/Finance/Receipts/{Retailer}/` with this format:
 
 ```markdown
 # {Retailer} Order {ORDER_ID}

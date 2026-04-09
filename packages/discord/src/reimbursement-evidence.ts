@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
-import { resolveConfiguredPath, resolveTangoProfileDataDir } from "@tango/core";
+import { resolveConfiguredPath } from "@tango/core";
+import { resolveDefaultWalmartEvidenceRoot } from "./receipt-paths.js";
 
 export interface ReimbursementEvidenceRecord {
   version: 1;
@@ -34,27 +34,6 @@ export interface ArchiveReimbursementEvidenceInput {
   orderId?: string;
   label?: string;
   metadata?: Partial<ReimbursementEvidenceRecord>;
-}
-
-const LEGACY_REIMBURSEMENT_EVIDENCE_ROOT = path.join(
-  os.homedir(),
-  "Documents/main/Records/Receipts/Walmart/Evidence",
-);
-
-function resolveDefaultReimbursementEvidenceRoot(): string {
-  const profileEvidenceRoot = path.join(
-    resolveTangoProfileDataDir(),
-    "receipts",
-    "walmart",
-    "evidence",
-  );
-  if (fs.existsSync(profileEvidenceRoot)) {
-    return profileEvidenceRoot;
-  }
-  if (fs.existsSync(LEGACY_REIMBURSEMENT_EVIDENCE_ROOT)) {
-    return LEGACY_REIMBURSEMENT_EVIDENCE_ROOT;
-  }
-  return profileEvidenceRoot;
 }
 
 function sanitizePathToken(value: string | undefined, fallback: string): string {
@@ -136,7 +115,7 @@ export function resolveReimbursementEvidenceRoot(): string {
   const configured = process.env.TANGO_REIMBURSEMENT_EVIDENCE_DIR?.trim();
   const root = configured && configured.length > 0
     ? resolveConfiguredPath(configured)
-    : resolveDefaultReimbursementEvidenceRoot();
+    : resolveDefaultWalmartEvidenceRoot();
   fs.mkdirSync(root, { recursive: true });
   return root;
 }
