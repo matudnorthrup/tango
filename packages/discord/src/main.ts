@@ -138,6 +138,7 @@ import {
   type DiscordTurnExecutionResult,
   type WorkerDispatchTelemetry
 } from "./turn-executor.js";
+import { selectScheduledTurnResponseText } from "./scheduled-turn-response.js";
 import { buildActiveTaskPersistencePlan } from "./active-task-state.js";
 import { getSecret } from "./op-secret.js";
 import {
@@ -249,41 +250,6 @@ function buildAdditionalAllowedToolNames(
   }
 
   return undefined;
-}
-
-function selectScheduledTurnResponseText(
-  intentIds: string[],
-  turnResult: DiscordTurnExecutionResult,
-): string {
-  const responseText = turnResult.responseText;
-  if (intentIds.length !== 1 || intentIds[0] !== "research.slack_digest") {
-    return responseText;
-  }
-
-  if (!/\bpartial\b|\btruncated\b/iu.test(responseText)) {
-    return responseText;
-  }
-
-  const receipts = turnResult.deterministicTurn?.receipts ?? [];
-  if (receipts.length !== 1) {
-    return responseText;
-  }
-
-  const receipt = receipts[0]!;
-  const workerText =
-    receipt.data && typeof receipt.data["workerText"] === "string"
-      ? receipt.data["workerText"].trim()
-      : "";
-
-  if (!workerText || workerText.length <= responseText.trim().length + 500) {
-    return responseText;
-  }
-
-  if (receipt.warnings.length > 0 || receipt.data?.["partial"] === true) {
-    return responseText;
-  }
-
-  return workerText;
 }
 
 type ResponseMode = "concise" | "explain";
