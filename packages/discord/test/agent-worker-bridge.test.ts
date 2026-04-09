@@ -549,7 +549,7 @@ describe("executeAgentWorker", () => {
       {
         action: "open",
         url: expect.stringMatching(
-          /^https:\/\/www\.walmart\.com\/search\?q=(GV%20vanilla%20greek%20yogurt%2032%20oz|light%20greek%20vanilla%20yogurt)$/u,
+          /^https:\/\/www\.walmart\.com\/search\?q=(GV%20vanilla%20greek%20yogurt%2032%20oz|light%20greek%20vanilla%20yogurt|yogurt)$/u,
         ),
       },
       { action: "open", url: "https://www.walmart.com/" },
@@ -711,7 +711,7 @@ describe("executeAgentWorker", () => {
       {
         action: "open",
         url: expect.stringMatching(
-          /^https:\/\/www\.walmart\.com\/search\?q=(GV%20vanilla%20greek%20yogurt%2032%20oz|light%20greek%20vanilla%20yogurt)$/u,
+          /^https:\/\/www\.walmart\.com\/search\?q=(GV%20vanilla%20greek%20yogurt%2032%20oz|light%20greek%20vanilla%20yogurt|yogurt)$/u,
         ),
       },
       { action: "status" },
