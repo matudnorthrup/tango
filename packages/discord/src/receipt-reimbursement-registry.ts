@@ -1,24 +1,17 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { resolveConfiguredPath, resolveTangoProfileDataDir } from "@tango/core";
 import { loadReimbursementEvidenceRecord } from "./reimbursement-evidence.js";
+import {
+  CANONICAL_VAULT_RECEIPTS_ROOT,
+  LEGACY_VAULT_RECEIPTS_ROOT,
+  LEGACY_VAULT_ROOT,
+  resolveDefaultReceiptRoot,
+  resolveWalmartReceiptDir,
+} from "./receipt-paths.js";
 
-const LEGACY_VAULT_ROOT = path.join(os.homedir(), "Documents/main");
-const LEGACY_RECEIPT_ROOT = path.join(LEGACY_VAULT_ROOT, "Records", "Receipts");
 const REIMBURSEMENT_SECTION_HEADING = "## Reimbursement Tracking";
 const WALMART_RECEIPTS_ENV = "TANGO_WALMART_RECEIPTS_DIR";
-
-function resolveDefaultReceiptRoot(): string {
-  const profileReceiptRoot = path.join(resolveTangoProfileDataDir(), "receipts");
-  if (fs.existsSync(profileReceiptRoot)) {
-    return profileReceiptRoot;
-  }
-  if (fs.existsSync(LEGACY_RECEIPT_ROOT)) {
-    return LEGACY_RECEIPT_ROOT;
-  }
-  return profileReceiptRoot;
-}
 
 export interface ReceiptReimbursementState {
   status?: string;
@@ -90,13 +83,17 @@ function getWalmartReceiptDir(): string {
   const configured = process.env[WALMART_RECEIPTS_ENV]?.trim();
   return configured && configured.length > 0
     ? resolveConfiguredPath(configured)
-    : path.join(resolveDefaultReceiptRoot(), "walmart");
+    : resolveWalmartReceiptDir(resolveDefaultReceiptRoot());
 }
 
 function resolveNoteNameBaseDir(filePath: string): string {
   const normalizedPath = path.resolve(filePath);
   if (normalizedPath.startsWith(`${LEGACY_VAULT_ROOT}${path.sep}`)) {
     return LEGACY_VAULT_ROOT;
+  }
+
+  if (normalizedPath.startsWith(`${CANONICAL_VAULT_RECEIPTS_ROOT}${path.sep}`)) {
+    return CANONICAL_VAULT_RECEIPTS_ROOT;
   }
 
   const walmartReceiptDir = getWalmartReceiptDir();
@@ -107,6 +104,10 @@ function resolveNoteNameBaseDir(filePath: string): string {
   const receiptRoot = resolveDefaultReceiptRoot();
   if (normalizedPath.startsWith(`${receiptRoot}${path.sep}`)) {
     return receiptRoot;
+  }
+
+  if (normalizedPath.startsWith(`${LEGACY_VAULT_RECEIPTS_ROOT}${path.sep}`)) {
+    return LEGACY_VAULT_RECEIPTS_ROOT;
   }
 
   return path.dirname(normalizedPath);

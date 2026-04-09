@@ -18,14 +18,24 @@ execution:
   task_template: |
     Daily receipt cataloging task.
 
-    The scheduler pre-check already confirmed {{retailerCandidateCount}} uncategorized
-    retailer transactions between {{startDate}} and {{endDate}}.
+    The scheduler pre-check found {{totalRetailerCandidateCount}} recent
+    retailer transactions missing linked receipt notes between {{startDate}} and {{endDate}}.
+    Process ONLY the {{retailerCandidateCount}} candidate(s) listed below in this run.
+    Remaining after this batch: {{remainingRetailerCandidateCount}}.
 
-    1. Check Lunch Money for new uncategorized transactions from Amazon,
-       Walmart, Costco, and Venmo for exactly that date window.
-    1a. If the follow-up fetch unexpectedly returns zero matching transactions,
+    Candidate transactions:
+    {{candidateDetails}}
+
+    1. Check Lunch Money for recent Amazon, Walmart, Costco, and Venmo
+       transactions for exactly that date window.
+    1a. Focus on the candidate transactions above, even if they are already
+        categorized or cleared/pending rather than unreviewed.
+    1b. If a matching receipt note already exists for an order but is missing
+        one or more linked transaction IDs, update that note instead of creating
+        a duplicate.
+    1c. If the follow-up fetch unexpectedly returns zero missing-receipt candidates,
         return EXACTLY the text "__NO_OUTPUT__" and nothing else.
-    2. For each uncategorized transaction, look up the receipt:
+    2. For each missing-receipt retailer transaction, look up the receipt:
        - **Amazon / Walmart / Costco**: Use the browser to look up the
          matching order on the retailer's website. Use 1Password for
          credentials if login is needed.
@@ -33,7 +43,7 @@ execution:
          confirmation email matching the amount and approximate date.
          Venmo emails contain the recipient, note, and payment details.
     3. Create an Obsidian receipt file following the receipt_logging
-       skill format at Records/Receipts/{Retailer}/.
+       skill format at Records/Finance/Receipts/{Retailer}/.
     4. Use the transaction_categorization skill rules to suggest
        categories for non-grocery items.
 
@@ -45,7 +55,7 @@ execution:
     If the browser tool itself fails to connect (e.g. no browser running),
     report the error and stop.
 
-    Summarize what was processed or say "No new uncategorized transactions."
+    Summarize what was processed or say "No retailer transactions missing receipts."
   timeout_seconds: 900
 
 provider:

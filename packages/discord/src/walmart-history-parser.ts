@@ -11,31 +11,13 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
-import { resolveConfiguredPath, resolveTangoProfileDataDir } from "@tango/core";
-
-function resolveDefaultReceiptsPath(): string {
-  const profileReceiptsPath = path.join(resolveTangoProfileDataDir(), "receipts", "walmart");
-  if (fs.existsSync(profileReceiptsPath)) {
-    return profileReceiptsPath;
-  }
-
-  const legacyReceiptsPath = path.join(
-    os.homedir(),
-    "Documents/main/Records/Receipts/Walmart",
-  );
-  if (fs.existsSync(legacyReceiptsPath)) {
-    return legacyReceiptsPath;
-  }
-
-  return profileReceiptsPath;
-}
+import { resolveConfiguredOrDefaultReceiptDir, resolveWalmartReceiptDir } from "./receipt-paths.js";
 
 export function resolveWalmartReceiptsPath(): string {
-  const configured = process.env.TANGO_WALMART_RECEIPTS_DIR?.trim();
-  return configured && configured.length > 0
-    ? resolveConfiguredPath(configured)
-    : path.resolve(resolveDefaultReceiptsPath());
+  return resolveConfiguredOrDefaultReceiptDir(
+    "TANGO_WALMART_RECEIPTS_DIR",
+    () => resolveWalmartReceiptDir(),
+  );
 }
 
 // ---------------------------------------------------------------------------

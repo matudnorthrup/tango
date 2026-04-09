@@ -62,7 +62,7 @@ Special Walmart rule:
 
 For Costco: use the browser to look up the order on costco.com (order history). Then use `receipt_logging` to create the receipt, same flow as Amazon/Walmart.
 
-For Venmo: use `gog_email` to search Gmail for the Venmo payment confirmation email matching the amount and approximate date. The email contains the recipient and payment note — use those to determine the category. Create a receipt via `receipt_logging` at Records/Receipts/Venmo/.
+For Venmo: use `gog_email` to search Gmail for the Venmo payment confirmation email matching the amount and approximate date. The email contains the recipient and payment note — use those to determine the category. Create a receipt via `receipt_logging` at `Records/Finance/Receipts/Venmo/`.
 
 For restaurants (Subway, Chipotle, etc.): ask the user whether it was personal or a work lunch.
 

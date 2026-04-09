@@ -170,6 +170,12 @@ import {
   type MessageReferent,
 } from "./message-referents.js";
 import { selectWarmStartMessages } from "./channel-surface-context.js";
+import {
+  buildMissingReceiptCandidates,
+  collectLinkedReceiptTransactionIds,
+  formatReceiptCatalogCandidateDetails,
+} from "./receipt-catalog-precheck.js";
+import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
 
 dotenv.config();
 
@@ -728,6 +734,7 @@ registerDeterministicHandler("contacts-sync", contactsSyncHandler);
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
 
 let cachedLunchMoneyApiKey: string | null = null;
+const RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN = 3;
 
 async function getLunchMoneyApiKey(): Promise<string> {
   if (!cachedLunchMoneyApiKey) {
@@ -799,8 +806,9 @@ registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
   const timeZone = "America/Los_Angeles";
   const endDate = formatDateInTimeZone(new Date(), timeZone);
   const startDate = formatDateInTimeZone(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), timeZone);
+  const receiptsRoot = resolveDefaultReceiptRoot();
   const response = await fetch(
-    `https://dev.lunchmoney.app/v1/transactions?status=unreviewed&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`,
+    `https://dev.lunchmoney.app/v1/transactions?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`,
     {
       method: "GET",
       headers: {
@@ -816,22 +824,13 @@ registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
 
   const parsed = JSON.parse(text) as { transactions?: Array<Record<string, unknown>> };
   const transactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
-  const retailerCandidates = transactions.filter((transaction) => {
-    if (String(transaction.status ?? "") !== "unreviewed") {
-      return false;
-    }
-    const haystack = [
-      String(transaction.payee ?? ""),
-      String(transaction.original_name ?? ""),
-      String(transaction.notes ?? ""),
-    ].join(" ").toLowerCase();
-    return /(amazon|walmart|costco|venmo)/u.test(haystack);
-  });
+  const linkedTransactionIds = collectLinkedReceiptTransactionIds(receiptsRoot);
+  const retailerCandidates = buildMissingReceiptCandidates(transactions, linkedTransactionIds);
 
   if (retailerCandidates.length === 0) {
     return {
       action: "skip" as const,
-      reason: "No uncategorized Amazon/Walmart/Costco/Venmo transactions in the last 7 days.",
+      reason: "No recent Amazon/Walmart/Costco/Venmo transactions missing receipt notes in the last 7 days.",
     };
   }
 
@@ -840,7 +839,18 @@ registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
     context: {
       startDate,
       endDate,
-      retailerCandidateCount: retailerCandidates.length,
+      retailerCandidateCount: Math.min(
+        retailerCandidates.length,
+        RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN,
+      ),
+      totalRetailerCandidateCount: retailerCandidates.length,
+      remainingRetailerCandidateCount: Math.max(
+        retailerCandidates.length - RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN,
+        0,
+      ),
+      candidateDetails: formatReceiptCatalogCandidateDetails(
+        retailerCandidates.slice(0, RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN),
+      ),
     },
   };
 });
