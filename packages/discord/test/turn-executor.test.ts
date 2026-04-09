@@ -281,6 +281,19 @@ function createDeterministicRegistry(): CapabilityRegistry {
       examples: ["Read the Obsidian note titled Large Desk OpenGrid and Underware Project"],
     },
     {
+      id: "notes.note_update",
+      domain: "notes",
+      displayName: "Update Note",
+      description: "Update or append to an existing Obsidian note.",
+      mode: "write",
+      route: { kind: "worker", targetId: "personal-assistant" },
+      slots: [
+        { name: "note_query", required: true },
+        { name: "change_request", required: true },
+      ],
+      examples: ["Update today's daily note to mark meal prep complete."],
+    },
+    {
       id: "engineering.repo_status",
       domain: "engineering",
       displayName: "Review Repo Status",
@@ -1704,6 +1717,106 @@ describe("createDiscordVoiceTurnExecutor", () => {
           configuredProviderNames: ["codex"],
           reasoningEffort: "low",
         },
+      },
+    );
+
+    expect(result.responseText).toBe("I didn't get a confirmed write through on that step, so I can't say it was logged yet.");
+  });
+
+  it("suppresses deterministic fake dispatch narration for Watson note writes", async () => {
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber === 1) {
+        return {
+          text: JSON.stringify({
+            intents: [
+              {
+                intentId: "notes.note_update",
+                confidence: 0.95,
+                entities: {
+                  note_query: "Planning/Daily/2026-04-07",
+                  change_request: "mark meal prep complete and keep website copy in progress",
+                },
+                rawEntities: ["Planning/Daily/2026-04-07", "meal prep complete", "website copy in progress"],
+                missingSlots: [],
+                canRunInParallel: false,
+                routeHint: {
+                  kind: "worker",
+                  targetId: "personal-assistant",
+                },
+              },
+            ],
+          }),
+          metadata: { model: "gpt-5.4" },
+        };
+      }
+
+      return {
+        text: [
+          "The read came back clean - I can see today's note clearly. Now let me push those updates through.",
+          "",
+          "<worker-dispatch worker=\"personal-assistant\">",
+          "Update the daily note now.",
+          "</worker-dispatch>",
+        ].join("\n"),
+        metadata: { model: "gpt-5.4" },
+      };
+    });
+
+    const deterministicRouting = {
+      enabled: true,
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        executeWorkerWithTask: async () => ({
+          operations: [
+            {
+              name: "obsidian",
+              toolNames: ["obsidian"],
+              input: { command: "print 'Planning/Daily/2026-04-07' --vault main" },
+              output: { found: true },
+              mode: "read",
+            },
+          ],
+          hasWriteOperations: false,
+          data: {
+            workerText: "Read succeeded. Write targets identified, but no write receipt was returned.",
+          },
+        }),
+      },
+      () => ({
+        conversationKey: "tango-default:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "tango-default",
+        agentId: "watson",
+        transcript: "Update today's daily note to mark meal prep complete and keep website copy in progress.",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "tango-default:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
       },
     );
 

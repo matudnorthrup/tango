@@ -6,7 +6,7 @@ Google Docs operations through the `gog` CLI. Follows the same pattern as `gog_e
 
 ```json
 {
-  "command": "docs list --account personal@example.com"
+  "command": "docs cat <docId> --account personal@example.com"
 }
 ```
 
@@ -14,23 +14,23 @@ Google Docs operations through the `gog` CLI. Follows the same pattern as `gog_e
 
 When given a Google Docs URL like `https://docs.google.com/document/d/<docId>/edit`, extract the `<docId>` segment and use it with `gog_docs` commands. **Always use this tool for Google Docs operations — never use the browser tool to visit docs.google.com URLs.**
 
-If the URL contains a tab parameter (e.g., `?tab=t.abc123`), note the tab but use just the doc ID for commands.
+If the URL contains a tab parameter (e.g., `?tab=t.abc123`), note the tab. Use the doc ID for all commands, use `--tab <tabIdOrTitle>` when reading that tab, and use `--tab-id <tabId>` for write/insert operations that should target an existing tab.
 
 ## Common commands
 
-- `docs list [--account <email>]` — List Google Docs in the account (via Drive export).
-
-- `docs cat <docId> [--account <email>]` / `docs read <docId>` — Print doc as plain text.
+- `docs cat <docId> [--tab <tabIdOrTitle>] [--account <email>]` / `docs read <docId> [--tab <tabIdOrTitle>]` — Print a full doc or a specific tab as plain text.
 
 - `docs info <docId> [--account <email>]` — Get document metadata (title, id, etc).
+
+- `docs list-tabs <docId> [--account <email>]` — List all tabs in a Google Doc.
 
 - `docs create '<title>' [--account <email>]` — Create a new empty Google Doc.
 
 - `docs copy <docId> '<new title>' [--account <email>]` — Duplicate a document.
 
-- `docs write <docId> --text '<text>' [--account <email>]` — Write content to a document. Use `--text '<text>'` flag (not `--content`). Also accepts `--file <path>` or `--file -` for stdin. Add `--append` to append instead of replacing.
+- `docs write <docId> --text '<text>' [--tab-id <tabId>] [--account <email>]` — Write content to a document. Use `--text '<text>'` flag (not `--content`). Also accepts `--file <path>` or `--file -` for stdin. Add `--append` to append instead of replacing.
 
-- `docs insert <docId> [<content>] [--account <email>]` — Insert text at a specific position.
+- `docs insert <docId> [<content>] [--tab-id <tabId>] [--account <email>]` — Insert text at a specific position.
 
 - `docs delete --start=<N> --end=<N> <docId> [--account <email>]` — Delete a text range.
 
@@ -44,15 +44,20 @@ If the URL contains a tab parameter (e.g., `?tab=t.abc123`), note the tab but us
 
 - `docs clear <docId> [--account <email>]` — Clear all content from a document.
 
-- `docs structure <docId> [--account <email>]` — Show document structure with numbered paragraphs.
-
-- `docs list-tabs <docId> [--account <email>]` — List all tabs in a Google Doc.
+- `docs structure <docId> [--tab <tabIdOrTitle>] [--account <email>]` — Show document structure with numbered paragraphs for a full doc or specific tab.
 
 - `docs export <docId> [--account <email>]` — Export as pdf|docx|txt|md.
 
 - `docs comments <subcommand> [--account <email>]` — Manage comments on files.
 
 ## Editing best practices
+
+When the user already provided a Google Docs URL or document ID:
+- Use that exact document directly. Do not browse for alternate docs first.
+- If a read succeeds under a specific account, use that same account for follow-up writes to that document.
+- When the user specifies a target tab, confirm it with `docs list-tabs`, read it with `docs cat --tab <tabIdOrTitle>` or `docs structure --tab <tabIdOrTitle>`, then write with `--tab-id <tabId>`.
+- After a tab-targeted write, verify the same tab with `docs cat --tab <tabIdOrTitle>` or `docs structure --tab <tabIdOrTitle>` before claiming the write landed.
+- The CLI can target an existing tab with `--tab-id`, but it does not create brand-new tabs. If the user specifically asks for a new tab and none exists yet, clarify whether creating a separate doc/copy is acceptable instead of claiming a new tab was created.
 
 **Prefer targeted edits over full rewrites.** When modifying an existing document, use `find-replace`, `edit`, `sed`, `insert`, or `delete` to make surgical changes. Do not `clear` + `write` the entire document unless the user explicitly asks for a full rewrite. A clear-and-rewrite destroys formatting, version history, comments, and cursor positions. Even when making many changes, a batch of targeted operations is better than a nuclear replace.
 

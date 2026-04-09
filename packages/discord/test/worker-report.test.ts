@@ -138,6 +138,49 @@ describe("formatWorkerReportForPrompt", () => {
     expect(reportHasConfirmedWriteOutcome(report)).toBe(true);
   });
 
+  it("treats markdown-style diary verification text as a confirmed write outcome", () => {
+    const report: WorkerReport = {
+      operations: [],
+      hasWriteOperations: false,
+      data: {
+        workerText: [
+          "Diary already returned today's entries.",
+          "",
+          "```",
+          "action: verify_and_confirm",
+          "status: already_logged",
+          "",
+          "logged:",
+          "  food:           Nalley Original Chili Con Carne With Beans",
+          "  food_entry_id:  23146051183",
+          "  meal:           lunch",
+          "  date:           2026-04-06",
+          "",
+          "notes: >",
+          "  Previous write confirmed present in diary.",
+          "  No new entry created to avoid duplication.",
+          "```",
+        ].join("\n"),
+      },
+    };
+
+    expect(dataIndicatesVerifiedWriteOutcome(report.data)).toBe(true);
+    expect(reportHasConfirmedWriteOutcome(report)).toBe(true);
+  });
+
+  it("does not treat write-guard text as a confirmed write outcome", () => {
+    const report: WorkerReport = {
+      operations: [],
+      hasWriteOperations: false,
+      data: {
+        workerText: "I didn't get a confirmed write through on that step, so I can't say it was logged yet.",
+      },
+    };
+
+    expect(dataIndicatesVerifiedWriteOutcome(report.data)).toBe(false);
+    expect(reportHasConfirmedWriteOutcome(report)).toBe(false);
+  });
+
   it("does not treat failed write outputs as confirmed committed write outcomes", () => {
     const report: WorkerReport = {
       operations: [
@@ -146,6 +189,27 @@ describe("formatWorkerReportForPrompt", () => {
           toolNames: ["file_ops"],
           input: { operation: "write", path: "/tmp/codex.txt" },
           output: { error: "permission denied" },
+          mode: "write",
+        },
+      ],
+      hasWriteOperations: true,
+      data: {},
+    };
+
+    expect(operationLooksLikeSuccessfulWrite(report.operations[0]!)).toBe(false);
+    expect(reportHasConfirmedWriteOutcome(report)).toBe(false);
+  });
+
+  it("does not treat gog_docs result strings that contain errors as confirmed writes", () => {
+    const report: WorkerReport = {
+      operations: [
+        {
+          name: "gog_docs",
+          toolNames: ["gog_docs"],
+          input: { command: "docs create 'Draft' --account devin@latitude.io" },
+          output: {
+            result: "Error (exit 1): drive options: token source: get token for devin@latitude.io: read token: no TTY available for keyring file backend password prompt; set GOG_KEYRING_PASSWORD",
+          },
           mode: "write",
         },
       ],

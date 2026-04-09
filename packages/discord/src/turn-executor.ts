@@ -345,7 +345,8 @@ function looksLikeNarratedDispatch(text: string): boolean {
     /\b(?:one sec|hold on)\b/i,
     /\bdispatched(?:\s+again)?\b/i,
     /\b(?:let me|i(?:'ll| will)|i(?:'m| am))\s+(?:grab|fetch|pull|open|check|look up|look for|read|review|search|dig into|compare|dispatch|route|ask|hand off)\b/i,
-    /\b(?:grabbing|fetching|pulling|opening|checking|looking up|looking for|reading|reviewing|searching|dispatching|routing|asking|handing off)\b/i,
+    /\b(?:grabbing|fetching|pulling|opening|checking|looking up|looking for|reading|reviewing|searching|dispatching|asking|handing off)\b/i,
+    /\brouting\b.{0,24}\b(?:worker|tool|agent|task|request)\b/i,
     /\b(?:calling|using|dispatching)\s+(?:a|the)\s+worker\b/i,
     /\b(?:worker|tool call|dispatch)\b.{0,40}\b(?:cancel(?:ed|led)|timed out|failed|never came back|didn't return|did not return)\b/i,
     /\b(?:couldn't|could not|can't|cannot)\s+(?:confirm|claim|say)\b.{0,80}\b(?:logged|saved|made it into|in the diary|went through)\b/i,
@@ -710,6 +711,29 @@ function buildDeterministicWriteGuardReply(receipts: readonly ExecutionReceipt[]
   return "I didn't get a confirmed write through on that step, so I can't say it was logged yet.";
 }
 
+function guardDeterministicNarrationText(
+  text: string,
+  receipts: readonly ExecutionReceipt[],
+): string {
+  const stripped = stripWorkerDispatchTags(text);
+  if (
+    text.includes("<worker-dispatch")
+    || looksLikeNarratedDispatch(stripped)
+    || looksLikeIncompleteWorkerSynthesis(stripped)
+  ) {
+    return receipts.some(receiptExpectsWriteButHasNoConfirmedWrite)
+      ? buildDeterministicWriteGuardReply(receipts)
+      : "Sorry, something went wrong before I could finish that step. Please try again.";
+  }
+  if (
+    receipts.some(receiptExpectsWriteButHasNoConfirmedWrite)
+    && looksLikeDeterministicWriteSuccess(stripped)
+  ) {
+    return buildDeterministicWriteGuardReply(receipts);
+  }
+  return stripped;
+}
+
 // ---------------------------------------------------------------------------
 // Turn execution
 // ---------------------------------------------------------------------------
@@ -974,11 +998,10 @@ export async function executeDiscordTurn(
               {},
               { warmStartPrompt: effectiveWarmStartPrompt },
             );
-            const guardedNarrationText =
-              receipts.some(receiptExpectsWriteButHasNoConfirmedWrite)
-              && looksLikeDeterministicWriteSuccess(narrationFailoverResult.retryResult.response.text)
-                ? buildDeterministicWriteGuardReply(receipts)
-                : narrationFailoverResult.retryResult.response.text;
+            const guardedNarrationText = guardDeterministicNarrationText(
+              narrationFailoverResult.retryResult.response.text,
+              receipts,
+            );
 
             if (shouldPersistProviderContinuity && narrationFailoverResult.retryResult.response.providerSessionId) {
               dependencies.savePersistedProviderSession({

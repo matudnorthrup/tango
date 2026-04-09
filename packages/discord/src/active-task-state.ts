@@ -557,6 +557,7 @@ function buildOfferUpsert(input: {
   userMessage: string;
   responseText: string;
   objective: string;
+  structuredContext?: Record<string, unknown>;
 }): ActiveTaskUpsertInput {
   return {
     sessionId: input.sessionId,
@@ -572,6 +573,7 @@ function buildOfferUpsert(input: {
       source: "assistant-offer",
       latestUserMessage: input.userMessage,
       assistantOffer: input.responseText,
+      ...(input.structuredContext ?? {}),
     },
     sourceKind: "assistant-offer",
     createdByMessageId: input.responseMessageId ?? null,
@@ -763,6 +765,7 @@ export function buildActiveTaskPersistencePlan(input: {
 
   const assistantOfferObjective = extractOfferObjective(input.responseText);
   if (assistantOfferObjective) {
+    const latestResolvedEntities = deterministicTurn?.state.intent.envelopes[0]?.entities;
     upserts.push(
       buildOfferUpsert({
         sessionId: input.sessionId,
@@ -771,6 +774,12 @@ export function buildActiveTaskPersistencePlan(input: {
         userMessage: input.userMessage,
         responseText: input.responseText,
         objective: assistantOfferObjective,
+        structuredContext: deterministicTurn
+          ? {
+              routeOutcome: deterministicTurn.state.routing.routeOutcome,
+              latestResolvedEntities: latestResolvedEntities ?? {},
+            }
+          : undefined,
       }),
     );
     return { upserts, statusUpdates };
@@ -792,6 +801,7 @@ export function buildActiveTaskPersistencePlan(input: {
         structuredContext: {
           source: deterministicTurn ? "assistant-deterministic-clarification" : "assistant-clarification",
           routeOutcome: deterministicTurn?.state.routing.routeOutcome,
+          latestResolvedEntities: deterministicTurn?.state.intent.envelopes[0]?.entities ?? {},
           latestAssistantResponse: truncate(input.responseText, 320),
         },
         sourceKind: deterministicTurn

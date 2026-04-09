@@ -310,7 +310,7 @@ const catalog: DeterministicIntentCatalogEntry[] = [
     displayName: "Update Note",
     description: "Update or append to an existing local or Obsidian note.",
     mode: "write",
-    route: { kind: "worker", targetId: "research-assistant" },
+    route: { kind: "worker", targetId: "personal-assistant" },
     examples: ["Update the desk project note with today's measurements."],
     slots: [
       { name: "note_query", required: true },
@@ -1161,7 +1161,7 @@ describe("classifyDeterministicIntents", () => {
     });
   });
 
-  it("classifies Watson health, finance, calendar, email, and note review requests", async () => {
+  it("classifies Watson health, finance, calendar, email, and note requests", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       const cases = [
         responseWithIntents([
@@ -1219,6 +1219,20 @@ describe("classifyDeterministicIntents", () => {
         ]),
         responseWithIntents([
           {
+            intentId: "notes.note_update",
+            mode: "write",
+            confidence: 0.95,
+            entities: {
+              note_query: "Planning/Daily/2026-04-07",
+              change_request: "mark meal prep complete and keep website copy in progress",
+            },
+            rawEntities: ["Planning/Daily/2026-04-07", "meal prep complete", "website copy in progress"],
+            missingSlots: [],
+            canRunInParallel: false,
+          },
+        ]),
+        responseWithIntents([
+          {
             intentId: "finance.transaction_lookup",
             confidence: 0.94,
             entities: { merchant: "Amazon", date_scope: "recent" },
@@ -1269,6 +1283,10 @@ describe("classifyDeterministicIntents", () => {
       {
         input: "Read the Obsidian note titled Large Desk OpenGrid and Underware Project and summarize the Print Summary section.",
         expectedIntents: ["notes.note_read"],
+      },
+      {
+        input: "Update today's daily note to mark meal prep complete and keep website copy in progress.",
+        expectedIntents: ["notes.note_update"],
       },
       {
         input: "What were my most recent Amazon transactions?",
@@ -1650,7 +1668,7 @@ describe("classifyDeterministicIntents", () => {
     }
   });
 
-  it("classifies Sierra route, weather, video, note-write, file-write, and browser-order requests", async () => {
+  it("classifies Sierra route, weather, video, file-write, and browser-order requests", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       const cases = [
         responseWithIntents([
@@ -1684,20 +1702,6 @@ describe("classifyDeterministicIntents", () => {
             rawEntities: ["YouTube video"],
             missingSlots: [],
             canRunInParallel: true,
-          },
-        ]),
-        responseWithIntents([
-          {
-            intentId: "notes.note_update",
-            mode: "write",
-            confidence: 0.94,
-            entities: {
-              note_query: "Large Desk OpenGrid and Underware Project",
-              change_request: "append today's measurements",
-            },
-            rawEntities: ["Large Desk OpenGrid and Underware Project", "today's measurements"],
-            missingSlots: [],
-            canRunInParallel: false,
           },
         ]),
         responseWithIntents([
@@ -1765,10 +1769,6 @@ describe("classifyDeterministicIntents", () => {
       {
         input: "Summarize this YouTube video for me: https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         expectedIntents: ["research.video_read"],
-      },
-      {
-        input: "Update the desk project note with today's measurements.",
-        expectedIntents: ["notes.note_update"],
       },
       {
         input: "Move the newest STL from Downloads into the 3d-printing folder.",
