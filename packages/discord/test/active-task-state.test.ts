@@ -147,6 +147,72 @@ describe("active task state", () => {
     });
   });
 
+  it("preserves resolved entities from deterministic turns when creating assistant-offer tasks", () => {
+    const plan = buildActiveTaskPersistencePlan({
+      sessionId: "project:docs",
+      agentId: "watson",
+      userMessage: "Review this Google Doc and then turn it into a creative brief I can share.",
+      responseText: "Want me to turn that into a one-page creative brief you could share with a designer or copywriter?",
+      existingTasks: [],
+      continuation: {
+        kind: "none",
+        matchedTask: null,
+        effectiveUserMessage: "Review this Google Doc and then turn it into a creative brief I can share.",
+      },
+      deterministicTurn: {
+        state: {
+          auth: {
+            initiatingPrincipalId: "user:1",
+            leadAgentPrincipalId: "agent:watson",
+            delegationChain: ["user:1", "agent:watson", "worker:personal-assistant"],
+          },
+          intent: {
+            envelopes: [
+              {
+                id: "intent-1",
+                domain: "docs",
+                intentId: "docs.google_doc_read_or_update",
+                mode: "read",
+                confidence: 0.98,
+                entities: {
+                  doc_query: "https://docs.google.com/document/d/example-doc-id/edit?tab=t.0",
+                  supporting_docs: ["https://docs.google.com/document/d/example-support-id/edit"],
+                },
+                rawEntities: ["https://docs.google.com/document/d/example-doc-id/edit?tab=t.0"],
+                missingSlots: [],
+                canRunInParallel: false,
+                routeHint: { kind: "worker", targetId: "personal-assistant" },
+              },
+            ],
+          },
+          routing: {
+            clarificationNeeded: false,
+            routeOutcome: "executed",
+          },
+          execution: {
+            receipts: [receipt({ intentId: "docs.google_doc_read_or_update", workerId: "personal-assistant" })],
+            completed: true,
+            partialFailure: false,
+          },
+          narration: {},
+        },
+        receipts: [receipt({ intentId: "docs.google_doc_read_or_update", workerId: "personal-assistant" })],
+      },
+      requestMessageId: 101,
+      responseMessageId: 102,
+    });
+
+    expect(plan.upserts).toHaveLength(1);
+    expect(plan.upserts[0]?.structuredContext).toMatchObject({
+      source: "assistant-offer",
+      routeOutcome: "executed",
+      latestResolvedEntities: {
+        doc_query: "https://docs.google.com/document/d/example-doc-id/edit?tab=t.0",
+        supporting_docs: ["https://docs.google.com/document/d/example-support-id/edit"],
+      },
+    });
+  });
+
   it("extracts clarification tasks from multi-paragraph deterministic replies", () => {
     const plan = buildActiveTaskPersistencePlan({
       sessionId: "project:wellness",
