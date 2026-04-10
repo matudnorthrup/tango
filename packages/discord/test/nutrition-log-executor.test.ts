@@ -174,6 +174,153 @@ describe("executeNutritionLogItems", () => {
     });
   });
 
+  it("uses the FatSecret batch path when available", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Light Vanilla Greek Yogurt",
+        food_id: "1001",
+        serving_id: "2001",
+        serving_description: "100 g",
+        serving_size: "100 g",
+        grams_per_serving: 100,
+        calories: 60,
+        protein: 10,
+        carbs: 5,
+        fat: 0,
+        aliases: JSON.stringify(["light vanilla greek yogurt", "greek yogurt"]),
+      },
+      {
+        name: "PB Powder",
+        food_id: "1002",
+        serving_id: "2002",
+        serving_description: "1 tbsp",
+        serving_size: "1 tbsp",
+        grams_per_serving: 6,
+        calories: 25,
+        protein: 3,
+        carbs: 2,
+        fat: 1,
+        aliases: JSON.stringify(["pb powder", "peanut butter powder"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn();
+    const fatsecretBatchCall = vi.fn(async (calls: Array<{ method: string; params?: Record<string, unknown> }>) => {
+      expect(calls).toHaveLength(3);
+      expect(calls[0]).toMatchObject({
+        method: "food_entry_create",
+        params: {
+          food_id: "1001",
+          serving_id: "2001",
+          number_of_units: 100,
+          meal: "other",
+          date: "2026-04-09",
+        },
+      });
+      expect(calls[1]).toMatchObject({
+        method: "food_entry_create",
+        params: {
+          food_id: "1002",
+          serving_id: "2002",
+          number_of_units: 2,
+          meal: "other",
+          date: "2026-04-09",
+        },
+      });
+      expect(calls[2]).toMatchObject({
+        method: "food_entries_get",
+        params: { date: "2026-04-09" },
+      });
+      return [
+        { ok: true, result: { success: true, food_entry_id: "1001-entry" } },
+        { ok: true, result: { success: true, food_entry_id: "1002-entry" } },
+        { ok: true, result: { other: [{ food_entry_id: "1001-entry" }, { food_entry_id: "1002-entry" }] } },
+      ];
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [
+          { name: "light vanilla greek yogurt", quantity: "100g" },
+          { name: "pb powder", quantity: "12g" },
+        ],
+        meal: "other",
+        date: "2026-04-09",
+      },
+      {
+        atlasDbPath,
+        fatsecretCall,
+        fatsecretBatchCall,
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "confirmed",
+    });
+    expect(result.logged).toHaveLength(2);
+    expect(fatsecretBatchCall).toHaveBeenCalledTimes(1);
+    expect(fatsecretCall).not.toHaveBeenCalled();
+  });
+
+  it("falls back to individual FatSecret calls when the batch path fails", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Light Vanilla Greek Yogurt",
+        food_id: "1001",
+        serving_id: "2001",
+        serving_description: "100 g",
+        serving_size: "100 g",
+        grams_per_serving: 100,
+        calories: 60,
+        protein: 10,
+        carbs: 5,
+        fat: 0,
+        aliases: JSON.stringify(["light vanilla greek yogurt", "greek yogurt"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return {
+          success: true,
+          food_entry_id: `${params.food_id}-entry`,
+        };
+      }
+      if (method === "food_entries_get") {
+        return {
+          other: [{ food_entry_id: "1001-entry" }],
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+    const fatsecretBatchCall = vi.fn(async () => {
+      throw new Error("python batch helper unavailable");
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "light vanilla greek yogurt", quantity: "100g" }],
+        meal: "other",
+        date: "2026-04-09",
+      },
+      {
+        atlasDbPath,
+        fatsecretCall,
+        fatsecretBatchCall,
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "confirmed",
+    });
+    expect(result.errors).toEqual([]);
+    expect(fatsecretBatchCall).toHaveBeenCalledTimes(1);
+    expect(fatsecretCall.mock.calls.map(([method]) => method)).toEqual([
+      "food_entry_create",
+      "food_entries_get",
+    ]);
+  });
+
   it("returns needs_clarification without writing when strict mode hits an Atlas miss", async () => {
     const atlasDbPath = createAtlasDb([
       {
