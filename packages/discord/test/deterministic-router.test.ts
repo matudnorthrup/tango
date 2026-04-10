@@ -1913,6 +1913,87 @@ describe("deterministic router", () => {
     );
   });
 
+  it("narrows docs and nutrition logging intents to the high-level executors", () => {
+    const registry = createRegistry();
+    const malibuCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "malibu",
+      projectId: "wellness",
+      domain: "wellness",
+    });
+    const watsonCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "watson",
+    });
+
+    const nutritionResult = buildDeterministicExecutionPlan({
+      userMessage: "Log 100g light vanilla greek yogurt and 12g pb powder as a snack.",
+      envelopes: [
+        makeEnvelope({
+          intentId: "nutrition.log_food",
+          mode: "write",
+          entities: { items: ["light vanilla greek yogurt", "pb powder"], meal: "other" },
+        }),
+      ],
+      catalog: malibuCatalog,
+      registry,
+    });
+
+    const recipeResult = buildDeterministicExecutionPlan({
+      userMessage: "Log Taco Tuesday for dinner with corn tortillas.",
+      envelopes: [
+        makeEnvelope({
+          intentId: "nutrition.log_recipe",
+          mode: "write",
+          entities: { recipe_query: "Taco Tuesday", meal: "dinner" },
+        }),
+      ],
+      catalog: malibuCatalog,
+      registry,
+    });
+
+    const docsResult = buildDeterministicExecutionPlan({
+      userMessage: "Update the draft tab in that Google Doc with the new headline and hero copy.",
+      envelopes: [
+        makeEnvelope({
+          intentId: "docs.google_doc_read_or_update",
+          mode: "mixed",
+          domain: "docs",
+          entities: {
+            doc_query: "https://docs.google.com/document/d/1abcDocId/edit?tab=t.target",
+            change_request: "Replace the headline and hero copy in the target tab.",
+          },
+        }),
+      ],
+      catalog: watsonCatalog,
+      registry,
+    });
+
+    expect(nutritionResult.plan?.steps[0]?.allowedToolIds).toEqual([
+      "recipe_read",
+      "nutrition_log_items",
+      "fatsecret_api",
+    ]);
+    expect(nutritionResult.plan?.steps[0]?.task).toContain(
+      "start with nutrition_log_items",
+    );
+    expect(recipeResult.plan?.steps[0]?.allowedToolIds).toEqual([
+      "recipe_read",
+      "nutrition_log_items",
+      "fatsecret_api",
+    ]);
+    expect(recipeResult.plan?.steps[0]?.task).toContain(
+      "use recipe_read first, expand the ingredient list, and then pass the concrete ingredient items to nutrition_log_items in one batch",
+    );
+    expect(docsResult.plan?.steps[0]?.allowedToolIds).toEqual([
+      "gog_docs_update_tab",
+      "gog_docs",
+    ]);
+    expect(docsResult.plan?.steps[0]?.task).toContain(
+      "prefer gog_docs_update_tab",
+    );
+  });
+
   it("normalizes reimbursement email-account aliases before worker execution", () => {
     const registry = createRegistry();
     const catalog = getDeterministicIntentCatalog({

@@ -13,6 +13,7 @@ tool_contract_ids:
   - gog_email
   - gog_calendar
   - gog_docs
+  - gog_docs_update_tab
   - obsidian
   - health_morning
   - lunch_money

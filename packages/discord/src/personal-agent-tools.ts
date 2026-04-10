@@ -22,6 +22,7 @@ import {
   listWalmartDeliveryCandidates,
   upsertWalmartReimbursementTracking,
 } from "./receipt-reimbursement-registry.js";
+import { executeGoogleDocTabUpdate } from "./google-doc-update-executor.js";
 
 // ---------------------------------------------------------------------------
 // Command runner (shared)
@@ -73,6 +74,20 @@ async function runCommand(
   const result = await execCommand(command, args, timeoutMs, env);
   if (result.code !== 0 && result.stderr) {
     return `Error (exit ${result.code}): ${result.stderr.trim()}\n${result.stdout.trim()}`.trim();
+  }
+  return result.stdout.trim();
+}
+
+async function runRequiredCommand(
+  command: string,
+  args: string[],
+  timeoutMs = 30_000,
+  env?: Record<string, string>,
+): Promise<string> {
+  const result = await execCommand(command, args, timeoutMs, env);
+  if (result.code !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`;
+    throw new Error(`${command} ${args.join(" ")} failed: ${detail}`);
   }
   return result.stdout.trim();
 }
@@ -830,6 +845,7 @@ export function createDocsTools(overrides?: PersonalToolPaths): AgentTool[] {
       name: "gog_docs",
       description: [
         "Run Google Docs operations via the gog CLI. Supports list, read, create, write, insert, rename, delete, share, export.",
+        "Use gog_docs_update_tab instead when you already know the exact doc, tab, account, and edits.",
         "",
         "Commands:",
         "  gog docs list [--account <email>]",
@@ -879,6 +895,72 @@ export function createDocsTools(overrides?: PersonalToolPaths): AgentTool[] {
         const stdout = await runCommand(paths.gogCommand, args, 60_000);
         return { result: stdout };
       },
+    },
+    {
+      name: "gog_docs_update_tab",
+      description: [
+        "High-level Google Docs tab updater for targeted edit batches.",
+        "Use this instead of many separate gog_docs reads/writes when you already know the doc, tab, and exact edits.",
+        "It reads the target tab once, applies the replacement batch or full content write, then verifies the same tab before returning.",
+        "",
+        "Inputs:",
+        "  doc: Google Doc id or full Google Docs URL",
+        "  tab: tab id or full Google Docs URL with ?tab=...",
+        "  account: Google account email to use",
+        "  replacements?: [{ find, replace, first? }]",
+        "  content?: full replacement text for the tab",
+        "  verify_contains?: snippets that must appear in the verified tab after the write",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          doc: { type: "string" },
+          tab: { type: "string" },
+          account: { type: "string" },
+          replacements: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                find: { type: "string" },
+                replace: { type: "string" },
+                first: { type: "boolean" },
+              },
+              required: ["find", "replace"],
+            },
+          },
+          content: { type: "string" },
+          verify_contains: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+        required: ["doc", "tab", "account"],
+      },
+      handler: async (input) => ({
+        result: await executeGoogleDocTabUpdate(
+          {
+            doc: String(input.doc),
+            tab: String(input.tab),
+            account: String(input.account),
+            replacements: Array.isArray(input.replacements)
+              ? input.replacements.map((replacement) => ({
+                  find: String((replacement as Record<string, unknown>).find ?? ""),
+                  replace: String((replacement as Record<string, unknown>).replace ?? ""),
+                  first: Boolean((replacement as Record<string, unknown>).first),
+                }))
+              : undefined,
+            content: typeof input.content === "string" ? input.content : undefined,
+            verify_contains: Array.isArray(input.verify_contains)
+              ? input.verify_contains.map((value) => String(value))
+              : undefined,
+          },
+          {
+            gogCommand: paths.gogCommand,
+            runCommand: (command, args, timeoutMs) => runRequiredCommand(command, args, timeoutMs),
+          },
+        ),
+      }),
     },
   ];
 }

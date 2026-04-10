@@ -2999,6 +2999,8 @@ const voiceTurnExecutor = createDiscordVoiceTurnExecutor(
         agentId,
         limit: 8,
       }),
+    getLatestDeterministicTurnForConversation: (conversationKey) =>
+      storage.getLatestDeterministicTurnForConversation(conversationKey),
     executeWorker: wellnessWorkerDispatcher ?? undefined,
     executeWorkerWithTask: async (workerId, task, _turn, _context, options) => {
       const { executeAgentWorker, loadAgentSoulPrompt } = await import("./agent-worker-bridge.js");

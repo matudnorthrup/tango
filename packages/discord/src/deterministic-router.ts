@@ -116,6 +116,23 @@ function buildExecutionConstraintLines(
           "If Walmart or Ramp requires login or MFA, pause cleanly and report that the managed Brave session needs user authentication.",
         ]
       : [];
+  const nutritionLines =
+    entry.id === "nutrition.log_food" || entry.id === "nutrition.log_recipe"
+      ? [
+          "For straightforward meal logs with concrete foods and quantities, start with nutrition_log_items.",
+          "If this is a recipe or recurring meal, use recipe_read first, expand the ingredient list, and then pass the concrete ingredient items to nutrition_log_items in one batch.",
+          "Use fatsecret_api only when nutrition_log_items returns unresolved items or when the task is explicitly a repair/debug flow.",
+          "If the user named a recipe or dish, resolve it with recipe_read before logging ingredient items.",
+        ]
+      : [];
+  const docsLines =
+    entry.id === "docs.google_doc_read_or_update"
+      ? [
+          "When the target doc, tab, and edits are already clear, prefer gog_docs_update_tab over many separate Google Docs calls.",
+          "Use raw gog_docs for tab discovery, exploratory reads, exports, copies, or uncommon document operations.",
+          "Do not claim the write landed unless the target tab was verified after the edit.",
+        ]
+      : [];
 
   if (allowedToolIds && allowedToolIds.length > 0) {
     return [
@@ -123,6 +140,8 @@ function buildExecutionConstraintLines(
       "Stay inside those tools unless the runtime reruns you with additional recovered bootstrap context.",
       ...productSelectionLines,
       ...deepResearchLines,
+      ...nutritionLines,
+      ...docsLines,
       ...reimbursementLines,
       ...(
         excludedToolIds?.includes("browser")
@@ -137,6 +156,8 @@ function buildExecutionConstraintLines(
       "The browser tool is intentionally unavailable for this intent. Use non-browser tools only.",
       ...productSelectionLines,
       ...deepResearchLines,
+      ...nutritionLines,
+      ...docsLines,
       ...reimbursementLines,
       ...(
         entry.id === "printing.job_prepare_or_start" && isPreviewOnlyRequest(userMessage, envelope)
@@ -156,11 +177,13 @@ function buildExecutionConstraintLines(
       "You may inspect printer state and prepare local artifacts, but any mutating `printer_command` action must be invoked with `dry_run: true`.",
       "Summarize what is ready or what would happen next without causing printer-side effects.",
       ...deepResearchLines,
+      ...nutritionLines,
+      ...docsLines,
       ...reimbursementLines,
     ];
   }
 
-  return [...productSelectionLines, ...deepResearchLines, ...reimbursementLines];
+  return [...productSelectionLines, ...deepResearchLines, ...nutritionLines, ...docsLines, ...reimbursementLines];
 }
 
 function normalizeEntityString(value: unknown): string | null {
@@ -423,6 +446,12 @@ function resolveExcludedToolIds(entry: DeterministicIntentCatalogEntry): string[
 }
 
 function resolveAllowedToolIds(entry: DeterministicIntentCatalogEntry): string[] | undefined {
+  if (entry.id === "nutrition.log_food" || entry.id === "nutrition.log_recipe") {
+    return ["recipe_read", "nutrition_log_items", "fatsecret_api"];
+  }
+  if (entry.id === "docs.google_doc_read_or_update") {
+    return ["gog_docs_update_tab", "gog_docs"];
+  }
   if (entry.id === "shopping.browser_order_action" || entry.id === "shopping.browser_order_lookup") {
     return ["walmart", "browser", "onepassword"];
   }

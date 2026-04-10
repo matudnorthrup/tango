@@ -12,7 +12,7 @@ Google Docs operations through the `gog` CLI. Follows the same pattern as `gog_e
 
 ## Extracting doc IDs from URLs
 
-When given a Google Docs URL like `https://docs.google.com/document/d/<docId>/edit`, extract the `<docId>` segment and use it with `gog_docs` commands. **Always use this tool for Google Docs operations — never use the browser tool to visit docs.google.com URLs.**
+When given a Google Docs URL like `https://docs.google.com/document/d/<docId>/edit`, extract the `<docId>` segment and use it with `gog_docs` commands. **Use `gog_docs` or `gog_docs_update_tab` for Google Docs operations — never use the browser tool to visit docs.google.com URLs.**
 
 If the URL contains a tab parameter (e.g., `?tab=t.abc123`), note the tab. Use the doc ID for all commands, use `--tab <tabIdOrTitle>` when reading that tab, and use `--tab-id <tabId>` for write/insert operations that should target an existing tab.
 
@@ -51,6 +51,10 @@ If the URL contains a tab parameter (e.g., `?tab=t.abc123`), note the tab. Use t
 - `docs comments <subcommand> [--account <email>]` — Manage comments on files.
 
 ## Editing best practices
+
+When you already know the target doc, target tab, account, and exact edits:
+- Prefer `gog_docs_update_tab` over orchestrating many separate `gog_docs` calls.
+- Use raw `gog_docs` for exploration, tab discovery, one-off reads, exports, copies, or uncommon edits that do not fit the high-level updater.
 
 When the user already provided a Google Docs URL or document ID:
 - Use that exact document directly. Do not browse for alternate docs first.

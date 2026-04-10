@@ -2,6 +2,7 @@ import type {
   ActiveTaskRecord,
   CapabilityRegistry,
   ChatProvider,
+  DeterministicTurnRecord,
   OrchestratorContinuityMode,
   ProviderReasoningEffort,
   ProviderResponse,
@@ -43,7 +44,8 @@ import {
 import {
   classifyDeterministicIntents,
   type DeterministicIntentCatalogEntry,
-  type DeterministicIntentClassification
+  type DeterministicIntentClassification,
+  type IntentEnvelope,
 } from "./intent-classifier.js";
 import {
   renderActiveTasksContext,
@@ -187,6 +189,7 @@ export interface DiscordTurnExecutionDependencies {
   /** Orchestrator-directed dispatch: worker runs with explicit task from orchestrator */
   executeWorkerWithTask?: WorkerTaskHandler;
   listActiveTasks?: (sessionId: string, agentId: string) => ActiveTaskRecord[];
+  getLatestDeterministicTurnForConversation?: (conversationKey: string) => DeterministicTurnRecord | null;
 }
 
 export type WorkerReportHandler = (
@@ -257,6 +260,225 @@ function stripWorkerDispatchTags(text: string): string {
 function appendSystemPrompt(base: string | undefined, extra: string): string {
   const parts = [base?.trim(), extra.trim()].filter((value) => Boolean(value && value.length > 0));
   return parts.join("\n\n");
+}
+
+const RECENT_INTENT_REUSE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const GENERIC_CONTINUATION_PATTERN =
+  /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please do|go ahead|do that|try again|retry|running again|run it again|continue|go for it|proceed|same|same thing|same flow|use this|use this one|use this tab|here|here you go|this one)\b/iu;
+const GENERIC_DEICTIC_PATTERN =
+  /\b(?:that|it|this|same|again|the one|this tab|this doc|same flow|same meal)\b/iu;
+const DOCS_CONTINUATION_PATTERN =
+  /docs\.google\.com\/document\/d\/|\b(?:doc|docs|tab|section|headline|copy|replace|rewrite|edit|update|write)\b/iu;
+const NUTRITION_CONTINUATION_PATTERN =
+  /\b(?:breakfast|lunch|dinner|snack|meal|recipe|food|foods|log|track|calories?|protein|carbs?|fat|grams?|oz|tbsp|tsp|cup|cups)\b/iu;
+
+function normalizeWhitespace(text: string): string {
+  return text.trim().replace(/\s+/gu, " ");
+}
+
+function parseIsoTimestampMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function extractSingleGoogleDocReference(text: string): string | null {
+  const matches = [...text.matchAll(/https?:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]+[^\s)"]*/giu)]
+    .map((match) => match[0]?.trim())
+    .filter((value): value is string => Boolean(value));
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
+function extractMealEntity(text: string): string | null {
+  const normalized = text.toLowerCase();
+  if (/\bbreakfast\b/u.test(normalized)) return "breakfast";
+  if (/\blunch\b/u.test(normalized)) return "lunch";
+  if (/\bdinner\b/u.test(normalized)) return "dinner";
+  if (/\bsnack\b/u.test(normalized)) return "other";
+  return null;
+}
+
+function parseIntentEnvelopeArray(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === "object" && !Array.isArray(item),
+  );
+}
+
+function parseIntentEnvelopeRecord(
+  value: Record<string, unknown>,
+): IntentEnvelope | null {
+  const intentId = typeof value.intentId === "string" ? value.intentId : null;
+  if (!intentId) {
+    return null;
+  }
+  const mode =
+    value.mode === "read" || value.mode === "write" || value.mode === "mixed"
+      ? value.mode
+      : "read";
+  const entities =
+    value.entities && typeof value.entities === "object" && !Array.isArray(value.entities)
+      ? { ...(value.entities as Record<string, unknown>) }
+      : {};
+  const rawEntities = Array.isArray(value.rawEntities)
+    ? value.rawEntities.map((item) => (typeof item === "string" ? item.trim() : "")).filter((item) => item.length > 0)
+    : [];
+  const missingSlots = Array.isArray(value.missingSlots)
+    ? value.missingSlots.map((item) => (typeof item === "string" ? item.trim() : "")).filter((item) => item.length > 0)
+    : [];
+  const routeHint: IntentEnvelope["routeHint"] =
+    value.routeHint && typeof value.routeHint === "object" && !Array.isArray(value.routeHint)
+      ? (() => {
+          const record = value.routeHint as Record<string, unknown>;
+          const kind =
+            record.kind === "workflow"
+              ? "workflow"
+              : record.kind === "worker"
+                ? "worker"
+                : null;
+          if (
+            kind
+            && typeof record.targetId === "string"
+            && record.targetId.trim().length > 0
+          ) {
+            return {
+              kind,
+              targetId: record.targetId.trim(),
+            };
+          }
+          return undefined;
+        })()
+      : undefined;
+
+  return {
+    id: typeof value.id === "string" && value.id.trim().length > 0 ? value.id.trim() : "intent-1",
+    domain: typeof value.domain === "string" && value.domain.trim().length > 0 ? value.domain.trim() : "unknown",
+    intentId,
+    mode,
+    confidence: typeof value.confidence === "number" ? value.confidence : 1,
+    entities,
+    rawEntities,
+    missingSlots,
+    canRunInParallel: typeof value.canRunInParallel === "boolean" ? value.canRunInParallel : true,
+    routeHint,
+  };
+}
+
+function isLikelyContinuationForIntent(intentId: string, userMessage: string): boolean {
+  const normalized = normalizeWhitespace(userMessage);
+  if (!normalized) {
+    return false;
+  }
+  const genericFollowUp =
+    GENERIC_CONTINUATION_PATTERN.test(normalized)
+    || GENERIC_DEICTIC_PATTERN.test(normalized)
+    || (normalized.length <= 96 && !normalized.includes("?"));
+  if (!genericFollowUp) {
+    return false;
+  }
+  if (intentId === "docs.google_doc_read_or_update") {
+    return DOCS_CONTINUATION_PATTERN.test(normalized) || extractSingleGoogleDocReference(normalized) !== null;
+  }
+  if (intentId === "nutrition.log_food" || intentId === "nutrition.log_recipe" || intentId === "nutrition.check_budget") {
+    return NUTRITION_CONTINUATION_PATTERN.test(normalized) || genericFollowUp;
+  }
+  return false;
+}
+
+function mergeContinuationEntities(
+  intentId: string,
+  priorEntities: Record<string, unknown>,
+  userMessage: string,
+): Record<string, unknown> {
+  const merged = { ...priorEntities };
+  if (intentId === "docs.google_doc_read_or_update") {
+    const docReference = extractSingleGoogleDocReference(userMessage);
+    if (docReference) {
+      merged.doc_query = docReference;
+    }
+  }
+  if (intentId === "nutrition.log_food" || intentId === "nutrition.log_recipe") {
+    const meal = extractMealEntity(userMessage);
+    if (meal) {
+      merged.meal = meal;
+    }
+  }
+  return merged;
+}
+
+function buildConversationAffinityClassification(input: {
+  latestTurn: DeterministicTurnRecord | null;
+  userMessage: string;
+  confidenceThreshold: number;
+}): DeterministicIntentClassification | null {
+  const latestTurn = input.latestTurn;
+  if (!latestTurn) {
+    return null;
+  }
+  if (latestTurn.routeOutcome !== "executed" && latestTurn.routeOutcome !== "clarification") {
+    return null;
+  }
+  const createdAtMs = parseIsoTimestampMs(latestTurn.createdAt);
+  if (!createdAtMs || Date.now() - createdAtMs > RECENT_INTENT_REUSE_MAX_AGE_MS) {
+    return null;
+  }
+  const envelopes = parseIntentEnvelopeArray(latestTurn.intentJson)
+    .map((envelope) => parseIntentEnvelopeRecord(envelope))
+    .filter((envelope): envelope is NonNullable<typeof envelope> => Boolean(envelope));
+  if (envelopes.length !== 1) {
+    return null;
+  }
+  const priorEnvelope = envelopes[0];
+  if (!priorEnvelope) {
+    return null;
+  }
+  if (!isLikelyContinuationForIntent(priorEnvelope.intentId, input.userMessage)) {
+    return null;
+  }
+
+  const mergedEntities = mergeContinuationEntities(
+    priorEnvelope.intentId,
+    priorEnvelope.entities,
+    input.userMessage,
+  );
+  const docReference = priorEnvelope.intentId === "docs.google_doc_read_or_update"
+    ? extractSingleGoogleDocReference(input.userMessage)
+    : null;
+  const rawEntities = docReference
+    ? [...new Set([...priorEnvelope.rawEntities, docReference])]
+    : [...priorEnvelope.rawEntities];
+
+  return {
+    envelopes: [
+      {
+        ...priorEnvelope,
+        confidence: Math.max(input.confidenceThreshold, 1),
+        entities: mergedEntities,
+        rawEntities,
+        missingSlots: [],
+      },
+    ],
+    meetsThreshold: true,
+    providerName: "conversation-affinity",
+    usedFailover: false,
+    requestPrompt: "",
+    systemPrompt: "",
+    response: {
+      text: "",
+      metadata: {
+        model: "conversation-affinity",
+      },
+    },
+    responseText: "",
+    attemptCount: 0,
+    attemptErrors: [],
+    failures: [],
+  };
 }
 
 function hasDispatchCapability(context: DiscordTurnExecutionContext): boolean {
@@ -814,12 +1036,22 @@ export async function executeDiscordTurn(
         const classificationStartedAt = Date.now();
         const explicitIntentIds =
           deterministicConfig.explicitIntentIds?.filter((intentId) => intentId.trim().length > 0) ?? [];
+        const conversationAffinityClassification =
+          explicitIntentIds.length === 0 && activeTaskResolution.kind === "none"
+            ? buildConversationAffinityClassification({
+                latestTurn: dependencies.getLatestDeterministicTurnForConversation?.(input.context.conversationKey) ?? null,
+                userMessage: input.turn.transcript,
+                confidenceThreshold: deterministicConfig.confidenceThreshold,
+              })
+            : null;
         const classification =
           explicitIntentIds.length > 0
             ? buildExplicitDeterministicClassification({
                 intentIds: explicitIntentIds,
                 catalog: intentCatalog,
               })
+            : conversationAffinityClassification
+              ? conversationAffinityClassification
             : await classifyDeterministicIntents({
                 userMessage: effectiveUserMessage,
                 catalog: intentCatalog,

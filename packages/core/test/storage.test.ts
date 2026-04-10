@@ -215,6 +215,40 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds high-level docs and nutrition executor governance on fresh storage", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const nutritionTool = db.prepare(
+      "SELECT id, access_type FROM governance_tools WHERE id = 'nutrition_log_items'",
+    ).get() as { id: string; access_type: string } | undefined;
+    const nutritionPermission = db.prepare(
+      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'worker:nutrition-logger' AND tool_id = 'nutrition_log_items'",
+    ).get() as { principal_id: string; tool_id: string; access_level: string } | undefined;
+    const docsTool = db.prepare(
+      "SELECT id, access_type FROM governance_tools WHERE id = 'gog_docs_update_tab'",
+    ).get() as { id: string; access_type: string } | undefined;
+    const docsPermission = db.prepare(
+      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'worker:personal-assistant' AND tool_id = 'gog_docs_update_tab'",
+    ).get() as { principal_id: string; tool_id: string; access_level: string } | undefined;
+
+    expect(nutritionTool).toEqual({ id: "nutrition_log_items", access_type: "write" });
+    expect(nutritionPermission).toEqual({
+      principal_id: "worker:nutrition-logger",
+      tool_id: "nutrition_log_items",
+      access_level: "write",
+    });
+    expect(docsTool).toEqual({ id: "gog_docs_update_tab", access_type: "write" });
+    expect(docsPermission).toEqual({
+      principal_id: "worker:personal-assistant",
+      tool_id: "gog_docs_update_tab",
+      access_level: "write",
+    });
+
+    db.close();
+  });
+
   it("lists recoverable discord inbound messages that never reached execution", () => {
     const { storage } = createStorage();
     storage.bootstrapSessions([
@@ -595,6 +629,46 @@ describe("TangoStorage", () => {
         warnings: [],
       },
     ]);
+
+    storage.close();
+  });
+
+  it("returns the latest deterministic turn for a conversation", () => {
+    const { storage } = createStorage();
+    storage.bootstrapSessions([
+      {
+        id: "topic:docs",
+        type: "topic",
+        agent: "watson",
+        channels: ["discord:docs"],
+      },
+    ]);
+
+    storage.insertDeterministicTurn({
+      id: "turn-older",
+      sessionId: "topic:docs",
+      agentId: "watson",
+      conversationKey: "topic:docs:watson",
+      initiatingPrincipalId: "user:user-1",
+      leadAgentPrincipalId: "agent:watson",
+      intentIds: ["docs.google_doc_read_or_update"],
+      intentJson: [{ intentId: "docs.google_doc_read_or_update", entities: { doc_query: "old-doc" } }],
+      routeOutcome: "executed",
+    });
+
+    storage.insertDeterministicTurn({
+      id: "turn-newer",
+      sessionId: "topic:docs",
+      agentId: "watson",
+      conversationKey: "topic:docs:watson",
+      initiatingPrincipalId: "user:user-1",
+      leadAgentPrincipalId: "agent:watson",
+      intentIds: ["docs.google_doc_read_or_update"],
+      intentJson: [{ intentId: "docs.google_doc_read_or_update", entities: { doc_query: "new-doc" } }],
+      routeOutcome: "executed",
+    });
+
+    expect(storage.getLatestDeterministicTurnForConversation("topic:docs:watson")?.id).toBe("turn-newer");
 
     storage.close();
   });

@@ -18,9 +18,18 @@ If the user names a dish that could be a saved recipe (e.g., "protein yogurt bow
 2. If a match is found, use the recipe's ingredient list as the items to log. Each ingredient line has a gram amount and often an Atlas-linked food_id.
 3. If no match is found, proceed to resolve the food as individual ingredients.
 
-### Step 2: Atlas lookup
+### Step 2: High-level Atlas-backed logging
 
-For each ingredient or food item to log:
+When you already have a concrete ingredient list with quantities:
+
+1. Prefer `nutrition_log_items` as the primary write path.
+2. For named recipes, call `recipe_read`, expand the recipe into concrete ingredient items, then pass that full list to `nutrition_log_items` in one batch.
+3. If `nutrition_log_items` returns unresolved items, only then drop to the lower-level Atlas/FatSecret workflow for those remaining items.
+4. If `nutrition_log_items` returns a structural runtime error or `blocked` with no logged entries, stop and report that failure cleanly. Do not spray low-level `fatsecret_api` retries with guessed or empty params.
+
+### Step 3: Atlas lookup (fallback for unresolved items)
+
+For each ingredient or food item still unresolved after `nutrition_log_items`:
 
 1. Query `atlas_sql` — search by name, aliases, and brand:
    ```sql
@@ -32,7 +41,7 @@ For each ingredient or food item to log:
 4. If the Atlas row uses a gram-based serving (`serving_size: 46g`, `84g`, `100 g`, etc.) or the serving semantics are otherwise unclear, call `fatsecret_api` with `method: "food_get"` for that `food_id` before writing so you can verify whether FatSecret expects grams directly or fractional servings.
 5. If Atlas has multiple matches, pick the one whose name/brand best fits the user's description. If genuinely ambiguous, report it as unresolved and ask.
 
-### Step 3: FatSecret search (fallback only)
+### Step 4: FatSecret search (fallback only)
 
 Only if Atlas has no match for an ingredient:
 
@@ -41,7 +50,7 @@ Only if Atlas has no match for an ingredient:
 3. If needed, call `food_get` to inspect serving details before logging.
 4. After logging, consider adding the ingredient to Atlas for next time (if it's something the user eats regularly).
 
-### Step 4: Log to FatSecret
+### Step 5: Log to FatSecret
 
 For each resolved ingredient, call `food_entry_create` with:
 - `food_id` and `serving_id` from Atlas or FatSecret
@@ -68,7 +77,7 @@ If `fatsecret_api` returns a generic cancellation or other opaque failure while 
 
 ## Rules
 
-- **Never skip the cascade.** Atlas exists so the user doesn't have to describe the same food twice. Skipping it means wrong food_ids, wrong servings, wrong macros.
+- **Never skip the cascade.** Use the batch logger first when you have concrete items, then Atlas/FatSecret fallback only for the unresolved remainder.
 - **Never fabricate food data.** If a food can't be found in Atlas or FatSecret, report it as unresolved. Do not invent calories, macros, food_ids, or serving_ids.
 - **Never guess gram conversions.** Use `grams_per_serving` from Atlas or `metric_serving_amount` from FatSecret to compute `number_of_units`. Do not estimate.
 - **Verify serving shape before writes.** If the selected serving might be gram-denominated, inspect `food_get` first and confirm whether `number_of_units` should be grams or fractional servings.

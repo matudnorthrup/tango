@@ -2,6 +2,8 @@
 
 Universal FatSecret API wrapper. Call any supported method with a `method` string and optional `params` object.
 
+Use `nutrition_log_items` as the default write path for routine meal logging when the user already provided the foods and quantities. Keep `fatsecret_api` for readbacks, precise repair work, Atlas misses, or debugging the raw FatSecret surface.
+
 ## Input
 
 ```json

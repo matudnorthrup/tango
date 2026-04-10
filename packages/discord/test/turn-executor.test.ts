@@ -294,6 +294,19 @@ function createDeterministicRegistry(): CapabilityRegistry {
       examples: ["Update today's daily note to mark meal prep complete."],
     },
     {
+      id: "docs.google_doc_read_or_update",
+      domain: "docs",
+      displayName: "Read or Update Google Doc",
+      description: "Read, summarize, or update a specific Google Doc tab.",
+      mode: "write",
+      route: { kind: "worker", targetId: "personal-assistant" },
+      slots: [
+        { name: "doc_query", required: true },
+        { name: "change_request", required: false },
+      ],
+      examples: ["Update this Google Doc tab with the revised homepage copy."],
+    },
+    {
       id: "engineering.repo_status",
       domain: "engineering",
       displayName: "Review Repo Status",
@@ -1445,6 +1458,142 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]?.task).toContain("https://docs.google.com/document/d/abc123/edit");
     expect(workerCalls[0]?.task).toContain("Please add the markdown sections back in so it's easier to scan.");
+  });
+
+  it("reuses the latest same-thread deterministic intent for obvious docs follow-ups", async () => {
+    const provider = new ScriptedProvider(() => ({
+      text: "Updated the requested Google Doc tab.",
+      metadata: { model: "gpt-5.4" },
+    }));
+
+    const workerCalls: Array<{ workerId: string; task: string }> = [];
+    const deterministicRouting = {
+      enabled: true,
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        getLatestDeterministicTurnForConversation: () => ({
+          id: "turn-1",
+          sessionId: "topic:docs",
+          agentId: "watson",
+          conversationKey: "topic:docs:watson",
+          initiatingPrincipalId: "user:user-1",
+          leadAgentPrincipalId: "agent:watson",
+          projectId: null,
+          topicId: "topic-1",
+          intentCount: 1,
+          intentIds: ["docs.google_doc_read_or_update"],
+          intentJson: [
+            {
+              id: "intent-1",
+              domain: "docs",
+              intentId: "docs.google_doc_read_or_update",
+              mode: "write",
+              confidence: 0.96,
+              entities: {
+                doc_query: "https://docs.google.com/document/d/1abcDocId/edit?tab=t.original",
+                account: "devin@latitude.io",
+                change_request: "Update the homepage copy",
+              },
+              rawEntities: ["https://docs.google.com/document/d/1abcDocId/edit?tab=t.original"],
+              missingSlots: [],
+              canRunInParallel: true,
+              routeHint: {
+                kind: "worker",
+                targetId: "personal-assistant",
+              },
+            },
+          ],
+          intentModelRunId: null,
+          routeOutcome: "executed",
+          fallbackReason: null,
+          executionPlanJson: null,
+          stepCount: 1,
+          completedStepCount: 1,
+          failedStepCount: 0,
+          hasWriteOperations: true,
+          workerIds: ["personal-assistant"],
+          delegationChain: ["user:user-1", "agent:watson", "worker:personal-assistant"],
+          receiptsJson: [],
+          narrationProvider: "codex",
+          narrationModel: "gpt-5.4",
+          narrationLatencyMs: 1200,
+          narrationRetried: false,
+          narrationModelRunId: null,
+          intentLatencyMs: 3000,
+          routeLatencyMs: 5,
+          executionLatencyMs: 4000,
+          totalLatencyMs: 8000,
+          requestMessageId: 1,
+          responseMessageId: 2,
+          createdAt: new Date().toISOString(),
+        }),
+        executeWorkerWithTask: async (workerId, task) => {
+          workerCalls.push({ workerId, task });
+          return {
+            operations: [
+              {
+                name: "gog_docs_update_tab",
+                toolNames: ["gog_docs_update_tab"],
+                input: {
+                  doc: "https://docs.google.com/document/d/1abcDocId/edit?tab=t.new",
+                },
+                output: { status: "confirmed" },
+                mode: "write",
+              },
+            ],
+            hasWriteOperations: true,
+            data: {
+              workerText: "Updated the requested Google Doc tab.",
+            },
+          };
+        },
+      },
+      () => ({
+        conversationKey: "topic:docs:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "topic:docs",
+        agentId: "watson",
+        transcript: "use this tab instead https://docs.google.com/document/d/1abcDocId/edit?tab=t.new",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "topic:docs:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      },
+    );
+
+    expect(result.responseText).toContain("Updated the requested Google Doc tab.");
+    expect(result.deterministicTurn?.state.intent.classifierProvider).toBe("conversation-affinity");
+    expect(workerCalls).toHaveLength(1);
+    expect(workerCalls[0]?.workerId).toBe("personal-assistant");
+    expect(workerCalls[0]?.task).toContain("docs.google_doc_read_or_update");
+    expect(workerCalls[0]?.task).toContain("https://docs.google.com/document/d/1abcDocId/edit?tab=t.new");
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
   });
 
   it("does not let deterministic write narration claim success when the worker still needs clarification", async () => {
