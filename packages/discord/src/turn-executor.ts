@@ -273,8 +273,13 @@ const GENERIC_DEICTIC_PATTERN =
   /\b(?:that|it|this|same|again|the one|this tab|this doc|same flow|same meal)\b/iu;
 const DOCS_CONTINUATION_PATTERN =
   /docs\.google\.com\/document\/d\/|\b(?:doc|docs|tab|section|headline|copy|replace|rewrite|edit|update|write)\b/iu;
-const NUTRITION_CONTINUATION_PATTERN =
-  /\b(?:breakfast|lunch|dinner|snack|meal|recipe|food|foods|log|track|calories?|protein|carbs?|fat|grams?|oz|tbsp|tsp|cup|cups)\b/iu;
+const NUTRITION_LOG_FOOD_CONTINUATION_PATTERN =
+  /\b(?:breakfast|lunch|dinner|snack|meal|food|foods|log|track|calories?|protein|carbs?|fat|grams?|oz|tbsp|tsp|cup|cups|serving|portion)\b/iu;
+const NUTRITION_LOG_RECIPE_CONTINUATION_PATTERN =
+  /\b(?:recipe|ingredients?|instructions?|notes?|servings?|portion|double|halve|scale|update|edit|rewrite|change)\b/iu;
+const NUTRITION_CHECK_BUDGET_CONTINUATION_PATTERN =
+  /\b(?:calories?|protein|carbs?|fat|fiber|budget|remaining|left|today|tonight|room)\b/iu;
+const CROSS_DOMAIN_REUSE_BLOCKERS = /\b(?:recipe|doc|docs|file|email|calendar|reimbursement|walmart|amazon|slack)\b/iu;
 
 function normalizeWhitespace(text: string): string {
   return text.trim().replace(/\s+/gu, " ");
@@ -388,8 +393,17 @@ function isLikelyContinuationForIntent(intentId: string, userMessage: string): b
   if (intentId === "docs.google_doc_read_or_update") {
     return DOCS_CONTINUATION_PATTERN.test(normalized) || extractSingleGoogleDocReference(normalized) !== null;
   }
-  if (intentId === "nutrition.log_food" || intentId === "nutrition.log_recipe" || intentId === "nutrition.check_budget") {
-    return NUTRITION_CONTINUATION_PATTERN.test(normalized) || genericFollowUp;
+  if (intentId === "nutrition.log_food") {
+    if (/\brecipe\b/iu.test(normalized) && /\b(?:update|edit|rewrite|change)\b/iu.test(normalized)) {
+      return false;
+    }
+    return NUTRITION_LOG_FOOD_CONTINUATION_PATTERN.test(normalized) || (genericFollowUp && !CROSS_DOMAIN_REUSE_BLOCKERS.test(normalized));
+  }
+  if (intentId === "nutrition.log_recipe") {
+    return NUTRITION_LOG_RECIPE_CONTINUATION_PATTERN.test(normalized) || (genericFollowUp && !CROSS_DOMAIN_REUSE_BLOCKERS.test(normalized));
+  }
+  if (intentId === "nutrition.check_budget") {
+    return NUTRITION_CHECK_BUDGET_CONTINUATION_PATTERN.test(normalized) || (genericFollowUp && !CROSS_DOMAIN_REUSE_BLOCKERS.test(normalized));
   }
   return false;
 }
@@ -1888,3 +1902,7 @@ export function createDiscordVoiceTurnExecutor(
     }
   };
 }
+
+export const __testOnly = {
+  isLikelyContinuationForIntent,
+};

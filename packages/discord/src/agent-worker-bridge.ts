@@ -147,6 +147,8 @@ function inferToolMode(
         : "";
       return gogDocsCommandLooksMutating(command) ? "write" : "read";
     }
+    case "gog_docs_update_tab":
+      return "write";
     case "receipt_registry": {
       const action = typeof toolCall.input?.["action"] === "string"
         ? toolCall.input["action"].trim()
