@@ -17,6 +17,9 @@ export interface NutritionLogItemsInput {
 export interface NutritionLogItemsDeps {
   atlasDbPath: string;
   fatsecretCall(method: string, params: Record<string, unknown>): Promise<unknown>;
+  fatsecretBatchCall?(
+    calls: Array<{ method: string; params?: Record<string, unknown> }>,
+  ): Promise<Array<{ ok: boolean; result?: unknown; error?: string }>>;
 }
 
 interface AtlasIngredientRow {
@@ -172,69 +175,14 @@ export async function executeNutritionLogItems(
       };
     }
 
-    const logged: Record<string, unknown>[] = [];
-    const errors: string[] = [];
-
-    const writeResults = await mapWithConcurrencyLimit(
+    const { logged, errors, diaryEntries } = await writeEntriesAndRefreshDiary(
       plannedEntries,
-      FATSECRET_WRITE_CONCURRENCY,
-      async (plannedEntry) => {
-        try {
-          const output = await deps.fatsecretCall("food_entry_create", {
-            food_id: plannedEntry.foodId,
-            food_entry_name: plannedEntry.foodEntryName,
-            serving_id: plannedEntry.servingId,
-            number_of_units: plannedEntry.writeUnits,
-            meal,
-            date,
-          });
-          const outputRecord = asRecord(output);
-          const success = Boolean(outputRecord?.success);
-          if (!success) {
-            return {
-              error: `FatSecret write for ${plannedEntry.input.name} returned a non-success response.`,
-            };
-          }
-          return {
-            logged: {
-              item: plannedEntry.input.name,
-              quantity: plannedEntry.input.quantity,
-              food_entry_name: plannedEntry.foodEntryName,
-              food_entry_id: outputRecord?.food_entry_id ?? null,
-              food_id: plannedEntry.foodId,
-              serving_id: plannedEntry.servingId,
-              number_of_units: plannedEntry.writeUnits,
-              source: "atlas",
-              estimated_macros: estimateMacrosFromAtlas(plannedEntry.row, plannedEntry.macroMultiplier),
-            },
-          };
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          return {
-            error: `FatSecret write for ${plannedEntry.input.name} failed: ${detail}`,
-          };
-        }
+      {
+        meal,
+        date,
       },
+      deps,
     );
-
-    for (const result of writeResults) {
-      if (result?.logged) {
-        logged.push(result.logged);
-      }
-      if (result?.error) {
-        errors.push(result.error);
-      }
-    }
-
-    let diaryEntries: unknown = null;
-    if (logged.length > 0) {
-      try {
-        diaryEntries = await deps.fatsecretCall("food_entries_get", { date });
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        errors.push(`FatSecret diary refresh failed: ${detail}`);
-      }
-    }
 
     const status =
       logged.length === 0
@@ -287,6 +235,184 @@ async function mapWithConcurrencyLimit<T, R>(
   const workerCount = Math.max(1, Math.min(limit, items.length));
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return results;
+}
+
+async function writeEntriesAndRefreshDiary(
+  plannedEntries: PlannedAtlasLogEntry[],
+  context: { meal: string; date: string },
+  deps: NutritionLogItemsDeps,
+): Promise<{
+  logged: Record<string, unknown>[];
+  errors: string[];
+  diaryEntries: unknown;
+}> {
+  if (plannedEntries.length === 0) {
+    return {
+      logged: [],
+      errors: [],
+      diaryEntries: null,
+    };
+  }
+
+  if (deps.fatsecretBatchCall) {
+    try {
+      return await writeEntriesViaBatch(plannedEntries, context, deps);
+    } catch (error) {
+      return writeEntriesViaIndividualCalls(plannedEntries, context, deps);
+    }
+  }
+
+  return writeEntriesViaIndividualCalls(plannedEntries, context, deps);
+}
+
+async function writeEntriesViaBatch(
+  plannedEntries: PlannedAtlasLogEntry[],
+  context: { meal: string; date: string },
+  deps: NutritionLogItemsDeps,
+): Promise<{
+  logged: Record<string, unknown>[];
+  errors: string[];
+  diaryEntries: unknown;
+}> {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = plannedEntries.map((plannedEntry) => ({
+    method: "food_entry_create",
+    params: {
+      food_id: plannedEntry.foodId,
+      food_entry_name: plannedEntry.foodEntryName,
+      serving_id: plannedEntry.servingId,
+      number_of_units: plannedEntry.writeUnits,
+      meal: context.meal,
+      date: context.date,
+    },
+  }));
+  calls.push({
+    method: "food_entries_get",
+    params: { date: context.date },
+  });
+
+  const batchResults = await deps.fatsecretBatchCall!(calls);
+  const logged: Record<string, unknown>[] = [];
+  const errors: string[] = [];
+
+  for (const [index, plannedEntry] of plannedEntries.entries()) {
+    const result = batchResults[index];
+    if (!result?.ok) {
+      errors.push(
+        `FatSecret write for ${plannedEntry.input.name} failed: ${result?.error ?? "Unknown batch failure."}`,
+      );
+      continue;
+    }
+    const outputRecord = asRecord(result.result);
+    const success = Boolean(outputRecord?.success);
+    if (!success) {
+      errors.push(`FatSecret write for ${plannedEntry.input.name} returned a non-success response.`);
+      continue;
+    }
+    logged.push(buildLoggedEntry(plannedEntry, outputRecord?.food_entry_id ?? null));
+  }
+
+  const diaryResult = batchResults[plannedEntries.length];
+  let diaryEntries: unknown = null;
+  if (logged.length > 0) {
+    if (diaryResult?.ok) {
+      diaryEntries = diaryResult.result ?? null;
+    } else {
+      errors.push(`FatSecret diary refresh failed: ${diaryResult?.error ?? "Unknown batch failure."}`);
+    }
+  }
+
+  return {
+    logged,
+    errors,
+    diaryEntries,
+  };
+}
+
+async function writeEntriesViaIndividualCalls(
+  plannedEntries: PlannedAtlasLogEntry[],
+  context: { meal: string; date: string },
+  deps: NutritionLogItemsDeps,
+): Promise<{
+  logged: Record<string, unknown>[];
+  errors: string[];
+  diaryEntries: unknown;
+}> {
+  const logged: Record<string, unknown>[] = [];
+  const errors: string[] = [];
+
+  const writeResults = await mapWithConcurrencyLimit(
+    plannedEntries,
+    FATSECRET_WRITE_CONCURRENCY,
+    async (plannedEntry) => {
+      try {
+        const output = await deps.fatsecretCall("food_entry_create", {
+          food_id: plannedEntry.foodId,
+          food_entry_name: plannedEntry.foodEntryName,
+          serving_id: plannedEntry.servingId,
+          number_of_units: plannedEntry.writeUnits,
+          meal: context.meal,
+          date: context.date,
+        });
+        const outputRecord = asRecord(output);
+        const success = Boolean(outputRecord?.success);
+        if (!success) {
+          return {
+            error: `FatSecret write for ${plannedEntry.input.name} returned a non-success response.`,
+          };
+        }
+        return {
+          logged: buildLoggedEntry(plannedEntry, outputRecord?.food_entry_id ?? null),
+        };
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return {
+          error: `FatSecret write for ${plannedEntry.input.name} failed: ${detail}`,
+        };
+      }
+    },
+  );
+
+  for (const result of writeResults) {
+    if (result?.logged) {
+      logged.push(result.logged);
+    }
+    if (result?.error) {
+      errors.push(result.error);
+    }
+  }
+
+  let diaryEntries: unknown = null;
+  if (logged.length > 0) {
+    try {
+      diaryEntries = await deps.fatsecretCall("food_entries_get", { date: context.date });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      errors.push(`FatSecret diary refresh failed: ${detail}`);
+    }
+  }
+
+  return {
+    logged,
+    errors,
+    diaryEntries,
+  };
+}
+
+function buildLoggedEntry(
+  plannedEntry: PlannedAtlasLogEntry,
+  foodEntryId: unknown,
+): Record<string, unknown> {
+  return {
+    item: plannedEntry.input.name,
+    quantity: plannedEntry.input.quantity,
+    food_entry_name: plannedEntry.foodEntryName,
+    food_entry_id: foodEntryId,
+    food_id: plannedEntry.foodId,
+    serving_id: plannedEntry.servingId,
+    number_of_units: plannedEntry.writeUnits,
+    source: "atlas",
+    estimated_macros: estimateMacrosFromAtlas(plannedEntry.row, plannedEntry.macroMultiplier),
+  };
 }
 
 function normalizeLogDate(value: string | undefined): string {

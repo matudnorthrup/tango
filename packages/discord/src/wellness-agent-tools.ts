@@ -103,6 +103,7 @@ export interface WellnessToolPaths {
   healthScript?: string;
   nutritionScript?: string;
   fatsecretApiScript?: string;
+  fatsecretBatchScript?: string;
   atlasCommand?: string;
   atlasDbPath?: string;
   workoutScript?: string;
@@ -165,6 +166,10 @@ function resolvePaths(overrides?: WellnessToolPaths) {
       [genericFatsecretApiScript, legacyFatsecretApiScript],
       genericFatsecretApiScript,
     ),
+    fatsecretBatchScript: overrides?.fatsecretBatchScript ?? path.join(
+      tangoHome,
+      "packages/discord/scripts/fatsecret-batch.py",
+    ),
     atlasCommand: resolvedAtlasCommand,
     atlasDbPath: overrides?.atlasDbPath ?? resolveConfiguredOrFallback(
       process.env.TANGO_ATLAS_DB_PATH,
@@ -211,21 +216,49 @@ export async function callFatsecretApi(
   } catch {
     return { result: stdout };
   }
+  return normalizeFatsecretResult(method, parsed);
+}
 
-  // Normalize write responses so the LLM gets an unambiguous confirmation.
-  // food_entry_create returns {"value": "<id>"} on success — which the LLM
-  // can misread as inconclusive.
-  if (FATSECRET_WRITE_METHODS_SET.has(method)) {
-    if (parsed && typeof parsed === "object" && "value" in (parsed as Record<string, unknown>)) {
-      return { success: true, method, food_entry_id: (parsed as Record<string, unknown>).value };
-    }
-    // Null/empty response from delete/edit also indicates success
-    if (parsed == null || (typeof parsed === "object" && Object.keys(parsed as object).length === 0)) {
-      return { success: true, method };
-    }
+export async function callFatsecretApiBatch(
+  calls: Array<{ method: string; params?: Record<string, unknown> }>,
+  overrides?: WellnessToolPaths,
+): Promise<Array<{ ok: boolean; result?: unknown; error?: string }>> {
+  const paths = resolvePaths(overrides);
+  for (const call of calls) {
+    validateFatsecretParams(call.method, call.params ?? {});
   }
 
-  return parsed;
+  const stdout = await runPythonScript(paths.fatsecretBatchScript, [JSON.stringify(calls)]);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error(`FatSecret batch returned invalid JSON: ${stdout}`);
+  }
+
+  const results = asRecord(parsed)?.results;
+  if (!Array.isArray(results)) {
+    throw new Error(`FatSecret batch returned an invalid payload: ${stdout}`);
+  }
+
+  return results.map((entry, index) => {
+    const record = asRecord(entry);
+    if (!record) {
+      return { ok: false, error: `Batch entry ${index + 1} was not an object.` };
+    }
+    if (record.ok !== true) {
+      return {
+        ok: false,
+        error: typeof record.error === "string" ? record.error : `Batch entry ${index + 1} failed.`,
+      };
+    }
+
+    const call = calls[index];
+    return {
+      ok: true,
+      result: normalizeFatsecretResult(call?.method ?? "", record.result),
+    };
+  });
 }
 
 function validateFatsecretParams(method: string, params: Record<string, unknown>): void {
@@ -246,6 +279,24 @@ function validateFatsecretParams(method: string, params: Record<string, unknown>
   if (missing.length > 0) {
     throw new Error(`fatsecret_api.${method} requires params: ${missing.join(", ")}`);
   }
+}
+
+function normalizeFatsecretResult(method: string, parsed: unknown): unknown {
+  if (FATSECRET_WRITE_METHODS_SET.has(method)) {
+    if (parsed && typeof parsed === "object" && "value" in (parsed as Record<string, unknown>)) {
+      return { success: true, method, food_entry_id: (parsed as Record<string, unknown>).value };
+    }
+    if (parsed == null || (typeof parsed === "object" && Object.keys(parsed as object).length === 0)) {
+      return { success: true, method };
+    }
+  }
+  return parsed;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 export async function callRecipeWrite(
@@ -404,7 +455,15 @@ export function createNutritionTools(overrides?: WellnessToolPaths): AgentTool[]
           {
             atlasDbPath: paths.atlasDbPath,
             fatsecretCall: (method, params) =>
-              callFatsecretApi(method, params, { fatsecretApiScript: paths.fatsecretApiScript }),
+              callFatsecretApi(method, params, {
+                fatsecretApiScript: paths.fatsecretApiScript,
+                fatsecretBatchScript: paths.fatsecretBatchScript,
+              }),
+            fatsecretBatchCall: (calls) =>
+              callFatsecretApiBatch(calls, {
+                fatsecretApiScript: paths.fatsecretApiScript,
+                fatsecretBatchScript: paths.fatsecretBatchScript,
+              }),
           },
         );
       },
