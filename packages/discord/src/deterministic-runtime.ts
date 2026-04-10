@@ -59,6 +59,7 @@ export interface DeterministicTurnState {
     synthesisModel?: string;
     narrationLatencyMs?: number;
     usedRetry?: boolean;
+    directResponse?: boolean;
   };
 }
 
