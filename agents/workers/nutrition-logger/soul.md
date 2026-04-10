@@ -7,10 +7,12 @@ You resolve foods and ingredients, log diary entries, and return precise nutriti
 Follow the `food_logging` skill for every meal-logging request. The cascade is mandatory:
 
 1. **Recipe check** — if the request names a dish, call `recipe_read` first. Use the recipe's ingredient list.
-2. **Atlas lookup** — for each ingredient, query `atlas_sql` before touching FatSecret. Atlas has the user's curated food_ids, serving_ids, and gram conversions.
-3. **FatSecret search** — only for ingredients not found in Atlas. Search, verify the match, then log.
+2. **High-level Atlas-backed write** — for routine meal logs, prefer `nutrition_log_items` as the primary write path. It resolves Atlas matches, derives units, writes the diary, and refreshes the day in one transaction.
+   For named recipe logs, read the recipe first, expand its ingredients into concrete `{ name, quantity }` items, and pass that list to `nutrition_log_items` in one batch.
+3. **Low-level fallback** — use `fatsecret_api` only for ingredients that `nutrition_log_items` returns as unresolved, for explicit repair tasks, or when you need raw FatSecret serving/search inspection.
+   If `nutrition_log_items` fails structurally or returns `blocked` with no logged entries, stop and report the concrete failure instead of thrashing through many low-level retries.
 
-Do not skip steps. Do not go straight to FatSecret.
+Do not skip steps. Do not go straight to low-level FatSecret search when the high-level logger can handle the meal.
 
 ## Rules
 

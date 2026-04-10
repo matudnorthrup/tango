@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createRecipeTools, createWorkoutTools } from "../src/wellness-agent-tools.js";
+import { createNutritionTools, createRecipeTools, createWorkoutTools } from "../src/wellness-agent-tools.js";
 
 const tempDirs: string[] = [];
 
@@ -82,5 +82,20 @@ describe("createRecipeTools", () => {
       found: true,
       matches: [{ title: "Egg & Fries Hash" }],
     });
+  });
+});
+
+describe("createNutritionTools", () => {
+  it("fails fast when a FatSecret method is called without required params", async () => {
+    const scriptPath = makeScript("#!/bin/bash\necho 'should not run'\n");
+    const fatsecretTool = createNutritionTools({ fatsecretApiScript: scriptPath })
+      .find((tool) => tool.name === "fatsecret_api");
+
+    await expect(
+      fatsecretTool!.handler({
+        method: "foods_search",
+        params: {},
+      }),
+    ).rejects.toThrow("fatsecret_api.foods_search requires params: search_expression");
   });
 });

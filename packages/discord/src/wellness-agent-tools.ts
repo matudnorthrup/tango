@@ -21,6 +21,10 @@ import {
   resolveTangoProfileDir,
   type AgentTool,
 } from "@tango/core";
+import {
+  executeNutritionLogItems,
+  resolveAtlasDbPath,
+} from "./nutrition-log-executor.js";
 
 // ---------------------------------------------------------------------------
 // Command runner (shared by all tool handlers)
@@ -100,6 +104,7 @@ export interface WellnessToolPaths {
   nutritionScript?: string;
   fatsecretApiScript?: string;
   atlasCommand?: string;
+  atlasDbPath?: string;
   workoutScript?: string;
   recipesDir?: string;
 }
@@ -139,6 +144,11 @@ function resolvePaths(overrides?: WellnessToolPaths) {
   const legacyWorkoutScript = path.join(home, "clawd/workout-tracker/workout.sh");
   const genericRecipesDir = path.join(profileDir, "notes", "recipes");
   const legacyRecipesDir = path.join(home, "Documents/main/Records/Nutrition/Recipes");
+  const resolvedAtlasCommand = overrides?.atlasCommand ?? resolveConfiguredOrFallback(
+    process.env.TANGO_ATLAS_COMMAND,
+    [path.join(home, "bin/atlas")],
+    path.join(home, "bin/atlas"),
+  );
   return {
     healthScript: overrides?.healthScript ?? resolveConfiguredOrFallback(
       process.env.TANGO_HEALTH_SCRIPT,
@@ -155,10 +165,11 @@ function resolvePaths(overrides?: WellnessToolPaths) {
       [genericFatsecretApiScript, legacyFatsecretApiScript],
       genericFatsecretApiScript,
     ),
-    atlasCommand: overrides?.atlasCommand ?? resolveConfiguredOrFallback(
-      process.env.TANGO_ATLAS_COMMAND,
-      [path.join(home, "bin/atlas")],
-      path.join(home, "bin/atlas"),
+    atlasCommand: resolvedAtlasCommand,
+    atlasDbPath: overrides?.atlasDbPath ?? resolveConfiguredOrFallback(
+      process.env.TANGO_ATLAS_DB_PATH,
+      [resolveAtlasDbPath(resolvedAtlasCommand)],
+      resolveAtlasDbPath(resolvedAtlasCommand),
     ),
     workoutScript: overrides?.workoutScript ?? resolveConfiguredOrFallback(
       process.env.TANGO_WORKOUT_SCRIPT,
@@ -178,6 +189,14 @@ const FATSECRET_WRITE_METHODS_SET = new Set([
   "food_entry_edit",
   "food_entry_delete",
 ]);
+const FATSECRET_REQUIRED_PARAMS: Record<string, string[]> = {
+  food_find_id_for_barcode: ["barcode"],
+  foods_search: ["search_expression"],
+  food_get: ["food_id"],
+  food_entry_create: ["food_id", "food_entry_name", "serving_id", "number_of_units", "meal"],
+  food_entry_edit: ["food_entry_id"],
+  food_entry_delete: ["food_entry_id"],
+};
 
 export async function callFatsecretApi(
   method: string,
@@ -207,6 +226,26 @@ export async function callFatsecretApi(
   }
 
   return parsed;
+}
+
+function validateFatsecretParams(method: string, params: Record<string, unknown>): void {
+  const required = FATSECRET_REQUIRED_PARAMS[method.trim()];
+  if (!required || required.length === 0) {
+    return;
+  }
+  const missing = required.filter((key) => {
+    const value = params[key];
+    if (value === null || value === undefined) {
+      return true;
+    }
+    if (typeof value === "string") {
+      return value.trim().length === 0;
+    }
+    return false;
+  });
+  if (missing.length > 0) {
+    throw new Error(`fatsecret_api.${method} requires params: ${missing.join(", ")}`);
+  }
 }
 
 export async function callRecipeWrite(
@@ -314,6 +353,64 @@ export function createNutritionTools(overrides?: WellnessToolPaths): AgentTool[]
 
   return [
     {
+      name: "nutrition_log_items",
+      description: [
+        "Fast Atlas-backed nutrition diary logger for common meal entries.",
+        "Use this as the primary write path when the food items are likely to exist in the Atlas ingredient catalog.",
+        "It resolves Atlas matches, derives FatSecret units, writes the diary entries, and refreshes the day once.",
+        "If an item is not in Atlas or the quantity cannot be derived safely, the tool returns unresolved items instead of guessing.",
+        "",
+        "Inputs:",
+        "  items: [{ name, quantity }]",
+        "  meal: breakfast|lunch|dinner|other",
+        "  date?: YYYY-MM-DD (defaults to today)",
+        "  strict?: when true, do not write anything if any item is unresolved",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                quantity: { type: "string" },
+              },
+              required: ["name", "quantity"],
+            },
+          },
+          meal: {
+            type: "string",
+            enum: ["breakfast", "lunch", "dinner", "other"],
+          },
+          date: { type: "string", description: "Target date in YYYY-MM-DD format" },
+          strict: { type: "boolean", description: "When true, skip all writes if any item is unresolved" },
+        },
+        required: ["items", "meal"],
+      },
+      handler: async (input) => {
+        const items = Array.isArray(input.items) ? input.items : [];
+        return executeNutritionLogItems(
+          {
+            items: items.map((item) => ({
+              name: String((item as Record<string, unknown>).name ?? ""),
+              quantity: String((item as Record<string, unknown>).quantity ?? ""),
+            })),
+            meal: String(input.meal),
+            date: typeof input.date === "string" ? input.date : undefined,
+            strict: typeof input.strict === "boolean" ? input.strict : undefined,
+          },
+          {
+            atlasDbPath: paths.atlasDbPath,
+            fatsecretCall: (method, params) =>
+              callFatsecretApi(method, params, { fatsecretApiScript: paths.fatsecretApiScript }),
+          },
+        );
+      },
+    },
+
+    {
       name: "fatsecret_api",
       description:
         `Universal FatSecret API tool. Calls any FatSecret REST API method and returns raw JSON.
@@ -372,6 +469,7 @@ Provide a method name and a JSON params object. Returns the full API response.
             params = rest;
           }
         }
+        validateFatsecretParams(method, params);
         return callFatsecretApi(method, params, {
           fatsecretApiScript: paths.fatsecretApiScript,
         });
