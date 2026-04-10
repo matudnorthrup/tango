@@ -22,6 +22,11 @@ export interface GoogleDocTabUpdateDeps {
   runCommand(command: string, args: string[], timeoutMs?: number): Promise<string>;
 }
 
+interface GoogleDocWriteReceipt {
+  revisionToken?: string;
+  raw: string;
+}
+
 export async function executeGoogleDocTabUpdate(
   input: GoogleDocTabUpdateInput,
   deps: GoogleDocTabUpdateDeps,
@@ -77,10 +82,11 @@ export async function executeGoogleDocTabUpdate(
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-gdocs-update-"));
+  let writeOutput = "";
   try {
     const filePath = path.join(tempDir, "content.txt");
     fs.writeFileSync(filePath, nextText, "utf8");
-    await runGogDocs(deps, [
+    writeOutput = await runGogDocs(deps, [
       "docs",
       "write",
       target.docId,
@@ -93,6 +99,20 @@ export async function executeGoogleDocTabUpdate(
     ], 120_000);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+
+  const writeReceipt = parseWriteReceipt(writeOutput);
+  if (verifyContains.length === 0 && writeReceipt) {
+    return {
+      status: "confirmed",
+      docId: target.docId,
+      tabId: target.tabId,
+      account: input.account,
+      appliedReplacementCount: replacements.length,
+      verificationCount: 0,
+      verificationMode: "write_receipt",
+      writeReceipt,
+    };
   }
 
   const afterText = await runGogDocs(deps, [
@@ -117,6 +137,7 @@ export async function executeGoogleDocTabUpdate(
     account: input.account,
     appliedReplacementCount: replacements.length,
     verificationCount: expectedSnippets.length,
+    verificationMode: "content_readback",
     missingVerifications,
     tabText: afterText,
   };
@@ -180,4 +201,47 @@ async function runGogDocs(
     throw new Error(output);
   }
   return output;
+}
+
+function parseWriteReceipt(output: string): GoogleDocWriteReceipt | null {
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      const candidate =
+        firstNonEmptyString(record["revisionToken"])
+        || firstNonEmptyString(record["revision_token"])
+        || firstNonEmptyString(record["revisionId"])
+        || firstNonEmptyString(record["revision_id"])
+        || firstNonEmptyString(record["revision"])
+        || firstNonEmptyString(record["value"]);
+      if (candidate) {
+        return {
+          revisionToken: candidate,
+          raw: trimmed,
+        };
+      }
+    }
+  } catch {
+    // Fall through to regex parsing.
+  }
+
+  const revisionMatch = trimmed.match(/\brevision(?:\s+token)?\s*[:=]\s*([A-Za-z0-9._-]+)/iu);
+  if (revisionMatch?.[1]) {
+    return {
+      revisionToken: revisionMatch[1],
+      raw: trimmed,
+    };
+  }
+
+  return null;
+}
+
+function firstNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }

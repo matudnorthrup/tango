@@ -115,4 +115,47 @@ describe("executeGoogleDocTabUpdate", () => {
       ["docs", "cat"],
     ]);
   });
+
+  it("uses the write receipt instead of rereading the tab when no explicit verification is requested", async () => {
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      if (args[0] !== "docs") {
+        throw new Error(`Unexpected gog namespace: ${args.join(" ")}`);
+      }
+      if (args[1] === "cat") {
+        return "Old headline\n\nBody copy";
+      }
+      if (args[1] === "write") {
+        return JSON.stringify({ revisionToken: "rev-123" });
+      }
+      throw new Error(`Unexpected command: ${args.join(" ")}`);
+    });
+
+    const result = await executeGoogleDocTabUpdate(
+      {
+        doc: "1abcDocId",
+        tab: "t.target",
+        account: "devin@latitude.io",
+        replacements: [{ find: "Old headline", replace: "New headline", first: true }],
+      },
+      {
+        gogCommand: "gog",
+        runCommand,
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "confirmed",
+      docId: "1abcDocId",
+      tabId: "t.target",
+      verificationCount: 0,
+      verificationMode: "write_receipt",
+      writeReceipt: {
+        revisionToken: "rev-123",
+      },
+    });
+    expect(runCommand.mock.calls.map(([, args]) => args.slice(0, 2))).toEqual([
+      ["docs", "cat"],
+      ["docs", "write"],
+    ]);
+  });
 });
