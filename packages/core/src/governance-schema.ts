@@ -234,6 +234,7 @@ export const GOVERNANCE_SEED = `
   -- Tools (from MCP server)
   INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
     ('fatsecret_api', 'wellness', 'FatSecret API', 'write'),
+    ('nutrition_log_items', 'wellness', 'Nutrition Item Logger', 'write'),
     ('health_query', 'wellness', 'Health Query', 'read'),
     ('workout_sql', 'wellness', 'Workout SQL', 'write'),
     ('atlas_sql', 'wellness', 'Atlas SQL', 'write'),
@@ -243,6 +244,7 @@ export const GOVERNANCE_SEED = `
     ('gog_email', 'personal', 'Gmail', 'write'),
     ('gog_calendar', 'personal', 'Google Calendar', 'write'),
     ('gog_docs', 'personal', 'Google Docs', 'write'),
+    ('gog_docs_update_tab', 'personal', 'Google Docs Tab Updater', 'write'),
     ('obsidian', 'personal', 'Obsidian Vault', 'write'),
     ('health_morning', 'personal', 'Health Morning Briefing', 'read'),
     ('lunch_money', 'personal', 'Lunch Money Finance', 'write'),
@@ -282,6 +284,7 @@ export const GOVERNANCE_SEED = `
   -- Worker permissions (seeded from current tool assignments)
   -- nutrition-logger
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:nutrition-logger', 'nutrition_log_items', 'write', 'seed from config'),
     ('worker:nutrition-logger', 'fatsecret_api', 'write', 'seed from config'),
     ('worker:nutrition-logger', 'atlas_sql', 'write', 'seed from config'),
     ('worker:nutrition-logger', 'recipe_read', 'read', 'seed from config'),
@@ -308,6 +311,7 @@ export const GOVERNANCE_SEED = `
     ('worker:personal-assistant', 'gog_email', 'write', 'seed from config'),
     ('worker:personal-assistant', 'gog_calendar', 'write', 'seed from config'),
     ('worker:personal-assistant', 'gog_docs', 'write', 'seed from config'),
+    ('worker:personal-assistant', 'gog_docs_update_tab', 'write', 'seed from config'),
     ('worker:personal-assistant', 'obsidian', 'write', 'seed from config'),
     ('worker:personal-assistant', 'health_morning', 'read', 'seed from config'),
     ('worker:personal-assistant', 'lunch_money', 'write', 'seed from config'),

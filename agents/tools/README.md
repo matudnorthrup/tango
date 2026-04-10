@@ -8,12 +8,14 @@ See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) f
 | --- | --- | --- | --- |
 | `atlas-sql.md` | `atlas_sql` | `nutrition-logger`, `recipe-librarian` | |
 | `fatsecret.md` | `fatsecret_api` | `nutrition-logger`, `recipe-librarian` | |
+| `nutrition-log-items.md` | `nutrition_log_items` | `nutrition-logger` | `food-logging.md` |
 | `health.md` | `health_query` | `health-analyst` | `health-baselines.md` |
 | `workout-sql.md` | `workout_sql` | `workout-recorder` | |
 | `recipe.md` | `recipe_list`, `recipe_read`, `recipe_write` | `nutrition-logger`, `recipe-librarian` | `recipe-format.md` |
 | `gog-email.md` | `gog_email` | `personal-assistant` | |
 | `gog-calendar.md` | `gog_calendar` | `personal-assistant` | |
 | `gog-docs.md` | `gog_docs` | `personal-assistant` | |
+| `gog-docs-update-tab.md` | `gog_docs_update_tab` | `personal-assistant` | |
 | `obsidian.md` | `obsidian` | `personal-assistant` | `obsidian-note-conventions.md` |
 | `health-morning.md` | `health_morning` | `personal-assistant` | `health-baselines.md` |
 | `lunch-money.md` | `lunch_money` | `personal-assistant` | |

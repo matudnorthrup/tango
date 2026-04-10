@@ -1463,6 +1463,24 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_channel_referents_expires
         ON channel_referents(expires_at);
     `,
+  },
+  {
+    version: 30,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('nutrition_log_items', 'wellness', 'Nutrition Item Logger', 'write'),
+        ('gog_docs_update_tab', 'personal', 'Google Docs Tab Updater', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:nutrition-logger', 'nutrition_log_items', 'write', 'seed from config'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'nutrition_log_items');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:personal-assistant', 'gog_docs_update_tab', 'write', 'seed from config'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:personal-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'gog_docs_update_tab');
+    `,
   }
 ];
 
@@ -3380,6 +3398,130 @@ export class TangoStorage {
         `
       )
       .get(id) as
+      | {
+          id: string;
+          sessionId: string;
+          agentId: string;
+          conversationKey: string;
+          initiatingPrincipalId: string;
+          leadAgentPrincipalId: string;
+          projectId: string | null;
+          topicId: string | null;
+          intentCount: number;
+          intentIdsJson: string | null;
+          intentJson: string;
+          intentModelRunId: number | null;
+          routeOutcome: DeterministicRouteOutcome;
+          fallbackReason: string | null;
+          executionPlanJson: string | null;
+          stepCount: number;
+          completedStepCount: number;
+          failedStepCount: number;
+          hasWriteOperations: number;
+          workerIdsJson: string | null;
+          delegationChainJson: string | null;
+          receiptsJson: string | null;
+          narrationProvider: string | null;
+          narrationModel: string | null;
+          narrationLatencyMs: number | null;
+          narrationRetried: number;
+          narrationModelRunId: number | null;
+          intentLatencyMs: number | null;
+          routeLatencyMs: number | null;
+          executionLatencyMs: number | null;
+          totalLatencyMs: number | null;
+          requestMessageId: number | null;
+          responseMessageId: number | null;
+          createdAt: string;
+        }
+      | undefined;
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      sessionId: row.sessionId,
+      agentId: row.agentId,
+      conversationKey: row.conversationKey,
+      initiatingPrincipalId: row.initiatingPrincipalId,
+      leadAgentPrincipalId: row.leadAgentPrincipalId,
+      projectId: row.projectId,
+      topicId: row.topicId,
+      intentCount: row.intentCount,
+      intentIds: parseJsonArray(row.intentIdsJson),
+      intentJson: parseJsonValue(row.intentJson),
+      intentModelRunId: row.intentModelRunId,
+      routeOutcome: row.routeOutcome,
+      fallbackReason: row.fallbackReason,
+      executionPlanJson: parseJsonValue(row.executionPlanJson),
+      stepCount: row.stepCount,
+      completedStepCount: row.completedStepCount,
+      failedStepCount: row.failedStepCount,
+      hasWriteOperations: row.hasWriteOperations === 1,
+      workerIds: parseJsonArray(row.workerIdsJson),
+      delegationChain: parseJsonArray(row.delegationChainJson),
+      receiptsJson: parseJsonValue(row.receiptsJson),
+      narrationProvider: row.narrationProvider,
+      narrationModel: row.narrationModel,
+      narrationLatencyMs: row.narrationLatencyMs,
+      narrationRetried: row.narrationRetried === 1,
+      narrationModelRunId: row.narrationModelRunId,
+      intentLatencyMs: row.intentLatencyMs,
+      routeLatencyMs: row.routeLatencyMs,
+      executionLatencyMs: row.executionLatencyMs,
+      totalLatencyMs: row.totalLatencyMs,
+      requestMessageId: row.requestMessageId,
+      responseMessageId: row.responseMessageId,
+      createdAt: row.createdAt,
+    };
+  }
+
+  getLatestDeterministicTurnForConversation(conversationKey: string): DeterministicTurnRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            session_id AS sessionId,
+            agent_id AS agentId,
+            conversation_key AS conversationKey,
+            initiating_principal_id AS initiatingPrincipalId,
+            lead_agent_principal_id AS leadAgentPrincipalId,
+            project_id AS projectId,
+            topic_id AS topicId,
+            intent_count AS intentCount,
+            intent_ids AS intentIdsJson,
+            intent_json AS intentJson,
+            intent_model_run_id AS intentModelRunId,
+            route_outcome AS routeOutcome,
+            fallback_reason AS fallbackReason,
+            execution_plan_json AS executionPlanJson,
+            step_count AS stepCount,
+            completed_step_count AS completedStepCount,
+            failed_step_count AS failedStepCount,
+            has_write_operations AS hasWriteOperations,
+            worker_ids AS workerIdsJson,
+            delegation_chain AS delegationChainJson,
+            receipts_json AS receiptsJson,
+            narration_provider AS narrationProvider,
+            narration_model AS narrationModel,
+            narration_latency_ms AS narrationLatencyMs,
+            narration_retried AS narrationRetried,
+            narration_model_run_id AS narrationModelRunId,
+            intent_latency_ms AS intentLatencyMs,
+            route_latency_ms AS routeLatencyMs,
+            execution_latency_ms AS executionLatencyMs,
+            total_latency_ms AS totalLatencyMs,
+            request_message_id AS requestMessageId,
+            response_message_id AS responseMessageId,
+            created_at AS createdAt
+          FROM deterministic_turns
+          WHERE conversation_key = ?
+          ORDER BY created_at DESC, rowid DESC
+          LIMIT 1
+        `,
+      )
+      .get(conversationKey) as
       | {
           id: string;
           sessionId: string;
