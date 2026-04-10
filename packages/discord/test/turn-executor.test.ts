@@ -712,6 +712,82 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(provider.calls[1]?.prompt).toContain("what changed after the worker ran?");
   });
 
+  it("skips worker synthesis when the worker already returned deliverable user text", async () => {
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber !== 1) {
+        return new Error(`Unexpected provider call ${callNumber}`);
+      }
+
+      return {
+        text: "Checking that now.",
+        toolCalls: [
+          {
+            name: DISPATCH_TOOL_FULL_NAME,
+            input: {
+              worker_id: "planner",
+              task: "Pull the latest task state.",
+            },
+          },
+        ],
+        providerSessionId: "phase-1-session",
+      };
+    });
+
+    const workerText = [
+      "Here’s the update:",
+      "- The repo status is clean.",
+      "- The latest executor latency patch is on branch codex/executor-affinity-hardening.",
+    ].join("\n");
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        executeWorkerWithTask: async () => ({
+          operations: [{
+            name: "planner.pull_state",
+            toolNames: ["planner.pull_state"],
+            input: {},
+            output: { status: "ok" },
+            mode: "read" as const,
+          }],
+          hasWriteOperations: false,
+          data: { workerText },
+        }),
+      },
+      () => ({
+        conversationKey: "tango-default:watson",
+        providerNames: ["claude-oauth"],
+        configuredProviderNames: ["claude-oauth"],
+        tools: { mode: "allowlist", allowlist: [DISPATCH_TOOL_FULL_NAME] },
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "tango-default",
+        agentId: "watson",
+        transcript: "what changed after the worker ran?",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "tango-default:watson",
+        providerNames: ["claude-oauth"],
+        configuredProviderNames: ["claude-oauth"],
+        tools: { mode: "allowlist", allowlist: [DISPATCH_TOOL_FULL_NAME] },
+      },
+    );
+
+    expect(result.responseText).toBe(workerText);
+    expect(result.usedWorkerSynthesis).toBe(true);
+    expect(provider.calls).toHaveLength(1);
+  });
+
   it("prefers structured dispatch tool calls before XML fallback", async () => {
     const provider = new ScriptedProvider((callNumber, request) => {
       if (callNumber === 1) {
@@ -1061,7 +1137,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
             mode: "read" as const,
           }],
           hasWriteOperations: false,
-          data: { workerText: "gog binary found" },
+          data: { workerText: JSON.stringify({ status: "ok" }) },
         })
       },
       () => ({
@@ -1229,10 +1305,9 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.task).toContain("wellness.log_food_items");
     expect(workerCalls[0]?.task).toContain("Recent conversation:");
     expect(workerCalls[0]?.task).toContain("It was 60g per taco.");
-    expect(provider.calls).toHaveLength(2);
+    expect(provider.calls).toHaveLength(1);
     expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
-    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
-    expect(provider.calls[1]?.prompt).toContain("The deterministic runtime already completed");
+    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
   });
 
   it("resolves open-task follow-ups before deterministic classification", async () => {
@@ -1592,8 +1667,8 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.workerId).toBe("personal-assistant");
     expect(workerCalls[0]?.task).toContain("docs.google_doc_read_or_update");
     expect(workerCalls[0]?.task).toContain("https://docs.google.com/document/d/1abcDocId/edit?tab=t.new");
-    expect(provider.calls).toHaveLength(1);
-    expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
+    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
+    expect(provider.calls).toHaveLength(0);
   });
 
   it("does not let deterministic write narration claim success when the worker still needs clarification", async () => {
@@ -2078,7 +2153,8 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.workerId).toBe("research-assistant");
     expect(workerCalls[0]?.task).toContain("research.note_read");
     expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
-    expect(provider.calls[1]?.prompt).toContain("The deterministic runtime already completed");
+    expect(provider.calls).toHaveLength(1);
+    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
   });
 
   it("routes Malibu health-trend and nutrition-budget analysis through the deterministic runtime", async () => {
@@ -3101,12 +3177,97 @@ describe("createDiscordVoiceTurnExecutor", () => {
       },
     );
 
-    expect(result.responseText).toContain("Budget review");
+    expect(result.responseText).toBe("Budget looks under control.");
     expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
     expect(result.deterministicTurn?.state.intent.classifierProvider).toBe("config");
+    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]?.workerId).toBe("personal-assistant");
     expect(workerCalls[0]?.task).toContain("finance.budget_review");
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("skips deterministic narration when a single receipt already has deliverable worker text", async () => {
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber !== 1) {
+        return new Error(`Unexpected provider call ${callNumber}`);
+      }
+
+      return {
+        text: "Classification should not run for explicit intents.",
+        metadata: {
+          model: "gpt-5.4",
+          durationMs: 12,
+        },
+      };
+    });
+
+    const workerText = [
+      "Budget review completed.",
+      "- Groceries are under budget.",
+      "- Travel is on track.",
+    ].join("\n");
+
+    const deterministicRouting = {
+      enabled: true,
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+      explicitIntentIds: ["finance.budget_review"],
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        executeWorkerWithTask: async () => ({
+          operations: [
+            {
+              name: "lunch_money",
+              toolNames: ["lunch_money"],
+              input: { method: "GET", endpoint: "/budgets" },
+              output: { status: "under-budget" },
+              mode: "read",
+            },
+          ],
+          hasWriteOperations: false,
+          data: {
+            workerText,
+          },
+        }),
+      },
+      () => ({
+        conversationKey: "schedule:watson:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "schedule:watson:daily-budget-review",
+        agentId: "watson",
+        transcript: "Run the weekly finance review and summarize budget status.",
+      },
+      {
+        conversationKey: "schedule:watson:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      },
+    );
+
+    expect(result.responseText).toBe(workerText);
+    expect(result.providerName).toBe("config");
+    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
+    expect(provider.calls).toHaveLength(0);
   });
 });

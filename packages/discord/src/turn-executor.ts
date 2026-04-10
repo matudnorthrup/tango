@@ -52,6 +52,10 @@ import {
   resolveActiveTaskContinuation,
   type ActiveTaskContinuationResolution,
 } from "./active-task-state.js";
+import {
+  extractDeliverableWorkerTextFromReceipt,
+  extractDeliverableWorkerTextFromReport,
+} from "./deliverable-worker-text.js";
 
 export interface ProviderChainCandidate {
   providerName: string;
@@ -478,6 +482,23 @@ function buildConversationAffinityClassification(input: {
     attemptCount: 0,
     attemptErrors: [],
     failures: [],
+  };
+}
+
+function buildSyntheticDirectResponse(
+  text: string,
+  model: string,
+  raw: Record<string, unknown>,
+  providerSessionId?: string,
+): ProviderResponse {
+  return {
+    text,
+    providerSessionId,
+    metadata: {
+      model,
+      durationMs: 0,
+    },
+    raw,
   };
 }
 
@@ -1213,6 +1234,102 @@ export async function executeDiscordTurn(
                 : undefined,
             });
             const executionLatencyMs = Date.now() - executionStartedAt;
+            const directWorkerText = receipts.length === 1
+              ? extractDeliverableWorkerTextFromReceipt(receipts[0])
+              : null;
+
+            if (directWorkerText) {
+              if (shouldPersistProviderContinuity && classification.response.providerSessionId) {
+                dependencies.savePersistedProviderSession({
+                  conversationKey: input.context.conversationKey,
+                  sessionId: input.turn.sessionId,
+                  agentId: input.turn.agentId,
+                  providerName: classification.providerName,
+                  providerSessionId: classification.response.providerSessionId,
+                });
+              }
+
+              const directResponse = buildSyntheticDirectResponse(
+                directWorkerText,
+                "deterministic:direct-worker-text",
+                {
+                  source: "deterministic-worker-direct",
+                },
+                classification.response.providerSessionId,
+              );
+              const state: DeterministicTurnState = {
+                auth: {
+                  initiatingPrincipalId: `user:${input.turn.discordUserId ?? "unknown"}`,
+                  leadAgentPrincipalId: `agent:${input.turn.agentId}`,
+                  projectId: input.context.projectId,
+                  topicId: input.context.topicId,
+                  delegationChain: [
+                    `user:${input.turn.discordUserId ?? "unknown"}`,
+                    `agent:${input.turn.agentId}`,
+                    ...[...new Set(receipts.map((receipt) => `worker:${receipt.workerId}`))],
+                  ],
+                },
+                intent: {
+                  envelopes: classification.envelopes,
+                  classifierProvider: classification.providerName,
+                  classifierModel: classification.response.metadata?.model,
+                  classifierLatencyMs: intentLatencyMs,
+                },
+                routing: {
+                  plan: routingResult.plan,
+                  clarificationNeeded: false,
+                  routeOutcome: "executed",
+                  routeLatencyMs,
+                },
+                execution: {
+                  receipts,
+                  completed: true,
+                  partialFailure: receipts.some((receipt) => receipt.status !== "completed"),
+                  executionLatencyMs,
+                  hasWriteOperations: receipts.some((receipt) => receipt.hasWriteOperations),
+                },
+                narration: {
+                  narrationLatencyMs: 0,
+                  usedRetry: false,
+                  directResponse: true,
+                },
+              };
+              deterministicTurn = {
+                state,
+                summaryText: buildDeterministicTurnSummary({
+                  userMessage: effectiveUserMessage,
+                  routeOutcome: "executed",
+                  intents: classification.envelopes,
+                  receipts,
+                  finalReply: directWorkerText,
+                }),
+                classifier: classification,
+                receipts,
+              };
+
+              return {
+                responseText: directWorkerText,
+                providerName: classification.providerName,
+                providerSessionId: classification.response.providerSessionId,
+                providerUsedFailover: classification.usedFailover,
+                warmStartUsed: false,
+                providerRequestPrompt: classification.requestPrompt,
+                providerRequestWarmStartUsed: false,
+                initialRequestPrompt: classification.requestPrompt,
+                initialRequestWarmStartUsed: false,
+                usedWorkerSynthesis: false,
+                response: directResponse,
+                attemptCount: classification.attemptCount,
+                attemptErrors: [...classification.attemptErrors],
+                providerFailures: [...classification.failures],
+                warmStartContextChars,
+                configuredProviders: [...input.context.configuredProviderNames],
+                effectiveProviders: [...input.context.providerNames],
+                providerOverrideName: input.context.overrideProviderName,
+                deterministicTurn,
+                activeTaskResolution,
+              };
+            }
             const receiptsText = formatExecutionReceiptsForPrompt(receipts);
             const narrationFailoverResult = await generateWithFailover(
               providerChain,
@@ -1563,6 +1680,40 @@ export async function executeDiscordTurn(
       }
     } else {
       workerReport = mergeWorkerReports(dispatches, workerResults);
+    }
+
+    const directWorkerText = extractDeliverableWorkerTextFromReport(workerReport);
+    if (directWorkerText) {
+      return {
+        responseText: directWorkerText,
+        providerName: phase1ProviderName,
+        providerSessionId: response1.providerSessionId,
+        providerUsedFailover: phase1UsedFailover,
+        warmStartUsed,
+        providerRequestPrompt: phase1RequestPrompt,
+        providerRequestWarmStartUsed: phase1RequestWarmStartUsed,
+        initialRequestPrompt,
+        initialRequestWarmStartUsed,
+        usedWorkerSynthesis: true,
+        synthesisRetried: false,
+        response: buildSyntheticDirectResponse(
+          directWorkerText,
+          "worker:direct-report-text",
+          { source: "worker-direct-report" },
+          response1.providerSessionId,
+        ),
+        attemptCount: phase1RetryResult.attempts,
+        attemptErrors: [...phase1RetryResult.attemptErrors],
+        providerFailures: [...phase1Failures],
+        warmStartContextChars,
+        configuredProviders: [...input.context.configuredProviderNames],
+        effectiveProviders: [...input.context.providerNames],
+        providerOverrideName: input.context.overrideProviderName,
+        workerReport: workerReport ?? undefined,
+        workerDispatchTelemetry,
+        deterministicTurn,
+        activeTaskResolution,
+      };
     }
 
     // Phase 3: Send worker result back to orchestrator for synthesis
