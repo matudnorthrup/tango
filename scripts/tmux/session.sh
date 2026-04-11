@@ -29,3 +29,32 @@ resolve_tmux_target_session_name() {
 
   printf '%s\n' "$preferred"
 }
+
+resolve_tango_repo_dir() {
+  if [ -n "${TANGO_REPO_DIR:-}" ] && [ -d "${TANGO_REPO_DIR:-}" ]; then
+    (cd "$TANGO_REPO_DIR" && pwd -P)
+    return 0
+  fi
+
+  local script_dir current_repo candidate
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  current_repo="$(cd "$script_dir/../.." && pwd -P)"
+
+  if command -v git >/dev/null 2>&1 && git -C "$current_repo" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    while IFS= read -r line; do
+      case "$line" in
+        worktree\ *)
+          candidate="${line#worktree }"
+          ;;
+        branch\ refs/heads/main)
+          if [ -n "${candidate:-}" ] && [ -d "$candidate" ]; then
+            (cd "$candidate" && pwd -P)
+            return 0
+          fi
+          ;;
+      esac
+    done < <(git -C "$current_repo" worktree list --porcelain 2>/dev/null)
+  fi
+
+  printf '%s\n' "$current_repo"
+}

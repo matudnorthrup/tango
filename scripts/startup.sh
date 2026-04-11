@@ -5,7 +5,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/tmux/session.sh"
+REPO_DIR="$(resolve_tango_repo_dir)"
 VOICE_APP_DIR="$REPO_DIR/apps/tango-voice"
 
 echo "=== Starting Tango services ==="
