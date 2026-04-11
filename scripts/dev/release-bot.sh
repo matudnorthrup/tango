@@ -27,9 +27,11 @@ validate_slot() {
   esac
 }
 
-read_lock_slot() {
+read_lock_field() {
   local status_output="$1"
-  printf '%s\n' "$status_output" | sed -n 's/^slot=//p' | sed -n '1p'
+  local field_name="$2"
+
+  printf '%s\n' "$status_output" | sed -n "s/^${field_name}=//p" | sed -n '1p'
 }
 
 main_discord_target() {
@@ -109,7 +111,8 @@ if [ "$#" -eq 1 ]; then
 fi
 
 lock_status="$("$BOT_LOCK_SCRIPT" status)"
-lock_slot="$(read_lock_slot "$lock_status")"
+lock_slot="$(read_lock_field "$lock_status" slot)"
+watcher_pid="$(read_lock_field "$lock_status" watcher_pid)"
 
 if [ "$lock_status" = "not held" ]; then
   fail "Bot lock is not held."
@@ -124,8 +127,20 @@ if [ "$live_mode" -eq 0 ]; then
   echo "[DRY-RUN] would wait for tango-wt-$slot:discord to exit"
   echo "[DRY-RUN] would start tango:discord"
   echo "[DRY-RUN] would wait for main Discord bot to report ready"
+  if [ -n "$watcher_pid" ]; then
+    echo "[DRY-RUN] would kill auto-release watcher pid=$watcher_pid"
+  fi
+  echo "[DRY-RUN] would append release event to history log"
   echo "[DRY-RUN] would release lock for slot $slot"
   exit 0
+fi
+
+if [ -n "$watcher_pid" ]; then
+  if [ "${TANGO_AUTO_RELEASE_ACTIVE:-0}" = "1" ] && [ "${TANGO_AUTO_RELEASE_PID:-}" = "$watcher_pid" ]; then
+    :
+  else
+    kill "$watcher_pid" >/dev/null 2>&1 || true
+  fi
 fi
 
 "$WT_STOP_SCRIPT" "$slot" --window discord
