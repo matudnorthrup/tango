@@ -155,11 +155,12 @@ if [ "$live_mode" -eq 0 ]; then
   echo "[DRY-RUN] would wait for tango:discord to exit"
   if [ -n "${DISCORD_ALLOWED_CHANNELS_OVERRIDE:-}" ]; then
     echo "[DRY-RUN] would start tango-wt-$slot:discord with DISCORD_ALLOWED_CHANNELS=$DISCORD_ALLOWED_CHANNELS_OVERRIDE"
+    echo "[DRY-RUN] would wait for tango-wt-$slot:discord to report ready"
   else
     echo "[DRY-RUN] would start tango-wt-$slot:discord with TANGO_SLOT=$slot (bot will self-provision test threads)"
+    echo "[DRY-RUN] would wait for [slot-mode] thread ready lines in slot bot logs"
+    echo "[DRY-RUN] would print thread URLs to operator"
   fi
-  echo "[DRY-RUN] would wait for [slot-mode] thread ready lines in slot bot logs"
-  echo "[DRY-RUN] would print thread URLs to operator"
   echo "[DRY-RUN] would leave release command: scripts/dev/release-bot.sh $slot --live"
   exit 0
 fi
@@ -224,8 +225,16 @@ if ! wait_for_slot_mode_threads "tango-wt-$slot:discord" 60; then
   fail "Slot Discord bot did not finish slot-mode thread provisioning within 60 seconds."
 fi
 
-tmux capture-pane -t "tango-wt-$slot:discord" -p 2>/dev/null \
-  | sed -n 's/^.*\[slot-mode\] thread ready: .* url=\(.*\)$/\1/p'
+thread_urls="$(
+  tmux capture-pane -t "tango-wt-$slot:discord" -p 2>/dev/null \
+    | sed -n 's/^.*\[slot-mode\] thread ready: .* url=\(.*\)$/\1/p'
+)"
+
+if [ -z "$thread_urls" ]; then
+  fail "Slot Discord bot reported slot-mode completion without any thread URLs."
+fi
+
+printf '%s\n' "$thread_urls"
 
 trap - EXIT INT TERM
 echo "Claimed Discord bot for slot wt-$slot with self-provisioned slot-mode threads"
