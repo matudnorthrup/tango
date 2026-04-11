@@ -1196,11 +1196,10 @@ function deriveFatsecretUnitsFromServing(
   serving: Record<string, unknown>,
 ): number | null {
   const metricServingAmount = parseFiniteNumber(serving.metric_serving_amount);
-  const servingUnits = parseFiniteNumber(serving.number_of_units) ?? 1;
-  if (!metricServingAmount || metricServingAmount <= 0 || !servingUnits || servingUnits <= 0) {
+  if (!metricServingAmount || metricServingAmount <= 0) {
     return null;
   }
-  const units = grams / (metricServingAmount / servingUnits);
+  const units = grams / metricServingAmount;
   if (!Number.isFinite(units) || units <= 0) {
     return null;
   }
@@ -1774,11 +1773,10 @@ function deriveFatsecretUnitsFromAmountText(
   const amountUnit = extractAmountUnitHint(amountText);
   if (servingMatchesAmountUnit(serving, amountUnit)) {
     const servingUnitCount = extractServingUnitCount(serving) ?? 1;
-    const servingUnits = parseFiniteNumber(serving.number_of_units) ?? 1;
-    if (!Number.isFinite(servingUnitCount) || servingUnitCount <= 0 || !Number.isFinite(servingUnits) || servingUnits <= 0) {
+    if (!Number.isFinite(servingUnitCount) || servingUnitCount <= 0) {
       return Number.parseFloat(count.toFixed(6));
     }
-    return Number.parseFloat(((count * servingUnits) / servingUnitCount).toFixed(6));
+    return Number.parseFloat((count / servingUnitCount).toFixed(6));
   }
 
   return null;
