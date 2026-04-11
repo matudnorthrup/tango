@@ -136,4 +136,27 @@ describe("selectScheduledTurnResponseText", () => {
 
     expect(response).toBe(responseText);
   });
+
+  it("strips structured JSON fences from promoted worker text", () => {
+    const workerText = [
+      "```json",
+      "{",
+      '  "action": "log_sets",',
+      '  "status": "success"',
+      "}",
+      "```",
+      "",
+      "3 sets of Close Grip Lat Pulldown logged — 110×12 across the board, 3,960 lbs total volume.",
+    ].join("\n");
+
+    const response = selectScheduledTurnResponseText(
+      ["workout.log"],
+      turnResult(
+        "Sorry, something went wrong before I could finish that step. Please try again.",
+        [receipt({ hasWriteOperations: true, data: { workerText } })],
+      ),
+    );
+
+    expect(response).toBe("3 sets of Close Grip Lat Pulldown logged — 110×12 across the board, 3,960 lbs total volume.");
+  });
 });
