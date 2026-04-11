@@ -7409,6 +7409,21 @@ client.once("clientReady", async () => {
       console.error("[slot-mode] FATAL: no test threads were created; bot would accept nothing. Shutting down.");
       process.exit(1);
     }
+    // Grant per-agent access control access to the smoke-test parent channels so
+    // thread-resolved routing (resolveRoutingChannelId returns the parent) passes
+    // the default allowlist check. Agents without access overrides share this Set
+    // by reference via resolveAccessPolicy, so the mutation propagates immediately.
+    for (const agentChannel of slotModeAgentTestChannels) {
+      defaultAccessPolicy.allowlistChannelIds.add(agentChannel.channelId);
+    }
+    console.log(
+      `[slot-mode] granted default access allowlist to ${slotModeAgentTestChannels.length} smoke-test parent channels`,
+    );
+    if (agentAccessOverrideCount > 0) {
+      console.warn(
+        `[slot-mode] WARNING: ${agentAccessOverrideCount} agents have explicit access overrides; their allowlists will NOT auto-include slot-mode thread parents and may block messages`,
+      );
+    }
   }
 
   // Join active threads so the bot receives messageCreate events for them.
