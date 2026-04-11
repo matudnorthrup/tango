@@ -177,10 +177,18 @@ import {
   formatReceiptCatalogCandidateDetails,
 } from "./receipt-catalog-precheck.js";
 import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
+import {
+  initializeSlotMode,
+  shouldInitializeSlotMode,
+} from "./slot-mode.js";
 
 dotenv.config();
 
-const allowedChannels = parseAllowedChannels(process.env.DISCORD_ALLOWED_CHANNELS);
+let allowedChannels = parseAllowedChannels(process.env.DISCORD_ALLOWED_CHANNELS);
+const shouldProvisionSlotMode = shouldInitializeSlotMode(process.env, allowedChannels);
+if (shouldProvisionSlotMode) {
+  allowedChannels = new Set();
+}
 
 // ---------------------------------------------------------------------------
 // Remote work MCP — provides Notion, Slack, Linear, etc. via OAuth
@@ -571,6 +579,12 @@ const smokeTestChannelIds = new Set(
     .map((agent) => agent.voice?.smokeTestChannelId?.trim())
     .filter((channelId): channelId is string => Boolean(channelId))
 );
+const slotModeAgentTestChannels = agentConfigs
+  .filter((agent) => agent.voice?.smokeTestChannelId)
+  .map((agent) => ({
+    agentId: agent.id,
+    channelId: agent.voice?.smokeTestChannelId ?? "",
+  }));
 const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !== undefined).length;
 const storage = new TangoStorage(dbPath);
 let embeddingProvider: EmbeddingProvider | null | undefined;
@@ -7369,6 +7383,32 @@ client.once("clientReady", async () => {
     await registerSlashCommands();
   } catch (error) {
     console.error("[tango-discord] failed to register slash commands", error);
+  }
+
+  if (shouldProvisionSlotMode) {
+    const slot = process.env.TANGO_SLOT!;
+    const result = await initializeSlotMode({
+      client,
+      slot,
+      agentTestChannels: slotModeAgentTestChannels,
+      logger: (line) => console.log(`[slot-mode] ${line}`),
+    });
+    allowedChannels = result.threadIds;
+    for (const createdThread of result.created) {
+      console.log(
+        `[slot-mode] thread ready: agent=${createdThread.agentId} threadId=${createdThread.threadId} url=${createdThread.url}`,
+      );
+    }
+    for (const failure of result.failures) {
+      console.warn(`[slot-mode] failed for agent=${failure.agentId}: ${failure.reason}`);
+    }
+    console.log(
+      `[slot-mode] initialization complete created=${result.created.length} failures=${result.failures.length}`,
+    );
+    if (result.threadIds.size === 0) {
+      console.error("[slot-mode] FATAL: no test threads were created; bot would accept nothing. Shutting down.");
+      process.exit(1);
+    }
   }
 
   // Join active threads so the bot receives messageCreate events for them.

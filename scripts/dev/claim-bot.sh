@@ -27,35 +27,6 @@ validate_slot() {
   esac
 }
 
-resolve_thread_id() {
-  local requested_slot="$1"
-  local slot_config_path="$HOME/.tango/slots/wt-$requested_slot/slot.json"
-  local thread_id=""
-
-  if [ -n "${DISCORD_ALLOWED_CHANNELS_OVERRIDE:-}" ]; then
-    printf '%s\n' "$DISCORD_ALLOWED_CHANNELS_OVERRIDE"
-    return 0
-  fi
-
-  if [ -f "$slot_config_path" ]; then
-    if command -v jq >/dev/null 2>&1; then
-      thread_id="$(jq -r '.thread_id // empty' "$slot_config_path")"
-    else
-      thread_id="$(
-        sed -nE 's/.*"thread_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$slot_config_path" \
-          | sed -n '1p'
-      )"
-    fi
-
-    if [ -n "$thread_id" ]; then
-      printf '%s\n' "$thread_id"
-      return 0
-    fi
-  fi
-
-  fail "No thread configured for slot $requested_slot. Run Phase 2c thread provisioning first, or set DISCORD_ALLOWED_CHANNELS_OVERRIDE for testing."
-}
-
 require_slot_worktree_env() {
   local slot_env_file="$PWD/.env.slot"
   if [ ! -f "$slot_env_file" ]; then
@@ -146,6 +117,22 @@ wait_for_discord_ready() {
   return 1
 }
 
+wait_for_slot_mode_threads() {
+  local target="$1"
+  local timeout_seconds="$2"
+  local waited=0
+
+  while [ "$waited" -lt "$timeout_seconds" ]; do
+    if tmux capture-pane -t "$target" -p 2>/dev/null | grep -q '\[slot-mode\] initialization complete '; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  return 1
+}
+
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
   usage
 fi
@@ -160,15 +147,19 @@ if [ "$#" -eq 1 ]; then
   live_mode=1
 fi
 
-thread_id="$(resolve_thread_id "$slot")"
 require_slot_worktree_env
 
 if [ "$live_mode" -eq 0 ]; then
   echo "[DRY-RUN] would acquire lock for slot $slot"
   echo "[DRY-RUN] would stop tango:discord"
   echo "[DRY-RUN] would wait for tango:discord to exit"
-  echo "[DRY-RUN] would start tango-wt-$slot:discord with DISCORD_ALLOWED_CHANNELS=$thread_id"
-  echo "[DRY-RUN] would wait for tango-wt-$slot:discord to report ready"
+  if [ -n "${DISCORD_ALLOWED_CHANNELS_OVERRIDE:-}" ]; then
+    echo "[DRY-RUN] would start tango-wt-$slot:discord with DISCORD_ALLOWED_CHANNELS=$DISCORD_ALLOWED_CHANNELS_OVERRIDE"
+  else
+    echo "[DRY-RUN] would start tango-wt-$slot:discord with TANGO_SLOT=$slot (bot will self-provision test threads)"
+  fi
+  echo "[DRY-RUN] would wait for [slot-mode] thread ready lines in slot bot logs"
+  echo "[DRY-RUN] would print thread URLs to operator"
   echo "[DRY-RUN] would leave release command: scripts/dev/release-bot.sh $slot --live"
   exit 0
 fi
@@ -211,13 +202,31 @@ if ! wait_for_main_discord_exit; then
   fail "Main Discord bot did not exit cleanly."
 fi
 
-TANGO_SLOT_MODE=discord DISCORD_ALLOWED_CHANNELS="$thread_id" "$WT_START_SCRIPT" "$slot"
+if [ -n "${DISCORD_ALLOWED_CHANNELS_OVERRIDE:-}" ]; then
+  TANGO_SLOT_MODE=discord DISCORD_ALLOWED_CHANNELS="$DISCORD_ALLOWED_CHANNELS_OVERRIDE" "$WT_START_SCRIPT" "$slot"
+else
+  TANGO_SLOT_MODE=discord "$WT_START_SCRIPT" "$slot"
+fi
 slot_bot_started=1
 
-if ! wait_for_discord_ready "tango-wt-$slot:discord" 60; then
-  fail "Slot Discord bot did not report ready within 60 seconds."
+if [ -n "${DISCORD_ALLOWED_CHANNELS_OVERRIDE:-}" ]; then
+  if ! wait_for_discord_ready "tango-wt-$slot:discord" 60; then
+    fail "Slot Discord bot did not report ready within 60 seconds."
+  fi
+
+  trap - EXIT INT TERM
+  echo "Claimed Discord bot for slot wt-$slot with DISCORD_ALLOWED_CHANNELS=$DISCORD_ALLOWED_CHANNELS_OVERRIDE"
+  echo "Release with: scripts/dev/release-bot.sh $slot --live"
+  exit 0
 fi
 
+if ! wait_for_slot_mode_threads "tango-wt-$slot:discord" 60; then
+  fail "Slot Discord bot did not finish slot-mode thread provisioning within 60 seconds."
+fi
+
+tmux capture-pane -t "tango-wt-$slot:discord" -p 2>/dev/null \
+  | sed -n 's/^.*\[slot-mode\] thread ready: .* url=\(.*\)$/\1/p'
+
 trap - EXIT INT TERM
-echo "Claimed Discord bot for slot wt-$slot with DISCORD_ALLOWED_CHANNELS=$thread_id"
+echo "Claimed Discord bot for slot wt-$slot with self-provisioned slot-mode threads"
 echo "Release with: scripts/dev/release-bot.sh $slot --live"
