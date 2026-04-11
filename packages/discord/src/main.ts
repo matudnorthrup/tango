@@ -91,6 +91,7 @@ import {
   contactsSyncHandler,
 } from "@tango/core";
 import { printerMonitorHandler } from "./printer-monitor.js";
+import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
 import { z } from "zod";
 import {
@@ -178,6 +179,8 @@ import {
 import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
 
 dotenv.config();
+
+const allowedChannels = parseAllowedChannels(process.env.DISCORD_ALLOWED_CHANNELS);
 
 // ---------------------------------------------------------------------------
 // Remote work MCP — provides Notion, Slack, Linear, etc. via OAuth
@@ -7510,6 +7513,8 @@ const recentlyProcessedMessageIds = new Set<string>();
 const MESSAGE_DEDUP_MAX_SIZE = 200;
 
 client.on("messageCreate", async (message) => {
+  if (!isChannelAllowed(message.channelId, allowedChannels)) return;
+
   // Voice-synced user messages are posted via webhook (bot=true) but prefixed with ZWS.
   // Advance the watermark for these before the bot early-return so the inbox stays current.
   // NOTE: We advance unconditionally (not gated on voiceInboxChannelMap) because voice
