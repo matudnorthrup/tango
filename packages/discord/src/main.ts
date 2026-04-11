@@ -6739,6 +6739,15 @@ async function handleMessage(
   );
 
   if (prompt.length === 0) {
+    // Diagnostic: capture what we actually saw so we can tell whether raw content
+    // was empty (Discord Message Content Intent cold-start, thread membership
+    // timing, etc.) or whether the parser stripped real content. Kept as a warn
+    // log so it shows up in normal tmux captures.
+    const rawContent = typeof message.content === "string" ? message.content : "";
+    const rawTrimmed = rawContent.trim();
+    console.warn(
+      `[tango-discord] empty-prompt rawLen=${rawContent.length} rawTrimmedLen=${rawTrimmed.length} commandParseLen=${commandParse.promptText.length} naturalRouteLen=${naturalRoute?.promptText?.length ?? -1} hasAttachments=${message.attachments.size} agentOverride=${commandParse.agentOverride ?? "-"} author=${message.author.username} channel=${message.channelId}`
+    );
     await sendPresentedReply(
       message.channel,
       "I received an empty message. Send text, or include `/agent <id> your message`.",
