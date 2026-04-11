@@ -1684,6 +1684,37 @@ describe("createDiscordVoiceTurnExecutor", () => {
         "go ahead and finish that banana entry",
       ),
     ).toBe(true);
+    expect(
+      __testOnly.isLikelyContinuationForIntent(
+        "nutrition.log_food",
+        "Log one medium banana as other for 2026-04-12, and then tell me my calories so far for 2026-04-12.",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not reuse a prior food-log intent when the follow-up introduces different meal content", () => {
+    expect(
+      __testOnly.isLikelyContinuationForIntent(
+        "nutrition.log_food",
+        "Whoa. Breakfast looks wrong. I've cleared it. Can you re-add my protein yogurt bowl?",
+        {
+          items: [{ name: "tortilla chips", quantity: "15g" }],
+          meal: "other",
+          date_scope: "today",
+        },
+      ),
+    ).toBe(false);
+    expect(
+      __testOnly.isLikelyContinuationForIntent(
+        "nutrition.log_food",
+        "Move that to breakfast instead.",
+        {
+          items: [{ name: "tortilla chips", quantity: "15g" }],
+          meal: "other",
+          date_scope: "today",
+        },
+      ),
+    ).toBe(true);
   });
 
   it("does not let deterministic write narration claim success when the worker still needs clarification", async () => {

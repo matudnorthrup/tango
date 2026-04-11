@@ -271,6 +271,22 @@ const GENERIC_CONTINUATION_PATTERN =
   /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please do|go ahead|do that|try again|retry|running again|run it again|continue|go for it|proceed|same|same thing|same flow|use this|use this one|use this tab|here|here you go|this one)\b/iu;
 const GENERIC_DEICTIC_PATTERN =
   /\b(?:that|it|this|same|again|the one|this tab|this doc|same flow|same meal)\b/iu;
+const CONTINUATION_NUMBER_WORD_VALUES: Record<string, number> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
 const DOCS_CONTINUATION_PATTERN =
   /docs\.google\.com\/document\/d\/|\b(?:doc|docs|tab|section|headline|copy|replace|rewrite|edit|update|write)\b/iu;
 const NUTRITION_LOG_FOOD_CONTINUATION_PATTERN =
@@ -279,10 +295,129 @@ const NUTRITION_LOG_RECIPE_CONTINUATION_PATTERN =
   /\b(?:recipe|ingredients?|instructions?|notes?|servings?|portion|double|halve|scale|update|edit|rewrite|change)\b/iu;
 const NUTRITION_CHECK_BUDGET_CONTINUATION_PATTERN =
   /\b(?:calories?|protein|carbs?|fat|fiber|budget|remaining|left|today|tonight|room)\b/iu;
+const NUTRITION_DAY_SUMMARY_CONTINUATION_PATTERN =
+  /\b(?:calories?\s+so\s+far|macros?\s+so\s+far|what\s+(?:have\s+i|i(?:'ve| have))\s+eaten|what(?:'s| is)\s+my\s+(?:calories|macros?|total)|today'?s\s+(?:calories|macros?|total)|day\s+summary|summari[sz]e)\b/iu;
+const ADDITIONAL_REQUEST_PATTERN =
+  /\b(?:and|then|also)\s+tell\s+me\b|\band\s+what(?:'s| is)\b|\band\s+how\b/iu;
 const CROSS_DOMAIN_REUSE_BLOCKERS = /\b(?:recipe|doc|docs|file|email|calendar|reimbursement|walmart|amazon|slack)\b/iu;
+const CONTINUATION_NOISE_TOKENS = new Set([
+  "add",
+  "again",
+  "ahead",
+  "and",
+  "back",
+  "breakfast",
+  "brought",
+  "bowl",
+  "can",
+  "clear",
+  "cleared",
+  "correct",
+  "correction",
+  "dinner",
+  "entry",
+  "finish",
+  "fix",
+  "food",
+  "for",
+  "grams",
+  "had",
+  "i",
+  "it",
+  "ive",
+  "just",
+  "log",
+  "lunch",
+  "meal",
+  "move",
+  "moved",
+  "my",
+  "of",
+  "okay",
+  "ok",
+  "please",
+  "protein",
+  "re",
+  "readd",
+  "readds",
+  "relog",
+  "relogged",
+  "same",
+  "snack",
+  "that",
+  "the",
+  "this",
+  "today",
+  "track",
+  "instead",
+  "wrong",
+  "yeah",
+  "yogurt",
+]);
 
 function normalizeWhitespace(text: string): string {
   return text.trim().replace(/\s+/gu, " ");
+}
+
+function extractNutritionContinuationTokens(text: string): string[] {
+  return normalizeWhitespace(text)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/u)
+    .filter((token) =>
+      token.length >= 3
+      && !CONTINUATION_NOISE_TOKENS.has(token)
+      && !CONTINUATION_NUMBER_WORD_VALUES[token]
+      && !["cup", "cups", "tbsp", "tsp", "serving", "portion", "meal"].includes(token),
+    );
+}
+
+function extractPriorNutritionItemText(priorEntities: Record<string, unknown>): string {
+  const items = priorEntities["items"];
+  if (Array.isArray(items)) {
+    return items
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (item && typeof item === "object" && !Array.isArray(item)) {
+          const record = item as Record<string, unknown>;
+          return (
+            (typeof record["description"] === "string" ? record["description"] : "")
+            || (typeof record["name"] === "string" ? record["name"] : "")
+            || (typeof record["item"] === "string" ? record["item"] : "")
+          );
+        }
+        return "";
+      })
+      .filter((value) => value.trim().length > 0)
+      .join(" ");
+  }
+  if (typeof priorEntities["recipe_query"] === "string") {
+    return String(priorEntities["recipe_query"]);
+  }
+  return "";
+}
+
+function messageIntroducesDifferentNutritionContent(
+  priorEntities: Record<string, unknown>,
+  userMessage: string,
+): boolean {
+  const priorText = extractPriorNutritionItemText(priorEntities);
+  if (!priorText) {
+    return false;
+  }
+
+  const priorTokens = new Set(extractNutritionContinuationTokens(priorText));
+  if (priorTokens.size === 0) {
+    return false;
+  }
+
+  const currentTokens = extractNutritionContinuationTokens(userMessage);
+  if (currentTokens.length === 0) {
+    return false;
+  }
+
+  return !currentTokens.some((token) => priorTokens.has(token));
 }
 
 function parseIsoTimestampMs(value: string | null | undefined): number | null {
@@ -378,7 +513,11 @@ function parseIntentEnvelopeRecord(
   };
 }
 
-function isLikelyContinuationForIntent(intentId: string, userMessage: string): boolean {
+function isLikelyContinuationForIntent(
+  intentId: string,
+  userMessage: string,
+  priorEntities: Record<string, unknown> = {},
+): boolean {
   const normalized = normalizeWhitespace(userMessage);
   if (!normalized) {
     return false;
@@ -395,6 +534,15 @@ function isLikelyContinuationForIntent(intentId: string, userMessage: string): b
   }
   if (intentId === "nutrition.log_food") {
     if (/\brecipe\b/iu.test(normalized) && /\b(?:update|edit|rewrite|change)\b/iu.test(normalized)) {
+      return false;
+    }
+    if (messageIntroducesDifferentNutritionContent(priorEntities, userMessage)) {
+      return false;
+    }
+    if (NUTRITION_DAY_SUMMARY_CONTINUATION_PATTERN.test(normalized)) {
+      return false;
+    }
+    if (NUTRITION_CHECK_BUDGET_CONTINUATION_PATTERN.test(normalized) && ADDITIONAL_REQUEST_PATTERN.test(normalized)) {
       return false;
     }
     return NUTRITION_LOG_FOOD_CONTINUATION_PATTERN.test(normalized) || (genericFollowUp && !CROSS_DOMAIN_REUSE_BLOCKERS.test(normalized));
@@ -455,7 +603,7 @@ function buildConversationAffinityClassification(input: {
   if (!priorEnvelope) {
     return null;
   }
-  if (!isLikelyContinuationForIntent(priorEnvelope.intentId, input.userMessage)) {
+  if (!isLikelyContinuationForIntent(priorEnvelope.intentId, input.userMessage, priorEnvelope.entities)) {
     return null;
   }
 
