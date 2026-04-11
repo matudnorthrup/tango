@@ -6,6 +6,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BOT_LOCK_SCRIPT="$SCRIPT_DIR/bot-lock.sh"
 WT_STOP_SCRIPT="$REPO_DIR/scripts/tmux/wt/stop.sh"
 MAIN_START_SCRIPT="$REPO_DIR/scripts/tmux/start.sh"
+source "$REPO_DIR/scripts/tmux/session.sh"
 
 usage() {
   echo "Usage: $0 <slot: 1|2|3> [--live]" >&2
@@ -44,6 +45,37 @@ main_discord_target() {
   fi
 
   printf 'tango:discord\n'
+}
+
+start_main_discord() {
+  local main_repo_dir=""
+  local node_bin="${TANGO_NODE_BIN:-/opt/homebrew/opt/node@22/bin/node}"
+  local run_cmd=""
+
+  main_repo_dir="$(resolve_tango_repo_dir)"
+
+  if [ ! -x "$node_bin" ]; then
+    node_bin="$(command -v node || true)"
+  fi
+
+  if [ -z "${node_bin:-}" ]; then
+    fail "No Node runtime found. Install Node 22 or set TANGO_NODE_BIN."
+  fi
+
+  if [ ! -f "$main_repo_dir/packages/discord/dist/main.js" ]; then
+    fail "Build output not found at $main_repo_dir/packages/discord/dist/main.js"
+  fi
+
+  printf -v run_cmd '%s' "cd \"$main_repo_dir\" && env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$node_bin\" packages/discord/dist/main.js"
+
+  if tmux has-session -t tango 2>/dev/null; then
+    if ! tmux list-windows -t tango -F '#{window_name}' 2>/dev/null | grep -qx 'discord'; then
+      tmux new-window -t tango -n discord -c "$main_repo_dir" "$run_cmd"
+    fi
+    return 0
+  fi
+
+  "$MAIN_START_SCRIPT"
 }
 
 wait_for_discord_ready() {
@@ -97,7 +129,7 @@ if [ "$live_mode" -eq 0 ]; then
 fi
 
 "$WT_STOP_SCRIPT" "$slot" --window discord
-"$MAIN_START_SCRIPT"
+start_main_discord
 
 main_target="$(main_discord_target)"
 if ! wait_for_discord_ready "$main_target" 60; then
