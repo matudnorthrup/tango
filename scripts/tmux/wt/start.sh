@@ -70,6 +70,7 @@ case "$SLOT_MODE" in
     fi
 
     printf "launching node packages/discord/dist/main.js with env from .env + .env.slot in window %s:discord\n" "$SESSION_NAME"
+    SLOT_GIT_BRANCH="$(git -C "$REPO_DIR" branch --show-current 2>/dev/null || true)"
 
     if [ -n "${DISCORD_ALLOWED_CHANNELS:-}" ]; then
       printf -v CHANNELS_CMD 'export DISCORD_ALLOWED_CHANNELS=%q && ' "$DISCORD_ALLOWED_CHANNELS"
@@ -77,7 +78,13 @@ case "$SLOT_MODE" in
       CHANNELS_CMD='unset DISCORD_ALLOWED_CHANNELS && '
     fi
 
-    printf -v DISCORD_CMD '%s' "cd \"$REPO_DIR\" && set -a && if [ -f .env ]; then source .env; fi && source .env.slot && set +a && ${CHANNELS_CMD}env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$NODE_BIN\" packages/discord/dist/main.js"
+    if [ -n "$SLOT_GIT_BRANCH" ]; then
+      printf -v BRANCH_CMD 'export TANGO_GIT_BRANCH=%q && ' "$SLOT_GIT_BRANCH"
+    else
+      BRANCH_CMD='unset TANGO_GIT_BRANCH && '
+    fi
+
+    printf -v DISCORD_CMD '%s' "cd \"$REPO_DIR\" && set -a && if [ -f .env ]; then source .env; fi && source .env.slot && set +a && ${BRANCH_CMD}${CHANNELS_CMD}env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$NODE_BIN\" packages/discord/dist/main.js"
     printf -v RUN_CMD 'bash -lc %q' "$DISCORD_CMD"
 
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
