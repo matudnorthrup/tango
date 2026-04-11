@@ -5,6 +5,7 @@ import {
   reportIndicatesSafeNoopWriteResult,
   type WorkerReport,
 } from "./worker-report.js";
+import { sanitizeWorkerTextForDisplay } from "./worker-text-sanitizer.js";
 
 const GENERIC_WORKER_FAILURE_PATTERNS = [
   /^Sorry, something went wrong before I could finish that step\. Please try again\.$/iu,
@@ -29,7 +30,7 @@ function extractWorkerText(data: Record<string, unknown> | undefined): string {
     data && typeof data["workerText"] === "string"
       ? data["workerText"].trim()
       : "";
-  return workerText;
+  return sanitizeWorkerTextForDisplay(workerText);
 }
 
 function workerTextLooksDeliverable(workerText: string): boolean {

@@ -168,6 +168,38 @@ describe("formatWorkerReportForPrompt", () => {
     expect(reportHasConfirmedWriteOutcome(report)).toBe(true);
   });
 
+  it("strips structured JSON blocks from worker summaries in prompt formatting", () => {
+    const report: WorkerReport = {
+      operations: [
+        {
+          name: "workout_sql",
+          toolNames: ["workout_sql"],
+          input: { query: "log workout" },
+          output: { ok: true },
+          mode: "write",
+        },
+      ],
+      hasWriteOperations: true,
+      data: {
+        workerText: [
+          "```json",
+          "{",
+          '  "action": "start_workout",',
+          '  "status": "success"',
+          "}",
+          "```",
+          "",
+          "Workout #31 created — Pull Day 2.",
+        ].join("\n"),
+      },
+    };
+
+    const text = formatWorkerReportForPrompt(report);
+    expect(text).toContain("Worker summary: Workout #31 created — Pull Day 2.");
+    expect(text).not.toContain("```json");
+    expect(text).not.toContain('"action": "start_workout"');
+  });
+
   it("does not treat write-guard text as a confirmed write outcome", () => {
     const report: WorkerReport = {
       operations: [],
