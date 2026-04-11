@@ -647,11 +647,6 @@ function servingMatchesAmountUnit(row: AtlasIngredientRow, amountUnit: string | 
   return tokens.some((token) => haystack.includes(token));
 }
 
-function looksLikeGramDenominatedServing(row: AtlasIngredientRow): boolean {
-  const text = `${row.serving_description ?? ""} ${row.serving_size ?? ""}`.toLowerCase();
-  return /\b\d+(?:\.\d+)?\s*g\b/u.test(text);
-}
-
 function deriveAtlasWriteUnits(
   amountText: string,
   row: AtlasIngredientRow,
@@ -660,12 +655,6 @@ function deriveAtlasWriteUnits(
   const gramsPerServing = parseFiniteNumber(row.grams_per_serving);
   if (grams && gramsPerServing && gramsPerServing > 0) {
     const macroMultiplier = Number.parseFloat((grams / gramsPerServing).toFixed(6));
-    if (looksLikeGramDenominatedServing(row)) {
-      return {
-        writeUnits: Number.parseFloat(grams.toFixed(6)),
-        macroMultiplier,
-      };
-    }
     return {
       writeUnits: macroMultiplier,
       macroMultiplier,

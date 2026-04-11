@@ -499,8 +499,9 @@ Provide a method name and a JSON params object. Returns the full API response.
 1. foods_search to find food_id
 2. food_get to see servings (get serving_id, metric_serving_amount)
 3. Calculate number_of_units from the selected serving definition:
-   - If the serving is a single portion with \`number_of_units = 1\` and \`metric_serving_amount = 55 g\`, use \`target_grams / 55\`.
-   - If the serving itself is gram-denominated, such as \`serving_description = 100 g\` with \`measurement_description = g\` and \`number_of_units = 100\`, pass grams directly. Example: \`140 g\` should use \`number_of_units = 140\`, not \`1.4\`.
+   - Treat \`number_of_units\` for writes as "how many selected servings to log," not as raw grams or tablespoons.
+   - If the serving is \`55 g\`, use \`target_grams / 55\`.
+   - If the serving is gram-denominated, such as \`serving_description = 100 g\`, still use fractional servings. Example: \`140 g\` should use \`number_of_units = 1.4\`, not \`140\`.
 4. food_entry_create to log
 
 ## Workflow: Deleting entries
