@@ -31,8 +31,8 @@ resolve_tmux_target_session_name() {
 }
 
 resolve_tango_repo_dir() {
-  if [ -n "${TANGO_REPO_DIR:-}" ] && [ -d "${TANGO_REPO_DIR:-}" ]; then
-    (cd "$TANGO_REPO_DIR" && pwd -P)
+  if [ -n "${TANGO_REPO_DIR:-}" ]; then
+    printf '%s\n' "$TANGO_REPO_DIR"
     return 0
   fi
 
