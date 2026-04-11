@@ -178,7 +178,9 @@ import {
 } from "./receipt-catalog-precheck.js";
 import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
 import {
+  applySlotNickname,
   initializeSlotMode,
+  resetBotNickname,
   shouldInitializeSlotMode,
 } from "./slot-mode.js";
 
@@ -7433,6 +7435,20 @@ client.once("clientReady", async () => {
         `[slot-mode] WARNING: ${agentAccessOverrideCount} agents have explicit access overrides; their allowlists will NOT auto-include slot-mode thread parents and may block messages`,
       );
     }
+  }
+
+  if (shouldProvisionSlotMode) {
+    await applySlotNickname({
+      client,
+      slot: process.env.TANGO_SLOT!,
+      logger: (line) => console.log(`[slot-mode] ${line}`),
+    });
+  } else {
+    await resetBotNickname({
+      client,
+      nickname: process.env.TANGO_BOT_NICKNAME?.trim() || null,
+      logger: (line) => console.log(`[tango-discord] ${line}`),
+    });
   }
 
   // Join active threads so the bot receives messageCreate events for them.

@@ -34,10 +34,46 @@ export interface SlotModeResult {
   failures: SlotModeFailure[];
 }
 
+export interface ApplySlotNicknameInput {
+  client: Client;
+  slot: string;
+  guildId?: string | null;
+  logger?: (line: string) => void;
+}
+
+export interface ResetBotNicknameInput {
+  client: Client;
+  nickname?: string | null;
+  guildId?: string | null;
+  logger?: (line: string) => void;
+}
+
+export interface NicknameResult {
+  ok: boolean;
+  nickname: string | null;
+  reason?: string;
+}
+
 interface ThreadLike {
   id: string;
   url: string;
   send: (content: string) => Promise<unknown>;
+}
+
+interface GuildMemberLike {
+  setNickname: (nickname: string | null) => Promise<unknown>;
+}
+
+interface GuildLike {
+  id: string;
+  members?: {
+    me?: GuildMemberLike | null;
+  };
+}
+
+interface GuildCacheLike {
+  get?: (guildId: string) => GuildLike | undefined;
+  values: () => IterableIterator<GuildLike>;
 }
 
 interface ThreadStarterChannelLike {
@@ -107,6 +143,73 @@ function buildCharterMessage(slot: string, agentId: string, now: Date): string {
     `Created: ${formatCreatedAt(now)}.`,
     "Messages here route through this slot's dev code.",
   ].join(" ");
+}
+
+function resolveTargetGuild(
+  client: Client,
+  explicitGuildId?: string | null,
+): GuildLike | null {
+  const configuredGuildId = explicitGuildId?.trim() || process.env.DISCORD_GUILD_ID?.trim() || "";
+  const guildCache = client.guilds.cache as unknown as GuildCacheLike;
+
+  if (configuredGuildId.length > 0 && typeof guildCache.get === "function") {
+    return guildCache.get(configuredGuildId) ?? null;
+  }
+
+  for (const guild of guildCache.values()) {
+    return guild;
+  }
+
+  return null;
+}
+
+async function setBotNickname(
+  client: Client,
+  nickname: string | null,
+  explicitGuildId: string | null | undefined,
+  logger: (line: string) => void,
+  successLine: string,
+): Promise<NicknameResult> {
+  try {
+    const guild = resolveTargetGuild(client, explicitGuildId);
+    if (!guild) {
+      const reason = "guild not found";
+      logger(`nickname skipped reason=${reason}`);
+      return { ok: false, nickname, reason };
+    }
+
+    const member = guild.members?.me ?? null;
+    if (!member) {
+      const reason = `bot member missing in guild ${guild.id}`;
+      logger(`nickname skipped reason=${reason}`);
+      return { ok: false, nickname, reason };
+    }
+
+    await member.setNickname(nickname);
+    logger(successLine);
+    return { ok: true, nickname };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    logger(`nickname failed reason=${reason}`);
+    return { ok: false, nickname, reason };
+  }
+}
+
+export async function applySlotNickname(
+  input: ApplySlotNicknameInput,
+): Promise<NicknameResult> {
+  const logger = input.logger ?? (() => undefined);
+  const nickname = `Tango [wt-${input.slot}]`;
+  return setBotNickname(input.client, nickname, input.guildId, logger, `nickname set=${nickname}`);
+}
+
+export async function resetBotNickname(
+  input: ResetBotNicknameInput,
+): Promise<NicknameResult> {
+  const logger = input.logger ?? (() => undefined);
+  const nickname = input.nickname?.trim() || null;
+  const successLine = nickname ? `nickname reset=${nickname}` : "nickname reset";
+  return setBotNickname(input.client, nickname, input.guildId, logger, successLine);
 }
 
 export async function initializeSlotMode(
