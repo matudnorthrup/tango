@@ -1,3 +1,5 @@
+import { sanitizeWorkerTextForDisplay } from "./worker-text-sanitizer.js";
+
 export interface WorkerReportOperation {
   /** Operation name, e.g. "recipe_meal_log", "day_summary" */
   name: string;
@@ -574,12 +576,7 @@ function formatWorkerDispatchError(error: unknown): string {
 }
 
 function extractWorkerSummaryText(data: Record<string, unknown> | undefined): string | null {
-  const workerText = data?.workerText;
-  if (typeof workerText !== "string") {
-    return null;
-  }
-
-  const normalized = workerText.trim();
+  const normalized = sanitizeWorkerTextForDisplay(data?.workerText);
   if (normalized.length === 0) {
     return null;
   }
