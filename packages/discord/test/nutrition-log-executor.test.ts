@@ -161,7 +161,7 @@ describe("executeNutritionLogItems", () => {
     expect(fatsecretCall.mock.calls[0]?.[1]).toMatchObject({
       food_id: "1001",
       serving_id: "2001",
-      number_of_units: 100,
+      number_of_units: 1,
       meal: "other",
       date: "2026-04-09",
     });
@@ -211,7 +211,7 @@ describe("executeNutritionLogItems", () => {
         params: {
           food_id: "1001",
           serving_id: "2001",
-          number_of_units: 100,
+          number_of_units: 1,
           meal: "other",
           date: "2026-04-09",
         },

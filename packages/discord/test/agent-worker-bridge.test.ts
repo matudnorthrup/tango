@@ -3081,7 +3081,7 @@ describe("executeAgentWorker", () => {
           food_id: "6236",
           food_entry_name: "Red Cabbage",
           serving_id: "54916",
-          number_of_units: 60,
+          number_of_units: 0.6,
           meal: "dinner",
           date: "2026-03-31",
         },
