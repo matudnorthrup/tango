@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDeterministicNarrationPrompt,
+  buildDeterministicTurnSummary,
   executeDeterministicPlan,
   formatExecutionReceiptsForPrompt,
   type ExecutionReceipt,
@@ -271,6 +272,45 @@ describe("deterministic runtime", () => {
 
     const receiptsText = formatExecutionReceiptsForPrompt(receipts);
     expect(receiptsText).toContain("Warning: Location data is stale (17h old).");
+  });
+
+  it("strips structured JSON blocks from deterministic turn summaries", () => {
+    const summary = buildDeterministicTurnSummary({
+      userMessage: "Log my workout",
+      routeOutcome: "executed",
+      intents: [],
+      receipts: [
+        {
+          stepId: "step-1",
+          intentId: "workout.log",
+          mode: "write",
+          kind: "worker",
+          targetId: "workout-recorder",
+          workerId: "workout-recorder",
+          status: "completed",
+          durationMs: 1200,
+          operations: [],
+          hasWriteOperations: true,
+          data: {
+            workerText: [
+              "```json",
+              "{",
+              '  "action": "log_sets",',
+              '  "status": "success"',
+              "}",
+              "```",
+              "",
+              "Rear Delt Fly logged — 10×12, 10×12, 10×13, 370 lbs total volume.",
+            ].join("\n"),
+          },
+          warnings: [],
+        },
+      ],
+    });
+
+    expect(summary).toContain("Rear Delt Fly logged — 10×12, 10×12, 10×13, 370 lbs total volume.");
+    expect(summary).not.toContain("```json");
+    expect(summary).not.toContain('"action": "log_sets"');
   });
 
   it("warns when a write-mode step completes without recording any write operations", async () => {

@@ -8,6 +8,7 @@ import {
 } from "./worker-report.js";
 import type { DeterministicExecutionPlan, DeterministicExecutionStep } from "./deterministic-router.js";
 import type { IntentEnvelope } from "./intent-classifier.js";
+import { sanitizeWorkerTextForDisplay } from "./worker-text-sanitizer.js";
 
 export interface ExecutionReceipt {
   stepId: string;
@@ -591,9 +592,10 @@ export function buildDeterministicTurnSummary(input: {
     for (const receipt of input.receipts) {
       const summary =
         typeof receipt.data?.workerText === "string"
-          ? receipt.data.workerText.trim()
-          : receipt.error ?? receipt.clarification ?? `${receipt.operations.length} operations`;
-      lines.push(`- ${receipt.stepId} (${receipt.workerId}) ${receipt.status}: ${summary}`);
+          ? sanitizeWorkerTextForDisplay(receipt.data.workerText)
+          : "";
+      const resolvedSummary = summary || receipt.error || receipt.clarification || `${receipt.operations.length} operations`;
+      lines.push(`- ${receipt.stepId} (${receipt.workerId}) ${receipt.status}: ${resolvedSummary}`);
       for (const warning of receipt.warnings) {
         lines.push(`  warning: ${warning}`);
       }
