@@ -11,7 +11,7 @@ import {
 } from "@tango/core";
 import { describe, expect, it } from "vitest";
 import { DISPATCH_TOOL_FULL_NAME } from "../src/dispatch-extractor.js";
-import { createDiscordVoiceTurnExecutor } from "../src/turn-executor.js";
+import { __testOnly, createDiscordVoiceTurnExecutor } from "../src/turn-executor.js";
 
 class ScriptedProvider implements ChatProvider {
   readonly calls: ProviderRequest[] = [];
@@ -1669,6 +1669,21 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.task).toContain("https://docs.google.com/document/d/1abcDocId/edit?tab=t.new");
     expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
     expect(provider.calls).toHaveLength(0);
+  });
+
+  it("does not reuse a prior nutrition food intent for an explicit recipe update", () => {
+    expect(
+      __testOnly.isLikelyContinuationForIntent(
+        "nutrition.log_food",
+        'Update the recipe named "Codex Deterministic Smoke Recipe" and add this exact note somewhere in the notes section: "Codex deterministic write smoke validation." Keep everything else the same.',
+      ),
+    ).toBe(false);
+    expect(
+      __testOnly.isLikelyContinuationForIntent(
+        "nutrition.log_food",
+        "go ahead and finish that banana entry",
+      ),
+    ).toBe(true);
   });
 
   it("does not let deterministic write narration claim success when the worker still needs clarification", async () => {
