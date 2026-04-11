@@ -38,7 +38,7 @@ For each ingredient or food item still unresolved after `nutrition_log_items`:
    ```
 2. If Atlas returns a match with `food_id` and `serving_id`, use those IDs as the starting point for logging.
 3. If Atlas also has a trustworthy `grams_per_serving`, use it to convert the user's gram amount into `number_of_units` for portion-style servings such as `1 serving`, `1/2 cup`, or `1 large`.
-4. If the Atlas row uses a gram-based serving (`serving_size: 46g`, `84g`, `100 g`, etc.) or the serving semantics are otherwise unclear, call `fatsecret_api` with `method: "food_get"` for that `food_id` before writing so you can verify whether FatSecret expects grams directly or fractional servings.
+4. If the Atlas row uses a gram-based serving (`serving_size: 46g`, `84g`, `100 g`, etc.) or the serving semantics are otherwise unclear, call `fatsecret_api` with `method: "food_get"` for that `food_id` before writing so you can verify the serving metadata. For diary writes, `number_of_units` should still be the number of servings to log, so `60 g` against a `100 g` serving should be `0.6`, not `60`.
 5. If Atlas has multiple matches, pick the one whose name/brand best fits the user's description. If genuinely ambiguous, report it as unresolved and ask.
 
 ### Step 4: FatSecret search (fallback only)
@@ -80,7 +80,7 @@ If `fatsecret_api` returns a generic cancellation or other opaque failure while 
 - **Never skip the cascade.** Use the batch logger first when you have concrete items, then Atlas/FatSecret fallback only for the unresolved remainder.
 - **Never fabricate food data.** If a food can't be found in Atlas or FatSecret, report it as unresolved. Do not invent calories, macros, food_ids, or serving_ids.
 - **Never guess gram conversions.** Use `grams_per_serving` from Atlas or `metric_serving_amount` from FatSecret to compute `number_of_units`. Do not estimate.
-- **Verify serving shape before writes.** If the selected serving might be gram-denominated, inspect `food_get` first and confirm whether `number_of_units` should be grams or fractional servings.
+- **Verify serving shape before writes.** If the selected serving might be gram-denominated, inspect `food_get` first and compute fractional servings from `metric_serving_amount`. Do not pass raw grams into `number_of_units`.
 - **Do not claim an unverified write succeeded.** If FatSecret is unreachable, rejects the write, or diary refresh fails, return the attempted items as unconfirmed instead of logged.
 - **Cancelled connector calls are not receipts.** A cancelled `foods_search`, `food_get`, `food_entry_create`, or `food_entries_get` call means the lookup or write is unverified until a later successful FatSecret read confirms it.
 - **Batch efficiently.** If logging a recipe with 8 ingredients, run the Atlas query for all of them in one SQL call (using OR conditions) before falling back to individual FatSecret searches for any misses.
