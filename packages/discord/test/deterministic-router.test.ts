@@ -1977,6 +1977,7 @@ describe("deterministic router", () => {
     expect(nutritionResult.plan?.steps[0]?.task).toContain(
       "start with nutrition_log_items",
     );
+    expect(nutritionResult.plan?.steps[0]?.reasoningEffort).toBe("low");
     expect(recipeResult.plan?.steps[0]?.allowedToolIds).toEqual([
       "recipe_read",
       "nutrition_log_items",
@@ -1985,6 +1986,7 @@ describe("deterministic router", () => {
     expect(recipeResult.plan?.steps[0]?.task).toContain(
       "use recipe_read first, expand the ingredient list, and then pass the concrete ingredient items to nutrition_log_items in one batch",
     );
+    expect(recipeResult.plan?.steps[0]?.reasoningEffort).toBe("low");
     expect(docsResult.plan?.steps[0]?.allowedToolIds).toEqual([
       "gog_docs_update_tab",
       "gog_docs",
@@ -1992,6 +1994,7 @@ describe("deterministic router", () => {
     expect(docsResult.plan?.steps[0]?.task).toContain(
       "prefer gog_docs_update_tab",
     );
+    expect(docsResult.plan?.steps[0]?.reasoningEffort).toBe("low");
   });
 
   it("normalizes reimbursement email-account aliases before worker execution", () => {

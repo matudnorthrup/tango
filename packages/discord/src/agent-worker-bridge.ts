@@ -27,6 +27,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getBrowserManager } from "./browser-manager.js";
+import { tryExecuteDeterministicWorkerFastPath } from "./deterministic-worker-fast-path.js";
 import { generateWithFailover } from "./provider-failover.js";
 import { summarizePreferences } from "./walmart-cart-processor.js";
 import {
@@ -4677,6 +4678,22 @@ export async function executeAgentWorker(
         "Use this already-available runtime context before repeating bootstrap checks.",
       ].join("\n")
     : task;
+
+  const fastPathStartedAt = Date.now();
+  const fastPathResult = await tryExecuteDeterministicWorkerFastPath({
+    workerId,
+    task: effectiveTask,
+    toolIds,
+    wellnessToolPaths: options.wellnessToolPaths,
+    fatsecretExecutor: options.fatsecretReplayExecutor,
+  });
+  if (fastPathResult) {
+    shoppingDebug(
+      task,
+      `fast-path ms=${Date.now() - fastPathStartedAt} toolCalls=${fastPathResult.toolCalls.length}`,
+    );
+    return workerAgentResultToReport(fastPathResult, workerId, effectiveTask);
+  }
 
   const firstRunStartedAt = Date.now();
   let result = await runWorkerOnce(workerId, effectiveTask, systemPrompt, options);
