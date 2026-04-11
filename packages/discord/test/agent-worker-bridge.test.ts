@@ -3610,6 +3610,54 @@ describe("executeAgentWorker", () => {
     expect(report.operations[0]?.mode).toBe("read");
   });
 
+  it("treats gog_docs_update_tab as a write", () => {
+    const report = workerAgentResultToReport(
+      {
+        text: "Updated the requested Google Doc tab.",
+        toolCalls: [
+          {
+            name: "mcp__wellness__gog_docs_update_tab",
+            input: {
+              doc: "1abc123",
+              tab: "t.demo",
+              account: "work@example.com",
+              replacements: [{ find: "old", replace: "new" }],
+            },
+            output: {
+              status: "confirmed",
+              docId: "1abc123",
+              tabId: "t.demo",
+            },
+            durationMs: 0,
+          },
+        ],
+        durationMs: 123,
+      },
+      "personal-assistant",
+      "Intent mode: write\nWRITE step: apply the requested Google Docs tab update now.",
+    );
+
+    expect(report.hasWriteOperations).toBe(true);
+    expect(report.operations).toEqual([
+      {
+        name: "gog_docs_update_tab",
+        toolNames: ["gog_docs_update_tab"],
+        input: {
+          doc: "1abc123",
+          tab: "t.demo",
+          account: "work@example.com",
+          replacements: [{ find: "old", replace: "new" }],
+        },
+        output: {
+          status: "confirmed",
+          docId: "1abc123",
+          tabId: "t.demo",
+        },
+        mode: "write",
+      },
+    ]);
+  });
+
   it("treats ramp reimbursement submissions and receipt registry upserts as writes", () => {
     const report = workerAgentResultToReport(
       {
