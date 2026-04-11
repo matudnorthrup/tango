@@ -180,12 +180,14 @@ import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
 import {
   applySlotNickname,
   initializeSlotMode,
+  isSlotModeActive,
   resetBotNickname,
   shouldInitializeSlotMode,
 } from "./slot-mode.js";
 
 dotenv.config();
 
+const slotModeActive = isSlotModeActive(process.env);
 let allowedChannels = parseAllowedChannels(process.env.DISCORD_ALLOWED_CHANNELS);
 const shouldProvisionSlotMode = shouldInitializeSlotMode(process.env, allowedChannels);
 if (shouldProvisionSlotMode) {
@@ -7437,7 +7439,7 @@ client.once("clientReady", async () => {
     }
   }
 
-  if (shouldProvisionSlotMode) {
+  if (slotModeActive) {
     await applySlotNickname({
       client,
       slot: process.env.TANGO_SLOT!,
