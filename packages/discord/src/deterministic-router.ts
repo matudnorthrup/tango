@@ -463,6 +463,10 @@ function resolveAllowedToolIds(entry: DeterministicIntentCatalogEntry): string[]
 
 function resolveStepReasoningEffort(entry: DeterministicIntentCatalogEntry): ProviderReasoningEffort | undefined {
   switch (entry.id) {
+    case "docs.google_doc_read_or_update":
+    case "nutrition.log_food":
+    case "nutrition.log_recipe":
+      return "low";
     case "research.product_selection":
       return "low";
     case "shopping.browser_order_action":

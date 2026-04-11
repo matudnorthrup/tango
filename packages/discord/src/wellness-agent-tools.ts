@@ -131,7 +131,7 @@ function resolveConfiguredOrFallback(
   return resolveExistingOrFallback(candidates, fallback);
 }
 
-function resolvePaths(overrides?: WellnessToolPaths) {
+export function resolveWellnessToolPaths(overrides?: WellnessToolPaths) {
   const home = os.homedir();
   const tangoHome = resolveTangoHome();
   const profileDir = resolveTangoProfileDir();
@@ -208,7 +208,7 @@ export async function callFatsecretApi(
   params: Record<string, unknown> = {},
   overrides?: WellnessToolPaths,
 ): Promise<unknown> {
-  const paths = resolvePaths(overrides);
+  const paths = resolveWellnessToolPaths(overrides);
   const stdout = await runPythonScript(paths.fatsecretApiScript, [method, JSON.stringify(params)]);
   let parsed: unknown;
   try {
@@ -223,7 +223,7 @@ export async function callFatsecretApiBatch(
   calls: Array<{ method: string; params?: Record<string, unknown> }>,
   overrides?: WellnessToolPaths,
 ): Promise<Array<{ ok: boolean; result?: unknown; error?: string }>> {
-  const paths = resolvePaths(overrides);
+  const paths = resolveWellnessToolPaths(overrides);
   for (const call of calls) {
     validateFatsecretParams(call.method, call.params ?? {});
   }
@@ -304,7 +304,7 @@ export async function callRecipeWrite(
   content: string,
   overrides?: WellnessToolPaths,
 ): Promise<unknown> {
-  const paths = resolvePaths(overrides);
+  const paths = resolveWellnessToolPaths(overrides);
   const filename = `${name}.md`;
   const filepath = path.join(paths.recipesDir, filename);
   const existed = fs.existsSync(filepath);
@@ -400,7 +400,7 @@ async function runPythonScript(
 // ---------------------------------------------------------------------------
 
 export function createNutritionTools(overrides?: WellnessToolPaths): AgentTool[] {
-  const paths = resolvePaths(overrides);
+  const paths = resolveWellnessToolPaths(overrides);
 
   return [
     {
@@ -543,7 +543,7 @@ Provide a method name and a JSON params object. Returns the full API response.
 // ---------------------------------------------------------------------------
 
 export function createHealthTools(overrides?: WellnessToolPaths): AgentTool[] {
-  const paths = resolvePaths(overrides);
+  const paths = resolveWellnessToolPaths(overrides);
 
   return [
     {
@@ -623,7 +623,7 @@ export function createHealthTools(overrides?: WellnessToolPaths): AgentTool[] {
 // ---------------------------------------------------------------------------
 
 export function createWorkoutTools(overrides?: WellnessToolPaths): AgentTool[] {
-  const paths = resolvePaths(overrides);
+  const paths = resolveWellnessToolPaths(overrides);
 
   return [
     {
@@ -665,10 +665,44 @@ export function createWorkoutTools(overrides?: WellnessToolPaths): AgentTool[] {
 // Recipe tools
 // ---------------------------------------------------------------------------
 
+export interface RecipeReadMatch {
+  title: string;
+  content: string;
+}
+
+export function findRecipeMatchesByQuery(
+  query: string,
+  overrides?: WellnessToolPaths,
+): RecipeReadMatch[] {
+  const paths = resolveWellnessToolPaths(overrides);
+  const lookupText = extractRecipeLookupText(query);
+  const queryWords = normalizeRecipeSearchText(lookupText);
+  const files = fs.readdirSync(paths.recipesDir).filter((f) => f.endsWith(".md"));
+  const matches: Array<{ title: string; content: string; score: number }> = [];
+
+  for (const file of files) {
+    const title = file.replace(/\.md$/, "");
+    const content = fs.readFileSync(path.join(paths.recipesDir, file), "utf8");
+    const titleWords = normalizeRecipeSearchText(title);
+    const corpusWords = buildRecipeSearchCorpus(title, content);
+    if (!queryWords.every((w) => corpusWords.has(w))) continue;
+    matches.push({
+      title,
+      content,
+      score: scoreRecipeMatch(queryWords, titleWords, corpusWords),
+    });
+  }
+
+  return matches
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+    .map(({ title, content }) => ({ title, content }));
+}
+
 export function createRecipeTools(overrides?: WellnessToolPaths): AgentTool[] {
-  const paths = resolvePaths(overrides);
+  const paths = resolveWellnessToolPaths(overrides);
 
   return [
+
     {
       name: "atlas_sql",
       description: [
@@ -731,30 +765,11 @@ export function createRecipeTools(overrides?: WellnessToolPaths): AgentTool[] {
         required: ["name"],
       },
       handler: async (input) => {
-        const lookupText = extractRecipeLookupText(String(input.name));
-        const queryWords = normalizeRecipeSearchText(lookupText);
-        const files = fs.readdirSync(paths.recipesDir).filter((f) => f.endsWith(".md"));
-        const matches: Array<{ title: string; content: string; score: number }> = [];
-
-        for (const file of files) {
-          const title = file.replace(/\.md$/, "");
-          const content = fs.readFileSync(path.join(paths.recipesDir, file), "utf8");
-          const titleWords = normalizeRecipeSearchText(title);
-          const corpusWords = buildRecipeSearchCorpus(title, content);
-          if (!queryWords.every((w) => corpusWords.has(w))) continue;
-          matches.push({
-            title,
-            content,
-            score: scoreRecipeMatch(queryWords, titleWords, corpusWords),
-          });
-        }
-
+        const matches = findRecipeMatchesByQuery(String(input.name), overrides);
         if (matches.length === 0) return { found: false, matches: [] };
         return {
           found: true,
-          matches: matches
-            .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
-            .map(({ title, content }) => ({ title, content })),
+          matches,
         };
       },
     },
