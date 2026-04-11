@@ -68,7 +68,8 @@ resolved_db_path="$(
   (
     cd "$REPO_DIR"
     unset TANGO_DB_PATH TANGO_DATA_DIR TANGO_HOME TANGO_PROFILE TANGO_SLOT TANGO_VOICE_BRIDGE_ENABLED
-    source <("$SLOT_ENV_SCRIPT" "$slot")
+    # macOS bash 3.2 does not reliably propagate exports through source <(cmd).
+    eval "$("$SLOT_ENV_SCRIPT" "$slot")"
     node --input-type=module -e 'import { resolveDatabasePath } from "./packages/core/dist/runtime-paths.js"; console.log(resolveDatabasePath());'
   )
 )"
