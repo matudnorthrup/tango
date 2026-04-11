@@ -26,10 +26,14 @@ source "$SCRIPT_DIR/../session.sh"
 
 SESSION_NAME="tango-wt-$slot"
 WINDOW_NAME="slot-probe"
-export TANGO_TMUX_SESSION="$SESSION_NAME"
-TARGET="$(resolve_tmux_service_target "$WINDOW_NAME")"
+TARGET="${SESSION_NAME}:${WINDOW_NAME}"
 
-if ! tmux_service_target_is_running "$TARGET"; then
+tmux_window_exists() {
+  tmux has-session -t "$SESSION_NAME" 2>/dev/null \
+    && tmux list-windows -t "$SESSION_NAME" -F '#{window_name}' 2>/dev/null | grep -qx "$WINDOW_NAME"
+}
+
+if ! tmux_window_exists; then
   echo "No slot probe tmux target running (expected '$TARGET')"
   exit 1
 fi
