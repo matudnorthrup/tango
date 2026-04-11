@@ -26,15 +26,24 @@ source "$SCRIPT_DIR/../session.sh"
 export TANGO_REPO_DIR="$PWD"
 REPO_DIR="$(resolve_tango_repo_dir)"
 SESSION_NAME="tango-wt-$slot"
-WINDOW_NAME="slot-probe"
-TARGET="${SESSION_NAME}:${WINDOW_NAME}"
 SLOT_ENV_FILE="$REPO_DIR/.env.slot"
+SLOT_MODE="${TANGO_SLOT_MODE:-slot-probe}"
 WINDOW_WIDTH=120
 WINDOW_HEIGHT=5
 
-tmux_window_exists() {
-  tmux has-session -t "$SESSION_NAME" 2>/dev/null \
-    && tmux list-windows -t "$SESSION_NAME" -F '#{window_name}' 2>/dev/null | grep -qx "$WINDOW_NAME"
+resolve_node_bin() {
+  local node_bin="${TANGO_NODE_BIN:-/opt/homebrew/opt/node@22/bin/node}"
+
+  if [ ! -x "$node_bin" ]; then
+    node_bin="$(command -v node || true)"
+  fi
+
+  if [ -z "${node_bin:-}" ]; then
+    echo "No Node runtime found. Install Node 22 or set TANGO_NODE_BIN." >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$node_bin"
 }
 
 if [ ! -f "$SLOT_ENV_FILE" ]; then
@@ -43,21 +52,63 @@ if [ ! -f "$SLOT_ENV_FILE" ]; then
   exit 1
 fi
 
-printf "would launch node packages/discord/dist/main.js with env from .env + .env.slot in window %s:discord\n" "$SESSION_NAME"
+case "$SLOT_MODE" in
+  discord)
+    WINDOW_NAME="discord"
+    TARGET="${SESSION_NAME}:${WINDOW_NAME}"
+    NODE_BIN="$(resolve_node_bin)"
 
-if tmux_window_exists; then
-  echo "tmux target '$TARGET' already running"
-  exit 0
-fi
+    if [ ! -f "$REPO_DIR/packages/discord/dist/main.js" ]; then
+      echo "Build output not found at packages/discord/dist/main.js" >&2
+      echo "Run: npm run build -w @tango/discord" >&2
+      exit 1
+    fi
 
-printf -v PROBE_CMD '%s' "cd \"$REPO_DIR\" && set -a && if [ -f .env ]; then source .env; fi && source .env.slot && set +a && while true; do date; printf 'TANGO_PROFILE=%s\nTANGO_SLOT=%s\nTANGO_VOICE_BRIDGE_ENABLED=%s\n---\n' \"\$TANGO_PROFILE\" \"\$TANGO_SLOT\" \"\$TANGO_VOICE_BRIDGE_ENABLED\"; sleep 5; done"
-printf -v RUN_CMD 'bash -lc %q' "$PROBE_CMD"
+    if slot_tmux_window_exists "$SESSION_NAME" "$WINDOW_NAME"; then
+      echo "tmux target '$TARGET' already running"
+      exit 0
+    fi
 
-if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-  tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
-  tmux resize-window -t "$TARGET" -x "$WINDOW_WIDTH" -y "$WINDOW_HEIGHT"
-else
-  tmux new-session -d -x "$WINDOW_WIDTH" -y "$WINDOW_HEIGHT" -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
-fi
+    printf "launching node packages/discord/dist/main.js with env from .env + .env.slot in window %s:discord\n" "$SESSION_NAME"
 
-echo "Started slot probe in tmux target '${SESSION_NAME}:${WINDOW_NAME}'"
+    if [ -n "${DISCORD_ALLOWED_CHANNELS:-}" ]; then
+      printf -v CHANNELS_CMD 'export DISCORD_ALLOWED_CHANNELS=%q && ' "$DISCORD_ALLOWED_CHANNELS"
+    else
+      CHANNELS_CMD='unset DISCORD_ALLOWED_CHANNELS && '
+    fi
+
+    printf -v DISCORD_CMD '%s' "cd \"$REPO_DIR\" && set -a && if [ -f .env ]; then source .env; fi && source .env.slot && set +a && ${CHANNELS_CMD}env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$NODE_BIN\" packages/discord/dist/main.js"
+    printf -v RUN_CMD 'bash -lc %q' "$DISCORD_CMD"
+
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+      tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+    else
+      tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+    fi
+
+    echo "Started slot Discord in tmux target '${SESSION_NAME}:${WINDOW_NAME}'"
+    ;;
+  *)
+    WINDOW_NAME="slot-probe"
+    TARGET="${SESSION_NAME}:${WINDOW_NAME}"
+
+    printf "would launch node packages/discord/dist/main.js with env from .env + .env.slot in window %s:discord\n" "$SESSION_NAME"
+
+    if slot_tmux_window_exists "$SESSION_NAME" "$WINDOW_NAME"; then
+      echo "tmux target '$TARGET' already running"
+      exit 0
+    fi
+
+    printf -v PROBE_CMD '%s' "cd \"$REPO_DIR\" && set -a && if [ -f .env ]; then source .env; fi && source .env.slot && set +a && while true; do date; printf 'TANGO_PROFILE=%s\nTANGO_SLOT=%s\nTANGO_VOICE_BRIDGE_ENABLED=%s\n---\n' \"\$TANGO_PROFILE\" \"\$TANGO_SLOT\" \"\$TANGO_VOICE_BRIDGE_ENABLED\"; sleep 5; done"
+    printf -v RUN_CMD 'bash -lc %q' "$PROBE_CMD"
+
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+      tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+      tmux resize-window -t "$TARGET" -x "$WINDOW_WIDTH" -y "$WINDOW_HEIGHT"
+    else
+      tmux new-session -d -x "$WINDOW_WIDTH" -y "$WINDOW_HEIGHT" -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+    fi
+
+    echo "Started slot probe in tmux target '${SESSION_NAME}:${WINDOW_NAME}'"
+    ;;
+esac
