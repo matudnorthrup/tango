@@ -435,6 +435,23 @@ const BROWSER_ALLOWED_INTENTS = new Set([
   "finance.transaction_categorization",
 ]);
 
+const FINANCE_TRANSACTION_CATEGORIZATION_ALLOWED_TOOL_IDS = [
+  "lunch_money",
+  "obsidian",
+  "browser",
+  "onepassword",
+  "gog_email",
+];
+
+const FINANCE_RECEIPT_CATALOG_ALLOWED_TOOL_IDS = [
+  "lunch_money",
+  "browser",
+  "onepassword",
+  "gog_email",
+  "obsidian",
+  "receipt_registry",
+];
+
 function resolveExcludedToolIds(entry: DeterministicIntentCatalogEntry): string[] {
   if (
     (entry.route.targetId === "research-assistant" || entry.route.targetId === "personal-assistant")
@@ -457,6 +474,12 @@ function resolveAllowedToolIds(entry: DeterministicIntentCatalogEntry): string[]
   }
   if (entry.id === "shopping.browser_order_action" || entry.id === "shopping.browser_order_lookup") {
     return ["walmart", "browser", "onepassword"];
+  }
+  if (entry.id === "finance.transaction_categorization") {
+    return FINANCE_TRANSACTION_CATEGORIZATION_ALLOWED_TOOL_IDS;
+  }
+  if (entry.id === "finance.receipt_catalog") {
+    return FINANCE_RECEIPT_CATALOG_ALLOWED_TOOL_IDS;
   }
   if (entry.id === "finance.reimbursement_submit") {
     return ["receipt_registry", "ramp_reimbursement", "gog_email", "onepassword", "obsidian"];
