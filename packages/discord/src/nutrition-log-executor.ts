@@ -502,6 +502,7 @@ function scoreAtlasRowForItem(itemLabel: string, row: AtlasIngredientRow): numbe
     .map((value) => normalizeFoodLabel(value))
     .filter((value) => value.length > 0);
   const itemWords = normalizedItem.split(" ").filter((word) => word.length > 1);
+  const matchedWords = new Set<string>();
   let score = 0;
   for (const haystack of haystacks) {
     if (haystack === normalizedItem) {
@@ -511,10 +512,11 @@ function scoreAtlasRowForItem(itemLabel: string, row: AtlasIngredientRow): numbe
     }
     for (const word of itemWords) {
       if (haystack.includes(word)) {
-        score += 5;
+        matchedWords.add(word);
       }
     }
   }
+  score += matchedWords.size * 5;
   return score;
 }
 
@@ -547,7 +549,7 @@ function findBestAtlasMatchForItem(db: DatabaseSync, itemLabel: string): AtlasIn
       bestRow = row;
     }
   }
-  return bestScore > 0 ? bestRow : null;
+  return bestScore >= 10 ? bestRow : null;
 }
 
 function parseGramsFromAmountText(value: string): number | null {

@@ -1913,7 +1913,7 @@ describe("deterministic router", () => {
     );
   });
 
-  it("narrows docs and nutrition logging intents to the high-level executors", () => {
+  it("narrows docs, nutrition logging, and workout intents to their primary execution tools", () => {
     const registry = createRegistry();
     const malibuCatalog = getDeterministicIntentCatalog({
       registry,
@@ -1946,6 +1946,36 @@ describe("deterministic router", () => {
           intentId: "nutrition.log_recipe",
           mode: "write",
           entities: { recipe_query: "Taco Tuesday", meal: "dinner" },
+        }),
+      ],
+      catalog: malibuCatalog,
+      registry,
+    });
+
+    const workoutLogResult = buildDeterministicExecutionPlan({
+      userMessage: "Log my workout and start a push session.",
+      envelopes: [
+        makeEnvelope({
+          intentId: "workout.log",
+          mode: "write",
+          entities: {
+            workout_type: "push",
+          },
+        }),
+      ],
+      catalog: malibuCatalog,
+      registry,
+    });
+
+    const workoutHistoryResult = buildDeterministicExecutionPlan({
+      userMessage: "What exercises do I do on push day?",
+      envelopes: [
+        makeEnvelope({
+          intentId: "workout.history",
+          mode: "read",
+          entities: {
+            workout_type: "push",
+          },
         }),
       ],
       catalog: malibuCatalog,
@@ -1987,6 +2017,14 @@ describe("deterministic router", () => {
       "use recipe_read first, expand the ingredient list, and then pass the concrete ingredient items to nutrition_log_items in one batch",
     );
     expect(recipeResult.plan?.steps[0]?.reasoningEffort).toBe("low");
+    expect(workoutLogResult.plan?.steps[0]?.allowedToolIds).toEqual(["workout_sql"]);
+    expect(workoutLogResult.plan?.steps[0]?.task).toContain(
+      "Tool surface for this intent is intentionally narrowed to: workout_sql.",
+    );
+    expect(workoutHistoryResult.plan?.steps[0]?.allowedToolIds).toEqual(["workout_sql"]);
+    expect(workoutHistoryResult.plan?.steps[0]?.task).toContain(
+      "Tool surface for this intent is intentionally narrowed to: workout_sql.",
+    );
     expect(docsResult.plan?.steps[0]?.allowedToolIds).toEqual([
       "gog_docs_update_tab",
       "gog_docs",

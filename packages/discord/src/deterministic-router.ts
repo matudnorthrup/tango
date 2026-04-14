@@ -446,6 +446,9 @@ function resolveExcludedToolIds(entry: DeterministicIntentCatalogEntry): string[
 }
 
 function resolveAllowedToolIds(entry: DeterministicIntentCatalogEntry): string[] | undefined {
+  if (entry.id.startsWith("workout.")) {
+    return ["workout_sql"];
+  }
   if (entry.id === "nutrition.log_food" || entry.id === "nutrition.log_recipe") {
     return ["recipe_read", "nutrition_log_items", "fatsecret_api"];
   }
