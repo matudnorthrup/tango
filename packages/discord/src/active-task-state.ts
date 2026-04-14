@@ -18,6 +18,8 @@ const AFFIRMATION_PATTERN =
   /^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please do|go ahead|do that|sounds good|let'?s do it|take a look|check it|try it|run it|continue|go for it|proceed)\b/iu;
 const CANCELLATION_PATTERN =
   /^(?:no|nah|don'?t|do not|stop|cancel|never mind|nm|scratch that)\b/iu;
+const CORRECTION_PATTERN =
+  /(?:^|\b)(?:that(?:'s| is) not what i asked|that(?:'s| is) not what i meant|not what i asked|not what i meant|no(?:\s*,)?\s+i\s+meant|i meant|i was asking|i asked for|that's wrong|that is wrong|wrong answer|wrong question)\b/iu;
 const DEICTIC_PATTERN =
   /\b(?:that|it|this|same|again|the one|like i said|as i said|earlier|previous|before)\b/iu;
 const CLARIFICATION_PATTERN =
@@ -170,6 +172,9 @@ function isContinuationLike(userMessage: string): boolean {
   if (!normalized) {
     return false;
   }
+  if (CORRECTION_PATTERN.test(userMessage)) {
+    return false;
+  }
   if (AFFIRMATION_PATTERN.test(userMessage) || CANCELLATION_PATTERN.test(userMessage) || DEICTIC_PATTERN.test(userMessage)) {
     return true;
   }
@@ -214,6 +219,16 @@ export function resolveActiveTaskContinuation(input: {
       kind: "none",
       matchedTask: null,
       effectiveUserMessage: input.userMessage,
+    };
+  }
+
+  if (CORRECTION_PATTERN.test(input.userMessage)) {
+    return {
+      kind: "none",
+      matchedTask: null,
+      effectiveUserMessage: input.userMessage,
+      promptContext: renderActiveTasksContext(openTasks),
+      reason: "correction-like follow-up should stay conversational",
     };
   }
 
