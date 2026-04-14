@@ -21,4 +21,11 @@ if [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 
+# Source env overlays so the harness gets DISCORD_TOKEN and the correct
+# TANGO_PROFILE for DB resolution (slot bot writes to wt-{N}'s DB).
+set -a
+if [ -f "$REPO_DIR/.env" ]; then source "$REPO_DIR/.env"; fi
+if [ -f "$REPO_DIR/.env.slot" ]; then source "$REPO_DIR/.env.slot"; fi
+set +a
+
 exec node --import tsx "$REPO_DIR/apps/tango-voice/src/testing/discord-test-harness.ts" "$@"
