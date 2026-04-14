@@ -31,8 +31,8 @@ resolve_tmux_target_session_name() {
 }
 
 resolve_tango_repo_dir() {
-  if [ -n "${TANGO_REPO_DIR:-}" ] && [ -d "${TANGO_REPO_DIR:-}" ]; then
-    (cd "$TANGO_REPO_DIR" && pwd -P)
+  if [ -n "${TANGO_REPO_DIR:-}" ]; then
+    printf '%s\n' "$TANGO_REPO_DIR"
     return 0
   fi
 
@@ -57,4 +57,43 @@ resolve_tango_repo_dir() {
   fi
 
   printf '%s\n' "$current_repo"
+}
+
+slot_tmux_window_exists() {
+  local session_name="$1"
+  local window_name="$2"
+
+  tmux has-session -t "$session_name" 2>/dev/null \
+    && tmux list-windows -t "$session_name" -F '#{window_name}' 2>/dev/null | grep -qx "$window_name"
+}
+
+resolve_active_slot_window_name() {
+  local session_name="$1"
+  local has_probe=0
+  local has_discord=0
+
+  if slot_tmux_window_exists "$session_name" "slot-probe"; then
+    has_probe=1
+  fi
+
+  if slot_tmux_window_exists "$session_name" "discord"; then
+    has_discord=1
+  fi
+
+  if [ "$has_probe" -eq 1 ] && [ "$has_discord" -eq 1 ]; then
+    echo "Multiple slot windows running in session '$session_name': slot-probe, discord" >&2
+    return 1
+  fi
+
+  if [ "$has_discord" -eq 1 ]; then
+    printf 'discord\n'
+    return 0
+  fi
+
+  if [ "$has_probe" -eq 1 ]; then
+    printf 'slot-probe\n'
+    return 0
+  fi
+
+  return 1
 }
