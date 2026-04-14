@@ -2235,6 +2235,99 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(result.responseText).toBe("I didn't get a confirmed write through on that step, so I can't say it was logged yet.");
   });
 
+  it("delivers confirmed Obsidian write results without tripping the deterministic write guard", async () => {
+    const provider = new ScriptedProvider(() => ({
+      text: JSON.stringify({
+        intents: [
+          {
+            intentId: "notes.note_update",
+            confidence: 0.95,
+            entities: {
+              note_query: "Planning/Daily/2026-04-07",
+              change_request: "mark meal prep complete and keep website copy in progress",
+            },
+            rawEntities: ["Planning/Daily/2026-04-07", "meal prep complete", "website copy in progress"],
+            missingSlots: [],
+            canRunInParallel: false,
+            routeHint: {
+              kind: "worker",
+              targetId: "personal-assistant",
+            },
+          },
+        ],
+      }),
+      metadata: { model: "gpt-5.4" },
+    }));
+
+    const deterministicRouting = {
+      enabled: true,
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        executeWorkerWithTask: async () => ({
+          operations: [
+            {
+              name: "obsidian",
+              toolNames: ["obsidian"],
+              input: {
+                command: "create 'Planning/Daily/2026-04-07' --vault main --overwrite",
+                content: "# Daily note",
+              },
+              output: { result: "Created note successfully." },
+              mode: "write",
+            },
+          ],
+          hasWriteOperations: true,
+          data: {
+            workerText: "Updated today's daily note in Obsidian.",
+          },
+        }),
+      },
+      () => ({
+        conversationKey: "tango-default:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "tango-default",
+        agentId: "watson",
+        transcript: "Update today's daily note to mark meal prep complete and keep website copy in progress.",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "tango-default:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      },
+    );
+
+    expect(result.responseText).toBe("Updated today's daily note in Obsidian.");
+    expect(result.deterministicTurn?.receipts[0]).toMatchObject({
+      status: "completed",
+      hasWriteOperations: true,
+    });
+    expect(provider.calls).toHaveLength(1);
+  });
+
   it("routes Sierra research turns through the deterministic runtime without project scope", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       if (callNumber === 1) {
@@ -2486,7 +2579,9 @@ describe("createDiscordVoiceTurnExecutor", () => {
       "health-analyst",
       "nutrition-logger",
     ]);
-    expect(workerCalls).toHaveLength(0);
+    expect(workerCalls).toHaveLength(1);
+    expect(workerCalls[0]?.workerId).toBe("health-analyst");
+    expect(workerCalls[0]?.task).toContain("health.trend_analysis");
     expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
     expect(provider.calls).toHaveLength(1);
     expect(result.usedWorkerSynthesis).toBe(false);

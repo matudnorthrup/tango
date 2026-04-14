@@ -1,0 +1,8 @@
+# Slot Mode Instructions
+You are operating in parallel dev slot wt-1 on branch `fix/health-report-and-write-confirm`.
+- Your test Discord threads are in the per-agent smoke test channels (created when you claim the bot)
+- To do a live Discord test: `scripts/dev/claim-bot.sh 1 --live`
+- To release: `scripts/dev/release-bot.sh 1 --live`
+- Your database is isolated at `~/.tango/profiles/wt-1/data/tango.sqlite`
+- DO NOT modify files outside this worktree
+- DO NOT push to main without PM approval
