@@ -16,7 +16,8 @@ Direct SQL access to the workout Postgres database.
 workouts (
   id serial PRIMARY KEY,
   date date,
-  workout_type text,
+  workout_type text, -- broad family: push, pull, legs, other
+  routine_id int REFERENCES workout_routines(id),
   started_at timestamptz DEFAULT now(),
   ended_at timestamptz,
   bodyweight_lbs numeric,
@@ -44,32 +45,84 @@ exercises (
   equipment text,
   aliases text[]
 )
+
+workout_routines (
+  id serial PRIMARY KEY,
+  name text UNIQUE,
+  workout_type text,
+  aliases text[],
+  notes text
+)
+
+workout_routine_exercises (
+  routine_id int REFERENCES workout_routines(id) ON DELETE CASCADE,
+  exercise_id int REFERENCES exercises(id),
+  position int,
+  PRIMARY KEY (routine_id, position),
+  UNIQUE (routine_id, exercise_id)
+)
 ```
 
 ## Safety
 
 - `DROP`, `ALTER`, `CREATE`, and `TRUNCATE` are blocked.
 - Do not use `ORDER BY` or `LIMIT` directly inside `UPDATE` statements in Postgres. Resolve the target row first with a `SELECT` or CTE.
+- `workout_type` is the broad family only. Named templates such as `Push Day A`, `Pull Day B`, or `Leg Day Large` belong in `workout_routines`, and completed sessions should point at them through `workouts.routine_id`.
+- For named routine lookups, prefer `workout_routines` and `workout_routine_exercises`. Do not re-infer A/B variants from exercise fingerprints when `routine_id` or a routine row already answers the question.
 
 ## Examples
 
 ```sql
-INSERT INTO workouts (date, workout_type)
-VALUES (CURRENT_DATE, 'push')
-RETURNING id, date, workout_type;
+SELECT wr.id, wr.name, wr.workout_type, wr.aliases
+FROM workout_routines wr
+WHERE wr.name ILIKE 'Push Day A'
+   OR EXISTS (
+     SELECT 1
+     FROM unnest(wr.aliases) alias
+     WHERE alias ILIKE '%push day a%'
+   );
 ```
 
 ```sql
-INSERT INTO workouts (date, workout_type, notes)
-VALUES (DATE '2024-01-15', 'other', 'Historical workout entry')
-RETURNING id, date, workout_type, notes;
+SELECT
+  wr.name,
+  wr.workout_type,
+  string_agg(e.name, ' -> ' ORDER BY wre.position) AS exercise_sequence
+FROM workout_routines wr
+JOIN workout_routine_exercises wre ON wre.routine_id = wr.id
+JOIN exercises e ON e.id = wre.exercise_id
+WHERE wr.name = 'Pull Day B'
+GROUP BY wr.id, wr.name, wr.workout_type;
 ```
 
 ```sql
-SELECT id, date, workout_type, started_at
-FROM workouts
-WHERE ended_at IS NULL
-ORDER BY started_at DESC
+INSERT INTO workouts (date, workout_type, routine_id)
+SELECT CURRENT_DATE, wr.workout_type, wr.id
+FROM workout_routines wr
+WHERE wr.name = 'Push Day A'
+RETURNING id, date, workout_type, routine_id, started_at;
+```
+
+```sql
+INSERT INTO workouts (date, workout_type, routine_id, notes)
+SELECT DATE '2024-01-15', wr.workout_type, wr.id, 'Historical workout entry'
+FROM workout_routines wr
+WHERE wr.name = 'Leg Day Large'
+RETURNING id, date, workout_type, routine_id, notes;
+```
+
+```sql
+SELECT
+  w.id,
+  w.date,
+  w.workout_type,
+  wr.name AS routine_name,
+  w.started_at,
+  w.ended_at
+FROM workouts w
+LEFT JOIN workout_routines wr ON wr.id = w.routine_id
+WHERE w.ended_at IS NULL
+ORDER BY w.started_at DESC
 LIMIT 1;
 ```
 
@@ -91,6 +144,25 @@ INSERT INTO sets (
   11, 22, 1, 1, 135, 12
 )
 RETURNING id, volume;
+```
+
+```sql
+SELECT
+  w.id,
+  w.date,
+  wr.name AS routine_name,
+  string_agg(e.name, ' -> ' ORDER BY s.exercise_order) AS logged_exercises
+FROM workouts w
+JOIN workout_routines wr ON wr.id = w.routine_id
+JOIN (
+  SELECT DISTINCT workout_id, exercise_id, exercise_order
+  FROM sets
+) s ON s.workout_id = w.id
+JOIN exercises e ON e.id = s.exercise_id
+WHERE wr.name = 'Pull Day B'
+GROUP BY w.id, w.date, wr.name
+ORDER BY w.date DESC
+LIMIT 5;
 ```
 
 ```sql
