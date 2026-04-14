@@ -37,6 +37,26 @@ scripts/dev/release-worktree.sh 1                # tear down slot
 
 Full docs: `docs/guides/parallel-dev.md`
 
+### Agent Monitoring (CRITICAL)
+
+**After every handoff to a dev agent, create a CronCreate monitoring job.** Without this, agents complete work that sits unreviewed until someone manually checks.
+
+```
+CronCreate: */12 * * * *   (adjust interval to expected task duration)
+Prompt: check status file + list slots + tail tmux pane.
+  If done → review/merge/update Linear/delete cron.
+  If blocked → unblock. If needs approval → approve.
+  If still working → exit silently.
+  If all slots empty → delete cron.
+```
+
+- Short tasks (< 15 min): every 5-8 min
+- Medium tasks (15-30 min): every 12 min
+- Long tasks (browser automation, 30+ min): every 20-30 min
+- Self-delete the cron when work completes or all slots are empty
+- Keep check-in prompts minimal to reduce token cost
+- Approve Codex sandbox permissions automatically (send 'p' to persist)
+
 ### Project Documentation
 
 Major projects and design decisions go in `docs/projects/` as markdown. See existing files for format.
