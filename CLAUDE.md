@@ -8,6 +8,16 @@ Claude may operate in different roles depending on context. Role-specific author
 - `feedback_done_means_live_tested.md` — "done" means live tested, not unit tested
 - `feedback_project_docs.md` — document major work in `docs/projects/`
 
+## Project Tracking
+
+All active work is tracked in **Linear** (Seaside HQ workspace). See memory file `reference_linear_seaside_hq.md` for API details.
+
+- Create a project from the **General Project** template for every new initiative
+- Update issue status as work progresses (Todo → In Progress → Done)
+- Update project status to reflect the current milestone (Discovery → Implementation → Validation → Ship)
+- Link PRs and docs in project descriptions
+- When completing work, update Linear BEFORE reporting to stakeholder
+
 ## Engineering Standards
 
 ### Live Testing
