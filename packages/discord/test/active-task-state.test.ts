@@ -78,6 +78,18 @@ describe("active task state", () => {
     expect(resolution.effectiveUserMessage).toContain("User follow-up message: yeah, take a look at TDEE");
   });
 
+  it("keeps correction-style replies conversational instead of canceling the open task", () => {
+    const resolution = resolveActiveTaskContinuation({
+      tasks: [task()],
+      userMessage: "no I meant implementation steps, not another TDEE pull",
+    });
+
+    expect(resolution.kind).toBe("none");
+    expect(resolution.matchedTask).toBeNull();
+    expect(resolution.effectiveUserMessage).toBe("no I meant implementation steps, not another TDEE pull");
+    expect(resolution.promptContext).toContain("Analyze recent TDEE");
+  });
+
   it("uses structured context to match the right open task across domains", () => {
     const financeTask = task({
       id: "task-finance",
