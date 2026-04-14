@@ -2075,6 +2075,498 @@ describe("deterministic router", () => {
     expect(docsResult.plan?.steps[0]?.reasoningEffort).toBe("low");
   });
 
+  it("assigns an explicit tool allowlist to every audited intent contract", () => {
+    const registry = createRegistry();
+    const malibuCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "malibu",
+      projectId: "wellness",
+    });
+    const watsonCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "watson",
+    });
+    const sierraCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "sierra",
+    });
+    const victorCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "victor",
+    });
+    const missingCatalogEntries: IntentContractConfig[] = [
+      {
+        id: "email.inbox_maintenance",
+        domain: "email",
+        displayName: "Maintain Inbox",
+        description: "Review inbox mail, triage it, archive low-value messages, and surface the actionable items that still need attention.",
+        mode: "mixed",
+        route: { kind: "worker", targetId: "personal-assistant" },
+        examples: ["Run the daily email review and clean up the inbox."],
+      },
+      {
+        id: "notes.vault_maintenance_review",
+        domain: "notes",
+        displayName: "Review Vault Maintenance",
+        description: "Review planning notes, daily notes, and related vault organization issues, then report inconsistencies or cleanup candidates without making changes.",
+        mode: "read",
+        route: { kind: "worker", targetId: "personal-assistant" },
+        examples: ["Review the vault for stale planning notes and report what needs cleanup."],
+      },
+      {
+        id: "research.slack_digest",
+        domain: "research",
+        displayName: "Slack Digest",
+        description: "Read multiple Slack channels or threads, gather the meaningful activity, and synthesize a focused digest or briefing.",
+        mode: "read",
+        route: { kind: "worker", targetId: "research-assistant" },
+        examples: ["Give me a Slack digest for the AI channels from the last day."],
+      },
+      {
+        id: "research.deep_research",
+        domain: "research",
+        displayName: "Deep Research",
+        description: "Investigate a topic through multiple search angles or source categories, then synthesize the findings.",
+        mode: "read",
+        route: { kind: "worker", targetId: "research-coordinator" },
+        slots: [{ name: "topic", required: true }],
+        examples: ["Do a deep dive on PLA food safety"],
+      },
+      {
+        id: "research.fact_verification",
+        domain: "research",
+        displayName: "Fact Verification",
+        description: "Verify a claim by checking multiple source types or perspectives before answering.",
+        mode: "read",
+        route: { kind: "worker", targetId: "research-coordinator" },
+        slots: [{ name: "claim", required: true }],
+        examples: ["Verify whether this printer supports input shaping out of the box"],
+      },
+      {
+        id: "research.multi_document_analysis",
+        domain: "research",
+        displayName: "Multi-Document Analysis",
+        description: "Read and compare multiple documents before synthesizing the result.",
+        mode: "read",
+        route: { kind: "worker", targetId: "research-coordinator" },
+        slots: [{ name: "documents", required: true }],
+        examples: ["Compare the last five memory eval reports"],
+      },
+    ];
+
+    const uniqueEntries = new Map<string, IntentContractConfig>();
+    for (const entry of [
+      ...malibuCatalog,
+      ...watsonCatalog,
+      ...sierraCatalog,
+      ...victorCatalog,
+      ...missingCatalogEntries,
+    ]) {
+      uniqueEntries.set(entry.id, entry);
+    }
+
+    for (const entry of uniqueEntries.values()) {
+      const result = buildDeterministicExecutionPlan({
+        userMessage: `Audit ${entry.id}`,
+        envelopes: [
+          makeEnvelope({
+            intentId: entry.id,
+            mode: entry.mode,
+            domain: entry.domain,
+            entities: {},
+          }),
+        ],
+        catalog: [entry],
+        registry,
+      });
+
+      expect(result.outcome).toBe("executed");
+      expect(result.plan?.steps[0]?.allowedToolIds).toBeDefined();
+    }
+  });
+
+  it("narrows the remaining audited intents to their expected domain-specific tool surfaces", () => {
+    const registry = createRegistry();
+    const malibuCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "malibu",
+      projectId: "wellness",
+    });
+    const watsonCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "watson",
+    });
+    const sierraCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "sierra",
+    });
+    const victorCatalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "victor",
+    });
+    const emailInboxMaintenanceCatalog: IntentContractConfig[] = [
+      {
+        id: "email.inbox_maintenance",
+        domain: "email",
+        displayName: "Maintain Inbox",
+        description: "Review inbox mail, triage it, archive low-value messages, and surface the actionable items that still need attention.",
+        mode: "mixed",
+        route: { kind: "worker", targetId: "personal-assistant" },
+        examples: ["Run the daily email review and clean up the inbox."],
+      },
+    ];
+    const researchSlackDigestCatalog: IntentContractConfig[] = [
+      {
+        id: "research.slack_digest",
+        domain: "research",
+        displayName: "Slack Digest",
+        description: "Read multiple Slack channels or threads, gather the meaningful activity, and synthesize a focused digest or briefing.",
+        mode: "read",
+        route: { kind: "worker", targetId: "research-assistant" },
+        examples: ["Give me a Slack digest for the AI channels from the last day."],
+      },
+    ];
+    const noteUpdateCatalog: IntentContractConfig[] = [
+      {
+        id: "notes.note_update",
+        domain: "notes",
+        displayName: "Update Note",
+        description: "Update or append to an existing local or Obsidian note with a clear note target and change request.",
+        mode: "write",
+        route: { kind: "worker", targetId: "personal-assistant" },
+        slots: [
+          { name: "note_query", required: true },
+          { name: "change_request", required: true },
+        ],
+        examples: ["Update the desk project note with today's measurements."],
+      },
+    ];
+    const coordinatorCatalog: IntentContractConfig[] = [
+      {
+        id: "research.deep_research",
+        domain: "research",
+        displayName: "Deep Research",
+        description: "Investigate a topic through multiple search angles or source categories, then synthesize the findings.",
+        mode: "read",
+        route: { kind: "worker", targetId: "research-coordinator" },
+        slots: [{ name: "topic", required: true }],
+        examples: ["Do a deep dive on PLA food safety"],
+      },
+      {
+        id: "research.fact_verification",
+        domain: "research",
+        displayName: "Fact Verification",
+        description: "Verify a claim by checking multiple source types or perspectives before answering.",
+        mode: "read",
+        route: { kind: "worker", targetId: "research-coordinator" },
+        slots: [{ name: "claim", required: true }],
+        examples: ["Verify whether this printer supports input shaping out of the box"],
+      },
+      {
+        id: "research.multi_document_analysis",
+        domain: "research",
+        displayName: "Multi-Document Analysis",
+        description: "Read and compare multiple documents before synthesizing the result.",
+        mode: "read",
+        route: { kind: "worker", targetId: "research-coordinator" },
+        slots: [{ name: "documents", required: true }],
+        examples: ["Compare the last five memory eval reports"],
+      },
+    ];
+
+    const cases: Array<{
+      label: string;
+      catalog: readonly IntentContractConfig[];
+      envelope: IntentEnvelope;
+      expected: string[];
+    }> = [
+      {
+        label: "accounts.identity_read",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "accounts.identity_read",
+          mode: "read",
+          domain: "accounts",
+        }),
+        expected: ["onepassword"],
+      },
+      {
+        label: "files.local_write",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "files.local_write",
+          mode: "write",
+          domain: "files",
+        }),
+        expected: ["file_ops"],
+      },
+      {
+        label: "printing.job_prepare_or_start",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "printing.job_prepare_or_start",
+          mode: "write",
+          domain: "printing",
+        }),
+        expected: ["file_ops", "openscad_render", "prusa_slice", "printer_command"],
+      },
+      {
+        label: "research.note_read",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "research.note_read",
+          mode: "read",
+          domain: "research",
+        }),
+        expected: ["obsidian", "file_ops"],
+      },
+      {
+        label: "research.product_selection",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "research.product_selection",
+          mode: "read",
+          domain: "research",
+        }),
+        expected: ["exa_search", "exa_answer"],
+      },
+      {
+        label: "research.video_read",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "research.video_read",
+          mode: "read",
+          domain: "research",
+        }),
+        expected: ["youtube_transcript", "youtube_analyze", "exa_search"],
+      },
+      {
+        label: "research.slack_digest",
+        catalog: researchSlackDigestCatalog,
+        envelope: makeEnvelope({
+          intentId: "research.slack_digest",
+          mode: "read",
+          domain: "research",
+        }),
+        expected: ["slack"],
+      },
+      {
+        label: "research.deep_research",
+        catalog: coordinatorCatalog,
+        envelope: makeEnvelope({
+          intentId: "research.deep_research",
+          mode: "read",
+          domain: "research",
+        }),
+        expected: ["exa_search", "exa_answer"],
+      },
+      {
+        label: "research.fact_verification",
+        catalog: coordinatorCatalog,
+        envelope: makeEnvelope({
+          intentId: "research.fact_verification",
+          mode: "read",
+          domain: "research",
+        }),
+        expected: ["exa_search", "exa_answer"],
+      },
+      {
+        label: "research.multi_document_analysis",
+        catalog: coordinatorCatalog,
+        envelope: makeEnvelope({
+          intentId: "research.multi_document_analysis",
+          mode: "read",
+          domain: "research",
+        }),
+        expected: ["file_ops", "obsidian", "youtube_transcript", "youtube_analyze", "exa_search", "exa_answer"],
+      },
+      {
+        label: "travel.diesel_lookup",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "travel.diesel_lookup",
+          mode: "read",
+          domain: "travel",
+        }),
+        expected: ["location_read", "find_diesel"],
+      },
+      {
+        label: "travel.route_plan",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "travel.route_plan",
+          mode: "read",
+          domain: "travel",
+        }),
+        expected: ["location_read", "exa_search", "exa_answer"],
+      },
+      {
+        label: "shopping.walmart_queue_review",
+        catalog: sierraCatalog,
+        envelope: makeEnvelope({
+          intentId: "shopping.walmart_queue_review",
+          mode: "read",
+          domain: "shopping",
+        }),
+        expected: ["walmart"],
+      },
+      {
+        label: "email.inbox_maintenance",
+        catalog: emailInboxMaintenanceCatalog,
+        envelope: makeEnvelope({
+          intentId: "email.inbox_maintenance",
+          mode: "mixed",
+          domain: "email",
+        }),
+        expected: ["gog_email", "gog_calendar"],
+      },
+      {
+        label: "email.subscription_review",
+        catalog: watsonCatalog,
+        envelope: makeEnvelope({
+          intentId: "email.subscription_review",
+          mode: "mixed",
+          domain: "email",
+        }),
+        expected: ["gog_email", "obsidian"],
+      },
+      {
+        label: "finance.receipt_lookup",
+        catalog: watsonCatalog,
+        envelope: makeEnvelope({
+          intentId: "finance.receipt_lookup",
+          mode: "read",
+          domain: "finance",
+        }),
+        expected: ["lunch_money", "browser", "onepassword", "gog_email", "obsidian"],
+      },
+      {
+        label: "planning.morning_review",
+        catalog: watsonCatalog,
+        envelope: makeEnvelope({
+          intentId: "planning.morning_review",
+          mode: "mixed",
+          domain: "planning",
+        }),
+        expected: ["gog_calendar", "gog_email", "obsidian", "health_morning", "linear"],
+      },
+      {
+        label: "planning.evening_review",
+        catalog: watsonCatalog,
+        envelope: makeEnvelope({
+          intentId: "planning.evening_review",
+          mode: "mixed",
+          domain: "planning",
+        }),
+        expected: ["gog_calendar", "gog_email", "obsidian", "linear"],
+      },
+      {
+        label: "health.morning_brief",
+        catalog: watsonCatalog,
+        envelope: makeEnvelope({
+          intentId: "health.morning_brief",
+          mode: "read",
+          domain: "health",
+        }),
+        expected: ["health_morning"],
+      },
+      {
+        label: "health.sleep_recovery",
+        catalog: malibuCatalog,
+        envelope: makeEnvelope({
+          intentId: "health.sleep_recovery",
+          mode: "read",
+          domain: "wellness",
+        }),
+        expected: ["health_query"],
+      },
+      {
+        label: "nutrition.check_budget",
+        catalog: malibuCatalog,
+        envelope: makeEnvelope({
+          intentId: "nutrition.check_budget",
+          mode: "read",
+          domain: "wellness",
+        }),
+        expected: ["fatsecret_api", "health_query"],
+      },
+      {
+        label: "nutrition.log_repair",
+        catalog: malibuCatalog,
+        envelope: makeEnvelope({
+          intentId: "nutrition.log_repair",
+          mode: "write",
+          domain: "wellness",
+        }),
+        expected: ["recipe_read", "nutrition_log_items", "fatsecret_api", "atlas_sql"],
+      },
+      {
+        label: "nutrition.ingredient_catalog_update",
+        catalog: malibuCatalog,
+        envelope: makeEnvelope({
+          intentId: "nutrition.ingredient_catalog_update",
+          mode: "write",
+          domain: "wellness",
+        }),
+        expected: ["atlas_sql", "fatsecret_api"],
+      },
+      {
+        label: "recipe.update",
+        catalog: malibuCatalog,
+        envelope: makeEnvelope({
+          intentId: "recipe.update",
+          mode: "write",
+          domain: "wellness",
+        }),
+        expected: ["recipe_list", "recipe_read", "recipe_write", "atlas_sql", "fatsecret_api"],
+      },
+      {
+        label: "engineering.repo_status",
+        catalog: victorCatalog,
+        envelope: makeEnvelope({
+          intentId: "engineering.repo_status",
+          mode: "read",
+          domain: "engineering",
+        }),
+        expected: ["tango_shell", "tango_file"],
+      },
+      {
+        label: "notes.note_update",
+        catalog: noteUpdateCatalog,
+        envelope: makeEnvelope({
+          intentId: "notes.note_update",
+          mode: "write",
+          domain: "notes",
+        }),
+        expected: ["obsidian"],
+      },
+      {
+        label: "slack.channel_review",
+        catalog: watsonCatalog,
+        envelope: makeEnvelope({
+          intentId: "slack.channel_review",
+          mode: "read",
+          domain: "slack",
+        }),
+        expected: ["slack"],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = buildDeterministicExecutionPlan({
+        userMessage: `Audit ${testCase.label}`,
+        envelopes: [testCase.envelope],
+        catalog: testCase.catalog,
+        registry,
+      });
+
+      if (result.outcome !== "executed") {
+        throw new Error(`${testCase.label}: ${result.reason ?? result.outcome}`);
+      }
+      expect(result.plan?.steps[0]?.allowedToolIds).toEqual(testCase.expected);
+    }
+  });
+
   it("normalizes reimbursement email-account aliases before worker execution", () => {
     const registry = createRegistry();
     const catalog = getDeterministicIntentCatalog({
