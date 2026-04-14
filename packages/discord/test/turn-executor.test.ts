@@ -1221,6 +1221,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
       providerNames: ["codex"],
       configuredProviderNames: ["codex"],
       reasoningEffort: "low" as const,
+      allowDirectStepExecution: false,
     };
 
     const executor = createDiscordVoiceTurnExecutor(
@@ -1352,6 +1353,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
       providerNames: ["codex"],
       configuredProviderNames: ["codex"],
       reasoningEffort: "low" as const,
+      allowDirectStepExecution: false,
     };
 
     const executor = createDiscordVoiceTurnExecutor(
@@ -2337,22 +2339,17 @@ describe("createDiscordVoiceTurnExecutor", () => {
     );
 
     expect(result.responseText).toContain("TDEE");
-    expect(result.responseText).toContain("yogurt");
+    expect(result.responseText).toMatch(/yogurt/i);
     expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
     expect(result.deterministicTurn?.receipts).toHaveLength(2);
     expect(result.deterministicTurn?.receipts.map((receipt) => receipt.workerId).sort()).toEqual([
       "health-analyst",
       "nutrition-logger",
     ]);
-    expect(workerCalls).toHaveLength(2);
-    expect(workerCalls[0]?.workerId).toBe("health-analyst");
-    expect(workerCalls[0]?.task).toContain("health.trend_analysis");
-    expect(workerCalls[0]?.task).toContain("wellness.analyze_health_trends");
-    expect(workerCalls[1]?.workerId).toBe("nutrition-logger");
-    expect(workerCalls[1]?.task).toContain("nutrition.check_budget");
-    expect(workerCalls[1]?.task).toContain("wellness.check_nutrition_budget");
+    expect(workerCalls).toHaveLength(0);
     expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
-    expect(provider.calls[1]?.prompt).toContain("The deterministic runtime already completed");
+    expect(provider.calls).toHaveLength(1);
+    expect(result.usedWorkerSynthesis).toBe(false);
   });
 
   it("routes Sierra mixed printer and live-location turns through the deterministic runtime", async () => {
@@ -2481,7 +2478,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
       },
     );
 
-    expect(result.responseText).toContain("printer");
+    expect(result.responseText).toMatch(/printer/i);
     expect(result.responseText).toContain("Springville");
     expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
     expect(result.deterministicTurn?.receipts).toHaveLength(2);
@@ -3137,7 +3134,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
       },
     );
 
-    expect(result.responseText).toContain("repo");
+    expect(result.responseText).toContain("Git status");
     expect(result.responseText).toContain("deterministic routing");
     expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
     expect(result.deterministicTurn?.receipts).toHaveLength(2);

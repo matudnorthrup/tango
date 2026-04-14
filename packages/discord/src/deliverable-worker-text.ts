@@ -76,6 +76,24 @@ export function extractDeliverableWorkerTextFromReceipt(
   return workerTextLooksDeliverable(workerText) ? workerText : null;
 }
 
+export function extractDeliverableWorkerTextsFromReceipts(
+  receipts: readonly ExecutionReceipt[],
+): string[] | null {
+  if (receipts.length === 0) {
+    return null;
+  }
+
+  const texts: string[] = [];
+  for (const receipt of receipts) {
+    const workerText = extractDeliverableWorkerTextFromReceipt(receipt);
+    if (!workerText) {
+      return null;
+    }
+    texts.push(workerText);
+  }
+  return texts;
+}
+
 export function extractDeliverableWorkerTextFromReport(
   report: WorkerReport | null | undefined,
 ): string | null {

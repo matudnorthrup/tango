@@ -49,6 +49,7 @@ exercises (
 ## Safety
 
 - `DROP`, `ALTER`, `CREATE`, and `TRUNCATE` are blocked.
+- Do not use `ORDER BY` or `LIMIT` directly inside `UPDATE` statements in Postgres. Resolve the target row first with a `SELECT` or CTE.
 
 ## Examples
 
@@ -56,6 +57,12 @@ exercises (
 INSERT INTO workouts (date, workout_type)
 VALUES (CURRENT_DATE, 'push')
 RETURNING id, date, workout_type;
+```
+
+```sql
+INSERT INTO workouts (date, workout_type, notes)
+VALUES (DATE '2024-01-15', 'other', 'Historical workout entry')
+RETURNING id, date, workout_type, notes;
 ```
 
 ```sql
@@ -87,10 +94,18 @@ RETURNING id, volume;
 ```
 
 ```sql
-UPDATE workouts
+WITH target AS (
+  SELECT id
+  FROM workouts
+  WHERE ended_at IS NULL
+  ORDER BY started_at DESC
+  LIMIT 1
+)
+UPDATE workouts w
 SET ended_at = now()
-WHERE id = 11
-RETURNING id, started_at, ended_at;
+FROM target
+WHERE w.id = target.id
+RETURNING w.id, w.started_at, w.ended_at;
 ```
 
 ## Output

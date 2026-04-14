@@ -15,7 +15,9 @@ Any time the user wants to log a workout, record sets, check exercise history, o
    ORDER BY started_at DESC LIMIT 1;
    ```
 2. If one exists, use it. Do not create a duplicate.
-3. If none, create one with the workout type and today's date.
+3. If the user specifies a workout date, treat that date as authoritative. Query for a session on that date before looking at today's active session.
+4. If the request is for a historical date, never append to a different day's active session.
+5. If none exists, create one with the workout type and the target date. Only default to `CURRENT_DATE` when the user did not provide a date.
 
 ## Logging sets
 
@@ -64,9 +66,27 @@ When the user says they're done:
 UPDATE workouts SET ended_at = now() WHERE id = ? RETURNING id, started_at, ended_at;
 ```
 
+If you need to resolve the active workout id first, do it with a separate `SELECT` or a CTE. Do not write `UPDATE ... ORDER BY ... LIMIT ...` directly in Postgres. Use a pattern like:
+
+```sql
+WITH target AS (
+  SELECT id
+  FROM workouts
+  WHERE ended_at IS NULL
+  ORDER BY started_at DESC
+  LIMIT 1
+)
+UPDATE workouts w
+SET ended_at = now()
+FROM target
+WHERE w.id = target.id
+RETURNING w.id, w.started_at, w.ended_at;
+```
+
 ## Rules
 
 - **Query before asking.** If the user asks "when did I last do legs?" or "what did I bench last week?" — check the database. Do not ask the user to recall what the database already knows.
 - **Never fabricate workout data.** If a query returns no results, say so.
 - **Never guess weights, reps, or dates.** Use only what the user states or what the database contains.
 - **Resolve exercises by name and aliases.** The same exercise may be referred to differently ("bench" vs "bench press" vs "flat barbell bench").
+- **Respect explicit dates.** For backdated or historical writes, keep every read and write anchored to that date and do not touch the current active session unless the user explicitly told you to.
