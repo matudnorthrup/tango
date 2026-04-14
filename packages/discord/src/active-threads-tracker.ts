@@ -8,14 +8,14 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { Client } from "discord.js";
+import { SnowflakeUtil, type Client, type ThreadChannel } from "discord.js";
 import type { DeterministicHandler, DeterministicResult } from "@tango/core";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const VAULT_PATH = path.join(os.homedir(), "Documents", "main");
+const DEFAULT_VAULT_PATH = path.join(os.homedir(), "Documents", "main");
 const TZ = "America/Los_Angeles";
 
 function parseEnvSet(name: string): Set<string> {
@@ -51,9 +51,8 @@ const THREAD_BLACKLIST = parseEnvSet("TANGO_ACTIVE_THREADS_BLACKLIST_THREAD_IDS"
 // Helpers
 // ---------------------------------------------------------------------------
 
-function todayNoteFile(): string {
-  const dateStr = new Date().toLocaleDateString("en-CA", { timeZone: TZ }); // YYYY-MM-DD
-  return path.join(VAULT_PATH, "Planning", "Daily", `${dateStr}.md`);
+function todayNoteFile(vaultPath: string, nowMs: number): string {
+  return path.join(vaultPath, "Planning", "Daily", `${toLADate(nowMs)}.md`);
 }
 
 /** Return the LA calendar date string (YYYY-MM-DD) for an epoch ms. */
@@ -77,6 +76,44 @@ function threadKey(channelName: string, threadName: string): string {
 interface ThreadRecord {
   key: string;
   lastActiveMs: number;
+}
+
+export interface ActiveThreadsTrackerOptions {
+  vaultPath?: string;
+  now?: () => number;
+}
+
+interface LastActiveResolution {
+  lastActiveMs: number;
+  source: "last-message-id" | "created-timestamp" | "now";
+}
+
+function resolveLastActiveMs(
+  thread: Pick<ThreadChannel, "lastMessageId" | "createdTimestamp">,
+  fallbackNowMs: number,
+): LastActiveResolution {
+  if (thread.lastMessageId) {
+    try {
+      return {
+        lastActiveMs: SnowflakeUtil.timestampFrom(thread.lastMessageId),
+        source: "last-message-id",
+      };
+    } catch {
+      // Fall through to less precise metadata when Discord returns a malformed ID.
+    }
+  }
+
+  if (typeof thread.createdTimestamp === "number") {
+    return {
+      lastActiveMs: thread.createdTimestamp,
+      source: "created-timestamp",
+    };
+  }
+
+  return {
+    lastActiveMs: fallbackNowMs,
+    source: "now",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -159,14 +196,18 @@ function mergeThreads(
 // Handler factory
 // ---------------------------------------------------------------------------
 
-export function createActiveThreadsTracker(client: Client): DeterministicHandler {
+export function createActiveThreadsTracker(
+  client: Client,
+  options: ActiveThreadsTrackerOptions = {},
+): DeterministicHandler {
   return async (_ctx): Promise<DeterministicResult> => {
     if (!client.isReady()) {
       return { status: "skipped", summary: "Discord client not ready" };
     }
 
     // 1. Fetch active threads from all guilds
-    const todayStr = toLADate(Date.now());
+    const nowMs = options.now?.() ?? Date.now();
+    const todayStr = toLADate(nowMs);
     const records: ThreadRecord[] = [];
     for (const guild of client.guilds.cache.values()) {
       const active = await guild.channels.fetchActiveThreads();
@@ -176,14 +217,10 @@ export function createActiveThreadsTracker(client: Client): DeterministicHandler
         if (parentName && BLACKLIST_PARENT_NAMES.has(parentName)) continue;
         if (THREAD_BLACKLIST.has(thread.id)) continue;
 
-        let lastActiveMs = thread.createdTimestamp ?? Date.now();
-        try {
-          const msgs = await thread.messages.fetch({ limit: 1 });
-          const lastMsg = msgs.first();
-          if (lastMsg) lastActiveMs = lastMsg.createdTimestamp;
-        } catch {
-          // fallback to thread creation time
-        }
+        // Avoid one network fetch per thread. Discord thread snowflakes already
+        // encode creation time, so lastMessageId gives us a precise-enough
+        // activity timestamp for "active today" filtering without the N+1 cost.
+        const { lastActiveMs } = resolveLastActiveMs(thread, nowMs);
 
         // Only include threads active today (LA calendar day)
         if (toLADate(lastActiveMs) !== todayStr) continue;
@@ -201,7 +238,7 @@ export function createActiveThreadsTracker(client: Client): DeterministicHandler
     }
 
     // 2. Read the daily note directly from disk
-    const noteFile = todayNoteFile();
+    const noteFile = todayNoteFile(options.vaultPath ?? DEFAULT_VAULT_PATH, nowMs);
     let noteBody: string;
     try {
       noteBody = await fs.readFile(noteFile, "utf-8");
