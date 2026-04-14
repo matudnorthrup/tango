@@ -98,6 +98,19 @@ function gogDocsCommandLooksMutating(command: string): boolean {
     || /^docs\s+comments\s+(create|add|reply|resolve|delete)\b/u.test(normalized);
 }
 
+function obsidianCommandLooksMutating(command: string): boolean {
+  const normalized = command.trim().toLowerCase();
+  if (!normalized || normalized.includes("--help") || /\shelp$/u.test(normalized)) {
+    return false;
+  }
+
+  if (/^create\b/u.test(normalized) || /^move\b/u.test(normalized)) {
+    return true;
+  }
+
+  return /^frontmatter\b/u.test(normalized) && /\s--(?:edit|delete)\b/u.test(normalized);
+}
+
 function receiptRegistryActionLooksMutating(action: string): boolean {
   return action.trim() === "upsert_walmart_reimbursement";
 }
@@ -149,6 +162,12 @@ function inferToolMode(
         ? toolCall.input["command"].trim()
         : "";
       return gogDocsCommandLooksMutating(command) ? "write" : "read";
+    }
+    case "obsidian": {
+      const command = typeof toolCall.input?.["command"] === "string"
+        ? toolCall.input["command"].trim()
+        : "";
+      return obsidianCommandLooksMutating(command) ? "write" : "read";
     }
     case "gog_docs_update_tab":
       return "write";
