@@ -152,6 +152,18 @@ const WORKER_SYNTHESIS_RETRY_SYSTEM_PROMPT = [
   "Do not claim the results are missing, still loading, or only acknowledged unless the report itself explicitly says that.",
   "Quote or summarize the concrete results now.",
 ].join(" ");
+const CONVERSATIONAL_FOLLOW_UP_SYSTEM_PROMPT = [
+  "This user turn is a conversational follow-up, correction, planning question, or feedback about the current discussion.",
+  "Answer directly from the conversation context and prior turns.",
+  "Do not call tools or workers in this step.",
+  "If the user is correcting the prior answer, acknowledge the correction and answer the revised request.",
+  "If the user is asking for next steps or implementation guidance, give the concrete steps instead of re-running the previous workflow.",
+].join(" ");
+const CONVERSATIONAL_FOLLOW_UP_RETRY_SYSTEM_PROMPT = [
+  "Do not emit worker-dispatch tags, tool markup, or internal progress narration.",
+  "Answer the user directly in plain text right now.",
+  "Use only the existing conversation context in this turn.",
+].join(" ");
 const DETERMINISTIC_NARRATION_SYSTEM_PROMPT = [
   "This is the final answer after the deterministic runtime already completed the necessary work.",
   "Do not call tools or workers in this step.",
@@ -302,6 +314,20 @@ const NUTRITION_DAY_SUMMARY_CONTINUATION_PATTERN =
 const ADDITIONAL_REQUEST_PATTERN =
   /\b(?:and|then|also)\s+tell\s+me\b|\band\s+what(?:'s| is)\b|\band\s+how\b/iu;
 const CROSS_DOMAIN_REUSE_BLOCKERS = /\b(?:recipe|doc|docs|file|email|calendar|reimbursement|walmart|amazon|slack)\b/iu;
+const ACTION_REQUEST_PREFIX_PATTERN =
+  /^(?:please\s+)?(?:show|check|summari[sz]e|review|pull|find|look(?:\s+up|\s+for)?|search|read|open|write|update|edit|change|create|send|draft|log|track|start|stop|submit|categorize|clear|mark|scan|run|get|use|switch|go to)\b/iu;
+const CORRECTION_BYPASS_PATTERN =
+  /(?:^|\b)(?:that(?:'s| is) not what i asked|that(?:'s| is) not what i meant|not what i asked|not what i meant|no(?:\s*,)?\s+i\s+meant|i meant|i was asking|i asked for|that's wrong|that is wrong|wrong answer|wrong question)\b/iu;
+const PLANNING_BYPASS_PATTERN =
+  /\b(?:what(?:'s| is) (?:the )?next step|what are the next steps|what should (?:i|we) do next|what would the next step be|how should (?:i|we) implement|how do (?:i|we) implement|implementation steps?|implement (?:your|the) proposed (?:workflow|plan)|proposed workflow|proposed plan|walk me through (?:the )?(?:workflow|plan))\b/iu;
+const META_QUESTION_BYPASS_PATTERN =
+  /\b(?:what did you mean|what do you mean|what are you referring to|what were you referring to|can you explain(?: that)?|explain that|why did you say|why would you say|why did you recommend|why would you recommend|what led you to|how does that work|how would that work|what do you mean by)\b/iu;
+const FEEDBACK_BYPASS_PATTERN =
+  /^(?:thanks|thank you|got it|makes sense|that makes sense|sounds good|okay|ok|cool|perfect|great|nice|understood)\b/iu;
+const SHORT_CONVERSATIONAL_FOLLOW_UP_PATTERN =
+  /^(?:so|then|and|okay|ok|well)?\s*(?:what else|then what|what now|how so|why so)(?:[?.!]|$)/iu;
+const PRIOR_REPLY_REFERENCE_PATTERN =
+  /\b(?:that|this|it|earlier|previous|before|you proposed|you suggested|your answer|your reply)\b/iu;
 const CONTINUATION_NOISE_TOKENS = new Set([
   "add",
   "again",
@@ -359,6 +385,80 @@ const CONTINUATION_NOISE_TOKENS = new Set([
 
 function normalizeWhitespace(text: string): string {
   return text.trim().replace(/\s+/gu, " ");
+}
+
+type ConversationalTurnBypassKind =
+  | "correction"
+  | "planning"
+  | "meta"
+  | "feedback"
+  | "follow_up";
+
+interface ConversationalTurnBypassDecision {
+  kind: ConversationalTurnBypassKind;
+  reason: string;
+}
+
+function detectConversationalTurnBypass(input: {
+  userMessage: string;
+  activeTaskResolution: ActiveTaskContinuationResolution;
+}): ConversationalTurnBypassDecision | null {
+  if (input.activeTaskResolution.kind !== "none") {
+    return null;
+  }
+
+  const normalized = normalizeWhitespace(input.userMessage);
+  if (!normalized) {
+    return null;
+  }
+
+  if (CORRECTION_BYPASS_PATTERN.test(normalized)) {
+    return {
+      kind: "correction",
+      reason: "correction-style follow-up should stay on the conversational LLM path",
+    };
+  }
+
+  if (PLANNING_BYPASS_PATTERN.test(normalized)) {
+    return {
+      kind: "planning",
+      reason: "planning or next-step question about prior discussion should not re-run deterministic execution",
+    };
+  }
+
+  if (META_QUESTION_BYPASS_PATTERN.test(normalized)) {
+    return {
+      kind: "meta",
+      reason: "meta-question about the prior answer should stay conversational",
+    };
+  }
+
+  if (FEEDBACK_BYPASS_PATTERN.test(normalized) && normalized.length <= 96 && !normalized.includes("?")) {
+    return {
+      kind: "feedback",
+      reason: "conversational feedback should not trigger tool execution",
+    };
+  }
+
+  if (SHORT_CONVERSATIONAL_FOLLOW_UP_PATTERN.test(normalized)) {
+    return {
+      kind: "follow_up",
+      reason: "short conversational follow-up should stay on the LLM path",
+    };
+  }
+
+  if (
+    !ACTION_REQUEST_PREFIX_PATTERN.test(normalized)
+    && normalized.includes("?")
+    && PRIOR_REPLY_REFERENCE_PATTERN.test(normalized)
+  ) {
+    return {
+      kind: "follow_up",
+      reason: "question about the prior reply should stay conversational",
+    };
+  }
+
+  return null;
 }
 
 function extractNutritionContinuationTokens(text: string): string[] {
@@ -666,8 +766,7 @@ function buildSyntheticDirectResponse(
   };
 }
 
-function hasDispatchCapability(context: DiscordTurnExecutionContext): boolean {
-  const tools = context.tools;
+function hasDispatchCapability(tools: ProviderToolsConfig | undefined): boolean {
   if (!tools || tools.mode === "off") {
     return false;
   }
@@ -1199,13 +1298,22 @@ export async function executeDiscordTurn(
       ? [warmStartPrompt?.trim(), activeTaskPromptContext.trim()].filter(Boolean).join("\n\n")
       : warmStartPrompt;
   const warmStartContextChars = effectiveWarmStartPrompt?.length ?? 0;
+  const conversationalTurnBypass = detectConversationalTurnBypass({
+    userMessage: input.turn.transcript,
+    activeTaskResolution,
+  });
+  if (conversationalTurnBypass) {
+    console.log(
+      `[turn-executor] bypassing deterministic routing for ${conversationalTurnBypass.kind}: ${conversationalTurnBypass.reason}`,
+    );
+  }
   const deterministicConversationContext = extractRecentMessagesContext(effectiveWarmStartPrompt, {
     maxLines: 8,
     maxChars: 800,
   });
   let deterministicTurn: DiscordTurnExecutionResult["deterministicTurn"];
 
-  if (isDeterministicEligible(input.context)) {
+  if (isDeterministicEligible(input.context) && !conversationalTurnBypass) {
     const deterministicConfig = input.context.deterministicRouting!;
     const capabilityRegistry = input.context.capabilityRegistry!;
     const classifierProviderChain = dependencies.resolveProviderChain(deterministicConfig.providerNames);
@@ -1668,7 +1776,7 @@ export async function executeDiscordTurn(
   // --- Pre-dispatch path: worker runs before orchestrator (for reads) ---
   let workerReport: WorkerReport | null = null;
   let workerDispatchTelemetry: WorkerDispatchTelemetry | undefined;
-  if (dependencies.executeWorker) {
+  if (!conversationalTurnBypass && dependencies.executeWorker) {
     try {
       workerReport = await dependencies.executeWorker(input.turn, input.context);
     } catch (workerError) {
@@ -1686,12 +1794,16 @@ export async function executeDiscordTurn(
   }
 
   // --- Phase 1: Call orchestrator ---
+  const phase1SystemPrompt = conversationalTurnBypass
+    ? appendSystemPrompt(input.context.systemPrompt, CONVERSATIONAL_FOLLOW_UP_SYSTEM_PROMPT)
+    : input.context.systemPrompt;
+  const phase1Tools = conversationalTurnBypass ? { mode: "off" as const } : input.context.tools;
   const failoverResult1 = await generateWithFailover(
     providerChain,
     {
       prompt: effectivePrompt,
-      systemPrompt: input.context.systemPrompt,
-      tools: input.context.tools,
+      systemPrompt: phase1SystemPrompt,
+      tools: phase1Tools,
       model: input.context.model,
       reasoningEffort: input.context.reasoningEffort,
     },
@@ -1714,10 +1826,67 @@ export async function executeDiscordTurn(
   // --- Phase 2: Check for orchestrator-directed worker dispatch ---
   let { dispatches, dispatchSource } = extractDispatchesFromResponse(response1);
 
+  if (conversationalTurnBypass && (dispatches.length > 0 || looksLikeNarratedDispatch(response1.text))) {
+    console.warn(
+      "[turn-executor] conversational follow-up attempted worker dispatch or progress narration — retrying for a direct answer",
+    );
+    const retryContinuity = { ...continuityByProvider };
+    if (response1.providerSessionId) {
+      retryContinuity[phase1ProviderName] = response1.providerSessionId;
+    }
+
+    const directRetryResult = await generateWithFailover(
+      providerChain,
+      {
+        prompt: effectivePrompt,
+        systemPrompt: appendSystemPrompt(
+          phase1SystemPrompt,
+          CONVERSATIONAL_FOLLOW_UP_RETRY_SYSTEM_PROMPT,
+        ),
+        tools: { mode: "off" },
+        model: input.context.model,
+        reasoningEffort: input.context.reasoningEffort,
+      },
+      dependencies.providerRetryLimit,
+      retryContinuity,
+      {}
+    );
+
+    phase1ProviderName = directRetryResult.providerName;
+    phase1RetryResult = {
+      response: directRetryResult.retryResult.response,
+      attempts: phase1RetryResult.attempts + directRetryResult.retryResult.attempts,
+      attemptErrors: [...phase1RetryResult.attemptErrors, ...directRetryResult.retryResult.attemptErrors],
+    };
+    phase1Failures = [...phase1Failures, ...directRetryResult.failures];
+    phase1UsedFailover = phase1UsedFailover || directRetryResult.usedFailover;
+    phase1RequestPrompt = directRetryResult.requestPrompt;
+    phase1RequestWarmStartUsed = directRetryResult.warmStartUsed;
+    response1 = directRetryResult.retryResult.response;
+    ({ dispatches, dispatchSource } = extractDispatchesFromResponse(response1));
+
+    if (dispatches.length > 0 || looksLikeNarratedDispatch(response1.text)) {
+      const strippedResponse = stripWorkerDispatchTags(response1.text);
+      if (!strippedResponse || looksLikeNarratedDispatch(strippedResponse)) {
+        response1 = {
+          ...response1,
+          text: "Sorry, I need to answer that directly from the current conversation context, not start another worker task.",
+        };
+      } else {
+        response1 = {
+          ...response1,
+          text: strippedResponse,
+        };
+      }
+      dispatches = [];
+      dispatchSource = "none";
+    }
+  }
+
   if (
     dispatches.length === 0 &&
     dependencies.executeWorkerWithTask &&
-    hasDispatchCapability(input.context) &&
+    hasDispatchCapability(phase1Tools) &&
     looksLikeNarratedDispatch(response1.text)
   ) {
     console.warn("[turn-executor] narrated worker progress without dispatch — retrying phase 1 with stricter instruction");
@@ -1730,8 +1899,8 @@ export async function executeDiscordTurn(
       providerChain,
       {
         prompt: effectivePrompt,
-        systemPrompt: appendSystemPrompt(input.context.systemPrompt, NARRATED_DISPATCH_RETRY_SYSTEM_PROMPT),
-        tools: input.context.tools,
+        systemPrompt: appendSystemPrompt(phase1SystemPrompt, NARRATED_DISPATCH_RETRY_SYSTEM_PROMPT),
+        tools: phase1Tools,
         model: input.context.model,
         reasoningEffort: input.context.reasoningEffort,
       },
@@ -2063,5 +2232,6 @@ export function createDiscordVoiceTurnExecutor(
 }
 
 export const __testOnly = {
+  detectConversationalTurnBypass,
   isLikelyContinuationForIntent,
 };

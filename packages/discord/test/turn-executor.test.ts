@@ -1587,6 +1587,243 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(result.responseText).toContain("Dinner logged");
   });
 
+  it("detects conversational turns that should bypass deterministic routing", () => {
+    const noTaskResolution = {
+      kind: "none" as const,
+      matchedTask: null,
+      effectiveUserMessage: "",
+    };
+
+    expect(
+      __testOnly.detectConversationalTurnBypass({
+        userMessage: "So what's the next step to implement your proposed workflow then?",
+        activeTaskResolution: noTaskResolution,
+      })?.kind,
+    ).toBe("planning");
+    expect(
+      __testOnly.detectConversationalTurnBypass({
+        userMessage: "That is not what I asked.",
+        activeTaskResolution: noTaskResolution,
+      })?.kind,
+    ).toBe("correction");
+    expect(
+      __testOnly.detectConversationalTurnBypass({
+        userMessage: "Thanks, that makes sense.",
+        activeTaskResolution: noTaskResolution,
+      })?.kind,
+    ).toBe("feedback");
+    expect(
+      __testOnly.detectConversationalTurnBypass({
+        userMessage: "Can you summarize my unconfirmed transactions?",
+        activeTaskResolution: noTaskResolution,
+      }),
+    ).toBeNull();
+  });
+
+  it("routes Watson planning follow-ups through a conversational tool-free LLM pass", async () => {
+    const provider = new ScriptedProvider((callNumber, request) => {
+      expect(request.tools).toEqual({ mode: "off" });
+      expect(request.systemPrompt).toContain("conversational follow-up");
+      if (callNumber === 1) {
+        expect(request.prompt).toContain("Current user message:\nSo what's the next step to implement your proposed workflow then?");
+        expect(request.prompt).toContain("proposed sinking-fund workflow");
+        return {
+          text: '<worker-dispatch worker="personal-assistant">Pull the current Lunch Money category layout.</worker-dispatch>',
+          metadata: { model: "gpt-5.4" },
+        };
+      }
+      expect(request.prompt).toBe("So what's the next step to implement your proposed workflow then?");
+      return {
+        text: "1. Confirm the categories and transfer rules. 2. Add the recurring transfer automation. 3. Add the reconciliation review and exception-handling loop.",
+        metadata: { model: "gpt-5.4" },
+      };
+    });
+
+    const workerCalls: Array<{ workerId: string; task: string }> = [];
+    const deterministicRouting = {
+      enabled: true,
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => [
+          "recent_messages:",
+          "[assistant] Here is the proposed sinking-fund workflow: reconcile the current balances, codify transfer rules, and add a weekly exception review.",
+          "[user] Okay.",
+        ].join("\n"),
+        executeWorkerWithTask: async (workerId, task) => {
+          workerCalls.push({ workerId, task });
+          return {
+            operations: [],
+            hasWriteOperations: false,
+            data: {
+              workerText: "unexpected worker execution",
+            },
+          };
+        },
+      },
+      () => ({
+        conversationKey: "watson-live-deterministic:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+        tools: {
+          mode: "allowlist",
+          allowlist: [DISPATCH_TOOL_FULL_NAME],
+        },
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "watson-live-deterministic",
+        agentId: "watson",
+        transcript: "So what's the next step to implement your proposed workflow then?",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "watson-live-deterministic:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+        tools: {
+          mode: "allowlist",
+          allowlist: [DISPATCH_TOOL_FULL_NAME],
+        },
+      },
+    );
+
+    expect(result.responseText).toContain("Confirm the categories");
+    expect(result.deterministicTurn).toBeUndefined();
+    expect(result.warmStartUsed).toBe(true);
+    expect(result.warmStartContextChars).toBeGreaterThan(0);
+    expect(workerCalls).toHaveLength(0);
+    expect(provider.calls).toHaveLength(2);
+  });
+
+  it("keeps correction follow-ups on the conversational path even with an open task", async () => {
+    const provider = new ScriptedProvider((callNumber, request) => {
+      expect(callNumber).toBe(1);
+      expect(request.prompt).toContain("Current user message:\nno I meant implementation steps, not another finance report");
+      expect(request.prompt).toContain("active_tasks:");
+      expect(request.tools).toEqual({ mode: "off" });
+      return {
+        text: "Understood. The next implementation steps are to define the transfer triggers, map the account movements, and decide where the reconciliation note lives.",
+        metadata: { model: "gpt-5.4" },
+      };
+    });
+
+    const workerCalls: Array<{ workerId: string; task: string }> = [];
+    const deterministicRouting = {
+      enabled: true,
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => [
+          "recent_messages:",
+          "[assistant] I can pull the recent sinking-fund transactions if you want.",
+          "[user] maybe",
+        ].join("\n"),
+        listActiveTasks: () => [
+          {
+            id: "task-1",
+            sessionId: "watson-live-deterministic",
+            agentId: "watson",
+            status: "awaiting_user",
+            title: "Review recent sinking-fund transactions",
+            objective: "Pull the recent sinking-fund transactions and summarize the transfer activity.",
+            ownerWorkerId: "personal-assistant",
+            intentIds: ["finance.transaction_lookup"],
+            missingSlots: [],
+            clarificationQuestion: "Want me to pull the recent sinking-fund transactions?",
+            suggestedNextAction: "Confirm the transaction lookup.",
+            structuredContext: {
+              focus: "sinking funds",
+            },
+            sourceKind: "assistant-offer",
+            createdByMessageId: 10,
+            updatedByMessageId: 10,
+            createdAt: "2026-03-30T13:00:00.000Z",
+            updatedAt: "2026-03-30T13:05:00.000Z",
+            resolvedAt: null,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          },
+        ],
+        executeWorkerWithTask: async (workerId, task) => {
+          workerCalls.push({ workerId, task });
+          return {
+            operations: [],
+            hasWriteOperations: false,
+            data: {
+              workerText: "unexpected worker execution",
+            },
+          };
+        },
+      },
+      () => ({
+        conversationKey: "watson-live-deterministic:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+        tools: {
+          mode: "allowlist",
+          allowlist: [DISPATCH_TOOL_FULL_NAME],
+        },
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "watson-live-deterministic",
+        agentId: "watson",
+        transcript: "no I meant implementation steps, not another finance report",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "watson-live-deterministic:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+        tools: {
+          mode: "allowlist",
+          allowlist: [DISPATCH_TOOL_FULL_NAME],
+        },
+      },
+    );
+
+    expect(result.responseText).toContain("next implementation steps");
+    expect(result.activeTaskResolution?.kind).toBe("none");
+    expect(result.deterministicTurn).toBeUndefined();
+    expect(result.warmStartUsed).toBe(true);
+    expect(workerCalls).toHaveLength(0);
+    expect(provider.calls).toHaveLength(1);
+  });
+
   it("passes older URL-bearing recent context into deterministic worker tasks", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       if (callNumber !== 1) {
