@@ -37,7 +37,7 @@ function createDeterministicRegistry(): CapabilityRegistry {
       type: "wellness",
       provider: { default: "codex" },
       orchestration: {
-        workerIds: ["nutrition-logger", "health-analyst"],
+        workerIds: ["nutrition-logger", "health-analyst", "workout-recorder"],
       },
     },
     {
@@ -68,7 +68,7 @@ function createDeterministicRegistry(): CapabilityRegistry {
   const projects: ProjectConfig[] = [
     {
       id: "wellness",
-      workerIds: ["nutrition-logger", "health-analyst"],
+      workerIds: ["nutrition-logger", "health-analyst", "workout-recorder"],
     },
   ];
   const workers: WorkerConfig[] = [
@@ -81,6 +81,12 @@ function createDeterministicRegistry(): CapabilityRegistry {
     {
       id: "health-analyst",
       type: "analyst",
+      ownerAgentId: "malibu",
+      provider: { default: "codex" },
+    },
+    {
+      id: "workout-recorder",
+      type: "recorder",
       ownerAgentId: "malibu",
       provider: { default: "codex" },
     },
@@ -168,6 +174,24 @@ function createDeterministicRegistry(): CapabilityRegistry {
         { name: "focus", required: false },
         { name: "goal", required: false },
       ],
+    },
+    {
+      id: "workout.log",
+      domain: "wellness",
+      displayName: "Log Workout",
+      description: "Log workout progress, sets, or an active workout session.",
+      mode: "write",
+      route: { kind: "worker", targetId: "workout-recorder" },
+      examples: ["Log my workout"],
+    },
+    {
+      id: "workout.history",
+      domain: "wellness",
+      displayName: "Workout History",
+      description: "Read prior workouts, exercise history, or recent training data.",
+      mode: "read",
+      route: { kind: "worker", targetId: "workout-recorder" },
+      examples: ["What did I do on my last push day?"],
     },
     {
       id: "research.note_read",
@@ -1309,6 +1333,122 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(provider.calls).toHaveLength(1);
     expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
     expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
+  });
+
+  it("narrows deterministic workout history turns to workout_sql when dispatching workout-recorder", async () => {
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber !== 1) {
+        return new Error(`Unexpected provider call ${callNumber}`);
+      }
+
+      return {
+        text: JSON.stringify({
+          intents: [
+            {
+              intentId: "workout.history",
+              confidence: 0.95,
+              entities: {
+                workout_type: "push",
+              },
+              rawEntities: ["last push day", "push"],
+              missingSlots: [],
+              canRunInParallel: true,
+              routeHint: {
+                kind: "worker",
+                targetId: "workout-recorder",
+              },
+            },
+          ],
+        }),
+        metadata: { model: "gpt-5.4" },
+      };
+    });
+
+    const workerCalls: Array<{
+      workerId: string;
+      task: string;
+      toolIds?: string[];
+    }> = [];
+    const deterministicRouting = {
+      enabled: true,
+      projectScope: "wellness",
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+      allowDirectStepExecution: false,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        executeWorkerWithTask: async (workerId, task, _turn, _context, options) => {
+          workerCalls.push({
+            workerId,
+            task,
+            toolIds: options?.toolIds,
+          });
+          return {
+            operations: [
+              {
+                name: "workout_sql",
+                toolNames: ["workout_sql"],
+                input: {
+                  sql: "SELECT id FROM workouts WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1;",
+                },
+                output: { result: "[]" },
+                mode: "read",
+              },
+            ],
+            hasWriteOperations: false,
+            data: {
+              workerText: "Last push day included bench press and incline dumbbell press.",
+            },
+          };
+        },
+      },
+      () => ({
+        conversationKey: "project:wellness:malibu",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        projectId: "wellness",
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "project:wellness",
+        agentId: "malibu",
+        transcript: "What did I do on my last push day?",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "project:wellness:malibu",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        projectId: "wellness",
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      },
+    );
+
+    expect(result.responseText).toBe("Last push day included bench press and incline dumbbell press.");
+    expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
+    expect(workerCalls).toHaveLength(1);
+    expect(workerCalls[0]?.workerId).toBe("workout-recorder");
+    expect(workerCalls[0]?.toolIds).toEqual(["workout_sql"]);
+    expect(workerCalls[0]?.task).toContain("Intent contract: workout.history");
+    expect(workerCalls[0]?.task).toContain(
+      "Tool surface for this intent is intentionally narrowed to: workout_sql.",
+    );
   });
 
   it("resolves open-task follow-ups before deterministic classification", async () => {
