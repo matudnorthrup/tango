@@ -37,19 +37,6 @@ interface MealMacroTotals {
   fiber: number;
 }
 
-interface HealthTrendRow {
-  date?: string;
-  steps?: number | null;
-  exercise_min?: number | null;
-  active_cal?: number | null;
-  basal_cal?: number | null;
-  tdee?: number | null;
-  sleep_hrs?: number | null;
-  hrv_avg?: number | null;
-  rhr?: number | null;
-  weight_lbs?: number | null;
-}
-
 interface FatsecretSearchRow {
   food_id?: string | number | null;
   food_name?: string | null;
@@ -363,124 +350,6 @@ function buildNutritionDayWorkerText(input: {
 
 function isCompareRequest(step: DeterministicExecutionStep): boolean {
   return Array.isArray(step.input.compare_date_scopes) && step.input.compare_date_scopes.length > 0;
-}
-
-function normalizeHealthRows(value: unknown): HealthTrendRow[] {
-  const record = asRecord(value);
-  const rows = record?.data;
-  if (!Array.isArray(rows)) {
-    return [];
-  }
-  return rows
-    .map((row) => asRecord(row) as HealthTrendRow | null)
-    .filter((row): row is HealthTrendRow => row !== null);
-}
-
-function average(values: Array<number | null | undefined>): number | null {
-  const numeric = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  if (numeric.length === 0) {
-    return null;
-  }
-  return numeric.reduce((sum, value) => sum + value, 0) / numeric.length;
-}
-
-function summarizeTrendDirection(delta: number | null, unitSuffix: string): string {
-  if (delta === null) {
-    return "essentially flat";
-  }
-  if (Math.abs(delta) < (unitSuffix === "hours" ? 0.15 : 75)) {
-    return "essentially flat";
-  }
-  const direction = delta > 0 ? "up" : "down";
-  const magnitude = unitSuffix === "hours"
-    ? `${formatMaybeNumber(Math.abs(delta), 1)} ${unitSuffix}`
-    : `${formatCount(Math.abs(delta))} ${unitSuffix}`;
-  return `${direction} by about ${magnitude}`;
-}
-
-function excludePartialToday(rows: HealthTrendRow[]): HealthTrendRow[] {
-  const today = localDateString(0);
-  return rows.filter((row) =>
-    row.date !== today
-    || (row.steps ?? 0) > 0
-    || (row.exercise_min ?? 0) > 0
-    || (row.active_cal ?? 0) > 0
-    || (row.sleep_hrs ?? 0) > 0,
-  );
-}
-
-function buildTrendWorkerText(step: DeterministicExecutionStep, trendResult: unknown): string {
-  const focus = typeof step.input.focus === "string" ? step.input.focus.trim().toLowerCase() : "tdee";
-  const rows = excludePartialToday(normalizeHealthRows(trendResult));
-  if (rows.length === 0) {
-    return "I couldn't find completed health trend data for that window.";
-  }
-
-  const recentWindow = rows.slice(-7);
-  const previousWindow = rows.slice(Math.max(0, rows.length - 14), Math.max(0, rows.length - 7));
-
-  if (focus.includes("sleep")) {
-    const averageSleep = average(rows.map((row) => row.sleep_hrs));
-    const recentSleep = average(recentWindow.map((row) => row.sleep_hrs));
-    const previousSleep = average(previousWindow.map((row) => row.sleep_hrs));
-    const delta = recentSleep !== null && previousSleep !== null ? recentSleep - previousSleep : null;
-    return [
-      `Across the last ${rows.length} completed days, you're averaging ${formatMaybeNumber(averageSleep, 1)} hours of sleep.`,
-      `Your most recent week is ${summarizeTrendDirection(delta, "hours")} versus the prior week,`,
-      `with HRV averaging ${formatMaybeNumber(average(rows.map((row) => row.hrv_avg)), 1)} and resting HR ${formatMaybeNumber(average(rows.map((row) => row.rhr)), 1)}.`,
-    ].join(" ");
-  }
-
-  if (focus.includes("recovery") || focus.includes("hrv") || focus.includes("rhr")) {
-    const averageHrv = average(rows.map((row) => row.hrv_avg));
-    const averageRhr = average(rows.map((row) => row.rhr));
-    const recentHrv = average(recentWindow.map((row) => row.hrv_avg));
-    const previousHrv = average(previousWindow.map((row) => row.hrv_avg));
-    const delta = recentHrv !== null && previousHrv !== null ? recentHrv - previousHrv : null;
-    return [
-      `Across the last ${rows.length} completed days, HRV is averaging ${formatMaybeNumber(averageHrv, 1)} and resting HR ${formatMaybeNumber(averageRhr, 1)}.`,
-      `Your most recent week of recovery is ${summarizeTrendDirection(delta, "points")} compared with the prior week,`,
-      `while sleep is averaging ${formatMaybeNumber(average(rows.map((row) => row.sleep_hrs)), 1)} hours.`,
-    ].join(" ");
-  }
-
-  if (focus.includes("activity") || focus.includes("step") || focus.includes("exercise")) {
-    const averageSteps = average(rows.map((row) => row.steps));
-    const averageExercise = average(rows.map((row) => row.exercise_min));
-    const recentSteps = average(recentWindow.map((row) => row.steps));
-    const previousSteps = average(previousWindow.map((row) => row.steps));
-    const delta = recentSteps !== null && previousSteps !== null ? recentSteps - previousSteps : null;
-    return [
-      `Across the last ${rows.length} completed days, you're averaging ${formatCount(averageSteps ?? 0)} steps and ${formatCount(averageExercise ?? 0)} exercise minutes.`,
-      `The latest week is ${summarizeTrendDirection(delta, "steps")} versus the prior week,`,
-      `with average TDEE around ${formatCount(average(rows.map((row) => row.tdee)) ?? 0)} calories/day.`,
-    ].join(" ");
-  }
-
-  if (focus.includes("weight")) {
-    const weightRows = rows.filter((row) => typeof row.weight_lbs === "number");
-    const first = weightRows[0]?.weight_lbs ?? null;
-    const last = weightRows.at(-1)?.weight_lbs ?? null;
-    const change = first !== null && last !== null ? last - first : null;
-    return [
-      `Across the last ${rows.length} completed days, your average recorded weight is ${formatMaybeNumber(average(weightRows.map((row) => row.weight_lbs)), 1)} lbs.`,
-      change === null
-        ? "I don't have enough weight points to call a direction."
-        : `From the start of the window to the latest recorded day, weight is ${change > 0 ? "up" : "down"} ${formatMaybeNumber(Math.abs(change), 1)} lbs.`,
-      `Average TDEE is ${formatCount(average(rows.map((row) => row.tdee)) ?? 0)} calories/day.`,
-    ].join(" ");
-  }
-
-  const averageTdee = average(rows.map((row) => row.tdee));
-  const recentTdee = average(recentWindow.map((row) => row.tdee));
-  const previousTdee = average(previousWindow.map((row) => row.tdee));
-  const delta = recentTdee !== null && previousTdee !== null ? recentTdee - previousTdee : null;
-
-  return [
-    `Across the last ${rows.length} completed days, your average TDEE is about ${formatCount(averageTdee ?? 0)} calories/day.`,
-    `The most recent week is ${summarizeTrendDirection(delta, "calories/day")} versus the prior week,`,
-    `while sleep is averaging ${formatMaybeNumber(average(rows.map((row) => row.sleep_hrs)), 1)} hours and resting HR ${formatMaybeNumber(average(rows.map((row) => row.rhr)), 1)}.`,
-  ].join(" ");
 }
 
 function buildSleepRecoveryWorkerText(date: string, recoveryResult: unknown): string {
@@ -1703,38 +1572,6 @@ async function executeDirectNutritionBudget(
   };
 }
 
-async function executeDirectHealthTrend(
-  step: DeterministicExecutionStep,
-  deps: Required<DirectWellnessStepExecutorDeps>,
-): Promise<WorkerReport | null> {
-  if (isCompareRequest(step)) {
-    return null;
-  }
-  const days = typeof step.input.days === "number" && step.input.days > 0
-    ? Math.round(step.input.days)
-    : 21;
-  const trendResult = await deps.runHealthQuery({ command: "trend", days });
-  const workerText = buildTrendWorkerText(step, trendResult);
-
-  return {
-    operations: [
-      buildOperation({
-        name: "health_query",
-        toolNames: ["healthdb.weekly_trends"],
-        operationInput: { command: "trend", days },
-        output: trendResult,
-      }),
-    ],
-    hasWriteOperations: false,
-    data: {
-      workerText,
-      directFastPath: true,
-      directFastPathId: "wellness.analyze_health_trends",
-      days,
-    },
-  };
-}
-
 async function executeDirectSleepRecovery(
   step: DeterministicExecutionStep,
   deps: Required<DirectWellnessStepExecutorDeps>,
@@ -1822,8 +1659,6 @@ export async function tryExecuteDirectWellnessStep(
       return step.mode === "read" ? executeDirectNutritionDaySummary(step, resolvedDeps) : null;
     case "wellness.check_nutrition_budget":
       return step.mode === "read" ? executeDirectNutritionBudget(step, resolvedDeps) : null;
-    case "wellness.analyze_health_trends":
-      return step.mode === "read" ? executeDirectHealthTrend(step, resolvedDeps) : null;
     case "wellness.analyze_sleep_recovery":
       return step.mode === "read" ? executeDirectSleepRecovery(step, resolvedDeps) : null;
     default:

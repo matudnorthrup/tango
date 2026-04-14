@@ -3659,6 +3659,60 @@ describe("executeAgentWorker", () => {
     expect(report.data?.qualityWarnings).toEqual([]);
   });
 
+  it("treats Obsidian create and frontmatter edits as writes, but frontmatter print as read", () => {
+    const writeReport = workerAgentResultToReport(
+      {
+        text: "Receipt note created and tagged.",
+        toolCalls: [
+          {
+            name: "mcp__wellness__obsidian",
+            input: {
+              command: "create 'Records/Finance/Receipts/Walmart/2026-04-14 Order 2000142-13122385' --vault main --overwrite",
+              content: "# Walmart Order 2000142-13122385",
+            },
+            output: { result: "Created note successfully." },
+            durationMs: 0,
+          },
+          {
+            name: "mcp__wellness__obsidian",
+            input: {
+              command: "frontmatter 'Records/Finance/Receipts/Walmart/2026-04-14 Order 2000142-13122385' --vault main --edit --key 'status' --value 'cataloged'",
+            },
+            output: { result: "Updated frontmatter." },
+            durationMs: 0,
+          },
+        ],
+        durationMs: 123,
+      },
+      "personal-assistant",
+      "Intent mode: write\nWRITE step: create the receipt note and update its metadata now.",
+    );
+
+    const readReport = workerAgentResultToReport(
+      {
+        text: "Receipt frontmatter loaded.",
+        toolCalls: [
+          {
+            name: "mcp__wellness__obsidian",
+            input: {
+              command: "frontmatter 'Records/Finance/Receipts/Walmart/2026-04-14 Order 2000142-13122385' --vault main --print",
+            },
+            output: { status: "cataloged" },
+            durationMs: 0,
+          },
+        ],
+        durationMs: 123,
+      },
+      "personal-assistant",
+      "Intent mode: read\nREAD-ONLY step: inspect the note metadata only.",
+    );
+
+    expect(writeReport.hasWriteOperations).toBe(true);
+    expect(writeReport.operations.map((operation) => operation.mode)).toEqual(["write", "write"]);
+    expect(readReport.hasWriteOperations).toBe(false);
+    expect(readReport.operations[0]?.mode).toBe("read");
+  });
+
   it("treats ramp reimbursement submissions and receipt registry upserts as writes", () => {
     const report = workerAgentResultToReport(
       {
