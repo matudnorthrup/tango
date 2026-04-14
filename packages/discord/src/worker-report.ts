@@ -103,7 +103,7 @@ export function operationLooksLikeSuccessfulWrite(operation: WorkerReportOperati
     if (["error", "failed", "blocked", "cancelled", "canceled"].includes(normalizedStatus)) {
       return false;
     }
-    if (["ok", "success", "succeeded", "completed", "applied"].includes(normalizedStatus)) {
+    if (["ok", "success", "succeeded", "completed", "applied", "confirmed", "verified", "logged"].includes(normalizedStatus)) {
       return true;
     }
   }

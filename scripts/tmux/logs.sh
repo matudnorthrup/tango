@@ -4,12 +4,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/session.sh"
 
-SESSION_NAME="$(resolve_tmux_target_session_name)"
+WINDOW_NAME="${TANGO_DISCORD_WINDOW:-discord}"
+TARGET="$(resolve_tmux_service_target "$WINDOW_NAME")"
 LINES="${1:-80}"
 
-if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-  echo "No tmux session named '$SESSION_NAME'"
+if ! tmux_service_target_is_running "$TARGET"; then
+  echo "No Tango Discord tmux target running (expected '$TARGET')"
   exit 1
 fi
 
-tmux capture-pane -t "$SESSION_NAME" -p | tail -n "$LINES"
+tmux capture-pane -t "$TARGET" -p | tail -n "$LINES"

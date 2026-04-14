@@ -124,6 +124,8 @@ function inferToolMode(
       return "write";
     case "recipe_write":
       return "write";
+    case "nutrition_log_items":
+      return "write";
     case "fatsecret_api": {
       const method = typeof toolCall.input?.["method"] === "string"
         ? toolCall.input["method"].trim()
@@ -546,7 +548,7 @@ function extractStructuredPayloadWarnings(record: Record<string, unknown>): stri
   const warnings = new Set<string>();
   const status = typeof record.status === "string" ? record.status.trim().toLowerCase() : null;
 
-  if (status && !["ok", "success", "completed"].includes(status)) {
+  if (status && !["ok", "success", "completed", "confirmed"].includes(status)) {
     warnings.add(`Worker reported ${status} result.`);
   }
 
@@ -1191,6 +1193,23 @@ function extractFoodRecordAmountText(record: Record<string, unknown>): string {
   return candidates.find((value) => value.length > 0) ?? "";
 }
 
+function fatsecretServingUsesRawGramUnits(serving: Record<string, unknown>): boolean {
+  const measurement = normalizeFoodItemLabelForMatch(String(serving.measurement_description ?? ""));
+  if (measurement === "g" || measurement === "gram" || measurement === "grams") {
+    return true;
+  }
+
+  const metricServingAmount = parseFiniteNumber(serving.metric_serving_amount);
+  const servingUnitCount = parseFiniteNumber(serving.number_of_units);
+  const description = String(serving.serving_description ?? "").toLowerCase();
+  return Boolean(
+    metricServingAmount
+      && servingUnitCount
+      && Math.abs(metricServingAmount - servingUnitCount) < 0.000001
+      && /\b\d+(?:\.\d+)?\s*g\b/u.test(description),
+  );
+}
+
 function deriveFatsecretUnitsFromServing(
   grams: number,
   serving: Record<string, unknown>,
@@ -1198,6 +1217,9 @@ function deriveFatsecretUnitsFromServing(
   const metricServingAmount = parseFiniteNumber(serving.metric_serving_amount);
   if (!metricServingAmount || metricServingAmount <= 0) {
     return null;
+  }
+  if (fatsecretServingUsesRawGramUnits(serving)) {
+    return Number.parseFloat(grams.toFixed(6));
   }
   const units = grams / metricServingAmount;
   if (!Number.isFinite(units) || units <= 0) {
@@ -1579,6 +1601,7 @@ function scoreAtlasRowForItem(itemLabel: string, row: Record<string, unknown>): 
     .map((value) => normalizeFoodItemLabelForMatch(value))
     .filter((value) => value.length > 0);
   const itemWords = normalizedItem.split(" ").filter((word) => word.length > 1);
+  const matchedWords = new Set<string>();
   let score = 0;
   for (const haystack of haystacks) {
     if (haystack === normalizedItem) {
@@ -1588,10 +1611,11 @@ function scoreAtlasRowForItem(itemLabel: string, row: Record<string, unknown>): 
     }
     for (const word of itemWords) {
       if (haystack.includes(word)) {
-        score += 5;
+        matchedWords.add(word);
       }
     }
   }
+  score += matchedWords.size * 5;
   return score;
 }
 
@@ -1608,7 +1632,7 @@ function findBestAtlasMatchForItem(
       bestRow = row;
     }
   }
-  return bestScore > 0 ? bestRow : null;
+  return bestScore >= 10 ? bestRow : null;
 }
 
 function extractCountForUnit(taskText: string, unit: string): number | null {

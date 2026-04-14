@@ -9,6 +9,7 @@ import {
 import type { DeterministicExecutionPlan, DeterministicExecutionStep } from "./deterministic-router.js";
 import type { IntentEnvelope } from "./intent-classifier.js";
 import { sanitizeWorkerTextForDisplay } from "./worker-text-sanitizer.js";
+import { tryExecuteDirectWellnessStep } from "./wellness-direct-step-executor.js";
 
 export interface ExecutionReceipt {
   stepId: string;
@@ -223,6 +224,7 @@ async function executePlanWithDependencies(input: {
   concurrencyLimit: number;
   timeoutMs: number;
   getConcurrencyGroup?: (step: DeterministicExecutionStep) => string | undefined;
+  tryExecuteDirectStep?: (step: DeterministicExecutionStep) => Promise<WorkerReport | null>;
 }): Promise<StepExecutionResult[]> {
   const results: Array<StepExecutionResult | undefined> = new Array(input.plan.steps.length);
   const stepIndexById = new Map(input.plan.steps.map((step, index) => [step.id, index] as const));
@@ -333,7 +335,15 @@ async function executePlanWithDependencies(input: {
         groups.forEach((group) => activeGroups.add(group));
 
         const startedAt = Date.now();
-        const workerPromise = input.executeWorkerWithTask(step.workerId, step.task, step);
+        const workerPromise = (async () => {
+          const directResult = input.tryExecuteDirectStep
+            ? await input.tryExecuteDirectStep(step)
+            : await tryExecuteDirectWellnessStep(step);
+          if (directResult) {
+            return directResult;
+          }
+          return input.executeWorkerWithTask(step.workerId, step.task, step);
+        })();
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
@@ -395,6 +405,7 @@ export async function executeDeterministicPlan(input: {
   concurrencyLimit: number;
   timeoutMs: number;
   getConcurrencyGroup?: (step: DeterministicExecutionStep) => string | undefined;
+  tryExecuteDirectStep?: (step: DeterministicExecutionStep) => Promise<WorkerReport | null>;
 }): Promise<ExecutionReceipt[]> {
   const results = await executePlanWithDependencies(input);
 
