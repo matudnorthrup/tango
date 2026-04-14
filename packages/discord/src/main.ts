@@ -91,6 +91,7 @@ import {
   contactsSyncHandler,
 } from "@tango/core";
 import { printerMonitorHandler } from "./printer-monitor.js";
+import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
 import { z } from "zod";
 import {
@@ -176,8 +177,22 @@ import {
   formatReceiptCatalogCandidateDetails,
 } from "./receipt-catalog-precheck.js";
 import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
+import {
+  applySlotNickname,
+  initializeSlotMode,
+  isSlotModeActive,
+  resetBotNickname,
+  shouldInitializeSlotMode,
+} from "./slot-mode.js";
 
 dotenv.config();
+
+const slotModeActive = isSlotModeActive(process.env);
+let allowedChannels = parseAllowedChannels(process.env.DISCORD_ALLOWED_CHANNELS);
+const shouldProvisionSlotMode = shouldInitializeSlotMode(process.env, allowedChannels);
+if (shouldProvisionSlotMode) {
+  allowedChannels = new Set();
+}
 
 // ---------------------------------------------------------------------------
 // Remote work MCP — provides Notion, Slack, Linear, etc. via OAuth
@@ -568,6 +583,12 @@ const smokeTestChannelIds = new Set(
     .map((agent) => agent.voice?.smokeTestChannelId?.trim())
     .filter((channelId): channelId is string => Boolean(channelId))
 );
+const slotModeAgentTestChannels = agentConfigs
+  .filter((agent) => agent.voice?.smokeTestChannelId)
+  .map((agent) => ({
+    agentId: agent.id,
+    channelId: agent.voice?.smokeTestChannelId ?? "",
+  }));
 const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !== undefined).length;
 const storage = new TangoStorage(dbPath);
 let embeddingProvider: EmbeddingProvider | null | undefined;
@@ -6722,6 +6743,15 @@ async function handleMessage(
   );
 
   if (prompt.length === 0) {
+    // Diagnostic: capture what we actually saw so we can tell whether raw content
+    // was empty (Discord Message Content Intent cold-start, thread membership
+    // timing, etc.) or whether the parser stripped real content. Kept as a warn
+    // log so it shows up in normal tmux captures.
+    const rawContent = typeof message.content === "string" ? message.content : "";
+    const rawTrimmed = rawContent.trim();
+    console.warn(
+      `[tango-discord] empty-prompt rawLen=${rawContent.length} rawTrimmedLen=${rawTrimmed.length} commandParseLen=${commandParse.promptText.length} naturalRouteLen=${naturalRoute?.promptText?.length ?? -1} hasAttachments=${message.attachments.size} agentOverride=${commandParse.agentOverride ?? "-"} author=${message.author.username} channel=${message.channelId}`
+    );
     await sendPresentedReply(
       message.channel,
       "I received an empty message. Send text, or include `/agent <id> your message`.",
@@ -7368,6 +7398,61 @@ client.once("clientReady", async () => {
     console.error("[tango-discord] failed to register slash commands", error);
   }
 
+  if (shouldProvisionSlotMode) {
+    const slot = process.env.TANGO_SLOT!;
+    const result = await initializeSlotMode({
+      client,
+      slot,
+      agentTestChannels: slotModeAgentTestChannels,
+      logger: (line) => console.log(`[slot-mode] ${line}`),
+    });
+    allowedChannels = result.threadIds;
+    for (const createdThread of result.created) {
+      console.log(
+        `[slot-mode] thread ready: agent=${createdThread.agentId} threadId=${createdThread.threadId} url=${createdThread.url}`,
+      );
+    }
+    for (const failure of result.failures) {
+      console.warn(`[slot-mode] failed for agent=${failure.agentId}: ${failure.reason}`);
+    }
+    console.log(
+      `[slot-mode] initialization complete created=${result.created.length} failures=${result.failures.length}`,
+    );
+    if (result.threadIds.size === 0) {
+      console.error("[slot-mode] FATAL: no test threads were created; bot would accept nothing. Shutting down.");
+      process.exit(1);
+    }
+    // Grant per-agent access control access to the smoke-test parent channels so
+    // thread-resolved routing (resolveRoutingChannelId returns the parent) passes
+    // the default allowlist check. Agents without access overrides share this Set
+    // by reference via resolveAccessPolicy, so the mutation propagates immediately.
+    for (const agentChannel of slotModeAgentTestChannels) {
+      defaultAccessPolicy.allowlistChannelIds.add(agentChannel.channelId);
+    }
+    console.log(
+      `[slot-mode] granted default access allowlist to ${slotModeAgentTestChannels.length} smoke-test parent channels`,
+    );
+    if (agentAccessOverrideCount > 0) {
+      console.warn(
+        `[slot-mode] WARNING: ${agentAccessOverrideCount} agents have explicit access overrides; their allowlists will NOT auto-include slot-mode thread parents and may block messages`,
+      );
+    }
+  }
+
+  if (slotModeActive) {
+    await applySlotNickname({
+      client,
+      slot: process.env.TANGO_SLOT!,
+      logger: (line) => console.log(`[slot-mode] ${line}`),
+    });
+  } else {
+    await resetBotNickname({
+      client,
+      nickname: process.env.TANGO_BOT_NICKNAME?.trim() || null,
+      logger: (line) => console.log(`[tango-discord] ${line}`),
+    });
+  }
+
   // Join active threads so the bot receives messageCreate events for them.
   // Discord.js only caches threads the bot is a member of; after a restart
   // the bot loses thread membership and silently drops thread messages.
@@ -7510,6 +7595,8 @@ const recentlyProcessedMessageIds = new Set<string>();
 const MESSAGE_DEDUP_MAX_SIZE = 200;
 
 client.on("messageCreate", async (message) => {
+  if (!isChannelAllowed(message.channelId, allowedChannels)) return;
+
   // Voice-synced user messages are posted via webhook (bot=true) but prefixed with ZWS.
   // Advance the watermark for these before the bot early-return so the inbox stays current.
   // NOTE: We advance unconditionally (not gated on voiceInboxChannelMap) because voice
