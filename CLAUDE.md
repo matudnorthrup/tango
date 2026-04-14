@@ -24,6 +24,8 @@ All active work is tracked in **Linear** (Seaside HQ workspace). See memory file
 
 A fix or feature is NOT done until **live tested end-to-end**. Unit tests are a milestone, not a finish line.
 
+**Hard gate**: Do NOT move a Linear project to Ship or merge a PR until every Validation milestone issue is marked Done with documented test results in the issue comments. No exceptions — check the Linear project before merging.
+
 ### Parallel Development
 
 ```bash
