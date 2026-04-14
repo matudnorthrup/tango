@@ -43,4 +43,12 @@ if [ "$lock_slot" != "$slot" ]; then
   exit 1
 fi
 
+# Source the slot env overlay so the harness reads from the slot's DB
+# (not the default profile). The slot bot writes metadata to wt-{N}'s DB;
+# without this, reply detection checks the wrong database and times out.
+set -a
+if [ -f "$REPO_DIR/.env" ]; then source "$REPO_DIR/.env"; fi
+if [ -f "$REPO_DIR/.env.slot" ]; then source "$REPO_DIR/.env.slot"; fi
+set +a
+
 exec node --import tsx "$REPO_DIR/apps/tango-voice/src/testing/discord-slot-test-runner.ts" --slot "$slot" "$@"
