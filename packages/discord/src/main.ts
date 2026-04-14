@@ -184,6 +184,7 @@ import {
   resetBotNickname,
   shouldInitializeSlotMode,
 } from "./slot-mode.js";
+import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
 
 dotenv.config();
 
@@ -7612,7 +7613,8 @@ client.on("messageCreate", async (message) => {
     return; // Voice-user-synced transcripts don't need further processing
   }
 
-  if (message.author.bot) return;
+  const isSmokeTestWebhookInput = isSmokeTestThreadWebhookMessage(message, smokeTestChannelIds);
+  if (message.author.bot && !isSmokeTestWebhookInput) return;
   // Ignore system messages (thread created, pin, member join, etc.)
   if (message.type !== MessageType.Default && message.type !== MessageType.Reply) return;
 
