@@ -61,7 +61,7 @@ describe("tryExecuteDeterministicWorkerFastPath", () => {
 
     expect(result).not.toBeNull();
     expect(result?.toolCalls[0]?.name).toBe("nutrition_log_items");
-    const payload = JSON.parse(result?.text ?? "{}") as Record<string, unknown>;
+    const payload = result?.toolCalls[0]?.output as Record<string, unknown>;
     expect(payload.status).toBe("confirmed");
     expect(payload.verifiedWriteOutcome).toBe(true);
     expect(Array.isArray(payload.logged)).toBe(true);
@@ -69,6 +69,8 @@ describe("tryExecuteDeterministicWorkerFastPath", () => {
       "125g",
       "120g",
     ]);
+    expect(result?.text).toContain("Logged lunch");
+    expect(result?.text).toContain("Write confirmed in diary.");
     expect(calls.map((call) => call.method)).toEqual([
       "food_entry_create",
       "food_entry_create",
@@ -114,7 +116,8 @@ describe("tryExecuteDeterministicWorkerFastPath", () => {
         "Execute workflow 'wellness.log_recipe_meal' for the owning worker now.",
         "Intent contract: nutrition.log_recipe",
         "Intent mode: write",
-        "User message: Log my lunch: tex mex salad, but modify it to use 125g of black beans and 120g of peach mango salsa.",
+        "User message: Continue the last recipe logging task.",
+        "User follow-up message: Log my lunch: tex mex salad, but modify it to use 125g of black beans and 120g of peach mango salsa.",
         "Extracted inputs: {\"recipe_query\":\"Garden Tex-Mex Power Salad\",\"meal\":\"lunch\"}",
       ].join("\n"),
       toolIds: ["recipe_read", "nutrition_log_items", "fatsecret_api"],
@@ -132,13 +135,15 @@ describe("tryExecuteDeterministicWorkerFastPath", () => {
     });
 
     expect(result).not.toBeNull();
-    const payload = JSON.parse(result?.text ?? "{}") as Record<string, unknown>;
+    const payload = result?.toolCalls[0]?.output as Record<string, unknown>;
     const logged = payload.logged as Array<Record<string, unknown>>;
     expect(payload.status).toBe("confirmed");
     expect(payload.verifiedWriteOutcome).toBe(true);
     expect(logged).toHaveLength(6);
     expect(logged.find((item) => item.item === "Black Beans (canned, drained)")?.quantity).toBe("125g");
     expect(logged.find((item) => item.item === "Mango Peach Salsa")?.quantity).toBe("120g");
+    expect(result?.text).toContain("Logged lunch");
+    expect(result?.text).toContain("Write confirmed in diary.");
     expect(calls.filter((call) => call.method === "food_entry_create")).toHaveLength(6);
     expect(calls.at(-1)?.method).toBe("food_entries_get");
   });

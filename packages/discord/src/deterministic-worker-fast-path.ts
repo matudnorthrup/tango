@@ -25,6 +25,8 @@ export interface DeterministicWorkerFastPathInput {
   }) => Promise<unknown>;
 }
 
+type NutritionFastPathMeal = "breakfast" | "lunch" | "dinner" | "other";
+
 export async function tryExecuteDeterministicWorkerFastPath(
   input: DeterministicWorkerFastPathInput,
 ): Promise<WorkerAgentResult | null> {
@@ -82,7 +84,7 @@ export async function tryExecuteDeterministicWorkerFastPath(
 
 async function executeNutritionFastPath(input: {
   items: NutritionLogItemInput[];
-  meal: "breakfast" | "lunch" | "dinner" | "other";
+  meal: NutritionFastPathMeal;
   date?: string;
   input: DeterministicWorkerFastPathInput;
 }): Promise<WorkerAgentResult> {
@@ -105,7 +107,7 @@ async function executeNutritionFastPath(input: {
   const output = annotateVerifiedWriteOutcome(rawOutput);
 
   return {
-    text: JSON.stringify(output),
+    text: buildNutritionFastPathSummary(output, input.meal, input.date),
     toolCalls: [
       {
         name: "nutrition_log_items",
@@ -140,7 +142,9 @@ function parseDeterministicTaskMetadata(task: string): DeterministicTaskMetadata
     return {
       intentId,
       userMessage:
-        extractPrefixedLine(task, "User message: ")
+        extractPrefixedLine(task, "User follow-up message: ")
+        ?? extractPrefixedLine(task, "Latest user message: ")
+        ?? extractPrefixedLine(task, "User message: ")
         ?? extractPrefixedLine(task, "Original user message (background only): ")
         ?? "",
       entities: parsed as Record<string, unknown>,
@@ -421,6 +425,107 @@ function annotateVerifiedWriteOutcome(value: Record<string, unknown>): Record<st
         verifiedWriteOutcome: true,
       }
     : value;
+}
+
+function buildNutritionFastPathSummary(
+  output: Record<string, unknown>,
+  meal: NutritionFastPathMeal,
+  requestedDate?: string,
+): string {
+  const status = typeof output.status === "string" ? output.status.trim().toLowerCase() : "";
+  const date =
+    typeof output.date === "string" && output.date.trim().length > 0
+      ? output.date.trim()
+      : requestedDate;
+  const logged = Array.isArray(output.logged)
+    ? output.logged.map((item) => item && typeof item === "object" && !Array.isArray(item)
+      ? item as Record<string, unknown>
+      : null).filter((item): item is Record<string, unknown> => item !== null)
+    : [];
+  const unresolved = Array.isArray(output.unresolved)
+    ? output.unresolved.map((item) => item && typeof item === "object" && !Array.isArray(item)
+      ? item as Record<string, unknown>
+      : null).filter((item): item is Record<string, unknown> => item !== null)
+    : [];
+
+  const context = meal === "other"
+    ? date ? ` for ${date}` : ""
+    : ` for ${meal}${date ? ` on ${date}` : ""}`;
+  const summarySuffix = meal === "other"
+    ? date ? ` for ${date}` : ""
+    : ` ${meal}${date ? ` for ${date}` : ""}`;
+
+  if (status === "confirmed" && logged.length > 0) {
+    return `Logged${summarySuffix}: ${summarizeLoggedNutritionItems(logged)}. Write confirmed in diary.`;
+  }
+
+  if (status === "partial_success" && logged.length > 0) {
+    const unresolvedSummary = summarizeUnresolvedNutritionItems(unresolved);
+    return unresolvedSummary
+      ? `Partially logged${summarySuffix}: ${summarizeLoggedNutritionItems(logged)}. Still unresolved: ${unresolvedSummary}.`
+      : `Partially logged${summarySuffix}: ${summarizeLoggedNutritionItems(logged)}.`;
+  }
+
+  if ((status === "needs_clarification" || status === "clarification") && unresolved.length > 0) {
+    return `I still need clarification${context}: ${summarizeUnresolvedNutritionItems(unresolved)}.`;
+  }
+
+  if (logged.length > 0) {
+    return `Processed${summarySuffix}: ${summarizeLoggedNutritionItems(logged)}.`;
+  }
+
+  const unresolvedSummary = summarizeUnresolvedNutritionItems(unresolved);
+  if (unresolvedSummary) {
+    return `I couldn't finish logging${summarySuffix}: ${unresolvedSummary}.`;
+  }
+
+  return `I couldn't finish logging${summarySuffix}.`;
+}
+
+function summarizeLoggedNutritionItems(items: readonly Record<string, unknown>[]): string {
+  const parts = items
+    .map((item) => {
+      const label =
+        typeof item.item === "string" && item.item.trim().length > 0
+          ? item.item.trim()
+          : typeof item.food_entry_name === "string" && item.food_entry_name.trim().length > 0
+            ? item.food_entry_name.trim()
+            : null;
+      const quantity = typeof item.quantity === "string" ? item.quantity.trim() : "";
+      if (!label) {
+        return null;
+      }
+      return quantity ? `${label} (${quantity})` : label;
+    })
+    .filter((part): part is string => typeof part === "string" && part.length > 0);
+
+  if (parts.length <= 4) {
+    return parts.join("; ");
+  }
+  return `${parts.slice(0, 4).join("; ")}; +${parts.length - 4} more`;
+}
+
+function summarizeUnresolvedNutritionItems(items: readonly Record<string, unknown>[]): string {
+  const parts = items
+    .map((item) => {
+      const label =
+        typeof item.item === "string" && item.item.trim().length > 0
+          ? item.item.trim()
+          : typeof item.name === "string" && item.name.trim().length > 0
+            ? item.name.trim()
+            : null;
+      const reason = typeof item.reason === "string" ? item.reason.trim() : "";
+      if (!label) {
+        return null;
+      }
+      return reason ? `${label} (${reason})` : label;
+    })
+    .filter((part): part is string => typeof part === "string" && part.length > 0);
+
+  if (parts.length <= 3) {
+    return parts.join("; ");
+  }
+  return `${parts.slice(0, 3).join("; ")}; +${parts.length - 3} more`;
 }
 
 function normalizeWhitespace(value: string): string {

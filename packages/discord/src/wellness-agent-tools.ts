@@ -499,9 +499,9 @@ Provide a method name and a JSON params object. Returns the full API response.
 1. foods_search to find food_id
 2. food_get to see servings (get serving_id, metric_serving_amount)
 3. Calculate number_of_units from the selected serving definition:
-   - Treat \`number_of_units\` for writes as "how many selected servings to log," not as raw grams or tablespoons.
-   - If the serving is \`55 g\`, use \`target_grams / 55\`.
-   - If the serving is gram-denominated, such as \`serving_description = 100 g\`, still use fractional servings. Example: \`140 g\` should use \`number_of_units = 1.4\`, not \`140\`.
+   - Usually \`number_of_units\` means "how many selected servings to log."
+   - For non-gram servings such as \`1 cup\` or \`2 tbsp\`, derive serving count from the target amount.
+   - Special case: if FatSecret marks the serving itself in grams, such as \`serving_description = 100 g\` with \`measurement_description = g\`, send raw grams. Example: \`140 g\` should use \`number_of_units = 140\`, not \`1.4\`.
 4. food_entry_create to log
 
 ## Workflow: Deleting entries
@@ -637,11 +637,13 @@ export function createWorkoutTools(overrides?: WellnessToolPaths): AgentTool[] {
         "  exercises (id serial, name text UNIQUE, muscle_group text, movement_pattern text, equipment text, aliases text[])",
         "Common patterns:",
         "  Start workout: INSERT INTO workouts (date, workout_type) VALUES (CURRENT_DATE, 'push') RETURNING id;",
+        "  Historical workout: INSERT INTO workouts (date, workout_type, notes) VALUES (DATE '2024-01-15', 'other', 'historical entry') RETURNING id;",
         "  Find exercise: SELECT id, name FROM exercises WHERE name ILIKE '%bench%';",
         "  Log a set: INSERT INTO sets (workout_id, exercise_id, exercise_order, set_number, weight_lbs, reps) VALUES (11, 22, 1, 1, 135, 12) RETURNING id, volume;",
         "  End workout: UPDATE workouts SET ended_at = now() WHERE id = 11;",
+        "  End latest active workout safely: WITH target AS (SELECT id FROM workouts WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1) UPDATE workouts w SET ended_at = now() FROM target WHERE w.id = target.id RETURNING w.id, w.ended_at;",
         "  Active workout: SELECT * FROM workouts WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1;",
-        "Safety: DROP, ALTER, CREATE, and TRUNCATE are blocked.",
+        "Safety: DROP, ALTER, CREATE, and TRUNCATE are blocked. Do not use ORDER BY or LIMIT directly inside UPDATE statements in Postgres.",
       ].join("\n"),
       inputSchema: {
         type: "object",

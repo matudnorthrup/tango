@@ -5,7 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/session.sh"
 REPO_DIR="$(resolve_tango_repo_dir)"
 
-SESSION_NAME="$(resolve_tmux_target_session_name)"
+SESSION_NAME="$(resolve_tango_tmux_session_name)"
+WINDOW_NAME="${TANGO_DISCORD_WINDOW:-discord}"
+TARGET="$(resolve_tmux_service_target "$WINDOW_NAME")"
 NODE_BIN="${TANGO_NODE_BIN:-/opt/homebrew/opt/node@22/bin/node}"
 
 if [ ! -x "$NODE_BIN" ]; then
@@ -23,12 +25,17 @@ if [ ! -f "$REPO_DIR/packages/discord/dist/main.js" ]; then
   exit 1
 fi
 
-if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-  echo "tmux session '$SESSION_NAME' already running"
+if tmux_service_target_is_running "$TARGET"; then
+  echo "tmux target '$TARGET' already running"
   exit 0
 fi
 
 RUN_CMD="cd \"$REPO_DIR\" && env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$NODE_BIN\" packages/discord/dist/main.js"
-tmux new-session -d -s "$SESSION_NAME" "$RUN_CMD"
 
-echo "Started Tango in tmux session '$SESSION_NAME'"
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+  tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+else
+  tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+fi
+
+echo "Started Tango Discord in tmux target '${SESSION_NAME}:${WINDOW_NAME}'"

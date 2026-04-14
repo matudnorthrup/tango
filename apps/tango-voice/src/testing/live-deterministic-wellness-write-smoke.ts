@@ -50,6 +50,26 @@ type FatSecretEntry = {
   meal?: string;
 } & Record<string, unknown>;
 
+type WorkoutRow = {
+  id: number;
+  date: string;
+  workout_type: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  notes: string | null;
+};
+
+type WorkoutSetRow = {
+  id: number;
+  workout_id: number;
+  exercise_id: number;
+  exercise_name: string;
+  set_number: number;
+  weight_lbs: number | null;
+  reps: number;
+  notes: string | null;
+};
+
 function getArg(flag: string): string | null {
   const index = process.argv.indexOf(flag);
   if (index < 0) return null;
@@ -369,6 +389,16 @@ function offsetDateString(offsetDays: number, now = new Date()): string {
   return date.toISOString().slice(0, 10);
 }
 
+function addDaysToDateString(dateString: string, offsetDays: number): string {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function quoteSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 async function runCommand(command: string, args: string[]): Promise<string> {
   const { execFile } = await import("node:child_process");
   return await new Promise<string>((resolve, reject) => {
@@ -387,6 +417,147 @@ async function callFatSecret(method: string, params: Record<string, unknown>): P
   const script = path.resolve(getRequiredEnv("TANGO_FATSECRET_SCRIPT"));
   const stdout = await runCommand(python, [script, method, JSON.stringify(params)]);
   return stdout ? JSON.parse(stdout) : null;
+}
+
+function getWorkoutSqlConnection(): {
+  container: string;
+  database: string;
+  user: string;
+  password: string;
+} {
+  return {
+    container: getOptionalEnv("TANGO_WORKOUT_DB_CONTAINER") ?? "workout-db",
+    database: getOptionalEnv("TANGO_WORKOUT_DB_NAME") ?? "workouts",
+    user: getOptionalEnv("TANGO_WORKOUT_DB_USER") ?? "watson",
+    password: getOptionalEnv("TANGO_WORKOUT_DB_PASSWORD") ?? "watson-workout-db",
+  };
+}
+
+async function runWorkoutSqlRaw(query: string): Promise<string> {
+  const connection = getWorkoutSqlConnection();
+  return await runCommand("docker", [
+    "exec",
+    "-e",
+    `PGPASSWORD=${connection.password}`,
+    connection.container,
+    "psql",
+    "-U",
+    connection.user,
+    "-d",
+    connection.database,
+    "-t",
+    "-A",
+    "--no-psqlrc",
+    "-q",
+    "-c",
+    query,
+  ]);
+}
+
+async function queryWorkoutJsonArray<T>(selectQuery: string): Promise<T[]> {
+  const wrapped = [
+    "SELECT COALESCE(json_agg(t), '[]'::json)::text",
+    `FROM (${selectQuery}) t;`,
+  ].join("\n");
+  const stdout = (await runWorkoutSqlRaw(wrapped)).trim();
+  if (!stdout) {
+    return [];
+  }
+  return JSON.parse(stdout) as T[];
+}
+
+async function runWorkoutSql(query: string): Promise<void> {
+  await runWorkoutSqlRaw(query);
+}
+
+async function getWorkoutsByDate(date: string): Promise<WorkoutRow[]> {
+  return await queryWorkoutJsonArray<WorkoutRow>([
+    "SELECT",
+    "  id,",
+    "  date::text AS date,",
+    "  workout_type,",
+    "  started_at::text AS started_at,",
+    "  ended_at::text AS ended_at,",
+    "  notes",
+    "FROM workouts",
+    `WHERE date = DATE '${quoteSqlLiteral(date)}'`,
+    "ORDER BY id",
+  ].join("\n"));
+}
+
+async function getLatestActiveWorkout(): Promise<WorkoutRow | null> {
+  const rows = await queryWorkoutJsonArray<WorkoutRow>([
+    "SELECT",
+    "  id,",
+    "  date::text AS date,",
+    "  workout_type,",
+    "  started_at::text AS started_at,",
+    "  ended_at::text AS ended_at,",
+    "  notes",
+    "FROM workouts",
+    "WHERE ended_at IS NULL",
+    "ORDER BY started_at DESC",
+    "LIMIT 1",
+  ].join("\n"));
+  return rows[0] ?? null;
+}
+
+async function getWorkoutSetsByWorkoutIds(workoutIds: readonly number[]): Promise<WorkoutSetRow[]> {
+  if (workoutIds.length === 0) {
+    return [];
+  }
+  const ids = workoutIds.map((id) => String(id)).join(", ");
+  return await queryWorkoutJsonArray<WorkoutSetRow>([
+    "SELECT",
+    "  s.id,",
+    "  s.workout_id,",
+    "  s.exercise_id,",
+    "  e.name AS exercise_name,",
+    "  s.set_number,",
+    "  s.weight_lbs,",
+    "  s.reps,",
+    "  s.notes",
+    "FROM sets s",
+    "JOIN exercises e ON e.id = s.exercise_id",
+    `WHERE s.workout_id IN (${ids})`,
+    "ORDER BY s.workout_id, s.exercise_order, s.set_number, s.id",
+  ].join("\n"));
+}
+
+async function resolveWorkoutSmokeDate(): Promise<string> {
+  const configured = getOptionalEnv("TANGO_WORKOUT_SMOKE_DATE");
+  if (configured) {
+    return configured;
+  }
+
+  const occupiedRows = await queryWorkoutJsonArray<{ date: string }>([
+    "SELECT DISTINCT date::text AS date",
+    "FROM workouts",
+    "WHERE date BETWEEN DATE '2024-01-01' AND DATE '2025-12-31'",
+    "ORDER BY date",
+  ].join("\n"));
+  const occupiedDates = new Set(occupiedRows.map((row) => row.date));
+  let candidate = "2024-01-01";
+  const stop = "2025-12-31";
+  while (candidate <= stop) {
+    if (!occupiedDates.has(candidate)) {
+      return candidate;
+    }
+    candidate = addDaysToDateString(candidate, 1);
+  }
+  throw new Error("Could not find an unused historical workout smoke date in 2024-2025.");
+}
+
+async function cleanupWorkoutRows(input: {
+  workoutIds: readonly number[];
+  setIds: readonly number[];
+}): Promise<void> {
+  if (input.setIds.length > 0) {
+    await runWorkoutSql(`DELETE FROM sets WHERE id IN (${input.setIds.map((id) => String(id)).join(", ")});`);
+  }
+  if (input.workoutIds.length > 0) {
+    await runWorkoutSql(`DELETE FROM workouts WHERE id IN (${input.workoutIds.map((id) => String(id)).join(", ")});`);
+  }
 }
 
 async function getFatSecretEntries(date: string): Promise<FatSecretEntry[]> {
@@ -453,6 +624,7 @@ async function validateDeterministicWriteTurn(input: {
   expectAnyOfIntents?: string[];
   expectWorkers: string[];
   expectStepCount?: number;
+  expectStepCounts?: number[];
   allowReadOnlyVerification?: boolean;
 }): Promise<DeterministicTurn> {
   const latest = await waitForNewDeterministicTurn({
@@ -491,6 +663,9 @@ async function validateDeterministicWriteTurn(input: {
   if (input.expectStepCount !== undefined && latest.stepCount !== input.expectStepCount) {
     throw new Error(`Expected stepCount=${input.expectStepCount}, got ${latest.stepCount}`);
   }
+  if (input.expectStepCounts && input.expectStepCounts.length > 0 && !input.expectStepCounts.includes(latest.stepCount)) {
+    throw new Error(`Expected stepCount in [${input.expectStepCounts.join(", ")}], got ${latest.stepCount}`);
+  }
   return latest;
 }
 
@@ -526,7 +701,7 @@ async function runNutritionWriteSmoke(input: {
     previousId: previousTurn?.id ?? null,
     expectIntents: ["nutrition.log_food"],
     expectWorkers: ["nutrition-logger"],
-    expectStepCount: 1,
+    expectStepCounts: [1, 2],
   });
   console.log(`[write-smoke] nutrition deterministic turn=${turn.id}`);
 
@@ -552,6 +727,119 @@ async function runNutritionWriteSmoke(input: {
       throw new Error(`Nutrition cleanup failed for entries: ${lingering.map((entry) => entry.food_entry_id).join(", ")}`);
     }
     console.log("[write-smoke] nutrition cleanup ok");
+  }
+}
+
+async function runWorkoutWriteSmoke(input: {
+  db: DatabaseSync;
+  baseUrl: string;
+  headers: Record<string, string>;
+  sessionId: string;
+  agentId: string;
+  channelId?: string | null;
+  discordUserId: string;
+}): Promise<void> {
+  const date = await resolveWorkoutSmokeDate();
+  const noteMarker = "Codex deterministic workout smoke test";
+  const exerciseName = "Dumbbell Row";
+  const targetWeight = 20;
+  const targetReps = 8;
+  const beforeWorkouts = await getWorkoutsByDate(date);
+  const beforeWorkoutIds = new Set(beforeWorkouts.map((workout) => workout.id));
+  const activeBefore = await getLatestActiveWorkout();
+  const previousTurn = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
+  const transcript = [
+    `Create and close a one-off historical workout session dated ${date}.`,
+    `Use workout type other, log exactly one set of ${exerciseName} at ${targetWeight} lbs for ${targetReps} reps, and add the exact note "${noteMarker}".`,
+    "Do not use or modify any active current-day session.",
+    "This is a deterministic write smoke test.",
+  ].join(" ");
+
+  console.log(
+    `[write-smoke] workout before workouts=${beforeWorkouts.length} date=${date} activeBefore=${activeBefore ? `${activeBefore.id}:${activeBefore.date}` : "none"}`,
+  );
+
+  const response = await runTurn({
+    ...input,
+    transcript,
+  });
+  console.log(
+    `[write-smoke] workout response ok=${response.ok} provider=${response.providerName ?? "-"} failover=${response.providerUsedFailover ? "yes" : "no"} warmStart=${response.warmStartUsed ? "yes" : "no"}`,
+  );
+  console.log(`[write-smoke] workout responseText=${JSON.stringify(response.responseText ?? "")}`);
+
+  const turn = await validateDeterministicWriteTurn({
+    db: input.db,
+    sessionId: input.sessionId,
+    agentId: input.agentId,
+    previousId: previousTurn?.id ?? null,
+    expectIntents: ["workout.log"],
+    expectWorkers: ["workout-recorder"],
+    expectStepCount: 1,
+  });
+  console.log(`[write-smoke] workout deterministic turn=${turn.id}`);
+
+  const afterWorkouts = await getWorkoutsByDate(date);
+  const newWorkouts = afterWorkouts.filter((workout) => !beforeWorkoutIds.has(workout.id));
+  if (newWorkouts.length !== 1) {
+    throw new Error(`Workout write smoke expected exactly 1 new workout on ${date}, got ${newWorkouts.length}.`);
+  }
+
+  const createdWorkout = newWorkouts[0];
+  if (!createdWorkout.ended_at) {
+    throw new Error(`Workout write smoke expected the historical session to be closed, got ended_at=${String(createdWorkout.ended_at)}.`);
+  }
+  if (!createdWorkout.notes?.includes(noteMarker)) {
+    throw new Error(`Workout write smoke expected workout note marker "${noteMarker}", got ${JSON.stringify(createdWorkout.notes)}.`);
+  }
+
+  const newSets = await getWorkoutSetsByWorkoutIds(newWorkouts.map((workout) => workout.id));
+  if (newSets.length !== 1) {
+    throw new Error(`Workout write smoke expected exactly 1 new set, got ${newSets.length}.`);
+  }
+  const createdSet = newSets[0];
+  if (!/row/i.test(createdSet.exercise_name)) {
+    throw new Error(`Workout write smoke expected a row exercise, got ${createdSet.exercise_name}.`);
+  }
+  if (createdSet.weight_lbs !== targetWeight || createdSet.reps !== targetReps) {
+    throw new Error(
+      `Workout write smoke expected ${targetWeight} lbs x ${targetReps}, got ${String(createdSet.weight_lbs)} x ${createdSet.reps}.`,
+    );
+  }
+  console.log(
+    `[write-smoke] workout created workout=${createdWorkout.id} set=${createdSet.id}:${createdSet.exercise_name}:${String(createdSet.weight_lbs)}x${createdSet.reps}`,
+  );
+
+  try {
+    const activeAfter = await getLatestActiveWorkout();
+    const activeBeforeId = activeBefore?.id ?? null;
+    const activeAfterId = activeAfter?.id ?? null;
+    if (activeBeforeId !== activeAfterId) {
+      throw new Error(
+        `Workout write smoke changed the active session from ${String(activeBeforeId)} to ${String(activeAfterId)}.`,
+      );
+    }
+
+    const responseText = (response.responseText ?? "").trim();
+    if (!responseText) {
+      throw new Error("Workout write smoke returned an empty response.");
+    }
+    if (/\bcould not\b|\bcan't\b|\bblocked\b|\bcancelled\b/iu.test(responseText)) {
+      throw new Error(`Workout write smoke reply still sounds blocked: ${responseText}`);
+    }
+  } finally {
+    await cleanupWorkoutRows({
+      workoutIds: newWorkouts.map((workout) => workout.id),
+      setIds: newSets.map((set) => set.id),
+    });
+    const cleanupWorkouts = await getWorkoutsByDate(date);
+    const lingeringWorkoutIds = cleanupWorkouts
+      .filter((workout) => newWorkouts.some((created) => created.id === workout.id))
+      .map((workout) => workout.id);
+    if (lingeringWorkoutIds.length > 0) {
+      throw new Error(`Workout cleanup failed for workouts: ${lingeringWorkoutIds.join(", ")}`);
+    }
+    console.log("[write-smoke] workout cleanup ok");
   }
 }
 
@@ -1196,6 +1484,17 @@ async function main(): Promise<void> {
         discordUserId,
       });
       await runRecipeUpdateSmoke({
+        db,
+        baseUrl,
+        headers,
+        sessionId,
+        agentId,
+        channelId,
+        discordUserId,
+      });
+    }
+    if (suiteMatchesCurrentAgent(suite, agentId, "malibu") || suite === "simple-writes" || suite === "workout-write") {
+      await runWorkoutWriteSmoke({
         db,
         baseUrl,
         headers,

@@ -3081,7 +3081,7 @@ describe("executeAgentWorker", () => {
           food_id: "6236",
           food_entry_name: "Red Cabbage",
           serving_id: "54916",
-          number_of_units: 0.6,
+          number_of_units: 60,
           meal: "dinner",
           date: "2026-03-31",
         },
@@ -3656,6 +3656,7 @@ describe("executeAgentWorker", () => {
         mode: "write",
       },
     ]);
+    expect(report.data?.qualityWarnings).toEqual([]);
   });
 
   it("treats ramp reimbursement submissions and receipt registry upserts as writes", () => {
@@ -3833,6 +3834,38 @@ describe("executeAgentWorker", () => {
       "Worker reported partial_success result.",
       "GPS fix is stale by about 12.9 hours, so this is last known location, not confirmed live position.",
     ]);
+  });
+
+  it("does not treat confirmed structured statuses as warnings", () => {
+    const report = workerAgentResultToReport(
+      {
+        text: JSON.stringify({
+          action: "nutrition_log_items",
+          status: "confirmed",
+          logged: [{ item: "Black Beans", quantity: "125g" }],
+        }),
+        toolCalls: [
+          {
+            name: "nutrition_log_items",
+            input: {
+              items: [{ name: "Black Beans", quantity: "125g" }],
+              meal: "lunch",
+            },
+            output: {
+              status: "confirmed",
+              logged: [{ item: "Black Beans", quantity: "125g" }],
+            },
+            durationMs: 0,
+          },
+        ],
+        durationMs: 123,
+      },
+      "nutrition-logger",
+      "Intent mode: write\nWRITE step: log lunch now.",
+    );
+
+    expect(report.hasWriteOperations).toBe(true);
+    expect(report.data?.qualityWarnings).toEqual([]);
   });
 
   it("surfaces blocked structured worker JSON as quality warnings", () => {
