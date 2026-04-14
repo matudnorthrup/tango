@@ -54,6 +54,7 @@ import {
 } from "./active-task-state.js";
 import {
   extractDeliverableWorkerTextFromReceipt,
+  extractDeliverableWorkerTextsFromReceipts,
   extractDeliverableWorkerTextFromReport,
 } from "./deliverable-worker-text.js";
 
@@ -88,6 +89,7 @@ export interface DiscordTurnExecutionContext {
     model?: string;
     reasoningEffort?: ProviderReasoningEffort;
     explicitIntentIds?: string[];
+    allowDirectStepExecution?: boolean;
   };
 }
 
@@ -1394,10 +1396,14 @@ export async function executeDiscordTurn(
                       taskId: step.id,
                     })
                 : undefined,
+              tryExecuteDirectStep: deterministicConfig.allowDirectStepExecution === false
+                ? async () => null
+                : undefined,
             });
             const executionLatencyMs = Date.now() - executionStartedAt;
-            const directWorkerText = receipts.length === 1
-              ? extractDeliverableWorkerTextFromReceipt(receipts[0])
+            const directReceiptTexts = extractDeliverableWorkerTextsFromReceipts(receipts);
+            const directWorkerText = directReceiptTexts
+              ? directReceiptTexts.join("\n\n")
               : null;
 
             if (directWorkerText) {
@@ -1413,9 +1419,14 @@ export async function executeDiscordTurn(
 
               const directResponse = buildSyntheticDirectResponse(
                 directWorkerText,
-                "deterministic:direct-worker-text",
+                receipts.length === 1
+                  ? "deterministic:direct-worker-text"
+                  : "deterministic:direct-worker-texts",
                 {
-                  source: "deterministic-worker-direct",
+                  source:
+                    receipts.length === 1
+                      ? "deterministic-worker-direct"
+                      : "deterministic-worker-direct-multi",
                 },
                 classification.response.providerSessionId,
               );

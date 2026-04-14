@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SESSION_NAME="${TANGO_VOICE_TMUX_SESSION:-tango-voice}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/session.sh"
+
+WINDOW_NAME="${TANGO_VOICE_WINDOW:-voice}"
+TARGET="$(resolve_tmux_service_target "$WINDOW_NAME")"
 LINES="${1:-80}"
 
-if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-  echo "No tmux session named '$SESSION_NAME'"
+if ! tmux_service_target_is_running "$TARGET"; then
+  echo "No Tango Voice tmux target running (expected '$TARGET')"
   exit 1
 fi
 
-tmux capture-pane -t "$SESSION_NAME" -p | tail -n "$LINES"
+tmux capture-pane -t "$TARGET" -p | tail -n "$LINES"

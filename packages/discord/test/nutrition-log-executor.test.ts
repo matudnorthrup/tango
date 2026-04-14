@@ -365,4 +365,45 @@ describe("executeNutritionLogItems", () => {
     ]);
     expect(fatsecretCall).not.toHaveBeenCalled();
   });
+
+  it("rejects weak Atlas token overlap instead of writing the wrong ingredient", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Frozen Mixed Fruit",
+        food_id: "1001",
+        serving_id: "2001",
+        serving_description: "140 g",
+        serving_size: "140 g",
+        grams_per_serving: 140,
+        aliases: JSON.stringify(["mixed fruit"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn();
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "garden lettuce (mixed varieties)", quantity: "100g" }],
+        meal: "lunch",
+        date: "2026-04-09",
+      },
+      {
+        atlasDbPath,
+        fatsecretCall,
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "needs_clarification",
+      logged: [],
+      unresolved: [
+        {
+          item: "garden lettuce (mixed varieties)",
+          quantity: "100g",
+          reason: "No Atlas ingredient match found. Use low-level FatSecret search for this item.",
+        },
+      ],
+    });
+    expect(fatsecretCall).not.toHaveBeenCalled();
+  });
 });
