@@ -144,6 +144,15 @@ function buildExecutionConstraintLines(
       ...docsLines,
       ...reimbursementLines,
       ...(
+        entry.id === "printing.job_prepare_or_start" && isPreviewOnlyRequest(userMessage, envelope)
+          ? [
+              "PREVIEW-ONLY step: do not upload, start, or stop printer jobs in this run.",
+              "You may inspect printer state and prepare local artifacts, but any mutating `printer_command` action must be invoked with `dry_run: true`.",
+              "Summarize what is ready or what would happen next without causing printer-side effects.",
+            ]
+          : []
+      ),
+      ...(
         excludedToolIds?.includes("browser")
           ? ["The browser tool is intentionally unavailable for this intent. Use non-browser tools only."]
           : []
@@ -443,6 +452,16 @@ const FINANCE_TRANSACTION_CATEGORIZATION_ALLOWED_TOOL_IDS = [
   "gog_email",
 ];
 
+const EMAIL_INBOX_MAINTENANCE_ALLOWED_TOOL_IDS = [
+  "gog_email",
+  "gog_calendar",
+];
+
+const EMAIL_SUBSCRIPTION_REVIEW_ALLOWED_TOOL_IDS = [
+  "gog_email",
+  "obsidian",
+];
+
 const FINANCE_RECEIPT_CATALOG_ALLOWED_TOOL_IDS = [
   "lunch_money",
   "browser",
@@ -451,6 +470,153 @@ const FINANCE_RECEIPT_CATALOG_ALLOWED_TOOL_IDS = [
   "obsidian",
   "receipt_registry",
 ];
+
+const FINANCE_RECEIPT_LOOKUP_ALLOWED_TOOL_IDS = [
+  "lunch_money",
+  "browser",
+  "onepassword",
+  "gog_email",
+  "obsidian",
+];
+
+const NUTRITION_LOG_ALLOWED_TOOL_IDS = [
+  "recipe_read",
+  "nutrition_log_items",
+  "fatsecret_api",
+];
+
+const NUTRITION_LOG_REPAIR_ALLOWED_TOOL_IDS = [
+  "recipe_read",
+  "nutrition_log_items",
+  "fatsecret_api",
+  "atlas_sql",
+];
+
+const PLANNING_MORNING_REVIEW_ALLOWED_TOOL_IDS = [
+  "gog_calendar",
+  "gog_email",
+  "obsidian",
+  "health_morning",
+  "linear",
+];
+
+const PLANNING_EVENING_REVIEW_ALLOWED_TOOL_IDS = [
+  "gog_calendar",
+  "gog_email",
+  "obsidian",
+  "linear",
+];
+
+const PRINTING_JOB_PREP_ALLOWED_TOOL_IDS = [
+  "file_ops",
+  "openscad_render",
+  "prusa_slice",
+  "printer_command",
+];
+
+const RECIPE_READ_ALLOWED_TOOL_IDS = [
+  "recipe_list",
+  "recipe_read",
+];
+
+const RECIPE_UPDATE_ALLOWED_TOOL_IDS = [
+  "recipe_list",
+  "recipe_read",
+  "recipe_write",
+  "atlas_sql",
+  "fatsecret_api",
+];
+
+const RESEARCH_WEB_ALLOWED_TOOL_IDS = [
+  "exa_search",
+  "exa_answer",
+];
+
+const RESEARCH_MULTI_DOCUMENT_ALLOWED_TOOL_IDS = [
+  "file_ops",
+  "obsidian",
+  "youtube_transcript",
+  "youtube_analyze",
+  "exa_search",
+  "exa_answer",
+];
+
+const RESEARCH_VIDEO_ALLOWED_TOOL_IDS = [
+  "youtube_transcript",
+  "youtube_analyze",
+  "exa_search",
+];
+
+const TRAVEL_ROUTE_ALLOWED_TOOL_IDS = [
+  "location_read",
+  "exa_search",
+  "exa_answer",
+];
+
+const TRAVEL_DIESEL_ALLOWED_TOOL_IDS = [
+  "location_read",
+  "find_diesel",
+];
+
+const ENGINEERING_ALLOWED_TOOL_IDS = [
+  "tango_shell",
+  "tango_file",
+];
+
+const ALLOWED_TOOL_IDS_BY_INTENT: Record<string, string[]> = {
+  "accounts.identity_read": ["onepassword"],
+  "docs.google_doc_read_or_update": ["gog_docs_update_tab", "gog_docs"],
+  "email.inbox_maintenance": EMAIL_INBOX_MAINTENANCE_ALLOWED_TOOL_IDS,
+  "email.inbox_review": ["gog_email"],
+  "email.subscription_review": EMAIL_SUBSCRIPTION_REVIEW_ALLOWED_TOOL_IDS,
+  "engineering.codebase_read": ENGINEERING_ALLOWED_TOOL_IDS,
+  "engineering.repo_status": ENGINEERING_ALLOWED_TOOL_IDS,
+  "files.local_read": ["file_ops"],
+  "files.local_write": ["file_ops"],
+  "finance.budget_review": ["lunch_money"],
+  "finance.receipt_catalog": FINANCE_RECEIPT_CATALOG_ALLOWED_TOOL_IDS,
+  "finance.receipt_lookup": FINANCE_RECEIPT_LOOKUP_ALLOWED_TOOL_IDS,
+  "finance.reimbursement_submit": ["receipt_registry", "ramp_reimbursement", "gog_email", "onepassword", "obsidian"],
+  "finance.transaction_categorization": FINANCE_TRANSACTION_CATEGORIZATION_ALLOWED_TOOL_IDS,
+  "finance.transaction_lookup": ["lunch_money"],
+  "finance.unreviewed_transactions": ["lunch_money"],
+  "health.metric_lookup_or_question": ["health_query"],
+  "health.morning_brief": ["health_morning"],
+  "health.sleep_recovery": ["health_query"],
+  "health.trend_analysis": ["health_query"],
+  "notes.note_read": ["obsidian"],
+  "notes.note_update": ["obsidian"],
+  "notes.vault_maintenance_review": ["obsidian"],
+  "nutrition.check_budget": ["fatsecret_api", "health_query"],
+  "nutrition.day_summary": ["fatsecret_api"],
+  "nutrition.ingredient_catalog_update": ["atlas_sql", "fatsecret_api"],
+  "nutrition.log_food": NUTRITION_LOG_ALLOWED_TOOL_IDS,
+  "nutrition.log_recipe": NUTRITION_LOG_ALLOWED_TOOL_IDS,
+  "nutrition.log_repair": NUTRITION_LOG_REPAIR_ALLOWED_TOOL_IDS,
+  "planning.calendar_review": ["gog_calendar"],
+  "planning.evening_review": PLANNING_EVENING_REVIEW_ALLOWED_TOOL_IDS,
+  "planning.morning_review": PLANNING_MORNING_REVIEW_ALLOWED_TOOL_IDS,
+  "printing.job_prepare_or_start": PRINTING_JOB_PREP_ALLOWED_TOOL_IDS,
+  "printing.printer_status": ["printer_command"],
+  "recipe.read": RECIPE_READ_ALLOWED_TOOL_IDS,
+  "recipe.update": RECIPE_UPDATE_ALLOWED_TOOL_IDS,
+  "research.deep_research": RESEARCH_WEB_ALLOWED_TOOL_IDS,
+  "research.fact_verification": RESEARCH_WEB_ALLOWED_TOOL_IDS,
+  "research.multi_document_analysis": RESEARCH_MULTI_DOCUMENT_ALLOWED_TOOL_IDS,
+  "research.note_read": ["obsidian", "file_ops"],
+  "research.product_selection": RESEARCH_WEB_ALLOWED_TOOL_IDS,
+  "research.slack_digest": ["slack"],
+  "research.video_read": RESEARCH_VIDEO_ALLOWED_TOOL_IDS,
+  "research.web_lookup": RESEARCH_WEB_ALLOWED_TOOL_IDS,
+  "shopping.browser_order_action": ["walmart", "browser", "onepassword"],
+  "shopping.browser_order_lookup": ["walmart", "browser", "onepassword"],
+  "shopping.walmart_queue_review": ["walmart"],
+  "slack.channel_review": ["slack"],
+  "travel.diesel_lookup": TRAVEL_DIESEL_ALLOWED_TOOL_IDS,
+  "travel.location_read": ["location_read"],
+  "travel.route_plan": TRAVEL_ROUTE_ALLOWED_TOOL_IDS,
+  "travel.weather_read": TRAVEL_ROUTE_ALLOWED_TOOL_IDS,
+};
 
 function resolveExcludedToolIds(entry: DeterministicIntentCatalogEntry): string[] {
   if (
@@ -466,25 +632,7 @@ function resolveAllowedToolIds(entry: DeterministicIntentCatalogEntry): string[]
   if (entry.id.startsWith("workout.")) {
     return ["workout_sql"];
   }
-  if (entry.id === "nutrition.log_food" || entry.id === "nutrition.log_recipe") {
-    return ["recipe_read", "nutrition_log_items", "fatsecret_api"];
-  }
-  if (entry.id === "docs.google_doc_read_or_update") {
-    return ["gog_docs_update_tab", "gog_docs"];
-  }
-  if (entry.id === "shopping.browser_order_action" || entry.id === "shopping.browser_order_lookup") {
-    return ["walmart", "browser", "onepassword"];
-  }
-  if (entry.id === "finance.transaction_categorization") {
-    return FINANCE_TRANSACTION_CATEGORIZATION_ALLOWED_TOOL_IDS;
-  }
-  if (entry.id === "finance.receipt_catalog") {
-    return FINANCE_RECEIPT_CATALOG_ALLOWED_TOOL_IDS;
-  }
-  if (entry.id === "finance.reimbursement_submit") {
-    return ["receipt_registry", "ramp_reimbursement", "gog_email", "onepassword", "obsidian"];
-  }
-  return undefined;
+  return ALLOWED_TOOL_IDS_BY_INTENT[entry.id];
 }
 
 function resolveStepReasoningEffort(entry: DeterministicIntentCatalogEntry): ProviderReasoningEffort | undefined {
