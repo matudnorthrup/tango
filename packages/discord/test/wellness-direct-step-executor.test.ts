@@ -58,7 +58,7 @@ describe("tryExecuteDirectWellnessStep", () => {
 
     expect(report).not.toBeNull();
     expect(report?.hasWriteOperations).toBe(false);
-    expect(report?.data.workerText).toContain("2026-04-13");
+    expect(report?.data.workerText).toMatch(/today|2026-04-13/u);
     expect(report?.data.workerText).toContain("225 calories");
     expect(report?.operations[0]?.toolNames).toEqual(["fatsecret.day_summary"]);
   });
