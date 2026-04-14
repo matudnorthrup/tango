@@ -7409,6 +7409,20 @@ client.once("clientReady", async () => {
     });
     allowedChannels = result.threadIds;
     for (const createdThread of result.created) {
+      // Set the focused agent for each test thread so messages route to the
+      // correct agent (e.g., Malibu's thread → Malibu, not Watson/dispatch).
+      const threadChannelKey = `discord:${createdThread.threadId}`;
+      focusedTextAgentByChannel.set(threadChannelKey, createdThread.agentId);
+      // Pre-register the thread session with the correct agent BEFORE any
+      // messages arrive. Without this, the first message triggers auto-registration
+      // with agent=dispatch, which overrides the focused agent and routes to
+      // Watson/personal-assistant instead of the intended agent's worker.
+      const slotSessionId = `slot-test-${slot}-${createdThread.agentId}`;
+      try {
+        storage.setThreadSession(createdThread.threadId, slotSessionId, createdThread.agentId);
+      } catch (err) {
+        console.warn(`[slot-mode] failed to pre-register thread session for ${createdThread.agentId}: ${err instanceof Error ? err.message : err}`);
+      }
       console.log(
         `[slot-mode] thread ready: agent=${createdThread.agentId} threadId=${createdThread.threadId} url=${createdThread.url}`,
       );
