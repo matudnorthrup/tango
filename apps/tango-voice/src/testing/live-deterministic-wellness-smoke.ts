@@ -141,6 +141,28 @@ const PHASE4_MALIBU_EXPANSION_CASES: readonly DeterministicSmokeCase[] = [
     requiredResponsePatterns: [/(steps|yesterday|exercise|workouts?)/i],
     requiredOperationNames: ["health_query"],
   },
+  {
+    id: "workout-routine-push-a",
+    transcript: "What exercises are in Push Day A?",
+    expectIntents: ["workout.history"],
+    expectWorkers: ["workout-recorder"],
+    expectRoute: "executed",
+    expectWriteOperations: false,
+    expectStepCount: 1,
+    requiredResponsePatterns: [/(push day a|dumbbell bench press|db bench|overhead press|cable tricep extension|lateral raise)/i],
+    requiredOperationNames: ["workout_sql"],
+  },
+  {
+    id: "workout-routine-pull-day-2",
+    transcript: "What exercises are in the Friday pull day 2 routine?",
+    expectIntents: ["workout.history"],
+    expectWorkers: ["workout-recorder"],
+    expectRoute: "executed",
+    expectWriteOperations: false,
+    expectStepCount: 1,
+    requiredResponsePatterns: [/(pull day 2|pull day b|dumbbell row|close grip lat pulldown|rear delt fly|hammer curl)/i],
+    requiredOperationNames: ["workout_sql"],
+  },
 ];
 
 const PHASE4_RESEARCH_CORE_CASES: readonly DeterministicSmokeCase[] = [
