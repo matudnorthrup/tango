@@ -1667,14 +1667,29 @@ describe("deterministic router", () => {
       intentId: "finance.transaction_categorization",
       workerId: "personal-assistant",
       dependsOn: [],
+      allowedToolIds: ["lunch_money", "obsidian", "browser", "onepassword", "gog_email"],
     });
     expect(result.plan?.steps[1]).toMatchObject({
       intentId: "finance.receipt_catalog",
       workerId: "personal-assistant",
       dependsOn: ["step-1"],
+      allowedToolIds: [
+        "lunch_money",
+        "browser",
+        "onepassword",
+        "gog_email",
+        "obsidian",
+        "receipt_registry",
+      ],
     });
     expect(result.plan?.steps[0]?.task).toContain("WRITE step");
     expect(result.plan?.steps[1]?.task).toContain("WRITE step");
+    expect(result.plan?.steps[0]?.task).toContain(
+      "Tool surface for this intent is intentionally narrowed to: lunch_money, obsidian, browser, onepassword, gog_email.",
+    );
+    expect(result.plan?.steps[1]?.task).toContain(
+      "Tool surface for this intent is intentionally narrowed to: lunch_money, browser, onepassword, gog_email, obsidian, receipt_registry.",
+    );
 
     const docsResult = buildDeterministicExecutionPlan({
       userMessage:
@@ -1911,6 +1926,31 @@ describe("deterministic router", () => {
     expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
       "If this reimbursement's invoice or receipt lives in Gmail, use gog_email",
     );
+
+    const watsonReceiptCatalogResult = buildDeterministicExecutionPlan({
+      userMessage: "Catalog the latest Amazon and Walmart receipts.",
+      envelopes: [
+        makeEnvelope({
+          intentId: "finance.receipt_catalog",
+          mode: "write",
+          domain: "finance",
+          entities: { merchant_scope: ["Amazon", "Walmart"] },
+        }),
+      ],
+      catalog: watsonCatalog,
+      registry,
+    });
+
+    expect(watsonReceiptCatalogResult.outcome).toBe("executed");
+    expect(watsonReceiptCatalogResult.plan?.steps[0]?.excludedToolIds).toBeUndefined();
+    expect(watsonReceiptCatalogResult.plan?.steps[0]?.allowedToolIds).toEqual([
+      "lunch_money",
+      "browser",
+      "onepassword",
+      "gog_email",
+      "obsidian",
+      "receipt_registry",
+    ]);
   });
 
   it("narrows docs, nutrition logging, and workout intents to their primary execution tools", () => {
