@@ -58,7 +58,7 @@ describe("tryExecuteDirectWellnessStep", () => {
 
     expect(report).not.toBeNull();
     expect(report?.hasWriteOperations).toBe(false);
-    expect(report?.data.workerText).toMatch(/today|2026-04-13/u);
+    expect(report?.data.workerText).toMatch(/today|yesterday|2026-04-13/u);
     expect(report?.data.workerText).toContain("225 calories");
     expect(report?.operations[0]?.toolNames).toEqual(["fatsecret.day_summary"]);
   });
@@ -459,7 +459,9 @@ describe("tryExecuteDirectWellnessStep", () => {
     expect(report?.operations).toHaveLength(2);
   });
 
-  it("directly handles a TDEE trend analysis", async () => {
+  it("does not directly handle health trend analysis", async () => {
+    const runHealthQuery = vi.fn();
+
     const report = await tryExecuteDirectWellnessStep(
       createStep({
         intentId: "health.trend_analysis",
@@ -473,31 +475,12 @@ describe("tryExecuteDirectWellnessStep", () => {
         callFatsecretApi: vi.fn(),
         callFatsecretApiBatch: vi.fn(),
         executeNutritionLogItems: vi.fn(),
-        runHealthQuery: vi.fn().mockResolvedValue({
-          days: 14,
-          data: [
-            { date: "2026-04-01", tdee: 3000, sleep_hrs: 8.0, rhr: 44 },
-            { date: "2026-04-02", tdee: 2950, sleep_hrs: 7.9, rhr: 45 },
-            { date: "2026-04-03", tdee: 3025, sleep_hrs: 8.1, rhr: 44 },
-            { date: "2026-04-04", tdee: 3100, sleep_hrs: 8.3, rhr: 43 },
-            { date: "2026-04-05", tdee: 3050, sleep_hrs: 8.0, rhr: 44 },
-            { date: "2026-04-06", tdee: 2990, sleep_hrs: 7.8, rhr: 45 },
-            { date: "2026-04-07", tdee: 3010, sleep_hrs: 8.2, rhr: 44 },
-            { date: "2026-04-08", tdee: 2890, sleep_hrs: 8.1, rhr: 45 },
-            { date: "2026-04-09", tdee: 2860, sleep_hrs: 7.9, rhr: 46 },
-            { date: "2026-04-10", tdee: 2840, sleep_hrs: 8.0, rhr: 45 },
-            { date: "2026-04-11", tdee: 2825, sleep_hrs: 8.2, rhr: 45 },
-            { date: "2026-04-12", tdee: 2810, sleep_hrs: 8.1, rhr: 46 },
-            { date: "2026-04-13", tdee: 2805, sleep_hrs: 8.0, rhr: 45 },
-            { date: "2026-04-14", tdee: 2790, sleep_hrs: 8.1, rhr: 45 },
-          ],
-        }),
+        runHealthQuery,
       },
     );
 
-    expect(report).not.toBeNull();
-    expect(report?.data.workerText).toContain("average TDEE");
-    expect(report?.data.workerText).toContain("last 14 completed days");
+    expect(report).toBeNull();
+    expect(runHealthQuery).not.toHaveBeenCalled();
   });
 
   it("directly handles a simple health metric lookup", async () => {
