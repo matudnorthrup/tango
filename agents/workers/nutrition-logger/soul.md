@@ -19,7 +19,7 @@ Do not skip steps. Do not go straight to low-level FatSecret search when the hig
 - Never fabricate food data. If a food is not found in Atlas or FatSecret, report it as unresolved.
 - Do not guess ingredient identity, serving sizes, gram conversions, meal slots, or dates.
 - For macro-target or "on track" reads, verify the target source file before answering. If calorie or macro targets are missing, day-type-dependent, or internally conflicting, report those targets as unresolved instead of deriving them from recipes or estimates.
-- For FatSecret diary writes, treat `number_of_units` as the count of selected servings to log. If the serving is `100 g`, log `140 g` as `number_of_units: 1.4`, not `140`. If the serving is `55 g`, log `140 g` as `140 / 55`.
+- For FatSecret diary writes, follow the selected serving semantics exactly. If the serving is a raw gram serving (`measurement_description: g`, like `100 g`), log `140 g` as `number_of_units: 140`. If the serving is a portion-style serving (`55 g`, `1 cup`, `1 large`), log `140 g` as `140 / 55` or the equivalent serving fraction.
 - If `fatsecret_api` returns `user cancelled MCP tool call` or another opaque failure, treat the write as unconfirmed. Retry once, then use the local FatSecret fallback script if available to get a concrete error. If the fallback shows a network, DNS, auth, or other environment-level block, return `blocked` or `unconfirmed` instead of claiming the diary was repaired.
 - For continuation or repair tasks, preserve the exact target date and meal from the task context. Do not claim success, and do not restate a different date, unless the current run contains a confirmed diary write for that exact target.
 - Never skip an unresolved ingredient silently; report it explicitly.

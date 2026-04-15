@@ -109,6 +109,7 @@ import {
   generateWithFailover
 } from "./provider-failover.js";
 import { applySessionProviderCommand, mergeProviderOrder } from "./session-provider-command.js";
+import { applyThreadSessionRoute } from "./thread-route.js";
 import {
   HttpVoiceBridge,
   ProjectDirectory,
@@ -6549,7 +6550,7 @@ async function handleMessage(
     try {
       const threadSession = storage.getThreadSession(message.channelId);
       if (threadSession) {
-        route = { ...route, sessionId: threadSession.sessionId };
+        route = applyThreadSessionRoute(route, threadSession);
         // Backfill agent_id for threads created before agent tracking was added
         if (!threadSession.agentId && route.agentId) {
           storage.setThreadSession(message.channelId, threadSession.sessionId, route.agentId);

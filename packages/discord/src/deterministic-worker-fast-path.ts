@@ -48,7 +48,7 @@ export async function tryExecuteDeterministicWorkerFastPath(
     return executeNutritionFastPath({
       items: foodItems,
       meal: normalizeMeal(task.entities["meal"], task.userMessage),
-      date: normalizeDateScope(task.entities["date_scope"] ?? task.entities["dateScope"]),
+      date: normalizeDateScope(task.entities["date_scope"] ?? task.entities["dateScope"] ?? task.entities["date"]),
       input,
     });
   }
@@ -74,7 +74,7 @@ export async function tryExecuteDeterministicWorkerFastPath(
     return executeNutritionFastPath({
       items: itemsWithOverrides,
       meal: normalizeMeal(task.entities["meal"], task.userMessage),
-      date: normalizeDateScope(task.entities["date_scope"] ?? task.entities["dateScope"]),
+      date: normalizeDateScope(task.entities["date_scope"] ?? task.entities["dateScope"] ?? task.entities["date"]),
       input,
     });
   }
