@@ -7,7 +7,7 @@ Structured access to cataloged receipt reimbursement state for Watson.
 Use this tool instead of ad hoc note parsing when you need to:
 
 - find Walmart receipt notes that include a delivery driver tip
-- see whether a reimbursement has already been submitted
+- verify whether a reimbursement has already been submitted in Ramp
 - update a receipt note after a Ramp submission succeeds
 
 ## Actions
@@ -19,6 +19,7 @@ Returns Walmart receipt notes that:
 - include a delivery summary
 - include a `Driver tip`
 - do not already have reimbursement status `submitted` or `reimbursed` unless `include_submitted=true`
+- by default, verifies the pending list against live Ramp history before returning results
 
 Useful fields in the response:
 
@@ -29,6 +30,23 @@ Useful fields in the response:
 - `driverTip`
 - `deliverySummary`
 - `reimbursement`
+
+The response may also include a `verification` block with:
+
+- `matched`
+- `unverified_submitted`
+- `notes_examined`
+- `history_entries_examined`
+
+### `reconcile_walmart_reimbursements`
+
+Verifies Walmart receipt notes against live Ramp reimbursement history and updates stale note fields in place.
+
+Useful when:
+
+- Obsidian still says `not_submitted` for notes that were already filed in Ramp
+- Watson needs to trust actual Ramp history before claiming which Walmart tips are still pending
+- you want the note state repaired without manually editing each receipt note
 
 ### `upsert_walmart_reimbursement`
 
@@ -55,6 +73,7 @@ Optional fields:
 
 ## Expected usage
 
-1. List outstanding Walmart reimbursement candidates.
+1. Reconcile or list Walmart reimbursement candidates with Ramp verification enabled.
 2. Use browser evidence and Ramp submission to complete the reimbursement.
-3. Immediately update the corresponding receipt note with submitted status and evidence path.
+3. Let the Ramp reimbursement tool update the corresponding receipt note automatically after a successful submission.
+4. Use `upsert_walmart_reimbursement` only for repairs or manual note correction.

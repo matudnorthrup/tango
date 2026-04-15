@@ -46,6 +46,26 @@ export interface WalmartReceiptRecord {
   reimbursement: ReceiptReimbursementState;
 }
 
+export interface RampReimbursementHistoryRecord {
+  reviewUrl: string;
+  rampReportId?: string;
+  user?: string;
+  status?: string;
+  receipt?: string;
+  submittedDate?: string;
+  transactionDate?: string;
+  reviewedDate?: string;
+  merchant?: string;
+  amount?: number;
+  statementAmount?: number;
+  entity?: string;
+  flags?: string;
+  memo?: string;
+  reviewer?: string;
+  expectedPaymentDate?: string;
+  deliveredPaymentDate?: string;
+}
+
 interface ScoredWalmartReceiptRecord extends WalmartReceiptRecord {
   fileSize: number;
 }
@@ -77,6 +97,38 @@ export interface BackfillWalmartReceiptInput {
   grocerySummary?: string;
   notes: string;
   driverTip?: number;
+}
+
+export interface ReconcileWalmartReimbursementsInput {
+  history: RampReimbursementHistoryRecord[];
+  since?: string;
+  until?: string;
+  updateNotes?: boolean;
+}
+
+export interface WalmartRampReconciliationMatch {
+  orderId: string;
+  notePath: string;
+  noteName: string;
+  amount?: number;
+  transactionDate?: string;
+  submittedDate?: string;
+  noteStatusBefore?: string;
+  noteStatusAfter: string;
+  rampStatus?: string;
+  rampReportId?: string;
+  reviewUrl: string;
+  memo?: string;
+}
+
+export interface ReconcileWalmartReimbursementsResult {
+  records: WalmartReceiptRecord[];
+  matched: WalmartRampReconciliationMatch[];
+  pending: WalmartReceiptRecord[];
+  unverifiedSubmitted: WalmartReceiptRecord[];
+  updated: WalmartReceiptRecord[];
+  notesExamined: number;
+  historyEntriesExamined: number;
 }
 
 function getWalmartReceiptDir(): string {
@@ -205,6 +257,43 @@ function formatCurrency(value: number | undefined): string | undefined {
 function normalizeStatus(value: string | undefined): string | undefined {
   const trimmed = value?.trim().toLowerCase();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function hasCompletedReimbursementStatus(value: string | undefined): boolean {
+  const normalized = normalizeStatus(value);
+  return normalized === "submitted" || normalized === "reimbursed";
+}
+
+function amountsMatch(left: number | undefined, right: number | undefined): boolean {
+  return left != null && right != null && Math.abs(left - right) < 0.01;
+}
+
+function buildReimbursementMatchKey(date: string | undefined, amount: number | undefined): string | null {
+  if (!date || amount == null || !Number.isFinite(amount)) {
+    return null;
+  }
+  return `${date}::${amount.toFixed(2)}`;
+}
+
+function deriveReceiptStatusFromRampStatus(value: string | undefined): string {
+  const normalized = normalizeStatus(value);
+  if (normalized === "paid") {
+    return "reimbursed";
+  }
+  if (normalized === "rejected") {
+    return "rejected";
+  }
+  if (normalized && normalized.length > 0) {
+    return "submitted";
+  }
+  return "submitted";
+}
+
+function isWalmartRampHistoryRecord(record: RampReimbursementHistoryRecord): boolean {
+  return /walmart/iu.test(record.merchant ?? "")
+    && record.transactionDate != null
+    && record.amount != null
+    && Number.isFinite(record.amount);
 }
 
 function parseBooleanValue(value: string | undefined): boolean | undefined {
@@ -418,6 +507,142 @@ export function listWalmartDeliveryCandidates(
       const status = normalizeStatus(record.reimbursement.status);
       return status !== "submitted" && status !== "reimbursed";
     });
+}
+
+function buildVerifiedWalmartReceiptRecord(
+  record: WalmartReceiptRecord,
+  historyRecord: RampReimbursementHistoryRecord,
+): WalmartReceiptRecord {
+  const nextStatus = deriveReceiptStatusFromRampStatus(historyRecord.status);
+  return {
+    ...record,
+    reimbursement: {
+      ...record.reimbursement,
+      status: nextStatus,
+      system: record.reimbursement.system ?? "Ramp",
+      reimbursableItem: record.reimbursement.reimbursableItem ?? "Driver tip",
+      amount: record.reimbursement.amount ?? record.driverTip ?? historyRecord.amount,
+      submitted: historyRecord.submittedDate ?? record.reimbursement.submitted,
+      note: historyRecord.memo ?? record.reimbursement.note,
+      rampReportId: historyRecord.rampReportId ?? record.reimbursement.rampReportId,
+    },
+  };
+}
+
+function reimbursementTrackingNeedsSync(
+  current: WalmartReceiptRecord,
+  verified: WalmartReceiptRecord,
+): boolean {
+  return normalizeStatus(current.reimbursement.status) !== normalizeStatus(verified.reimbursement.status)
+    || current.reimbursement.system !== verified.reimbursement.system
+    || current.reimbursement.reimbursableItem !== verified.reimbursement.reimbursableItem
+    || !amountsMatch(current.reimbursement.amount, verified.reimbursement.amount)
+    || current.reimbursement.submitted !== verified.reimbursement.submitted
+    || current.reimbursement.note !== verified.reimbursement.note
+    || current.reimbursement.rampReportId !== verified.reimbursement.rampReportId;
+}
+
+export function reconcileWalmartReimbursementsAgainstRamp(
+  input: ReconcileWalmartReimbursementsInput,
+): ReconcileWalmartReimbursementsResult {
+  const since = input.since?.trim();
+  const until = input.until?.trim();
+  const candidates = loadWalmartReceiptRecords()
+    .filter((record) => record.isDelivery && (record.driverTip ?? 0) > 0)
+    .filter((record) => !since || !record.date || record.date >= since)
+    .filter((record) => !until || !record.date || record.date <= until);
+
+  const historyEntries = input.history
+    .filter(isWalmartRampHistoryRecord)
+    .filter((record) => {
+      if (since && record.transactionDate && record.transactionDate < since) {
+        return false;
+      }
+      if (until && record.transactionDate && record.transactionDate > until) {
+        return false;
+      }
+      return true;
+    });
+
+  const historyByKey = new Map<string, RampReimbursementHistoryRecord[]>();
+  for (const record of historyEntries) {
+    const key = buildReimbursementMatchKey(record.transactionDate, record.amount);
+    if (!key) {
+      continue;
+    }
+    const existing = historyByKey.get(key) ?? [];
+    existing.push(record);
+    historyByKey.set(key, existing);
+  }
+
+  const records: WalmartReceiptRecord[] = [];
+  const matched: WalmartRampReconciliationMatch[] = [];
+  const pending: WalmartReceiptRecord[] = [];
+  const unverifiedSubmitted: WalmartReceiptRecord[] = [];
+  const updated: WalmartReceiptRecord[] = [];
+
+  for (const candidate of candidates) {
+    const key = buildReimbursementMatchKey(candidate.date, candidate.driverTip);
+    const matches = key ? historyByKey.get(key) : undefined;
+    const historyRecord = matches?.shift();
+    if (matches && matches.length === 0 && key) {
+      historyByKey.delete(key);
+    }
+
+    if (!historyRecord) {
+      records.push(candidate);
+      if (hasCompletedReimbursementStatus(candidate.reimbursement.status)) {
+        unverifiedSubmitted.push(candidate);
+      } else {
+        pending.push(candidate);
+      }
+      continue;
+    }
+
+    const verified = buildVerifiedWalmartReceiptRecord(candidate, historyRecord);
+    const reconciled =
+      input.updateNotes === true && reimbursementTrackingNeedsSync(candidate, verified)
+        ? upsertWalmartReimbursementTracking({
+            notePath: candidate.filePath,
+            status: verified.reimbursement.status ?? "submitted",
+            system: verified.reimbursement.system,
+            reimbursableItem: verified.reimbursement.reimbursableItem,
+            amount: verified.reimbursement.amount,
+            submitted: verified.reimbursement.submitted,
+            note: verified.reimbursement.note,
+            rampReportId: verified.reimbursement.rampReportId,
+          })
+        : verified;
+
+    records.push(reconciled);
+    if (input.updateNotes === true && reimbursementTrackingNeedsSync(candidate, verified)) {
+      updated.push(reconciled);
+    }
+    matched.push({
+      orderId: candidate.orderId,
+      notePath: candidate.filePath,
+      noteName: candidate.noteName,
+      amount: candidate.driverTip,
+      transactionDate: historyRecord.transactionDate,
+      submittedDate: historyRecord.submittedDate,
+      noteStatusBefore: candidate.reimbursement.status,
+      noteStatusAfter: reconciled.reimbursement.status ?? "submitted",
+      rampStatus: historyRecord.status,
+      rampReportId: historyRecord.rampReportId,
+      reviewUrl: historyRecord.reviewUrl,
+      memo: historyRecord.memo,
+    });
+  }
+
+  return {
+    records,
+    matched,
+    pending,
+    unverifiedSubmitted,
+    updated,
+    notesExamined: candidates.length,
+    historyEntriesExamined: historyEntries.length,
+  };
 }
 
 function renderReimbursementSection(state: ReceiptReimbursementState): string {

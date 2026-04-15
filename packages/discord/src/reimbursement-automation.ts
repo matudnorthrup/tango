@@ -78,6 +78,114 @@ function escapeHtml(value: string): string {
     .replace(/'/gu, "&#39;");
 }
 
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/giu, " ")
+    .replace(/&amp;/giu, "&")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">")
+    .replace(/&quot;/giu, "\"")
+    .replace(/&#39;/giu, "'");
+}
+
+function stripHtmlToText(value: string): string {
+  return decodeHtmlEntities(
+    value
+      .replace(/<style[\s\S]*?<\/style>/giu, " ")
+      .replace(/<script[\s\S]*?<\/script>/giu, " ")
+      .replace(/<(?:br|hr)\b[^>]*>/giu, "\n")
+      .replace(/<\/(?:p|div|section|article|li|tr|td|th|h[1-6]|table)>/giu, "\n")
+      .replace(/<[^>]+>/gu, " ")
+      .replace(/\r\n/gu, "\n"),
+  )
+    .replace(/[ \t]+\n/gu, "\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+}
+
+function extractFirstCurrency(value: string): string | null {
+  const match = /\$[0-9][0-9,]*(?:\.[0-9]{2})?/u.exec(value);
+  return match?.[0] ?? null;
+}
+
+interface EmailEvidenceSummary {
+  badge: string;
+  headline: string;
+  amount?: string;
+  accentClass: string;
+  rows: Array<{ label: string; value: string }>;
+}
+
+function buildEmailEvidenceSummary(parsed: ParsedGogEmailFullOutput): EmailEvidenceSummary {
+  const subject = parsed.headers["subject"]?.trim() ?? "";
+  const from = parsed.headers["from"]?.trim() ?? "";
+  const date = parsed.headers["date"]?.trim() ?? "";
+  const plainBody = parsed.bodyFormat === "html" ? stripHtmlToText(parsed.body) : parsed.body.trim();
+  const combinedText = [subject, plainBody].filter(Boolean).join("\n");
+  const amount = extractFirstCurrency(combinedText) ?? undefined;
+
+  const venmoSubjectMatch =
+    /^You paid\s+(.+?)\s+(\$[0-9][0-9,]*(?:\.[0-9]{2})?)$/iu.exec(subject)
+    ?? /^(.+?)\s+paid you\s+(\$[0-9][0-9,]*(?:\.[0-9]{2})?)$/iu.exec(subject);
+
+  if (/venmo/iu.test(from) || /venmo/iu.test(subject) || /venmo/iu.test(plainBody)) {
+    const isOutgoingPayment = /^You paid\b/iu.test(subject);
+    const counterparty = venmoSubjectMatch?.[1]?.trim() || "";
+    const venmoAmount = venmoSubjectMatch?.[2] ?? amount;
+    const rows = [
+      counterparty
+        ? {
+            label: isOutgoingPayment ? "Recipient" : "Sender",
+            value: counterparty,
+          }
+        : null,
+      date
+        ? {
+            label: "Email date",
+            value: date,
+          }
+        : null,
+      from
+        ? {
+            label: "Source email",
+            value: from,
+          }
+        : null,
+    ].filter((value): value is { label: string; value: string } => value != null);
+
+    return {
+      badge: "Venmo receipt",
+      headline: subject || (isOutgoingPayment ? "Venmo payment" : "Venmo transfer"),
+      amount: venmoAmount,
+      accentClass: "summary--venmo",
+      rows,
+    };
+  }
+
+  const rows = [
+    from
+      ? {
+          label: "From",
+          value: from,
+        }
+      : null,
+    date
+      ? {
+          label: "Email date",
+          value: date,
+        }
+      : null,
+  ].filter((value): value is { label: string; value: string } => value != null);
+
+  return {
+    badge: "Email receipt",
+    headline: subject || "Email receipt evidence",
+    amount,
+    accentClass: "summary--generic",
+    rows,
+  };
+}
+
 export function parseGogEmailFullOutput(raw: string): ParsedGogEmailFullOutput {
   const normalized = raw.replace(/\r\n/gu, "\n");
   const lines = normalized.split("\n");
@@ -113,6 +221,7 @@ export function buildEmailEvidenceHtml(parsed: ParsedGogEmailFullOutput): string
   const to = escapeHtml(parsed.headers["to"] ?? "");
   const subject = escapeHtml(parsed.headers["subject"] ?? "");
   const date = escapeHtml(parsed.headers["date"] ?? "");
+  const summary = buildEmailEvidenceSummary(parsed);
   const bodyContent =
     parsed.bodyFormat === "html"
       ? parsed.body
@@ -128,6 +237,13 @@ export function buildEmailEvidenceHtml(parsed: ParsedGogEmailFullOutput): string
     "<style>",
     "body { margin: 0; padding: 32px; background: #f3f5f8; color: #111827; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
     ".frame { max-width: 1024px; margin: 0 auto; background: #ffffff; border: 1px solid #d0d7de; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08); }",
+    ".summary { padding: 28px; border-bottom: 1px solid #e5e7eb; background: linear-gradient(135deg, #f8fafc, #eef2ff); }",
+    ".summary--venmo { background: linear-gradient(135deg, #ecfdf3, #d1fae5); }",
+    ".summary--generic { background: linear-gradient(135deg, #f8fafc, #eef2ff); }",
+    ".summary-badge { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 999px; background: rgba(15, 23, 42, 0.08); color: #0f172a; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }",
+    ".summary h1 { margin: 16px 0 8px; font-size: 34px; line-height: 1.1; }",
+    ".summary-amount { margin: 0 0 18px; font-size: 44px; line-height: 1; font-weight: 800; letter-spacing: -0.03em; }",
+    ".summary-grid { display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; font-size: 15px; line-height: 1.45; }",
     ".meta { padding: 24px 28px; border-bottom: 1px solid #e5e7eb; background: #fbfbfc; }",
     ".meta h1 { margin: 0 0 18px; font-size: 28px; line-height: 1.2; }",
     ".grid { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; font-size: 15px; line-height: 1.45; }",
@@ -140,6 +256,21 @@ export function buildEmailEvidenceHtml(parsed: ParsedGogEmailFullOutput): string
     "</head>",
     "<body>",
     "<div class=\"frame\">",
+    `<section class="summary ${summary.accentClass}">`,
+    `<div class="summary-badge">${escapeHtml(summary.badge)}</div>`,
+    `<h1>${escapeHtml(summary.headline)}</h1>`,
+    summary.amount ? `<p class="summary-amount">${escapeHtml(summary.amount)}</p>` : "",
+    summary.rows.length > 0
+      ? [
+          "<div class=\"summary-grid\">",
+          ...summary.rows.flatMap((row) => [
+            `<div class="label">${escapeHtml(row.label)}</div>`,
+            `<div class="value">${escapeHtml(row.value)}</div>`,
+          ]),
+          "</div>",
+        ].join("")
+      : "",
+    "</section>",
     "<section class=\"meta\">",
     `<h1>${subject || "Email receipt evidence"}</h1>`,
     "<div class=\"grid\">",
