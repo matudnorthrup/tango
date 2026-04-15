@@ -1,0 +1,48 @@
+id: finance.sinking_fund_reconciliation
+domain: finance
+display_name: Reconcile Sinking Funds
+description: Reconcile sinking-fund-backed spending against Ally sinking fund balances, contribution timing, and outstanding reimbursement needs.
+mode: read
+route:
+  kind: worker
+  target_id: personal-assistant
+slots:
+  - name: date_scope
+    required: false
+    inferable: true
+  - name: fund_scope
+    required: false
+    inferable: true
+  - name: category_scope
+    required: false
+    inferable: true
+examples:
+  - Run a sinking fund reconciliation for April.
+  - How are the sinking funds looking this month?
+  - What do I need to transfer from the sinking funds to clear the books?
+classifier_hints:
+  - Use for sinking fund reconciliation, fund balance checks, weekly sinking fund tracking, month-end pre-close, or reimbursement-to-zero analysis.
+  - Prefer finance.transaction_lookup when the user only wants raw transaction history rather than a fund reconciliation.
+evaluation:
+  task_class: reconciliation
+  success_criteria:
+    - Read the dedicated Obsidian note `Records/Finance/Sinking Fund Budget System` before concluding.
+    - Reconcile only House SB, Vehicles SB, and Recreation SB unless the user explicitly broadens scope.
+    - Exclude Spending SB and Gas & Charging unless the user explicitly asks for them.
+    - Include balances, outstanding reimbursement needs, and contribution status in the final answer.
+  must_answer:
+    - What is the current period spend, already reimbursed amount, and outstanding reimbursement for House SB?
+    - What is the current period spend, already reimbursed amount, and outstanding reimbursement for Vehicles SB?
+    - What is the current period spend, already reimbursed amount, and outstanding reimbursement for Recreation SB?
+    - What are the current balances for Ally ...5721, ...3271, and ...5846?
+    - Are this month's 16th contributions posted, missing, mismatched, or not yet due?
+  required_fields:
+    - House SB current balance
+    - Vehicles SB current balance
+    - Recreation SB current balance
+    - House SB outstanding reimbursement
+    - Vehicles SB outstanding reimbursement
+    - Recreation SB outstanding reimbursement
+    - Contribution status
+  quality_gate_required: true
+  safe_noop_allowed: true

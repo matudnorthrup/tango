@@ -494,6 +494,15 @@ function createRegistry(): CapabilityRegistry {
       examples: ["Submit the Walmart delivery-tip reimbursements to Ramp."],
     },
     {
+      id: "finance.sinking_fund_reconciliation",
+      domain: "finance",
+      displayName: "Reconcile Sinking Funds",
+      description: "Reconcile sinking-fund-backed spending against fund balances and outstanding reimbursement needs.",
+      mode: "read",
+      route: { kind: "worker", targetId: "personal-assistant" },
+      examples: ["Run a sinking fund reconciliation for April."],
+    },
+    {
       id: "finance.budget_review",
       domain: "finance",
       displayName: "Review Budget",
@@ -1452,6 +1461,7 @@ describe("deterministic router", () => {
       "finance.receipt_catalog",
       "finance.receipt_lookup",
       "finance.reimbursement_submit",
+      "finance.sinking_fund_reconciliation",
       "finance.transaction_categorization",
       "finance.transaction_lookup",
       "finance.unreviewed_transactions",
@@ -1479,6 +1489,35 @@ describe("deterministic router", () => {
       mode: "read",
     });
     expect(result.plan?.steps[0]?.task).toContain("READ-ONLY step");
+  });
+
+  it("builds Watson sinking fund reconciliation plans with lunch_money and obsidian only", () => {
+    const registry = createRegistry();
+    const catalog = getDeterministicIntentCatalog({
+      registry,
+      agentId: "watson",
+      domain: "finance",
+    });
+
+    const result = buildDeterministicExecutionPlan({
+      userMessage: "Run a sinking fund reconciliation for April.",
+      envelopes: [
+        makeEnvelope({
+          intentId: "finance.sinking_fund_reconciliation",
+          mode: "read",
+          domain: "finance",
+          entities: { date_scope: "april" },
+        }),
+      ],
+      catalog,
+      registry,
+    });
+
+    expect(result.outcome).toBe("executed");
+    expect(result.plan?.steps).toHaveLength(1);
+    expect(result.plan?.steps[0]?.workerId).toBe("personal-assistant");
+    expect(result.plan?.steps[0]?.allowedToolIds).toEqual(["lunch_money", "obsidian"]);
+    expect(result.plan?.steps[0]?.task).toContain("finance.sinking_fund_reconciliation");
   });
 
   it("builds Watson health, calendar, email, and note read plans through the personal-assistant worker", () => {
@@ -1606,6 +1645,7 @@ describe("deterministic router", () => {
       "finance.receipt_catalog",
       "finance.receipt_lookup",
       "finance.reimbursement_submit",
+      "finance.sinking_fund_reconciliation",
       "finance.transaction_categorization",
       "finance.transaction_lookup",
       "finance.unreviewed_transactions",
