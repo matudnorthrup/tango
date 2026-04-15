@@ -73,6 +73,7 @@ const NUMBER_WORD_VALUES: Record<string, number> = {
 };
 
 const FATSECRET_WRITE_CONCURRENCY = 4;
+const ATLAS_PACKAGE_FALLBACK_UNITS = new Set(["bag", "pack", "package", "packet", "pouch"]);
 
 export function resolveAtlasDbPath(atlasCommand: string): string {
   const resolvedCommand = resolveRealPath(atlasCommand);
@@ -585,10 +586,13 @@ function findBestAtlasMatchForItem(db: DatabaseSync, itemLabel: string): AtlasIn
     .filter((part) => part.length > 0)
     .join(" ");
   const rows = db.prepare(sql).all(...params) as AtlasIngredientRow[];
+  const scoredRows = rows.map((row) => ({
+    row,
+    score: scoreAtlasRowForItem(itemLabel, row),
+  }));
   let bestRow: AtlasIngredientRow | null = null;
   let bestScore = 0;
-  for (const row of rows) {
-    const score = scoreAtlasRowForItem(itemLabel, row);
+  for (const { row, score } of scoredRows) {
     if (score > bestScore) {
       bestScore = score;
       bestRow = row;
@@ -676,6 +680,23 @@ function extractServingUnitCount(row: AtlasIngredientRow): number | null {
   return null;
 }
 
+function atlasRowHasNamedServingUnit(row: AtlasIngredientRow): boolean {
+  return normalizeFoodLabel(`${row.serving_description ?? ""} ${row.serving_size ?? ""}`).length > 0;
+}
+
+function shouldUseAtlasPackageFallback(row: AtlasIngredientRow, amountUnit: string | null): boolean {
+  if (!amountUnit || !ATLAS_PACKAGE_FALLBACK_UNITS.has(amountUnit)) {
+    return false;
+  }
+  if (atlasRowHasNamedServingUnit(row)) {
+    return false;
+  }
+  if (!deriveAtlasGramsPerServing(row)) {
+    return false;
+  }
+  return Boolean(row.brand?.trim() || row.product?.trim());
+}
+
 function servingMatchesAmountUnit(row: AtlasIngredientRow, amountUnit: string | null): boolean {
   if (!amountUnit) {
     return false;
@@ -720,6 +741,13 @@ function deriveAtlasWriteUnits(
     };
   }
   if (!servingMatchesAmountUnit(row, amountUnit)) {
+    if (shouldUseAtlasPackageFallback(row, amountUnit)) {
+      const units = Number.parseFloat(count.toFixed(6));
+      return {
+        writeUnits: units,
+        macroMultiplier: units,
+      };
+    }
     return null;
   }
   const servingUnitCount = extractServingUnitCount(row) ?? 1;
