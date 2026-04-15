@@ -460,6 +460,7 @@ function detectConversationalTurnBypass(input: {
     !ACTION_REQUEST_PREFIX_PATTERN.test(normalized)
     && normalized.includes("?")
     && PRIOR_REPLY_REFERENCE_PATTERN.test(normalized)
+    && !/\b(?:try|add|log|create|send|check|run|start|delete|remove|update|set|record|track)\b/iu.test(normalized)
   ) {
     return {
       kind: "follow_up",
