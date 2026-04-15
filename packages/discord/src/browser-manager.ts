@@ -38,6 +38,7 @@ import {
   archiveReimbursementEvidence,
   loadReimbursementEvidenceRecord,
 } from "./reimbursement-evidence.js";
+import type { RampReimbursementHistoryRecord } from "./receipt-reimbursement-registry.js";
 
 const debug = (...args: unknown[]) => {
   console.error("[browser-manager]", ...args);
@@ -84,6 +85,27 @@ function buildRampMerchantCandidates(merchant: string): string[] {
   }
 
   return [...candidates];
+}
+
+function normalizeRampHistoryCell(value: string | undefined): string | undefined {
+  const trimmed = value?.replace(/\s+/gu, " ").trim();
+  if (!trimmed || trimmed === "—") {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function parseRampHistoryAmount(value: string | undefined): number | undefined {
+  const normalized = normalizeRampHistoryCell(value)?.replace(/[^0-9.-]/gu, "");
+  if (!normalized) {
+    return undefined;
+  }
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function evidencePathLooksImage(filePath: string): boolean {
+  return /\.(?:png|jpe?g|gif|webp|bmp|tiff?)$/iu.test(filePath);
 }
 
 let manager: BrowserManager | null = null;
@@ -1444,6 +1466,197 @@ export class BrowserManager {
     return [...candidates.values()].sort((left, right) => left.date.localeCompare(right.date));
   }
 
+  private buildRampHistoryRecordFromRow(input: {
+    reviewUrl: string;
+    cells: string[];
+  }): RampReimbursementHistoryRecord | null {
+    const reviewUrl = input.reviewUrl.trim();
+    if (!reviewUrl) {
+      return null;
+    }
+
+    const cell = (index: number): string | undefined => normalizeRampHistoryCell(input.cells[index]);
+    const submittedDateText = cell(5);
+    const transactionDateText = cell(6);
+    const reviewedDateText = cell(7);
+    const expectedPaymentDateText = cell(25);
+    const deliveredPaymentDateText = cell(26);
+
+    return {
+      reviewUrl,
+      rampReportId: extractRampReimbursementIdFromUrl(reviewUrl) ?? undefined,
+      user: cell(2),
+      status: cell(3),
+      receipt: cell(4),
+      submittedDate: submittedDateText ? parseFlexibleDateToIso(submittedDateText) ?? submittedDateText : undefined,
+      transactionDate: transactionDateText ? parseFlexibleDateToIso(transactionDateText) ?? transactionDateText : undefined,
+      reviewedDate: reviewedDateText ? parseFlexibleDateToIso(reviewedDateText) ?? reviewedDateText : undefined,
+      merchant: cell(8),
+      amount: parseRampHistoryAmount(cell(9)),
+      statementAmount: parseRampHistoryAmount(cell(10)),
+      entity: cell(11),
+      flags: cell(12),
+      memo: cell(13),
+      reviewer: cell(24),
+      expectedPaymentDate: expectedPaymentDateText
+        ? parseFlexibleDateToIso(expectedPaymentDateText) ?? expectedPaymentDateText
+        : undefined,
+      deliveredPaymentDate: deliveredPaymentDateText
+        ? parseFlexibleDateToIso(deliveredPaymentDateText) ?? deliveredPaymentDateText
+        : undefined,
+    };
+  }
+
+  private async readVisibleRampHistoryRows(page: Page): Promise<Array<{
+    reviewUrl: string;
+    cells: string[];
+  }>> {
+    return page.evaluate(() =>
+      [...document.querySelectorAll("tbody tr")]
+        .map((row) => {
+          const reviewAnchor =
+            row.querySelector('a[href*="/details/list/reimbursement/"]')
+            ?? row.querySelector('a[href*="/details/reimbursements/"]');
+          const reviewUrl =
+            reviewAnchor instanceof HTMLAnchorElement
+              ? reviewAnchor.href
+              : "";
+          const cells = [...row.querySelectorAll("td")].map((cell) =>
+            (cell.textContent ?? "").replace(/\s+/gu, " ").trim()
+          );
+          return { reviewUrl, cells };
+        })
+        .filter((row) => row.reviewUrl.length > 0 && row.cells.some((cell) => cell.length > 0)),
+    ).catch(() => []);
+  }
+
+  private async collectRampHistoryPageRecords(page: Page): Promise<RampReimbursementHistoryRecord[]> {
+    await page.waitForFunction(
+      () =>
+        document.querySelector('tbody tr a[href*="/details/list/reimbursement/"]')
+        || document.querySelector('tbody tr a[href*="/details/reimbursements/"]'),
+      { timeout: 20_000 },
+    ).catch(() => undefined);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" })).catch(() => undefined);
+    await page.waitForTimeout(300);
+
+    const records = new Map<string, RampReimbursementHistoryRecord>();
+    let stagnantPasses = 0;
+    let lastCount = 0;
+
+    for (let pass = 0; pass < 24; pass += 1) {
+      const rows = await this.readVisibleRampHistoryRows(page);
+      for (const row of rows) {
+        const parsed = this.buildRampHistoryRecordFromRow(row);
+        if (!parsed) {
+          continue;
+        }
+        records.set(parsed.reviewUrl, parsed);
+      }
+
+      if (records.size === lastCount) {
+        stagnantPasses += 1;
+      } else {
+        stagnantPasses = 0;
+        lastCount = records.size;
+      }
+
+      const canScrollFurther = await page.evaluate(() =>
+        window.scrollY + window.innerHeight + 24 < document.documentElement.scrollHeight,
+      ).catch(() => false);
+      if (!canScrollFurther && stagnantPasses >= 1) {
+        break;
+      }
+
+      await page.mouse.wheel(0, 720);
+      await page.waitForTimeout(600);
+    }
+
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" })).catch(() => undefined);
+    await page.waitForTimeout(250);
+    return [...records.values()];
+  }
+
+  private async openNextRampHistoryPage(page: Page): Promise<boolean> {
+    const nextButton = page.getByRole("button", { name: /^Next \d+-\d+$/u }).first();
+    if ((await nextButton.count().catch(() => 0)) === 0) {
+      return false;
+    }
+    const disabled = await nextButton.isDisabled().catch(() => true);
+    if (disabled) {
+      return false;
+    }
+
+    const previousFirstHref = await page
+      .locator('tbody tr a[href*="/details/list/reimbursement/"], tbody tr a[href*="/details/reimbursements/"]')
+      .first()
+      .getAttribute("href")
+      .catch(() => null);
+
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" })).catch(() => undefined);
+    await page.waitForTimeout(250);
+    await nextButton.click({ timeout: 10_000 }).catch(() => undefined);
+    await page.waitForFunction(
+      (previousHref) => {
+        const currentHref =
+          document.querySelector('tbody tr a[href*="/details/list/reimbursement/"]')?.getAttribute("href")
+          ?? document.querySelector('tbody tr a[href*="/details/reimbursements/"]')?.getAttribute("href")
+          ?? null;
+        return currentHref != null && currentHref !== previousHref;
+      },
+      previousFirstHref,
+      { timeout: 20_000 },
+    ).catch(() => undefined);
+    await page.waitForFunction(
+      () =>
+        document.querySelector('tbody tr a[href*="/details/list/reimbursement/"]')
+        || document.querySelector('tbody tr a[href*="/details/reimbursements/"]'),
+      { timeout: 20_000 },
+    ).catch(() => undefined);
+    await page.waitForTimeout(1_500);
+    return true;
+  }
+
+  async listRampReimbursementHistory(input?: {
+    maxPages?: number;
+  }): Promise<RampReimbursementHistoryRecord[]> {
+    const page = this.getPage();
+    const maxPages = Math.max(1, Math.min(input?.maxPages ?? 3, 10));
+    const records = new Map<string, RampReimbursementHistoryRecord>();
+
+    await page.goto("https://app.ramp.com/expenses/reimbursements/history", {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    }).catch(() => undefined);
+    await page.waitForTimeout(3_000);
+    await this.assertRampPageAuthenticated(page, "inspect Ramp reimbursement history");
+    await page.locator("table").first().waitFor({ state: "visible", timeout: 20_000 }).catch(() => undefined);
+    await page.waitForFunction(
+      () =>
+        document.querySelector('tbody tr a[href*="/details/list/reimbursement/"]')
+        || document.querySelector('tbody tr a[href*="/details/reimbursements/"]'),
+      { timeout: 20_000 },
+    ).catch(() => undefined);
+    await page.waitForTimeout(2_000);
+
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+      const pageRecords = await this.collectRampHistoryPageRecords(page);
+      for (const record of pageRecords) {
+        records.set(record.reviewUrl, record);
+      }
+
+      if (!(await this.openNextRampHistoryPage(page))) {
+        break;
+      }
+    }
+
+    return [...records.values()].sort((left, right) =>
+      `${right.submittedDate ?? ""}::${right.transactionDate ?? ""}`.localeCompare(
+        `${left.submittedDate ?? ""}::${left.transactionDate ?? ""}`,
+      ),
+    );
+  }
+
   /**
    * Type text character-by-character into an element.
    * Useful for inputs with autocomplete/live search that need keystroke events.
@@ -1907,6 +2120,7 @@ export class BrowserManager {
       afterReceiptSubmissionCount > beforeReceiptSubmissionCount
       || (afterAutoVerified && !beforeAutoVerified);
     const receiptPreviewChanged = rampReviewVisualStateChanged(beforeVisualState, afterVisualState);
+    const expectsImagePreview = evidencePathLooksImage(evidenceRecord.archivedPath);
     if (
       !receiptActivityChanged
       && !receiptPreviewChanged
@@ -1915,7 +2129,7 @@ export class BrowserManager {
         "Ramp receipt replacement did not show a new receipt-upload activity entry, newly auto-verified state, or changed receipt preview.",
       );
     }
-    if (!rampReviewVisualStateLooksReceiptLike(afterVisualState)) {
+    if (expectsImagePreview && !rampReviewVisualStateLooksReceiptLike(afterVisualState)) {
       throw new Error(
         `Ramp receipt replacement preview is too small to trust (largest receipt image ${afterVisualState.largestReceiptImageWidth}x${afterVisualState.largestReceiptImageHeight}).`,
       );
