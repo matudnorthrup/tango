@@ -32,6 +32,7 @@ export interface IntentEnvelope {
 export interface DeterministicIntentClassification {
   envelopes: IntentEnvelope[];
   meetsThreshold: boolean;
+  conversationMode: "none" | "follow_up";
   providerName: string;
   usedFailover: boolean;
   requestPrompt: string;
@@ -51,6 +52,7 @@ export interface IntentClassifierContinuationContext {
 }
 
 const classifierResponseSchema = z.object({
+  conversationMode: z.enum(["none", "follow_up"]).optional().default("none"),
   intents: z.array(
     z.object({
       intentId: z.string().min(1),
@@ -136,6 +138,12 @@ function buildClassifierSystemPrompt(catalog: readonly DeterministicIntentCatalo
     "Choose only from the allowed intent IDs below.",
     `Supported domains: ${supportedDomains.join(", ") || "none"}.`,
     "If the message is general chat, emotional support, or not clearly a covered action in one of the supported domains, return {\"intents\":[]}.",
+    "Conversational acknowledgements, corrections, objections, or questions about the assistant's prior explanation are not deterministic intents by themselves.",
+    "If the message should stay on the normal conversational LLM path, return {\"conversationMode\":\"follow_up\",\"intents\":[]}.",
+    "Do not use conversationMode=follow_up for short action requests that explicitly ask to add, log, record, track, or otherwise carry out a covered task.",
+    "When continuation context points at a recent deterministic task, prefer that intent if the current message is a clear action request, even if it is phrased as a short follow-up question.",
+    "Return {\"intents\":[]} for non-covered messages that are not specifically conversational follow-ups.",
+    "Short follow-up requests can still map to an intent when continuation context makes the requested action explicit, but only mark them high-confidence when the requested action is genuinely clear.",
     "If one user message contains multiple covered requests, return multiple intents in the same order they should execute.",
     "Set missingSlots when the intent is clear but a required detail is absent or ambiguous.",
     "Populate inferable slots and useful structured entities when the user message clearly implies them.",
@@ -143,7 +151,7 @@ function buildClassifierSystemPrompt(catalog: readonly DeterministicIntentCatalo
     "When the catalog includes taskClass, successCriteria, mustAnswer, comparisonAxes, or requiredFields, use them to infer the right intent and capture matching entities from the user message when possible.",
     "Allowed intents:",
     buildCatalogBlock(catalog),
-    'JSON shape: {"intents":[{"intentId":"...","mode":"read|write|mixed","confidence":0.0,"entities":{},"rawEntities":[],"missingSlots":[],"canRunInParallel":true,"routeHint":{"kind":"workflow|worker","targetId":"..."}}]}',
+    'JSON shape: {"conversationMode":"none"|"follow_up","intents":[{"intentId":"...","mode":"read|write|mixed","confidence":0.0,"entities":{},"rawEntities":[],"missingSlots":[],"canRunInParallel":true,"routeHint":{"kind":"workflow|worker","targetId":"..."}}]}',
   ].join("\n\n");
 }
 
@@ -348,12 +356,14 @@ export async function classifyDeterministicIntents(input: {
           }),
         );
       const meetsThreshold =
+        !(parsed.conversationMode === "follow_up" && parsed.intents.length === 0) &&
         envelopes.length > 0 &&
         envelopes.every((envelope) => envelope.confidence >= input.confidenceThreshold);
 
       return {
         envelopes,
         meetsThreshold,
+        conversationMode: parsed.conversationMode,
         providerName: result.providerName,
         usedFailover: result.usedFailover || aggregateFailures.length > 0,
         requestPrompt: result.requestPrompt,
