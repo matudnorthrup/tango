@@ -315,7 +315,7 @@ const ADDITIONAL_REQUEST_PATTERN =
   /\b(?:and|then|also)\s+tell\s+me\b|\band\s+what(?:'s| is)\b|\band\s+how\b/iu;
 const CROSS_DOMAIN_REUSE_BLOCKERS = /\b(?:recipe|doc|docs|file|email|calendar|reimbursement|walmart|amazon|slack)\b/iu;
 const ACTION_REQUEST_PREFIX_PATTERN =
-  /^(?:please\s+)?(?:show|check|summari[sz]e|review|pull|find|look(?:\s+up|\s+for)?|search|read|open|write|update|edit|change|create|send|draft|log|track|start|stop|submit|categorize|clear|mark|scan|run|get|use|switch|go to)\b/iu;
+  /^(?:please\s+)?(?:show|check|summari[sz]e|review|pull|find|look(?:\s+up|\s+for)?|search|read|open|write|update|edit|change|create|send|draft|log|track|start|stop|submit|categorize|clear|mark|scan|run|get|use|switch|go to|try|add(?:ing)?|delete|remove|set|put|give|tell|remind)\b/iu;
 const CORRECTION_BYPASS_PATTERN =
   /(?:^|\b)(?:that(?:'s| is) not what i asked|that(?:'s| is) not what i meant|not what i asked|not what i meant|no(?:\s*,)?\s+i\s+meant|i meant|i was asking|i asked for|that's wrong|that is wrong|wrong answer|wrong question)\b/iu;
 const PLANNING_BYPASS_PATTERN =
@@ -434,10 +434,15 @@ function detectConversationalTurnBypass(input: {
   }
 
   if (FEEDBACK_BYPASS_PATTERN.test(normalized) && normalized.length <= 96 && !normalized.includes("?")) {
-    return {
-      kind: "feedback",
-      reason: "conversational feedback should not trigger tool execution",
-    };
+    // Strip the feedback prefix and check if there's an action request after it.
+    // "Ok. Try adding the freeze dried apples" should NOT be feedback — the "Try adding" is an action.
+    const afterFeedback = normalized.replace(FEEDBACK_BYPASS_PATTERN, "").replace(/^[.,!?\s]+/u, "").trim();
+    if (afterFeedback.length === 0 || !ACTION_REQUEST_PREFIX_PATTERN.test(afterFeedback)) {
+      return {
+        kind: "feedback",
+        reason: "conversational feedback should not trigger tool execution",
+      };
+    }
   }
 
   if (SHORT_CONVERSATIONAL_FOLLOW_UP_PATTERN.test(normalized)) {
