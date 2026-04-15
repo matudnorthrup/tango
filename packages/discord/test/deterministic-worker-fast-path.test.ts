@@ -78,7 +78,7 @@ describe("tryExecuteDeterministicWorkerFastPath", () => {
     ]);
   });
 
-  it("executes recipe logs directly and applies gram overrides from the user message", async () => {
+  it("executes recipe logs directly, honors explicit dates, and applies gram overrides from the user message", async () => {
     const fixture = createWellnessFixture({
       ingredients: [
         atlasIngredient("garden lettuce (mixed varieties)", 1001, 2001, 100),
@@ -118,7 +118,7 @@ describe("tryExecuteDeterministicWorkerFastPath", () => {
         "Intent mode: write",
         "User message: Continue the last recipe logging task.",
         "User follow-up message: Log my lunch: tex mex salad, but modify it to use 125g of black beans and 120g of peach mango salsa.",
-        "Extracted inputs: {\"recipe_query\":\"Garden Tex-Mex Power Salad\",\"meal\":\"lunch\"}",
+        "Extracted inputs: {\"recipe_query\":\"Garden Tex-Mex Power Salad\",\"meal\":\"lunch\",\"date\":\"2026-04-18\"}",
       ].join("\n"),
       toolIds: ["recipe_read", "nutrition_log_items", "fatsecret_api"],
       wellnessToolPaths: fixture.paths,
@@ -138,14 +138,17 @@ describe("tryExecuteDeterministicWorkerFastPath", () => {
     const payload = result?.toolCalls[0]?.output as Record<string, unknown>;
     const logged = payload.logged as Array<Record<string, unknown>>;
     expect(payload.status).toBe("confirmed");
+    expect(payload.date).toBe("2026-04-18");
     expect(payload.verifiedWriteOutcome).toBe(true);
     expect(logged).toHaveLength(6);
     expect(logged.find((item) => item.item === "Black Beans (canned, drained)")?.quantity).toBe("125g");
     expect(logged.find((item) => item.item === "Mango Peach Salsa")?.quantity).toBe("120g");
     expect(result?.text).toContain("Logged lunch");
+    expect(result?.text).toContain("2026-04-18");
     expect(result?.text).toContain("Write confirmed in diary.");
     expect(calls.filter((call) => call.method === "food_entry_create")).toHaveLength(6);
     expect(calls.at(-1)?.method).toBe("food_entries_get");
+    expect(calls[0]?.params.date).toBe("2026-04-18");
   });
 });
 

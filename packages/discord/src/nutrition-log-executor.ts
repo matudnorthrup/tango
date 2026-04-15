@@ -470,6 +470,19 @@ function normalizeFoodLabel(value: string): string {
     .trim();
 }
 
+function stripParentheticalSegments(value: string): string {
+  return value.replace(/\([^)]*\)/gu, " ");
+}
+
+function buildNormalizedItemVariants(value: string): string[] {
+  return [...new Set(
+    [
+      normalizeFoodLabel(value),
+      normalizeFoodLabel(stripParentheticalSegments(value)),
+    ].filter((variant) => variant.length > 0),
+  )];
+}
+
 function parseAtlasAliasList(value: unknown): string[] {
   if (typeof value !== "string" || value.trim().length === 0) {
     return [];
@@ -487,9 +500,29 @@ function parseAtlasAliasList(value: unknown): string[] {
   }
 }
 
+function parseGramValueFromText(value: unknown): number | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const match = value.trim().match(/(\d+(?:\.\d+)?)\s*g\b/iu);
+  if (!match?.[1]) {
+    return null;
+  }
+  const parsed = Number.parseFloat(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function deriveAtlasGramsPerServing(row: AtlasIngredientRow): number | null {
+  return (
+    parseFiniteNumber(row.grams_per_serving)
+    ?? parseGramValueFromText(row.serving_size)
+    ?? parseGramValueFromText(row.serving_description)
+  );
+}
+
 function scoreAtlasRowForItem(itemLabel: string, row: AtlasIngredientRow): number {
-  const normalizedItem = normalizeFoodLabel(itemLabel);
-  if (!normalizedItem) {
+  const normalizedItemVariants = buildNormalizedItemVariants(itemLabel);
+  if (normalizedItemVariants.length === 0) {
     return 0;
   }
   const aliases = parseAtlasAliasList(row.aliases);
@@ -498,17 +531,26 @@ function scoreAtlasRowForItem(itemLabel: string, row: AtlasIngredientRow): numbe
     row.product ?? "",
     row.brand ?? "",
     ...aliases,
-  ]
-    .map((value) => normalizeFoodLabel(value))
-    .filter((value) => value.length > 0);
-  const itemWords = normalizedItem.split(" ").filter((word) => word.length > 1);
+  ];
+  const normalizedHaystacks = [...new Set(
+    haystacks
+      .map((value) => normalizeFoodLabel(value))
+      .filter((value) => value.length > 0),
+  )];
+  const itemWords = [...new Set(
+    normalizedItemVariants
+      .flatMap((variant) => variant.split(" "))
+      .filter((word) => word.length > 1),
+  )];
   const matchedWords = new Set<string>();
   let score = 0;
-  for (const haystack of haystacks) {
-    if (haystack === normalizedItem) {
-      score += 100;
-    } else if (haystack.includes(normalizedItem) || normalizedItem.includes(haystack)) {
-      score += 50;
+  for (const haystack of normalizedHaystacks) {
+    for (const normalizedItem of normalizedItemVariants) {
+      if (haystack === normalizedItem) {
+        score += 100;
+      } else if (haystack.includes(normalizedItem) || normalizedItem.includes(haystack)) {
+        score += 50;
+      }
     }
     for (const word of itemWords) {
       if (haystack.includes(word)) {
@@ -521,8 +563,11 @@ function scoreAtlasRowForItem(itemLabel: string, row: AtlasIngredientRow): numbe
 }
 
 function findBestAtlasMatchForItem(db: DatabaseSync, itemLabel: string): AtlasIngredientRow | null {
-  const normalizedItem = normalizeFoodLabel(itemLabel);
-  const tokens = normalizedItem.split(/\s+/u).filter((token) => token.length > 1);
+  const normalizedItemVariants = buildNormalizedItemVariants(itemLabel);
+  const normalizedItem = normalizedItemVariants[0] ?? "";
+  const tokens = [...new Set(
+    normalizedItemVariants.flatMap((variant) => variant.split(/\s+/u).filter((token) => token.length > 1)),
+  )];
   const searchTerms = tokens.length > 0 ? tokens : [normalizedItem];
   const conditions: string[] = [];
   const params: string[] = [];
@@ -654,7 +699,7 @@ function deriveAtlasWriteUnits(
   row: AtlasIngredientRow,
 ): { writeUnits: number; macroMultiplier: number } | null {
   const grams = parseGramsFromAmountText(amountText);
-  const gramsPerServing = parseFiniteNumber(row.grams_per_serving);
+  const gramsPerServing = deriveAtlasGramsPerServing(row);
   if (grams && gramsPerServing && gramsPerServing > 0) {
     const macroMultiplier = Number.parseFloat((grams / gramsPerServing).toFixed(6));
     return {

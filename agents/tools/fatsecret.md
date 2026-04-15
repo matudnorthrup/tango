@@ -37,7 +37,7 @@ Use `nutrition_log_items` as the default write path for routine meal logging whe
 ## Parameter notes
 
 - `meal` is one of `breakfast`, `lunch`, `dinner`, `other`.
-- `number_of_units` is decimal servings, not grams.
+- `number_of_units` follows the selected serving semantics. For portion-style servings it is a serving count or fraction; for raw gram servings (`measurement_description: g`) it is raw grams.
 - `foods_search` uses `search_expression`, not `query`.
 - `food_get` returns serving metadata such as `serving_id`, `serving_description`, and `metric_serving_amount`.
 

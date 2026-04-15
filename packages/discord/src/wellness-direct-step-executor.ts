@@ -602,6 +602,16 @@ function normalizeFatsecretSearchRows(value: unknown): FatsecretSearchRow[] {
     : [];
 }
 
+function extractSignificantFoodTokens(value: string): string[] {
+  return normalizeFoodItemLabelForMatch(value)
+    .split(" ")
+    .filter((token) =>
+      token.length > 2
+      && !NUMBER_WORD_VALUES[token]
+      && !["raw", "medium", "small", "large"].includes(token),
+    );
+}
+
 function scoreFatsecretSearchRowForItem(itemLabel: string, row: FatsecretSearchRow): number {
   const normalizedItem = normalizeFoodItemLabelForMatch(itemLabel);
   const normalizedFoodName = normalizeFoodItemLabelForMatch(typeof row.food_name === "string" ? row.food_name : "");
@@ -609,31 +619,30 @@ function scoreFatsecretSearchRowForItem(itemLabel: string, row: FatsecretSearchR
     return 0;
   }
 
+  const itemTokens = [...new Set(extractSignificantFoodTokens(itemLabel))];
+  const rowTokens = [...new Set(extractSignificantFoodTokens(String(row.food_name ?? "")))];
+  if (itemTokens.length === 0 || rowTokens.length === 0) {
+    return 0;
+  }
+  const matchedTokens = rowTokens.filter((token) => itemTokens.includes(token));
+  if (matchedTokens.length === 0 || matchedTokens.length / itemTokens.length < 0.5) {
+    return 0;
+  }
+
   let score = 0;
   if (normalizedFoodName === normalizedItem) {
     score += 50;
-  } else if (normalizedItem.includes(normalizedFoodName)) {
+  } else if (normalizedItem.includes(normalizedFoodName) || normalizedFoodName.includes(normalizedItem)) {
     score += 20;
   }
+  score += matchedTokens.length * 5;
 
-  const itemTokens = normalizedItem
-    .split(" ")
-    .filter((token) =>
-      token.length > 2
-      && !NUMBER_WORD_VALUES[token]
-      && !["raw", "medium", "small", "large"].includes(token),
-    );
-  const rowTokens = normalizedFoodName.split(" ").filter((token) => token.length > 2);
-  for (const token of rowTokens) {
-    if (itemTokens.includes(token)) {
-      score += 5;
-    }
-  }
-
+  const brandTokens = [...new Set(extractSignificantFoodTokens(String(row.brand_name ?? "")))];
+  const matchedBrandTokens = brandTokens.filter((token) => itemTokens.includes(token));
+  score += matchedBrandTokens.length * 8;
   if (typeof row.food_type === "string" && row.food_type.trim().toLowerCase() === "generic") {
     score += 2;
-  }
-  if (typeof row.brand_name === "string" && row.brand_name.trim().length > 0) {
+  } else if (brandTokens.length > 0 && matchedBrandTokens.length === 0) {
     score -= 1;
   }
   return score;
