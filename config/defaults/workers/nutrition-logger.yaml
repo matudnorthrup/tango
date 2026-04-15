@@ -10,7 +10,6 @@ provider:
     - claude-oauth-secondary
     - codex
 tool_contract_ids:
-  - atlas_sql
   - recipe_read
   - nutrition_log_items
   - fatsecret_api
