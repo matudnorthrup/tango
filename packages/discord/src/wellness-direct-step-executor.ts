@@ -1663,7 +1663,9 @@ export async function tryExecuteDirectWellnessStep(
 
   switch (step.targetId) {
     case "wellness.log_food_items":
-      return step.mode === "write" ? executeDirectNutritionLog(step, resolvedDeps) : null;
+      // Roll back deterministic nutrition writes so the LLM worker owns
+      // serving resolution, restaurant selection, and recipe modifications.
+      return null;
     case "wellness.analyze_nutrition_day":
       return step.mode === "read" ? executeDirectNutritionDaySummary(step, resolvedDeps) : null;
     case "wellness.check_nutrition_budget":
