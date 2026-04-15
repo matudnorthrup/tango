@@ -11,6 +11,7 @@ provider:
     - codex
 tool_contract_ids:
   - gog_email
+  - system_clock
   - gog_calendar
   - gog_docs
   - gog_docs_update_tab
