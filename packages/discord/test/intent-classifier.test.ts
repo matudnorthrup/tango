@@ -372,6 +372,15 @@ const catalog: DeterministicIntentCatalogEntry[] = [
     examples: ["Submit the Walmart delivery-tip reimbursements to Ramp."],
   },
   {
+    id: "finance.sinking_fund_reconciliation",
+    domain: "finance",
+    displayName: "Reconcile Sinking Funds",
+    description: "Reconcile sinking-fund-backed spending against fund balances and outstanding reimbursement needs.",
+    mode: "read",
+    route: { kind: "worker", targetId: "personal-assistant" },
+    examples: ["Run a sinking fund reconciliation for April."],
+  },
+  {
     id: "finance.budget_review",
     domain: "finance",
     displayName: "Review Budget",
@@ -1371,6 +1380,16 @@ describe("classifyDeterministicIntents", () => {
         ]),
         responseWithIntents([
           {
+            intentId: "finance.sinking_fund_reconciliation",
+            confidence: 0.94,
+            entities: { date_scope: "April", fund_scope: "all" },
+            rawEntities: ["sinking fund reconciliation", "April"],
+            missingSlots: [],
+            canRunInParallel: true,
+          },
+        ]),
+        responseWithIntents([
+          {
             intentId: "planning.morning_review",
             mode: "mixed",
             confidence: 0.95,
@@ -1443,6 +1462,10 @@ describe("classifyDeterministicIntents", () => {
       {
         input: "Submit the Walmart delivery-tip reimbursements to Ramp.",
         expectedIntents: ["finance.reimbursement_submit"],
+      },
+      {
+        input: "Run a sinking fund reconciliation for April.",
+        expectedIntents: ["finance.sinking_fund_reconciliation"],
       },
       {
         input: "Run morning planning.",

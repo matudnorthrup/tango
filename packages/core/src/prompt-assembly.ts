@@ -77,6 +77,7 @@ export const SKILL_DOC_MAP: Record<string, string> = {
   ramp_reimbursements: "ramp-reimbursements",
   receipt_logging: "receipt-logging",
   recipe_format: "recipe-format",
+  sinking_fund_reconciliation: "sinking-fund-reconciliation",
   transaction_categorization: "transaction-categorization",
   chipotle_ordering: "chipotle-ordering",
   open_meteo_weather: "open-meteo-weather",
