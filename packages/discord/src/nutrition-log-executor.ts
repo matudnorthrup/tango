@@ -697,28 +697,6 @@ function shouldUseAtlasPackageFallback(row: AtlasIngredientRow, amountUnit: stri
   return Boolean(row.brand?.trim() || row.product?.trim());
 }
 
-/** Approximate volume-to-grams conversion for common cooking units. */
-const VOLUME_UNIT_GRAMS: Record<string, number> = {
-  tbsp: 15,
-  tablespoon: 15,
-  tsp: 5,
-  teaspoon: 5,
-  cup: 240,
-  oz: 28,
-  ounce: 28,
-  "fl oz": 30,
-};
-
-function estimateVolumeToGrams(amountUnit: string, count: number): number | null {
-  const normalized = amountUnit.toLowerCase().replace(/s$/u, "");
-  const gramsPerUnit = VOLUME_UNIT_GRAMS[normalized];
-  if (gramsPerUnit === undefined) {
-    return null;
-  }
-  const total = count * gramsPerUnit;
-  return Number.isFinite(total) && total > 0 ? total : null;
-}
-
 function servingMatchesAmountUnit(row: AtlasIngredientRow, amountUnit: string | null): boolean {
   if (!amountUnit) {
     return false;
@@ -768,17 +746,6 @@ function deriveAtlasWriteUnits(
       return {
         writeUnits: units,
         macroMultiplier: units,
-      };
-    }
-    // Volume-to-grams approximate conversion: when the user specifies a volume
-    // unit (tbsp, cup, tsp, oz) and the Atlas entry has grams_per_serving,
-    // convert via standard approximations rather than failing to log entirely.
-    const volumeGrams = estimateVolumeToGrams(amountUnit, count);
-    if (volumeGrams !== null && gramsPerServing && gramsPerServing > 0) {
-      const macroMultiplier = Number.parseFloat((volumeGrams / gramsPerServing).toFixed(6));
-      return {
-        writeUnits: macroMultiplier,
-        macroMultiplier,
       };
     }
     return null;
