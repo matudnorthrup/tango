@@ -433,11 +433,15 @@ function detectConversationalTurnBypass(input: {
     };
   }
 
-  if (FEEDBACK_BYPASS_PATTERN.test(normalized) && normalized.length <= 96 && !normalized.includes("?")) {
-    // Strip the feedback prefix and check if there's an action request after it.
-    // "Ok. Try adding the freeze dried apples" should NOT be feedback — the "Try adding" is an action.
+  if (FEEDBACK_BYPASS_PATTERN.test(normalized) && !normalized.includes("?")) {
+    // Strip the feedback prefix and check if there's substantive content after it.
+    // "Ok. Try adding the freeze dried apples" should NOT be feedback.
+    // Only classify as pure feedback if the remaining content is very short
+    // (e.g., "Ok" alone, "Thanks!", "Got it.") with no action verbs anywhere.
     const afterFeedback = normalized.replace(FEEDBACK_BYPASS_PATTERN, "").replace(/^[.,!?\s]+/u, "").trim();
-    if (afterFeedback.length === 0 || !ACTION_REQUEST_PREFIX_PATTERN.test(afterFeedback)) {
+    const hasActionAnywhere = ACTION_REQUEST_PREFIX_PATTERN.test(afterFeedback)
+      || /\b(?:try|add|log|create|send|check|run|start|delete|remove|update|set)\b/iu.test(afterFeedback);
+    if (afterFeedback.length <= 12 && !hasActionAnywhere) {
       return {
         kind: "feedback",
         reason: "conversational feedback should not trigger tool execution",
