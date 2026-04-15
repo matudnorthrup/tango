@@ -6,6 +6,7 @@ import { computeFileSha256 } from "../src/reimbursement-evidence.js";
 import {
   backfillWalmartReceiptNote,
   parseWalmartReceiptMarkdown,
+  reconcileWalmartReimbursementsAgainstRamp,
   upsertWalmartReimbursementTracking,
 } from "../src/receipt-reimbursement-registry.js";
 
@@ -241,5 +242,88 @@ describe("receipt reimbursement registry", () => {
     expect(markdown).toContain("- Status: not_submitted");
     expect(markdown).toContain("- Amount: $26.67");
     expect(markdown).toContain("Delivery from store. Delivered on Oct 16, 2025.");
+  });
+
+  it("reconciles stale Walmart reimbursement notes against live Ramp history", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-ramp-reconcile-"));
+    process.env.TANGO_WALMART_RECEIPTS_DIR = tempDir;
+
+    const stalePath = path.join(tempDir, "2026-04-01 Order 2000146-86460984.md");
+    fs.writeFileSync(
+      stalePath,
+      [
+        "# Walmart Order 2000146-86460984",
+        "",
+        "- **Date:** 2026-04-01",
+        "",
+        "## Notes",
+        "",
+        "Delivery from store. Driver tip: $41.03.",
+        "",
+        "## Reimbursement Tracking",
+        "",
+        "- Status: not_submitted",
+        "- System: Ramp",
+        "- Reimbursable Item: Driver tip",
+        "- Amount: $41.03",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const pendingPath = path.join(tempDir, "2026-04-10 Order 2000143-77828633.md");
+    fs.writeFileSync(
+      pendingPath,
+      [
+        "# Walmart Order 2000143-77828633",
+        "",
+        "- **Date:** 2026-04-10",
+        "",
+        "## Notes",
+        "",
+        "Delivery from store. Driver tip: $27.19.",
+        "",
+        "## Reimbursement Tracking",
+        "",
+        "- Status: not_submitted",
+        "- System: Ramp",
+        "- Reimbursable Item: Driver tip",
+        "- Amount: $27.19",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const reconciled = reconcileWalmartReimbursementsAgainstRamp({
+      history: [
+        {
+          reviewUrl: "https://app.ramp.com/details/list/reimbursement/6bd4a150-a102-4118-8628-a8f3ec7ff7af/review",
+          rampReportId: "6bd4a150-a102-4118-8628-a8f3ec7ff7af",
+          status: "Paid",
+          transactionDate: "2026-04-01",
+          submittedDate: "2026-04-02",
+          merchant: "Walmart",
+          amount: 41.03,
+          memo: "executive buy back time",
+        },
+      ],
+      since: "2026-04-01",
+      updateNotes: true,
+    });
+
+    expect(reconciled.matched).toEqual([
+      expect.objectContaining({
+        orderId: "2000146-86460984",
+        noteStatusBefore: "not_submitted",
+        noteStatusAfter: "reimbursed",
+        rampReportId: "6bd4a150-a102-4118-8628-a8f3ec7ff7af",
+      }),
+    ]);
+    expect(reconciled.pending.map((record) => record.orderId)).toEqual(["2000143-77828633"]);
+    expect(reconciled.updated).toHaveLength(1);
+
+    const updatedMarkdown = fs.readFileSync(stalePath, "utf8");
+    expect(updatedMarkdown).toContain("- Status: reimbursed");
+    expect(updatedMarkdown).toContain("- Submitted: 2026-04-02");
+    expect(updatedMarkdown).toContain("- Note: executive buy back time");
+    expect(updatedMarkdown).toContain("- Ramp Report ID: 6bd4a150-a102-4118-8628-a8f3ec7ff7af");
   });
 });

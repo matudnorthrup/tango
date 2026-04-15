@@ -112,7 +112,11 @@ function obsidianCommandLooksMutating(command: string): boolean {
 }
 
 function receiptRegistryActionLooksMutating(action: string): boolean {
-  return action.trim() === "upsert_walmart_reimbursement";
+  return [
+    "backfill_walmart_delivery_candidates",
+    "reconcile_walmart_reimbursements",
+    "upsert_walmart_reimbursement",
+  ].includes(action.trim());
 }
 
 function rampReimbursementActionLooksMutating(action: string): boolean {
