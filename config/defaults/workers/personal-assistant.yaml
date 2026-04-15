@@ -41,6 +41,7 @@ skill_doc_ids:
   - walmart_orders
   - ramp_reimbursements
   - transaction_categorization
+  - sinking_fund_reconciliation
   - weekly_finance_review
   - slack_digest
 policy:
