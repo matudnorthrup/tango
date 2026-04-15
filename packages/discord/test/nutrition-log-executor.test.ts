@@ -366,6 +366,79 @@ describe("executeNutritionLogItems", () => {
     expect(fatsecretCall).not.toHaveBeenCalled();
   });
 
+  it("treats branded package quantities as one serving when Atlas only exposes gram serving metadata", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Freeze-Dried Apple Crisps",
+        brand: "Great Value",
+        food_id: "25856420",
+        serving_id: "23931789",
+        serving_description: "",
+        serving_size: "10g",
+        grams_per_serving: 10,
+        calories: 40,
+        protein: 0,
+        carbs: 10,
+        fat: 0,
+        fiber: 1,
+        aliases: JSON.stringify(["freeze dried apples", "apple crisps"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return {
+          success: true,
+          food_entry_id: `${params.food_id}-entry`,
+        };
+      }
+      if (method === "food_entries_get") {
+        return {
+          other: [{ food_entry_id: "25856420-entry" }],
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "freeze dried apples", quantity: "1 package" }],
+        meal: "snack",
+        date: "2026-04-22",
+      },
+      {
+        atlasDbPath,
+        fatsecretCall,
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "confirmed",
+      meal: "snack",
+      date: "2026-04-22",
+      unresolved: [],
+      totals: {
+        calories: 40,
+        protein: 0,
+        carbs: 10,
+        fat: 0,
+        fiber: 1,
+      },
+    });
+    expect(result.logged).toHaveLength(1);
+    expect(fatsecretCall.mock.calls.map(([method]) => method)).toEqual([
+      "food_entry_create",
+      "food_entries_get",
+    ]);
+    expect(fatsecretCall.mock.calls[0]?.[1]).toMatchObject({
+      food_id: "25856420",
+      serving_id: "23931789",
+      number_of_units: 1,
+      meal: "snack",
+      date: "2026-04-22",
+    });
+  });
+
   it("rejects weak Atlas token overlap instead of writing the wrong ingredient", async () => {
     const atlasDbPath = createAtlasDb([
       {
