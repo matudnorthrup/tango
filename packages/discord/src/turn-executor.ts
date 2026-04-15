@@ -45,6 +45,7 @@ import {
   classifyDeterministicIntents,
   type DeterministicIntentCatalogEntry,
   type DeterministicIntentClassification,
+  type IntentClassifierContinuationContext,
   type IntentEnvelope,
 } from "./intent-classifier.js";
 import {
@@ -305,6 +306,10 @@ const DOCS_CONTINUATION_PATTERN =
   /docs\.google\.com\/document\/d\/|\b(?:doc|docs|tab|section|headline|copy|replace|rewrite|edit|update|write)\b/iu;
 const NUTRITION_LOG_FOOD_CONTINUATION_PATTERN =
   /\b(?:breakfast|lunch|dinner|snack|meal|food|foods|log|track|calories?|protein|carbs?|fat|grams?|oz|tbsp|tsp|cup|cups|serving|portion)\b/iu;
+const EXPLICIT_NUTRITION_WRITE_CONTINUATION_PATTERN =
+  /\b(?:add(?:ing)?|log(?:ging)?|track(?:ing)?|record(?:ing)?|enter(?:ing)?)\b/iu;
+const NUTRITION_REPAIR_STYLE_PATTERN =
+  /\b(?:re-?add|wrong|clear(?:ed)?|fix|repair|correct(?:ion)?)\b/iu;
 const NUTRITION_LOG_RECIPE_CONTINUATION_PATTERN =
   /\b(?:recipe|ingredients?|instructions?|notes?|servings?|portion|double|halve|scale|update|edit|rewrite|change)\b/iu;
 const NUTRITION_CHECK_BUDGET_CONTINUATION_PATTERN =
@@ -314,20 +319,8 @@ const NUTRITION_DAY_SUMMARY_CONTINUATION_PATTERN =
 const ADDITIONAL_REQUEST_PATTERN =
   /\b(?:and|then|also)\s+tell\s+me\b|\band\s+what(?:'s| is)\b|\band\s+how\b/iu;
 const CROSS_DOMAIN_REUSE_BLOCKERS = /\b(?:recipe|doc|docs|file|email|calendar|reimbursement|walmart|amazon|slack)\b/iu;
-const ACTION_REQUEST_PREFIX_PATTERN =
-  /^(?:please\s+)?(?:show|check|summari[sz]e|review|pull|find|look(?:\s+up|\s+for)?|search|read|open|write|update|edit|change|create|send|draft|log|track|start|stop|submit|categorize|clear|mark|scan|run|get|use|switch|go to|try|add(?:ing)?|delete|remove|set|put|give|tell|remind)\b/iu;
-const CORRECTION_BYPASS_PATTERN =
-  /(?:^|\b)(?:that(?:'s| is) not what i asked|that(?:'s| is) not what i meant|not what i asked|not what i meant|no(?:\s*,)?\s+i\s+meant|i meant|i was asking|i asked for|that's wrong|that is wrong|wrong answer|wrong question)\b/iu;
-const PLANNING_BYPASS_PATTERN =
-  /\b(?:what(?:'s| is) (?:the )?next step|what are the next steps|what should (?:i|we) do next|what would the next step be|how should (?:i|we) implement|how do (?:i|we) implement|implementation steps?|implement (?:your|the) proposed (?:workflow|plan)|proposed workflow|proposed plan|walk me through (?:the )?(?:workflow|plan))\b/iu;
-const META_QUESTION_BYPASS_PATTERN =
-  /\b(?:what did you mean|what do you mean|what are you referring to|what were you referring to|can you explain(?: that)?|explain that|why did you say|why would you say|why did you recommend|why would you recommend|what led you to|how does that work|how would that work|what do you mean by)\b/iu;
-const FEEDBACK_BYPASS_PATTERN =
-  /^(?:thanks|thank you|got it|makes sense|that makes sense|sounds good|okay|ok|cool|perfect|great|nice|understood)\b/iu;
-const SHORT_CONVERSATIONAL_FOLLOW_UP_PATTERN =
-  /^(?:so|then|and|okay|ok|well)?\s*(?:what else|then what|what now|how so|why so)(?:[?.!]|$)/iu;
-const PRIOR_REPLY_REFERENCE_PATTERN =
-  /\b(?:that|this|it|earlier|previous|before|you proposed|you suggested|your answer|your reply)\b/iu;
+const PURE_ACKNOWLEDGEMENT_PATTERN =
+  /^(?:ok(?:ay)?|thanks|thank you)[.!]*$/iu;
 const CONTINUATION_NOISE_TOKENS = new Set([
   "add",
   "again",
@@ -412,59 +405,10 @@ function detectConversationalTurnBypass(input: {
     return null;
   }
 
-  if (CORRECTION_BYPASS_PATTERN.test(normalized)) {
+  if (PURE_ACKNOWLEDGEMENT_PATTERN.test(normalized)) {
     return {
-      kind: "correction",
-      reason: "correction-style follow-up should stay on the conversational LLM path",
-    };
-  }
-
-  if (PLANNING_BYPASS_PATTERN.test(normalized)) {
-    return {
-      kind: "planning",
-      reason: "planning or next-step question about prior discussion should not re-run deterministic execution",
-    };
-  }
-
-  if (META_QUESTION_BYPASS_PATTERN.test(normalized)) {
-    return {
-      kind: "meta",
-      reason: "meta-question about the prior answer should stay conversational",
-    };
-  }
-
-  if (FEEDBACK_BYPASS_PATTERN.test(normalized) && !normalized.includes("?")) {
-    // Strip the feedback prefix and check if there's substantive content after it.
-    // "Ok. Try adding the freeze dried apples" should NOT be feedback.
-    // Only classify as pure feedback if the remaining content is very short
-    // (e.g., "Ok" alone, "Thanks!", "Got it.") with no action verbs anywhere.
-    const afterFeedback = normalized.replace(FEEDBACK_BYPASS_PATTERN, "").replace(/^[.,!?\s]+/u, "").trim();
-    const hasActionAnywhere = ACTION_REQUEST_PREFIX_PATTERN.test(afterFeedback)
-      || /\b(?:try|add|log|create|send|check|run|start|delete|remove|update|set)\b/iu.test(afterFeedback);
-    if (afterFeedback.length <= 12 && !hasActionAnywhere) {
-      return {
-        kind: "feedback",
-        reason: "conversational feedback should not trigger tool execution",
-      };
-    }
-  }
-
-  if (SHORT_CONVERSATIONAL_FOLLOW_UP_PATTERN.test(normalized)) {
-    return {
-      kind: "follow_up",
-      reason: "short conversational follow-up should stay on the LLM path",
-    };
-  }
-
-  if (
-    !ACTION_REQUEST_PREFIX_PATTERN.test(normalized)
-    && normalized.includes("?")
-    && PRIOR_REPLY_REFERENCE_PATTERN.test(normalized)
-    && !/\b(?:try|add|log|create|send|check|run|start|delete|remove|update|set|record|track)\b/iu.test(normalized)
-  ) {
-    return {
-      kind: "follow_up",
-      reason: "question about the prior reply should stay conversational",
+      kind: "feedback",
+      reason: "pure acknowledgement should stay on the conversational LLM path",
     };
   }
 
@@ -649,7 +593,12 @@ function isLikelyContinuationForIntent(
       return false;
     }
     if (messageIntroducesDifferentNutritionContent(priorEntities, userMessage)) {
-      return false;
+      if (
+        !EXPLICIT_NUTRITION_WRITE_CONTINUATION_PATTERN.test(normalized)
+        || NUTRITION_REPAIR_STYLE_PATTERN.test(normalized)
+      ) {
+        return false;
+      }
     }
     if (NUTRITION_DAY_SUMMARY_CONTINUATION_PATTERN.test(normalized)) {
       return false;
@@ -689,73 +638,79 @@ function mergeContinuationEntities(
   return merged;
 }
 
-function buildConversationAffinityClassification(input: {
+function buildRecentDeterministicContinuationObjective(
+  priorEnvelope: IntentEnvelope,
+): string {
+  const base = [
+    `The most recent deterministic turn in this conversation used intent ${priorEnvelope.intentId}.`,
+    "Continue that same action only if the current user message is clearly asking to keep going with it.",
+  ].join(" ");
+
+  if (priorEnvelope.intentId === "nutrition.log_food") {
+    return [
+      base,
+      "Short follow-up requests that explicitly ask to add or log food are still nutrition.log_food even when phrased as a question or when the food item changes.",
+      "Only mark the turn conversational when the user is discussing the assistant reply or asking a meta question instead of asking to log food.",
+    ].join(" ");
+  }
+
+  return base;
+}
+
+function buildRecentDeterministicContinuationContext(input: {
   latestTurn: DeterministicTurnRecord | null;
   userMessage: string;
-  confidenceThreshold: number;
-}): DeterministicIntentClassification | null {
+}): IntentClassifierContinuationContext | undefined {
   const latestTurn = input.latestTurn;
   if (!latestTurn) {
-    return null;
+    return undefined;
   }
   if (latestTurn.routeOutcome !== "executed" && latestTurn.routeOutcome !== "clarification") {
-    return null;
+    return undefined;
   }
   const createdAtMs = parseIsoTimestampMs(latestTurn.createdAt);
   if (!createdAtMs || Date.now() - createdAtMs > RECENT_INTENT_REUSE_MAX_AGE_MS) {
-    return null;
+    return undefined;
   }
   const envelopes = parseIntentEnvelopeArray(latestTurn.intentJson)
     .map((envelope) => parseIntentEnvelopeRecord(envelope))
     .filter((envelope): envelope is NonNullable<typeof envelope> => Boolean(envelope));
   if (envelopes.length !== 1) {
-    return null;
+    return undefined;
   }
   const priorEnvelope = envelopes[0];
   if (!priorEnvelope) {
-    return null;
+    return undefined;
   }
   if (!isLikelyContinuationForIntent(priorEnvelope.intentId, input.userMessage, priorEnvelope.entities)) {
-    return null;
+    return undefined;
   }
 
-  const mergedEntities = mergeContinuationEntities(
-    priorEnvelope.intentId,
-    priorEnvelope.entities,
-    input.userMessage,
-  );
-  const docReference = priorEnvelope.intentId === "docs.google_doc_read_or_update"
-    ? extractSingleGoogleDocReference(input.userMessage)
-    : null;
-  const rawEntities = docReference
-    ? [...new Set([...priorEnvelope.rawEntities, docReference])]
-    : [...priorEnvelope.rawEntities];
-
   return {
-    envelopes: [
-      {
-        ...priorEnvelope,
-        confidence: Math.max(input.confidenceThreshold, 1),
-        entities: mergedEntities,
-        rawEntities,
-        missingSlots: [],
-      },
-    ],
-    meetsThreshold: true,
-    providerName: "conversation-affinity",
-    usedFailover: false,
-    requestPrompt: "",
-    systemPrompt: "",
-    response: {
-      text: "",
-      metadata: {
-        model: "conversation-affinity",
-      },
+    title: `Continue recent deterministic intent ${priorEnvelope.intentId}`,
+    objective: buildRecentDeterministicContinuationObjective(priorEnvelope),
+    expectedIntentIds: [priorEnvelope.intentId],
+    structuredContext: {
+      priorIntentId: priorEnvelope.intentId,
+      priorMode: priorEnvelope.mode,
+      priorEntities: priorEnvelope.entities,
+      priorRawEntities: priorEnvelope.rawEntities,
+      priorMissingSlots: priorEnvelope.missingSlots,
+      mergedContinuationEntities: mergeContinuationEntities(
+        priorEnvelope.intentId,
+        priorEnvelope.entities,
+        input.userMessage,
+      ),
+      continuationSignals:
+        priorEnvelope.intentId === "nutrition.log_food"
+          ? {
+              explicitWriteCommand:
+                EXPLICIT_NUTRITION_WRITE_CONTINUATION_PATTERN.test(normalizeWhitespace(input.userMessage)),
+              changedNutritionContent:
+                messageIntroducesDifferentNutritionContent(priorEnvelope.entities, input.userMessage),
+            }
+          : undefined,
     },
-    responseText: "",
-    attemptCount: 0,
-    attemptErrors: [],
-    failures: [],
   };
 }
 
@@ -831,6 +786,7 @@ function buildExplicitDeterministicClassification(input: {
   return {
     envelopes,
     meetsThreshold: envelopes.length > 0,
+    conversationMode: "none",
     providerName: "config",
     usedFailover: false,
     requestPrompt: "",
@@ -845,6 +801,19 @@ function buildExplicitDeterministicClassification(input: {
     attemptCount: 0,
     attemptErrors: [],
     failures: [],
+  };
+}
+
+function mergeClassificationAttempts(
+  first: DeterministicIntentClassification,
+  second: DeterministicIntentClassification,
+): DeterministicIntentClassification {
+  return {
+    ...second,
+    usedFailover: first.usedFailover || second.usedFailover,
+    attemptCount: first.attemptCount + second.attemptCount,
+    attemptErrors: [...first.attemptErrors, ...second.attemptErrors],
+    failures: [...first.failures, ...second.failures],
   };
 }
 
@@ -1308,7 +1277,7 @@ export async function executeDiscordTurn(
       ? [warmStartPrompt?.trim(), activeTaskPromptContext.trim()].filter(Boolean).join("\n\n")
       : warmStartPrompt;
   const warmStartContextChars = effectiveWarmStartPrompt?.length ?? 0;
-  const conversationalTurnBypass = detectConversationalTurnBypass({
+  let conversationalTurnBypass = detectConversationalTurnBypass({
     userMessage: input.turn.transcript,
     activeTaskResolution,
   });
@@ -1339,22 +1308,19 @@ export async function executeDiscordTurn(
         const classificationStartedAt = Date.now();
         const explicitIntentIds =
           deterministicConfig.explicitIntentIds?.filter((intentId) => intentId.trim().length > 0) ?? [];
-        const conversationAffinityClassification =
+        const recentDeterministicContinuation =
           explicitIntentIds.length === 0 && activeTaskResolution.kind === "none"
-            ? buildConversationAffinityClassification({
+            ? buildRecentDeterministicContinuationContext({
                 latestTurn: dependencies.getLatestDeterministicTurnForConversation?.(input.context.conversationKey) ?? null,
                 userMessage: input.turn.transcript,
-                confidenceThreshold: deterministicConfig.confidenceThreshold,
               })
-            : null;
+            : undefined;
         const classification =
           explicitIntentIds.length > 0
             ? buildExplicitDeterministicClassification({
                 intentIds: explicitIntentIds,
                 catalog: intentCatalog,
               })
-            : conversationAffinityClassification
-              ? conversationAffinityClassification
             : await classifyDeterministicIntents({
                 userMessage: effectiveUserMessage,
                 catalog: intentCatalog,
@@ -1371,16 +1337,65 @@ export async function executeDiscordTurn(
                         expectedIntentIds: activeTaskResolution.matchedTask.intentIds,
                         structuredContext: activeTaskResolution.matchedTask.structuredContext,
                       }
-                    : undefined,
+                    : recentDeterministicContinuation,
                 conversationContext: deterministicConversationContext ?? undefined,
               });
+        let effectiveClassification = classification;
+
+        if (
+          !conversationalTurnBypass &&
+          recentDeterministicContinuation &&
+          !effectiveClassification.meetsThreshold &&
+          effectiveClassification.envelopes.length === 0 &&
+          recentDeterministicContinuation.expectedIntentIds.length === 1
+        ) {
+          const narrowedIntentId = recentDeterministicContinuation.expectedIntentIds[0];
+          const narrowedCatalog = intentCatalog.filter((entry) => entry.id === narrowedIntentId);
+          if (narrowedCatalog.length === 1) {
+            const retriedClassification = await classifyDeterministicIntents({
+              userMessage: effectiveUserMessage,
+              catalog: narrowedCatalog,
+              providerChain: classifierProviderChain,
+              retryLimit: dependencies.providerRetryLimit,
+              confidenceThreshold: deterministicConfig.confidenceThreshold,
+              model: deterministicConfig.model,
+              reasoningEffort: deterministicConfig.reasoningEffort,
+              continuation: recentDeterministicContinuation,
+              conversationContext: deterministicConversationContext ?? undefined,
+            });
+            if (retriedClassification.meetsThreshold) {
+              console.log(
+                `[turn-executor] recovered deterministic continuation via narrowed classifier retry: ${narrowedIntentId}`,
+              );
+              effectiveClassification = mergeClassificationAttempts(
+                effectiveClassification,
+                retriedClassification,
+              );
+            }
+          }
+        }
+
         const intentLatencyMs = Date.now() - classificationStartedAt;
 
-        if (classification.meetsThreshold) {
+        if (
+          !conversationalTurnBypass &&
+          effectiveClassification.conversationMode === "follow_up" &&
+          effectiveClassification.envelopes.length === 0
+        ) {
+          conversationalTurnBypass = {
+            kind: "follow_up",
+            reason: "intent classifier marked the turn as a conversational follow-up",
+          };
+          console.log(
+            `[turn-executor] classifier marked turn conversational: ${conversationalTurnBypass.reason}`,
+          );
+        }
+
+        if (effectiveClassification.meetsThreshold && !conversationalTurnBypass) {
           const routingStartedAt = Date.now();
           const routingResult = buildDeterministicExecutionPlan({
             userMessage: effectiveUserMessage,
-            envelopes: classification.envelopes,
+            envelopes: effectiveClassification.envelopes,
             catalog: intentCatalog,
             registry: capabilityRegistry,
             conversationContext: deterministicConversationContext,
@@ -1426,10 +1441,10 @@ export async function executeDiscordTurn(
                   `agent:${input.turn.agentId}`,
                 ],
               },
-              intent: {
-                envelopes: classification.envelopes,
-                classifierProvider: classification.providerName,
-                classifierModel: classification.response.metadata?.model,
+                intent: {
+                envelopes: effectiveClassification.envelopes,
+                classifierProvider: effectiveClassification.providerName,
+                classifierModel: effectiveClassification.response.metadata?.model,
                 classifierLatencyMs: intentLatencyMs,
               },
               routing: {
@@ -1457,10 +1472,10 @@ export async function executeDiscordTurn(
               summaryText: buildDeterministicTurnSummary({
                 userMessage: effectiveUserMessage,
                 routeOutcome: "clarification",
-                intents: classification.envelopes,
+                intents: effectiveClassification.envelopes,
                 finalReply: clarificationFailoverResult.retryResult.response.text,
               }),
-              classifier: classification,
+              classifier: effectiveClassification,
               receipts: [],
             };
 
@@ -1468,7 +1483,7 @@ export async function executeDiscordTurn(
               responseText: clarificationFailoverResult.retryResult.response.text,
               providerName: clarificationFailoverResult.providerName,
               providerSessionId: clarificationFailoverResult.retryResult.response.providerSessionId,
-              providerUsedFailover: classification.usedFailover || clarificationFailoverResult.usedFailover,
+              providerUsedFailover: effectiveClassification.usedFailover || clarificationFailoverResult.usedFailover,
               warmStartUsed: clarificationFailoverResult.warmStartUsed,
               providerRequestPrompt: clarificationFailoverResult.requestPrompt,
               providerRequestWarmStartUsed: clarificationFailoverResult.warmStartUsed,
@@ -1476,12 +1491,12 @@ export async function executeDiscordTurn(
               initialRequestWarmStartUsed: clarificationFailoverResult.warmStartUsed,
               usedWorkerSynthesis: false,
               response: clarificationFailoverResult.retryResult.response,
-              attemptCount: classification.attemptCount + clarificationFailoverResult.retryResult.attempts,
+              attemptCount: effectiveClassification.attemptCount + clarificationFailoverResult.retryResult.attempts,
               attemptErrors: [
-                ...classification.attemptErrors,
+                ...effectiveClassification.attemptErrors,
                 ...clarificationFailoverResult.retryResult.attemptErrors,
               ],
-              providerFailures: [...classification.failures, ...clarificationFailoverResult.failures],
+              providerFailures: [...effectiveClassification.failures, ...clarificationFailoverResult.failures],
               warmStartContextChars,
               configuredProviders: [...input.context.configuredProviderNames],
               effectiveProviders: [...input.context.providerNames],
@@ -1561,9 +1576,9 @@ export async function executeDiscordTurn(
                   ],
                 },
                 intent: {
-                  envelopes: classification.envelopes,
-                  classifierProvider: classification.providerName,
-                  classifierModel: classification.response.metadata?.model,
+                  envelopes: effectiveClassification.envelopes,
+                  classifierProvider: effectiveClassification.providerName,
+                  classifierModel: effectiveClassification.response.metadata?.model,
                   classifierLatencyMs: intentLatencyMs,
                 },
                 routing: {
@@ -1592,27 +1607,27 @@ export async function executeDiscordTurn(
                   routeOutcome: "executed",
                   intents: classification.envelopes,
                   receipts,
-                  finalReply: directWorkerText,
-                }),
-                classifier: classification,
+                finalReply: directWorkerText,
+              }),
+                classifier: effectiveClassification,
                 receipts,
               };
 
               return {
                 responseText: directWorkerText,
-                providerName: classification.providerName,
-                providerSessionId: classification.response.providerSessionId,
-                providerUsedFailover: classification.usedFailover,
+                providerName: effectiveClassification.providerName,
+                providerSessionId: effectiveClassification.response.providerSessionId,
+                providerUsedFailover: effectiveClassification.usedFailover,
                 warmStartUsed: false,
-                providerRequestPrompt: classification.requestPrompt,
+                providerRequestPrompt: effectiveClassification.requestPrompt,
                 providerRequestWarmStartUsed: false,
-                initialRequestPrompt: classification.requestPrompt,
+                initialRequestPrompt: effectiveClassification.requestPrompt,
                 initialRequestWarmStartUsed: false,
                 usedWorkerSynthesis: false,
                 response: directResponse,
-                attemptCount: classification.attemptCount,
-                attemptErrors: [...classification.attemptErrors],
-                providerFailures: [...classification.failures],
+                attemptCount: effectiveClassification.attemptCount,
+                attemptErrors: [...effectiveClassification.attemptErrors],
+                providerFailures: [...effectiveClassification.failures],
                 warmStartContextChars,
                 configuredProviders: [...input.context.configuredProviderNames],
                 effectiveProviders: [...input.context.providerNames],
@@ -1665,12 +1680,12 @@ export async function executeDiscordTurn(
                   ...[...new Set(receipts.map((receipt) => `worker:${receipt.workerId}`))],
                 ],
               },
-              intent: {
-                envelopes: classification.envelopes,
-                classifierProvider: classification.providerName,
-                classifierModel: classification.response.metadata?.model,
-                classifierLatencyMs: intentLatencyMs,
-              },
+                intent: {
+                  envelopes: effectiveClassification.envelopes,
+                  classifierProvider: effectiveClassification.providerName,
+                  classifierModel: effectiveClassification.response.metadata?.model,
+                  classifierLatencyMs: intentLatencyMs,
+                },
               routing: {
                 plan: routingResult.plan,
                 clarificationNeeded: false,
@@ -1700,7 +1715,7 @@ export async function executeDiscordTurn(
                 receipts,
                 finalReply: guardedNarrationText,
               }),
-              classifier: classification,
+              classifier: effectiveClassification,
               receipts,
             };
 
@@ -1708,7 +1723,7 @@ export async function executeDiscordTurn(
               responseText: guardedNarrationText,
               providerName: narrationFailoverResult.providerName,
               providerSessionId: narrationFailoverResult.retryResult.response.providerSessionId,
-              providerUsedFailover: classification.usedFailover || narrationFailoverResult.usedFailover,
+              providerUsedFailover: effectiveClassification.usedFailover || narrationFailoverResult.usedFailover,
               warmStartUsed: narrationFailoverResult.warmStartUsed,
               providerRequestPrompt: narrationFailoverResult.requestPrompt,
               providerRequestWarmStartUsed: narrationFailoverResult.warmStartUsed,
@@ -1716,12 +1731,12 @@ export async function executeDiscordTurn(
               initialRequestWarmStartUsed: narrationFailoverResult.warmStartUsed,
               usedWorkerSynthesis: false,
               response: narrationFailoverResult.retryResult.response,
-              attemptCount: classification.attemptCount + narrationFailoverResult.retryResult.attempts,
+              attemptCount: effectiveClassification.attemptCount + narrationFailoverResult.retryResult.attempts,
               attemptErrors: [
-                ...classification.attemptErrors,
+                ...effectiveClassification.attemptErrors,
                 ...narrationFailoverResult.retryResult.attemptErrors,
               ],
-              providerFailures: [...classification.failures, ...narrationFailoverResult.failures],
+              providerFailures: [...effectiveClassification.failures, ...narrationFailoverResult.failures],
               warmStartContextChars,
               configuredProviders: [...input.context.configuredProviderNames],
               effectiveProviders: [...input.context.providerNames],
@@ -1745,9 +1760,9 @@ export async function executeDiscordTurn(
               ],
             },
             intent: {
-              envelopes: classification.envelopes,
-              classifierProvider: classification.providerName,
-              classifierModel: classification.response.metadata?.model,
+              envelopes: effectiveClassification.envelopes,
+              classifierProvider: effectiveClassification.providerName,
+              classifierModel: effectiveClassification.response.metadata?.model,
               classifierLatencyMs: intentLatencyMs,
             },
             routing: {
@@ -1755,7 +1770,11 @@ export async function executeDiscordTurn(
               clarificationNeeded: false,
               routeOutcome: "fallback",
               routeLatencyMs: undefined,
-              fallbackReason: classification.meetsThreshold
+              fallbackReason:
+                effectiveClassification.conversationMode === "follow_up" &&
+                effectiveClassification.envelopes.length === 0
+                ? "Intent classifier marked this turn as conversational."
+                : effectiveClassification.meetsThreshold
                 ? "Deterministic routing did not produce an executable plan."
                 : "Classification confidence was below the deterministic routing threshold.",
             },
@@ -1771,9 +1790,9 @@ export async function executeDiscordTurn(
           summaryText: buildDeterministicTurnSummary({
             userMessage: effectiveUserMessage,
             routeOutcome: "fallback",
-            intents: classification.envelopes,
+            intents: effectiveClassification.envelopes,
           }),
-          classifier: classification,
+          classifier: effectiveClassification,
           receipts: [],
         };
       } catch (error) {
