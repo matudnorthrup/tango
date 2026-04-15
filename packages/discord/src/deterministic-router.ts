@@ -483,7 +483,6 @@ const NUTRITION_LOG_ALLOWED_TOOL_IDS = [
   "recipe_read",
   "nutrition_log_items",
   "fatsecret_api",
-  "atlas_sql",
 ];
 
 const NUTRITION_LOG_REPAIR_ALLOWED_TOOL_IDS = [
