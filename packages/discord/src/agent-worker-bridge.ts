@@ -1605,9 +1605,32 @@ function parseAtlasAliasList(value: unknown): string[] {
   }
 }
 
+function extractSignificantFoodTokens(value: string): string[] {
+  return normalizeFoodItemLabelForMatch(value)
+    .split(" ")
+    .filter((token) =>
+      token.length > 2
+      && !NUMBER_WORD_VALUES[token]
+      && !["raw", "medium", "small", "large"].includes(token),
+    );
+}
+
+function stripParentheticalSegments(value: string): string {
+  return value.replace(/\([^)]*\)/gu, " ");
+}
+
+function buildNormalizedItemVariants(value: string): string[] {
+  return [...new Set(
+    [
+      normalizeFoodItemLabelForMatch(value),
+      normalizeFoodItemLabelForMatch(stripParentheticalSegments(value)),
+    ].filter((variant) => variant.length > 0),
+  )];
+}
+
 function scoreAtlasRowForItem(itemLabel: string, row: Record<string, unknown>): number {
-  const normalizedItem = normalizeFoodItemLabelForMatch(itemLabel);
-  if (!normalizedItem) {
+  const normalizedItemVariants = buildNormalizedItemVariants(itemLabel);
+  if (normalizedItemVariants.length === 0) {
     return 0;
   }
   const aliases = parseAtlasAliasList(row.aliases);
@@ -1616,17 +1639,26 @@ function scoreAtlasRowForItem(itemLabel: string, row: Record<string, unknown>): 
     typeof row.product === "string" ? row.product : "",
     typeof row.brand === "string" ? row.brand : "",
     ...aliases,
-  ]
-    .map((value) => normalizeFoodItemLabelForMatch(value))
-    .filter((value) => value.length > 0);
-  const itemWords = normalizedItem.split(" ").filter((word) => word.length > 1);
+  ];
+  const normalizedHaystacks = [...new Set(
+    haystacks
+      .map((value) => normalizeFoodItemLabelForMatch(value))
+      .filter((value) => value.length > 0),
+  )];
+  const itemWords = [...new Set(
+    normalizedItemVariants
+      .flatMap((variant) => variant.split(" "))
+      .filter((word) => word.length > 1),
+  )];
   const matchedWords = new Set<string>();
   let score = 0;
-  for (const haystack of haystacks) {
-    if (haystack === normalizedItem) {
-      score += 100;
-    } else if (haystack.includes(normalizedItem) || normalizedItem.includes(haystack)) {
-      score += 50;
+  for (const haystack of normalizedHaystacks) {
+    for (const normalizedItem of normalizedItemVariants) {
+      if (haystack === normalizedItem) {
+        score += 100;
+      } else if (haystack.includes(normalizedItem) || normalizedItem.includes(haystack)) {
+        score += 50;
+      }
     }
     for (const word of itemWords) {
       if (haystack.includes(word)) {
@@ -2165,25 +2197,35 @@ function scoreFatsecretSearchRowForItem(
   const normalizedItem = normalizeFoodItemLabelForMatch(itemLabel);
   const foodName = typeof row.food_name === "string" ? row.food_name : "";
   const normalizedFoodName = normalizeFoodItemLabelForMatch(foodName);
-  if (!normalizedFoodName) {
+  if (!normalizedItem || !normalizedFoodName) {
+    return 0;
+  }
+
+  const itemTokens = [...new Set(extractSignificantFoodTokens(itemLabel))];
+  const rowTokens = [...new Set(extractSignificantFoodTokens(foodName))];
+  if (itemTokens.length === 0 || rowTokens.length === 0) {
+    return 0;
+  }
+  const matchedTokens = rowTokens.filter((token) => itemTokens.includes(token));
+  if (matchedTokens.length === 0 || matchedTokens.length / itemTokens.length < 0.5) {
     return 0;
   }
 
   let score = 0;
-  if (normalizedItem.includes(normalizedFoodName)) {
+  if (normalizedFoodName === normalizedItem) {
+    score += 50;
+  } else if (normalizedItem.includes(normalizedFoodName) || normalizedFoodName.includes(normalizedItem)) {
     score += 20;
   }
-  const itemTokens = normalizedItem.split(" ").filter((token) =>
-    token.length > 2 && !NUMBER_WORD_VALUES[token] && !["raw", "medium", "small", "large"].includes(token),
-  );
-  const rowTokens = normalizedFoodName.split(" ").filter((token) => token.length > 2);
-  for (const token of rowTokens) {
-    if (itemTokens.includes(token)) {
-      score += 5;
-    }
-  }
+  score += matchedTokens.length * 5;
+  const brandName = typeof row.brand_name === "string" ? row.brand_name : "";
+  const brandTokens = [...new Set(extractSignificantFoodTokens(brandName))];
+  const matchedBrandTokens = brandTokens.filter((token) => itemTokens.includes(token));
+  score += matchedBrandTokens.length * 8;
   if (typeof row.food_type === "string" && row.food_type.toLowerCase() === "generic") {
     score += 2;
+  } else if (brandTokens.length > 0 && matchedBrandTokens.length === 0) {
+    score -= 1;
   }
   return score;
 }
