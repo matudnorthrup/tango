@@ -50,6 +50,17 @@ Only if Atlas has no match for an ingredient:
 3. If needed, call `food_get` to inspect serving details before logging.
 4. After logging, consider adding the ingredient to Atlas for next time (if it's something the user eats regularly).
 
+### Restaurant and branded calorie overrides
+
+When the user gives an explicit calorie count for a restaurant or branded item:
+
+1. Treat the user's calorie count as the target you should preserve. Do not decompose the item into ingredients just because an exact serving is missing.
+2. Search FatSecret for the same restaurant and item family first.
+3. If you find a strong same-brand same-item match but only in a nearby serving size, you may scale `number_of_units` to hit the user's stated calories.
+4. Use the user's wording as `food_entry_name` so the diary label reflects what they actually ate, not the nearest fallback serving title.
+5. After the write, call `food_entries_get` and verify the refreshed diary entry before claiming success.
+6. Only stop for clarification if you cannot find a strong same-brand same-item match at all.
+
 ### Step 5: Log to FatSecret
 
 For each resolved ingredient, call `food_entry_create` with:
@@ -81,6 +92,7 @@ If `fatsecret_api` returns a generic cancellation or other opaque failure while 
 - **Never fabricate food data.** If a food can't be found in Atlas or FatSecret, report it as unresolved. Do not invent calories, macros, food_ids, or serving_ids.
 - **Never guess gram conversions.** Use `grams_per_serving` from Atlas or `metric_serving_amount` from FatSecret to compute `number_of_units`. Do not estimate.
 - **Verify serving shape before writes.** If the selected serving might be gram-denominated, inspect `food_get` first and follow the serving semantics FatSecret actually exposes. Raw gram servings take raw grams in `number_of_units`; portion-style servings take serving fractions.
+- **Preserve explicit restaurant calories.** If the user says a restaurant or branded item was `730 calories`, keep that calorie target by scaling the closest strong same-item FatSecret match instead of refusing the write or decomposing the meal.
 - **Do not claim an unverified write succeeded.** If FatSecret is unreachable, rejects the write, or diary refresh fails, return the attempted items as unconfirmed instead of logged.
 - **Cancelled connector calls are not receipts.** A cancelled `foods_search`, `food_get`, `food_entry_create`, or `food_entries_get` call means the lookup or write is unverified until a later successful FatSecret read confirms it.
 - **Batch efficiently.** If logging a recipe with 8 ingredients, run the Atlas query for all of them in one SQL call (using OR conditions) before falling back to individual FatSecret searches for any misses.
