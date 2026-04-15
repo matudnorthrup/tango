@@ -1,0 +1,65 @@
+id: sinking-fund-reconciliation
+display_name: Sinking Fund Reconciliation
+description: >
+  Weekly Sunday sinking fund reconciliation for Watson with month-to-date
+  spending, outstanding reimbursements, balances, and contribution status.
+enabled: true
+
+schedule:
+  cron: "0 7 * * 0"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: conditional-agent
+  pre_check:
+    handler: watson-sinking-fund-reconciliation-context
+  worker_id: personal-assistant
+  intent_ids:
+    - finance.sinking_fund_reconciliation
+  task_template: |
+    Weekly sinking fund reconciliation for Watson.
+
+    Scheduler context:
+    - run_date: {{runDate}}
+    - cadence: {{cadence}}
+
+    IMPORTANT: Confirm today's date before doing any date math.
+
+    Follow the sinking_fund_reconciliation skill guidance. This is a rolling
+    weekly checkpoint, so make the report useful even if the month is not over.
+    Default to the current month-to-date unless the task text says otherwise.
+
+    Return a report with:
+    1. Fund summary
+    2. Category detail
+    3. Contribution check
+    4. Recommended transfers needed to clear the books today
+    5. Warnings or an explicit all-clear
+  timeout_seconds: 300
+
+provider:
+  model: sonnet
+
+delivery:
+  channel_id: "100000000000000013"
+  agent_id: watson
+
+completion:
+  workflow_id: sinking-fund-reconciliation-weekly
+  scope: weekly
+
+policy:
+  max_consecutive_failures: 3
+  alert_channel_id: "100000000000000010"
+  concurrency_group: watson-tasks
+  priority: 5
+  backoff:
+    enabled: true
+    initial_seconds: 120
+    max_seconds: 3600
+
+tags:
+  - watson
+  - finance
+  - weekly
+  - sinking-fund
