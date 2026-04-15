@@ -53,6 +53,14 @@ interface UnresolvedNutritionLogItem {
   item: string;
   quantity: string;
   reason: string;
+  resolution?: string;
+  atlas_match?: {
+    name: string;
+    food_id: string;
+    serving_id: string;
+    calories?: number;
+    grams_per_serving?: number;
+  };
 }
 
 const NUMBER_WORD_VALUES: Record<string, number> = {
@@ -144,10 +152,13 @@ export async function executeNutritionLogItems(
 
       const derived = deriveAtlasWriteUnits(item.quantity, row);
       if (!derived) {
+        const atlasMatch = buildAtlasMatchSummary(row, foodId, servingId);
         unresolved.push({
           item: item.name,
           quantity: item.quantity,
-          reason: "Could not derive FatSecret units from the Atlas serving definition.",
+          resolution: formatAtlasResolutionSummary(atlasMatch),
+          atlas_match: atlasMatch,
+          reason: buildAtlasUnitConversionFallbackReason(item.quantity, atlasMatch),
         });
         continue;
       }
@@ -448,6 +459,12 @@ function parseFiniteNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function formatAtlasDisplayNumber(value: number): string {
+  return Number.isInteger(value)
+    ? String(value)
+    : String(Number.parseFloat(value.toFixed(2)));
+}
+
 function singularizeToken(token: string): string {
   if (token.endsWith("ies") && token.length > 3) {
     return `${token.slice(0, -3)}y`;
@@ -519,6 +536,64 @@ function deriveAtlasGramsPerServing(row: AtlasIngredientRow): number | null {
     ?? parseGramValueFromText(row.serving_size)
     ?? parseGramValueFromText(row.serving_description)
   );
+}
+
+function buildAtlasMatchSummary(
+  row: AtlasIngredientRow,
+  foodId: string,
+  servingId: string,
+): {
+  name: string;
+  food_id: string;
+  serving_id: string;
+  calories?: number;
+  grams_per_serving?: number;
+} {
+  const calories = parseFiniteNumber(row.calories);
+  const gramsPerServing = deriveAtlasGramsPerServing(row);
+  return {
+    name: selectAtlasEntryName(row),
+    food_id: foodId,
+    serving_id: servingId,
+    ...(calories !== null ? { calories } : {}),
+    ...(gramsPerServing !== null ? { grams_per_serving: gramsPerServing } : {}),
+  };
+}
+
+function formatAtlasResolutionSummary(
+  atlasMatch: {
+    name: string;
+    food_id: string;
+    serving_id: string;
+    grams_per_serving?: number;
+  },
+): string {
+  const details = [
+    `food_id ${atlasMatch.food_id}`,
+    `serving_id ${atlasMatch.serving_id}`,
+    ...(typeof atlasMatch.grams_per_serving === "number"
+      ? [`grams_per_serving ${formatAtlasDisplayNumber(atlasMatch.grams_per_serving)}`]
+      : []),
+  ];
+  return `Atlas match found: ${atlasMatch.name} (${details.join(", ")})`;
+}
+
+function buildAtlasUnitConversionFallbackReason(
+  quantity: string,
+  atlasMatch: {
+    name: string;
+    food_id: string;
+    calories?: number;
+  },
+): string {
+  const caloriesText = typeof atlasMatch.calories === "number"
+    ? ` Atlas calories are ${formatAtlasDisplayNumber(atlasMatch.calories)} per Atlas serving.`
+    : "";
+  return [
+    `Atlas matched ${atlasMatch.name} (food_id ${atlasMatch.food_id}).${caloriesText}`,
+    `The deterministic layer could not convert "${quantity}" from the Atlas serving definition.`,
+    `Use fatsecret_api food_get with food_id ${atlasMatch.food_id} to inspect serving options and choose the one that matches the requested quantity (for example tbsp or cup).`,
+  ].join(" ");
 }
 
 function scoreAtlasRowForItem(itemLabel: string, row: AtlasIngredientRow): number {

@@ -439,6 +439,147 @@ describe("executeNutritionLogItems", () => {
     });
   });
 
+  it("preserves Atlas match details when unit conversion needs FatSecret serving repair", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "White Rice",
+        food_id: "64",
+        serving_id: "6401",
+        serving_description: "100 g",
+        serving_size: "100 g",
+        grams_per_serving: 100,
+        calories: 130,
+        protein: 2.4,
+        carbs: 28,
+        fat: 0.3,
+        aliases: JSON.stringify(["white rice"]),
+      },
+      {
+        name: "Freeze-Dried Apple Crisps",
+        brand: "Great Value",
+        food_id: "25856420",
+        serving_id: "23931789",
+        serving_description: "",
+        serving_size: "10g",
+        grams_per_serving: 10,
+        calories: 40,
+        protein: 0,
+        carbs: 10,
+        fat: 0,
+        fiber: 1,
+        aliases: JSON.stringify(["freeze dried apples", "apple crisps"]),
+      },
+      {
+        name: "Black Beans",
+        food_id: "11748",
+        serving_id: "9911",
+        serving_description: "130 g",
+        serving_size: "130 g",
+        grams_per_serving: 130,
+        calories: 132,
+        protein: 8.9,
+        carbs: 23.7,
+        fat: 0.5,
+        fiber: 8.7,
+        aliases: JSON.stringify(["black beans"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return {
+          success: true,
+          food_entry_id: `${params.food_id}-entry`,
+        };
+      }
+      if (method === "food_entries_get") {
+        return {
+          lunch: [{ food_entry_id: "25856420-entry" }],
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [
+          { name: "white rice", quantity: "2 tablespoons" },
+          { name: "freeze dried apples", quantity: "1 package" },
+          { name: "black beans", quantity: "1 cup" },
+        ],
+        meal: "lunch",
+        date: "2026-04-22",
+        strict: false,
+      },
+      {
+        atlasDbPath,
+        fatsecretCall,
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "partial_success",
+      meal: "lunch",
+      date: "2026-04-22",
+      totals: {
+        calories: 40,
+        protein: 0,
+        carbs: 10,
+        fat: 0,
+        fiber: 1,
+      },
+    });
+    expect(result.logged).toHaveLength(1);
+    expect(result.logged[0]).toMatchObject({
+      item: "freeze dried apples",
+      food_id: "25856420",
+      serving_id: "23931789",
+      number_of_units: 1,
+    });
+    expect(result.unresolved).toMatchObject([
+      {
+        item: "white rice",
+        quantity: "2 tablespoons",
+        resolution: "Atlas match found: White Rice (food_id 64, serving_id 6401, grams_per_serving 100)",
+        atlas_match: {
+          name: "White Rice",
+          food_id: "64",
+          serving_id: "6401",
+          calories: 130,
+          grams_per_serving: 100,
+        },
+      },
+      {
+        item: "black beans",
+        quantity: "1 cup",
+        resolution: "Atlas match found: Black Beans (food_id 11748, serving_id 9911, grams_per_serving 130)",
+        atlas_match: {
+          name: "Black Beans",
+          food_id: "11748",
+          serving_id: "9911",
+          calories: 132,
+          grams_per_serving: 130,
+        },
+      },
+    ]);
+    expect(result.unresolved[0]).toMatchObject({
+      reason: expect.stringContaining("Use fatsecret_api food_get with food_id 64"),
+    });
+    expect(result.unresolved[0]).toMatchObject({
+      reason: expect.stringContaining("Atlas matched White Rice (food_id 64). Atlas calories are 130 per Atlas serving."),
+    });
+    expect(result.unresolved[1]).toMatchObject({
+      reason: expect.stringContaining("Use fatsecret_api food_get with food_id 11748"),
+    });
+    expect(result.unresolved[1]).toMatchObject({
+      reason: expect.stringContaining("Atlas matched Black Beans (food_id 11748). Atlas calories are 132 per Atlas serving."),
+    });
+    expect(fatsecretCall.mock.calls.map(([method]) => method)).toEqual([
+      "food_entry_create",
+      "food_entries_get",
+    ]);
+  });
+
   it("rejects weak Atlas token overlap instead of writing the wrong ingredient", async () => {
     const atlasDbPath = createAtlasDb([
       {
