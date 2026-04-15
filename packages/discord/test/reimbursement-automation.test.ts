@@ -203,6 +203,9 @@ describe("reimbursement-automation helpers", () => {
 
     const rendered = buildEmailEvidenceHtml(parsed);
     expect(rendered).toContain("You paid Kip Everitt $600.00");
+    expect(rendered).toContain("Venmo receipt");
+    expect(rendered).toContain("Recipient");
+    expect(rendered).toContain("Kip Everitt");
     expect(rendered).toContain("Venmo &lt;venmo@venmo.com&gt;");
     expect(rendered).toContain("$600.00");
   });

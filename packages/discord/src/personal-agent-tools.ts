@@ -21,9 +21,12 @@ import {
   backfillWalmartReceiptNote,
   findWalmartReceiptRecord,
   listWalmartDeliveryCandidates,
+  reconcileWalmartReimbursementsAgainstRamp,
   upsertWalmartReimbursementTracking,
 } from "./receipt-reimbursement-registry.js";
 import { executeGoogleDocTabUpdate } from "./google-doc-update-executor.js";
+import { loadReimbursementEvidenceRecord } from "./reimbursement-evidence.js";
+import { extractRampReimbursementIdFromUrl } from "./reimbursement-automation.js";
 
 // ---------------------------------------------------------------------------
 // Command runner (shared)
@@ -520,6 +523,47 @@ export function createFinanceTools(overrides?: PersonalToolPaths): AgentTool[] {
 // Receipt reimbursement tracking
 // ---------------------------------------------------------------------------
 
+function currentLocalIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function syncWalmartTrackingFromRampEvidence(input: {
+  evidencePath: string;
+  status: string;
+  amount?: number;
+  submitted?: string;
+  note?: string;
+  rampReportId?: string;
+}): void {
+  const evidenceRecord = loadReimbursementEvidenceRecord(input.evidencePath);
+  const orderId = evidenceRecord?.orderId?.trim();
+  if (!orderId) {
+    return;
+  }
+
+  const existing = findWalmartReceiptRecord(orderId);
+  if (!existing) {
+    return;
+  }
+  const existingStatus = existing?.reimbursement.status?.trim().toLowerCase();
+  const nextStatus = existingStatus === "reimbursed" ? "reimbursed" : input.status;
+  upsertWalmartReimbursementTracking({
+    orderId,
+    status: nextStatus,
+    system: "Ramp",
+    reimbursableItem: "Driver tip",
+    amount: input.amount,
+    submitted: input.submitted,
+    note: input.note,
+    evidencePath: input.evidencePath,
+    rampReportId: input.rampReportId,
+  });
+}
+
 export function createReceiptRegistryTools(): AgentTool[] {
   return [
     {
@@ -530,12 +574,17 @@ export function createReceiptRegistryTools(): AgentTool[] {
         "Actions:",
         "  list_walmart_delivery_candidates",
         "    List Walmart receipt notes that include a delivery driver tip and are still missing reimbursement submission state.",
-        "    Optional params: since (YYYY-MM-DD), include_submitted (boolean).",
+        "    By default this verifies the candidate list against live Ramp reimbursement history before returning anything as pending.",
+        "    Optional params: since (YYYY-MM-DD), until (YYYY-MM-DD), include_submitted (boolean), verify_with_ramp (boolean), max_pages (number).",
         "",
         "  backfill_walmart_delivery_candidates",
         "    Scan live Walmart purchase history for delivery-from-store orders with driver tips, create missing receipt notes,",
         "    and return the pending reimbursement candidates Watson can file next.",
-        "    Optional params: since (YYYY-MM-DD), until (YYYY-MM-DD), include_submitted (boolean), max_pages (number).",
+        "    Optional params: since (YYYY-MM-DD), until (YYYY-MM-DD), include_submitted (boolean), verify_with_ramp (boolean), max_pages (number).",
+        "",
+        "  reconcile_walmart_reimbursements",
+        "    Verify Walmart tip notes against live Ramp reimbursement history and update stale note status fields in place.",
+        "    Optional params: since (YYYY-MM-DD), until (YYYY-MM-DD), max_pages (number).",
         "",
         "  upsert_walmart_reimbursement",
         "    Create or update the standardized reimbursement tracking block inside a Walmart receipt note.",
@@ -552,25 +601,30 @@ export function createReceiptRegistryTools(): AgentTool[] {
             enum: [
               "list_walmart_delivery_candidates",
               "backfill_walmart_delivery_candidates",
+              "reconcile_walmart_reimbursements",
               "upsert_walmart_reimbursement",
             ],
             description: "Receipt-registry action to perform.",
           },
           since: {
             type: "string",
-            description: "For list_walmart_delivery_candidates: optional lower date bound in YYYY-MM-DD format.",
+            description: "For list/backfill/reconcile actions: optional lower date bound in YYYY-MM-DD format.",
           },
           until: {
             type: "string",
-            description: "For backfill_walmart_delivery_candidates: optional upper date bound in YYYY-MM-DD format.",
+            description: "For list/backfill/reconcile actions: optional upper date bound in YYYY-MM-DD format.",
           },
           include_submitted: {
             type: "boolean",
             description: "For list/backfill actions: include already-submitted or reimbursed notes.",
           },
+          verify_with_ramp: {
+            type: "boolean",
+            description: "For list/backfill actions: verify note state against live Ramp history before claiming anything is pending. Defaults to true.",
+          },
           max_pages: {
             type: "number",
-            description: "For backfill_walmart_delivery_candidates: maximum Walmart history pages to scan (default 8).",
+            description: "For backfill/list/reconcile actions: maximum history pages to scan (default 8 for Walmart, 3 for Ramp).",
           },
           note_path: {
             type: "string",
@@ -617,26 +671,59 @@ export function createReceiptRegistryTools(): AgentTool[] {
       },
       handler: async (input) => {
         const action = String(input.action);
+        const since = typeof input.since === "string" ? input.since : undefined;
+        const until = typeof input.until === "string" ? input.until : undefined;
+        const includeSubmitted = input.include_submitted === true;
+        const verifyWithRamp = input.verify_with_ramp !== false;
         switch (action) {
-          case "list_walmart_delivery_candidates":
+          case "list_walmart_delivery_candidates": {
+            const localResults = listWalmartDeliveryCandidates({
+              since,
+              includeSubmitted,
+            }).filter((record) => !until || !record.date || record.date <= until);
+            if (!verifyWithRamp) {
+              return {
+                retailer: "Walmart",
+                verified_with_ramp: false,
+                results: localResults,
+              };
+            }
+
+            const bm = getBrowserManager();
+            await bm.launch(9223);
+            const history = await bm.listRampReimbursementHistory({
+              maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+            });
+            const reconciled = reconcileWalmartReimbursementsAgainstRamp({
+              history,
+              since,
+              until,
+              updateNotes: false,
+            });
             return {
               retailer: "Walmart",
-              results: listWalmartDeliveryCandidates({
-                since: typeof input.since === "string" ? input.since : undefined,
-                includeSubmitted: input.include_submitted === true,
-              }),
+              verified_with_ramp: true,
+              results: includeSubmitted ? reconciled.records : reconciled.pending,
+              verification: {
+                notes_examined: reconciled.notesExamined,
+                history_entries_examined: reconciled.historyEntriesExamined,
+                matched: reconciled.matched,
+                unverified_submitted: reconciled.unverifiedSubmitted,
+              },
             };
+          }
           case "backfill_walmart_delivery_candidates": {
             const bm = getBrowserManager();
             await bm.launch(9223);
             const discovered = await bm.discoverWalmartDeliveryCandidates({
-              since: typeof input.since === "string" ? input.since : undefined,
-              until: typeof input.until === "string" ? input.until : undefined,
+              since,
+              until,
               maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
             });
-            const includeSubmitted = input.include_submitted === true;
-            const results = discovered
+            const discoveredOrderIds = new Set<string>();
+            const backfilled = discovered
               .map((candidate) => {
+                discoveredOrderIds.add(candidate.orderId);
                 const existing = findWalmartReceiptRecord(candidate.orderId);
                 const noteRecord = existing ?? backfillWalmartReceiptNote({
                   orderId: candidate.orderId,
@@ -661,9 +748,68 @@ export function createReceiptRegistryTools(): AgentTool[] {
                 return candidate.reimbursement_status !== "submitted"
                   && candidate.reimbursement_status !== "reimbursed";
               });
+
+            if (!verifyWithRamp) {
+              return {
+                retailer: "Walmart",
+                verified_with_ramp: false,
+                results: backfilled,
+              };
+            }
+
+            const history = await bm.listRampReimbursementHistory({
+              maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+            });
+            const reconciled = reconcileWalmartReimbursementsAgainstRamp({
+              history,
+              since,
+              until,
+              updateNotes: false,
+            });
+            const pendingByOrderId = new Set(reconciled.pending.map((record) => record.orderId));
+            const verifiedMatches = reconciled.matched.filter((match) => discoveredOrderIds.has(match.orderId));
+            const unverifiedSubmitted = reconciled.unverifiedSubmitted
+              .filter((record) => discoveredOrderIds.has(record.orderId));
+            const results = backfilled.filter((candidate) => {
+              if (includeSubmitted) {
+                return true;
+              }
+              return pendingByOrderId.has(candidate.orderId);
+            });
+
             return {
               retailer: "Walmart",
               results,
+              verified_with_ramp: true,
+              verification: {
+                notes_examined: reconciled.notesExamined,
+                history_entries_examined: reconciled.historyEntriesExamined,
+                matched: verifiedMatches,
+                unverified_submitted: unverifiedSubmitted,
+              },
+            };
+          }
+          case "reconcile_walmart_reimbursements": {
+            const bm = getBrowserManager();
+            await bm.launch(9223);
+            const history = await bm.listRampReimbursementHistory({
+              maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+            });
+            const reconciled = reconcileWalmartReimbursementsAgainstRamp({
+              history,
+              since,
+              until,
+              updateNotes: true,
+            });
+            return {
+              retailer: "Walmart",
+              verified_with_ramp: true,
+              matched: reconciled.matched,
+              updated: reconciled.updated,
+              pending: reconciled.pending,
+              unverified_submitted: reconciled.unverifiedSubmitted,
+              notes_examined: reconciled.notesExamined,
+              history_entries_examined: reconciled.historyEntriesExamined,
             };
           }
           case "upsert_walmart_reimbursement":
@@ -709,13 +855,13 @@ export function createReimbursementAutomationTools(): AgentTool[] {
         "    Open a Walmart order page and capture archived evidence that shows Driver tip plus an explicit visible date.",
         "",
         "  capture_email_reimbursement_evidence",
-        "    Render a raw reimbursement email body into an archived screenshot evidence file for Ramp uploads.",
+        "    Render a raw reimbursement email body into an archived screenshot evidence file for Ramp uploads when no better attachment exists.",
         "",
         "  submit_ramp_reimbursement",
-        "    Create and submit a Ramp reimbursement draft with archived evidence, amount, date, memo, and merchant.",
+        "    Create and submit a Ramp reimbursement draft with archived evidence, amount, date, memo, and merchant. Evidence may be a PDF or an image file.",
         "",
         "  replace_ramp_reimbursement_receipt",
-        "    Open an existing Ramp reimbursement review page and replace or add receipt evidence, then capture a Ramp confirmation screenshot.",
+        "    Open an existing Ramp reimbursement review page and replace or add receipt evidence, then capture a Ramp confirmation screenshot. Evidence may be a PDF or an image file.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -760,7 +906,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
           },
           evidence_path: {
             type: "string",
-            description: "For submit or replace actions: absolute screenshot path.",
+            description: "For submit or replace actions: absolute evidence file path (PDF or image).",
           },
           merchant: {
             type: "string",
@@ -812,15 +958,26 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             if (typeof input.evidence_path !== "string" || input.evidence_path.trim().length === 0) {
               return { error: "submit_ramp_reimbursement requires evidence_path" };
             }
-            return {
-              result: await bm.submitRampReimbursement({
+            {
+              const result = await bm.submitRampReimbursement({
                 amount: input.amount,
                 transactionDate: input.transaction_date,
                 memo: input.memo,
                 evidencePath: input.evidence_path,
                 merchant: typeof input.merchant === "string" ? input.merchant : undefined,
-              }),
-            };
+              });
+              syncWalmartTrackingFromRampEvidence({
+                evidencePath: result.evidencePath,
+                status: "submitted",
+                amount: result.amount,
+                submitted: currentLocalIsoDate(),
+                note: result.memo,
+                rampReportId: result.rampReportId,
+              });
+              return {
+                result,
+              };
+            }
           case "replace_ramp_reimbursement_receipt":
             if (typeof input.review_url !== "string" || input.review_url.trim().length === 0) {
               return { error: "replace_ramp_reimbursement_receipt requires review_url" };
@@ -828,12 +985,20 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             if (typeof input.evidence_path !== "string" || input.evidence_path.trim().length === 0) {
               return { error: "replace_ramp_reimbursement_receipt requires evidence_path" };
             }
-            return {
-              result: await bm.replaceRampReimbursementReceipt({
+            {
+              const result = await bm.replaceRampReimbursementReceipt({
                 reviewUrl: input.review_url,
                 evidencePath: input.evidence_path,
-              }),
-            };
+              });
+              syncWalmartTrackingFromRampEvidence({
+                evidencePath: result.evidencePath,
+                status: "submitted",
+                rampReportId: extractRampReimbursementIdFromUrl(result.reviewUrl) ?? undefined,
+              });
+              return {
+                result,
+              };
+            }
           default:
             return { error: `Unknown ramp_reimbursement action: ${action}` };
         }
