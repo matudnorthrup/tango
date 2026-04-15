@@ -595,6 +595,7 @@ const ALLOWED_TOOL_IDS_BY_INTENT: Record<string, string[]> = {
   "nutrition.log_recipe": NUTRITION_LOG_ALLOWED_TOOL_IDS,
   "nutrition.log_repair": NUTRITION_LOG_REPAIR_ALLOWED_TOOL_IDS,
   "planning.calendar_review": ["gog_calendar"],
+  "planning.current_time_read": ["system_clock"],
   "planning.evening_review": PLANNING_EVENING_REVIEW_ALLOWED_TOOL_IDS,
   "planning.morning_review": PLANNING_MORNING_REVIEW_ALLOWED_TOOL_IDS,
   "printing.job_prepare_or_start": PRINTING_JOB_PREP_ALLOWED_TOOL_IDS,

@@ -277,6 +277,15 @@ function createDeterministicRegistry(): CapabilityRegistry {
       examples: ["What's on my calendar today?"],
     },
     {
+      id: "planning.current_time_read",
+      domain: "planning",
+      displayName: "Read Current Time",
+      description: "Read the current local time or date.",
+      mode: "read",
+      route: { kind: "worker", targetId: "personal-assistant" },
+      examples: ["What time is it?"],
+    },
+    {
       id: "email.inbox_review",
       domain: "email",
       displayName: "Review Inbox",
@@ -1587,7 +1596,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(result.responseText).toContain("Dinner logged");
   });
 
-  it("detects conversational turns that should bypass deterministic routing", () => {
+  it("only bypasses deterministic routing for pure acknowledgements", () => {
     const noTaskResolution = {
       kind: "none" as const,
       matchedTask: null,
@@ -1596,43 +1605,50 @@ describe("createDiscordVoiceTurnExecutor", () => {
 
     expect(
       __testOnly.detectConversationalTurnBypass({
-        userMessage: "So what's the next step to implement your proposed workflow then?",
-        activeTaskResolution: noTaskResolution,
-      })?.kind,
-    ).toBe("planning");
-    expect(
-      __testOnly.detectConversationalTurnBypass({
-        userMessage: "That is not what I asked.",
-        activeTaskResolution: noTaskResolution,
-      })?.kind,
-    ).toBe("correction");
-    expect(
-      __testOnly.detectConversationalTurnBypass({
-        userMessage: "Thanks, that makes sense.",
+        userMessage: "thanks",
         activeTaskResolution: noTaskResolution,
       })?.kind,
     ).toBe("feedback");
     expect(
       __testOnly.detectConversationalTurnBypass({
-        userMessage: "Can you summarize my unconfirmed transactions?",
+        userMessage: "Ok.",
+        activeTaskResolution: noTaskResolution,
+      })?.kind,
+    ).toBe("feedback");
+    expect(
+      __testOnly.detectConversationalTurnBypass({
+        userMessage: "What are the next steps to implement the workflow?",
+        activeTaskResolution: noTaskResolution,
+      }),
+    ).toBeNull();
+    expect(
+      __testOnly.detectConversationalTurnBypass({
+        userMessage: "That is not what I asked.",
+        activeTaskResolution: noTaskResolution,
+      }),
+    ).toBeNull();
+    expect(
+      __testOnly.detectConversationalTurnBypass({
+        userMessage: "Ok. Try adding freeze dried apples",
         activeTaskResolution: noTaskResolution,
       }),
     ).toBeNull();
   });
 
-  it("routes Watson planning follow-ups through a conversational tool-free LLM pass", async () => {
+  it("falls back to the LLM for Watson planning follow-ups when classification is not confident", async () => {
     const provider = new ScriptedProvider((callNumber, request) => {
-      expect(request.tools).toEqual({ mode: "off" });
-      expect(request.systemPrompt).toContain("conversational follow-up");
       if (callNumber === 1) {
+        expect(request.tools).toEqual({ mode: "off" });
         expect(request.prompt).toContain("Current user message:\nSo what's the next step to implement your proposed workflow then?");
         expect(request.prompt).toContain("proposed sinking-fund workflow");
         return {
-          text: '<worker-dispatch worker="personal-assistant">Pull the current Lunch Money category layout.</worker-dispatch>',
+          text: JSON.stringify({ conversationMode: "follow_up", intents: [] }),
           metadata: { model: "gpt-5.4" },
         };
       }
-      expect(request.prompt).toBe("So what's the next step to implement your proposed workflow then?");
+      expect(request.prompt).toContain("So what's the next step to implement your proposed workflow then?");
+      expect(request.tools).toEqual({ mode: "off" });
+      expect(request.systemPrompt).toContain("conversational follow-up");
       return {
         text: "1. Confirm the categories and transfer rules. 2. Add the recurring transfer automation. 3. Add the reconciliation review and exception-handling loop.",
         metadata: { model: "gpt-5.4" },
@@ -1706,18 +1722,29 @@ describe("createDiscordVoiceTurnExecutor", () => {
     );
 
     expect(result.responseText).toContain("Confirm the categories");
-    expect(result.deterministicTurn).toBeUndefined();
+    expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("fallback");
+    expect(result.deterministicTurn?.state.routing.fallbackReason).toBe(
+      "Intent classifier marked this turn as conversational.",
+    );
     expect(result.warmStartUsed).toBe(true);
     expect(result.warmStartContextChars).toBeGreaterThan(0);
     expect(workerCalls).toHaveLength(0);
     expect(provider.calls).toHaveLength(2);
   });
 
-  it("keeps correction follow-ups on the conversational path even with an open task", async () => {
+  it("falls back to the LLM for correction follow-ups even with an open task", async () => {
     const provider = new ScriptedProvider((callNumber, request) => {
-      expect(callNumber).toBe(1);
-      expect(request.prompt).toContain("Current user message:\nno I meant implementation steps, not another finance report");
-      expect(request.prompt).toContain("active_tasks:");
+      if (callNumber === 1) {
+        expect(request.prompt).toContain("Current user message:\nno I meant implementation steps, not another finance report");
+        expect(request.prompt).toContain("active_tasks:");
+        expect(request.tools).toEqual({ mode: "off" });
+        return {
+          text: JSON.stringify({ conversationMode: "follow_up", intents: [] }),
+          metadata: { model: "gpt-5.4" },
+        };
+      }
+
+      expect(request.prompt).toContain("no I meant implementation steps, not another finance report");
       expect(request.tools).toEqual({ mode: "off" });
       return {
         text: "Understood. The next implementation steps are to define the transfer triggers, map the account movements, and decide where the reconciliation note lives.",
@@ -1818,10 +1845,13 @@ describe("createDiscordVoiceTurnExecutor", () => {
 
     expect(result.responseText).toContain("next implementation steps");
     expect(result.activeTaskResolution?.kind).toBe("none");
-    expect(result.deterministicTurn).toBeUndefined();
+    expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("fallback");
+    expect(result.deterministicTurn?.state.routing.fallbackReason).toBe(
+      "Intent classifier marked this turn as conversational.",
+    );
     expect(result.warmStartUsed).toBe(true);
     expect(workerCalls).toHaveLength(0);
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls).toHaveLength(2);
   });
 
   it("passes older URL-bearing recent context into deterministic worker tasks", async () => {
@@ -1914,11 +1944,38 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.task).toContain("Please add the markdown sections back in so it's easier to scan.");
   });
 
-  it("reuses the latest same-thread deterministic intent for obvious docs follow-ups", async () => {
-    const provider = new ScriptedProvider(() => ({
-      text: "Updated the requested Google Doc tab.",
-      metadata: { model: "gpt-5.4" },
-    }));
+  it("classifies obvious docs follow-ups using recent deterministic context", async () => {
+    const provider = new ScriptedProvider((callNumber, request) => {
+      expect(callNumber).toBe(1);
+      expect(request.tools).toEqual({ mode: "off" });
+      expect(request.prompt).toContain("Continue recent deterministic intent docs.google_doc_read_or_update");
+      expect(request.prompt).toContain("Expected intents: docs.google_doc_read_or_update");
+      expect(request.prompt).toContain("\"priorIntentId\":\"docs.google_doc_read_or_update\"");
+      expect(request.prompt).toContain("use this tab instead https://docs.google.com/document/d/1abcDocId/edit?tab=t.new");
+      return {
+        text: JSON.stringify({
+          intents: [
+            {
+              intentId: "docs.google_doc_read_or_update",
+              confidence: 0.96,
+              entities: {
+                doc_query: "https://docs.google.com/document/d/1abcDocId/edit?tab=t.new",
+                account: "devin@latitude.io",
+                change_request: "Update the homepage copy",
+              },
+              rawEntities: ["https://docs.google.com/document/d/1abcDocId/edit?tab=t.new"],
+              missingSlots: [],
+              canRunInParallel: true,
+              routeHint: {
+                kind: "worker",
+                targetId: "personal-assistant",
+              },
+            },
+          ],
+        }),
+        metadata: { model: "gpt-5.4" },
+      };
+    });
 
     const workerCalls: Array<{ workerId: string; task: string }> = [];
     const deterministicRouting = {
@@ -2041,13 +2098,191 @@ describe("createDiscordVoiceTurnExecutor", () => {
     );
 
     expect(result.responseText).toContain("Updated the requested Google Doc tab.");
-    expect(result.deterministicTurn?.state.intent.classifierProvider).toBe("conversation-affinity");
+    expect(result.deterministicTurn?.state.intent.classifierProvider).toBe("codex");
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]?.workerId).toBe("personal-assistant");
     expect(workerCalls[0]?.task).toContain("docs.google_doc_read_or_update");
     expect(workerCalls[0]?.task).toContain("https://docs.google.com/document/d/1abcDocId/edit?tab=t.new");
     expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
-    expect(provider.calls).toHaveLength(0);
+    expect(provider.calls).toHaveLength(1);
+  });
+
+  it("classifies recent nutrition follow-ups through recent deterministic context", async () => {
+    const provider = new ScriptedProvider((callNumber, request) => {
+      expect(request.tools).toEqual({ mode: "off" });
+      expect(request.prompt).toContain("Continue recent deterministic intent nutrition.log_food");
+      expect(request.prompt).toContain("Expected intents: nutrition.log_food");
+      expect(request.prompt).toContain("\"priorIntentId\":\"nutrition.log_food\"");
+      expect(request.prompt).toContain("Short follow-up requests that explicitly ask to add or log food");
+      expect(request.prompt).toContain("want to try adding that rice now?");
+
+      if (callNumber === 1) {
+        return {
+          text: JSON.stringify({
+            conversationMode: "follow_up",
+            intents: [],
+          }),
+          metadata: { model: "gpt-5.4" },
+        };
+      }
+
+      expect(callNumber).toBe(2);
+      return {
+        text: JSON.stringify({
+          conversationMode: "follow_up",
+          intents: [
+            {
+              intentId: "nutrition.log_food",
+              confidence: 0.95,
+              entities: {
+                items: ["2 tablespoons of white rice"],
+                meal: "other",
+              },
+              rawEntities: ["white rice", "2 tablespoons"],
+              missingSlots: [],
+              canRunInParallel: true,
+              routeHint: {
+                kind: "workflow",
+                targetId: "wellness.log_food_items",
+              },
+            },
+          ],
+        }),
+        metadata: { model: "gpt-5.4" },
+      };
+    });
+
+    const workerCalls: Array<{ workerId: string; task: string }> = [];
+    const deterministicRouting = {
+      enabled: true,
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+      allowDirectStepExecution: false,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        getLatestDeterministicTurnForConversation: () => ({
+          id: "turn-1",
+          sessionId: "project:wellness",
+          agentId: "malibu",
+          conversationKey: "project:wellness:malibu",
+          initiatingPrincipalId: "user:user-1",
+          leadAgentPrincipalId: "agent:malibu",
+          projectId: "wellness",
+          topicId: "topic-1",
+          intentCount: 1,
+          intentIds: ["nutrition.log_food"],
+          intentJson: [
+            {
+              id: "intent-1",
+              domain: "wellness",
+              intentId: "nutrition.log_food",
+              mode: "write",
+              confidence: 0.96,
+              entities: {
+                items: ["2 tablespoons of white rice"],
+                meal: "other",
+              },
+              rawEntities: ["white rice", "2 tablespoons"],
+              missingSlots: [],
+              canRunInParallel: true,
+              routeHint: {
+                kind: "workflow",
+                targetId: "wellness.log_food_items",
+              },
+            },
+          ],
+          intentModelRunId: null,
+          routeOutcome: "executed",
+          fallbackReason: null,
+          executionPlanJson: null,
+          stepCount: 1,
+          completedStepCount: 1,
+          failedStepCount: 0,
+          hasWriteOperations: true,
+          workerIds: ["nutrition-logger"],
+          delegationChain: ["user:user-1", "agent:malibu", "worker:nutrition-logger"],
+          receiptsJson: [],
+          narrationProvider: "codex",
+          narrationModel: "gpt-5.4",
+          narrationLatencyMs: 1200,
+          narrationRetried: false,
+          narrationModelRunId: null,
+          intentLatencyMs: 3000,
+          routeLatencyMs: 5,
+          executionLatencyMs: 4000,
+          totalLatencyMs: 8000,
+          requestMessageId: 1,
+          responseMessageId: 2,
+          createdAt: new Date().toISOString(),
+        }),
+        executeWorkerWithTask: async (workerId, task) => {
+          workerCalls.push({ workerId, task });
+          return {
+            operations: [
+              {
+                name: "log_food_items",
+                toolNames: ["fatsecret.log_food"],
+                input: {
+                  items: ["2 tablespoons of white rice"],
+                  meal: "other",
+                },
+                output: { logged: 1 },
+                mode: "write",
+              },
+            ],
+            hasWriteOperations: true,
+            data: {
+              workerText: "Logged snack: 2 tablespoons of white rice.",
+            },
+          };
+        },
+      },
+      () => ({
+        conversationKey: "project:wellness:malibu",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        projectId: "wellness",
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "project:wellness",
+        agentId: "malibu",
+        transcript: "want to try adding that rice now?",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "project:wellness:malibu",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        projectId: "wellness",
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      },
+    );
+
+    expect(result.responseText).toContain("white rice");
+    expect(result.deterministicTurn?.state.intent.classifierProvider).toBe("codex");
+    expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
+    expect(workerCalls).toHaveLength(1);
+    expect(workerCalls[0]?.workerId).toBe("nutrition-logger");
+    expect(workerCalls[0]?.task).toContain("wellness.log_food_items");
+    expect(workerCalls[0]?.task).toContain("white rice");
+    expect(provider.calls).toHaveLength(2);
   });
 
   it("does not reuse a prior nutrition food intent for an explicit recipe update", () => {
@@ -2071,7 +2306,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
     ).toBe(false);
   });
 
-  it("does not reuse a prior food-log intent when the follow-up introduces different meal content", () => {
+  it("only reuses a prior food-log intent for changed meal content when the new request is still an explicit food-log action", () => {
     expect(
       __testOnly.isLikelyContinuationForIntent(
         "nutrition.log_food",
@@ -2083,6 +2318,17 @@ describe("createDiscordVoiceTurnExecutor", () => {
         },
       ),
     ).toBe(false);
+    expect(
+      __testOnly.isLikelyContinuationForIntent(
+        "nutrition.log_food",
+        "Ok. Try adding freeze dried apples",
+        {
+          items: [{ name: "white rice", quantity: "2 tablespoons" }],
+          meal: "other",
+          date_scope: "today",
+        },
+      ),
+    ).toBe(true);
     expect(
       __testOnly.isLikelyContinuationForIntent(
         "nutrition.log_food",
@@ -3202,6 +3448,111 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]?.workerId).toBe("personal-assistant");
     expect(workerCalls[0]?.task).toContain("finance.unreviewed_transactions");
+  });
+
+  it("routes Watson current-time turns through the deterministic runtime", async () => {
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber !== 1) {
+        return new Error(`Unexpected provider call ${callNumber}`);
+      }
+
+      return {
+        text: JSON.stringify({
+          intents: [
+            {
+              intentId: "planning.current_time_read",
+              confidence: 0.95,
+              entities: {},
+              rawEntities: ["current time"],
+              missingSlots: [],
+              canRunInParallel: true,
+              routeHint: {
+                kind: "worker",
+                targetId: "personal-assistant",
+              },
+            },
+          ],
+        }),
+        metadata: { model: "gpt-5.4" },
+      };
+    });
+
+    const workerCalls: Array<{
+      workerId: string;
+      task: string;
+      toolIds?: string[];
+    }> = [];
+    const deterministicRouting = {
+      enabled: true,
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        executeWorkerWithTask: async (workerId, task, _turn, _context, options) => {
+          workerCalls.push({
+            workerId,
+            task,
+            toolIds: options?.toolIds,
+          });
+          return {
+            operations: [
+              {
+                name: "system_clock",
+                toolNames: ["system_clock"],
+                input: {},
+                output: { time: "9:53 AM PDT" },
+                mode: "read",
+              },
+            ],
+            hasWriteOperations: false,
+            data: {
+              workerText: "9:53 AM PDT.",
+            },
+          };
+        },
+      },
+      () => ({
+        conversationKey: "watson-live-deterministic:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "watson-live-deterministic",
+        agentId: "watson",
+        transcript: "What time is it?",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "watson-live-deterministic:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      },
+    );
+
+    expect(result.responseText).toContain("AM");
+    expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
+    expect(workerCalls).toHaveLength(1);
+    expect(workerCalls[0]?.workerId).toBe("personal-assistant");
+    expect(workerCalls[0]?.task).toContain("planning.current_time_read");
+    expect(workerCalls[0]?.toolIds).toEqual(["system_clock"]);
   });
 
   it("routes Watson mixed calendar and inbox review turns through the deterministic runtime", async () => {

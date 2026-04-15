@@ -3,6 +3,7 @@
  *
  * Tools:
  *   - gog_email: Gmail operations via gog CLI
+ *   - system_clock: Current local date/time lookup
  *   - gog_calendar: Google Calendar operations via gog CLI
  *   - obsidian: Obsidian vault operations via obsidian-cli
  *   - health_morning: Morning health briefing via health-query script
@@ -170,6 +171,74 @@ export function createEmailTools(overrides?: PersonalToolPaths): AgentTool[] {
         const args = parseShellArgs(cmdStr);
         const stdout = await runCommand(paths.gogCommand, args, 60_000);
         return { result: stdout };
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// System clock tools
+// ---------------------------------------------------------------------------
+
+export function createSystemClockTools(): AgentTool[] {
+  return [
+    {
+      name: "system_clock",
+      description: [
+        "Read the current local date and time from the runtime.",
+        "",
+        "Use this for questions like:",
+        '  - "What time is it?"',
+        '  - "What day is it today?"',
+        '  - "What time is it in New York?"',
+        "",
+        "Returns structured local date/time strings plus the current UTC ISO timestamp.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          timezone: {
+            type: "string",
+            description: "Optional IANA timezone like America/Los_Angeles or America/New_York.",
+          },
+        },
+      },
+      handler: async (input) => {
+        const requestedTimeZone =
+          typeof input.timezone === "string" && input.timezone.trim().length > 0
+            ? input.timezone.trim()
+            : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+        try {
+          const now = new Date();
+          const date = new Intl.DateTimeFormat("en-CA", {
+            timeZone: requestedTimeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(now);
+          const time = new Intl.DateTimeFormat("en-US", {
+            timeZone: requestedTimeZone,
+            hour: "numeric",
+            minute: "2-digit",
+            timeZoneName: "short",
+          }).format(now);
+
+          return {
+            now: {
+              iso: now.toISOString(),
+              timeZone: requestedTimeZone,
+              date,
+              time,
+              dateTime: `${date} ${time}`,
+            },
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return {
+            error: `Invalid timezone: ${requestedTimeZone}. ${message}`,
+          };
+        }
       },
     },
   ];
@@ -972,6 +1041,7 @@ export function createDocsTools(overrides?: PersonalToolPaths): AgentTool[] {
 export function createAllPersonalTools(overrides?: PersonalToolPaths): AgentTool[] {
   return [
     ...createEmailTools(overrides),
+    ...createSystemClockTools(),
     ...createCalendarTools(overrides),
     ...createDocsTools(overrides),
     ...createObsidianTools(overrides),
