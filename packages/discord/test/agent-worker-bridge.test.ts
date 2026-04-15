@@ -137,6 +137,65 @@ describe("buildWorkerProviderTools", () => {
 });
 
 describe("executeAgentWorker", () => {
+  it("routes deterministic nutrition.log_food tasks through the LLM worker", async () => {
+    const provider = new ScriptedProvider(() => ({
+      text: "Logged the snack through the nutrition worker.",
+      toolCalls: [
+        {
+          name: "mcp__wellness__nutrition_log_items",
+          serverName: "wellness",
+          toolName: "nutrition_log_items",
+          input: {
+            items: [{ name: "white rice", quantity: "2 tablespoons" }],
+            meal: "other",
+          },
+          output: {
+            status: "confirmed",
+            logged: [{ item: "white rice", quantity: "2 tablespoons", food_entry_id: "entry-1" }],
+          },
+        },
+      ],
+    }));
+
+    const report = await executeAgentWorker(
+      "nutrition-logger",
+      [
+        "Handle this request in your domain now.",
+        "Intent contract: nutrition.log_food",
+        "Intent mode: write",
+        "User message: Log 2 tablespoons of white rice as a snack.",
+        "Extracted entities: {\"items\":[\"2 tablespoons of white rice\"],\"meal\":\"snack\"}",
+      ].join("\n"),
+      "You are Malibu's nutrition worker.",
+      {
+        mcpServerScript: "/tmp/mcp-wellness-server.js",
+        mcpServerName: "wellness",
+        providerChain: [{ providerName: "codex", provider }],
+        providerRetryLimit: 0,
+        toolIds: ["nutrition_log_items", "fatsecret_api", "recipe_read"],
+      },
+    );
+
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]?.prompt).toContain("Intent contract: nutrition.log_food");
+    expect(report.data?.workerText).toBe("Logged the snack through the nutrition worker.");
+    expect(report.operations).toEqual([
+      {
+        name: "nutrition_log_items",
+        toolNames: ["nutrition_log_items"],
+        input: {
+          items: [{ name: "white rice", quantity: "2 tablespoons" }],
+          meal: "other",
+        },
+        output: {
+          status: "confirmed",
+          logged: [{ item: "white rice", quantity: "2 tablespoons", food_entry_id: "entry-1" }],
+        },
+        mode: "write",
+      },
+    ]);
+  });
+
   it("uses provider failover and normalizes provider tool calls into worker reports", async () => {
     const primary = new ScriptedProvider(() => new Error("claude unavailable"));
     const secondary = new ScriptedProvider(() => ({
