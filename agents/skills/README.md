@@ -24,6 +24,7 @@ Prompt assembly loads these docs into worker prompts from `config/defaults/worke
 | `obsidian-note-conventions.md` | `obsidian_note_conventions` | `personal-assistant` | Vault note structure and task conventions |
 | `printing-profile-selection.md` | `printing_profile_selection` | `research-assistant` | Print/material selection and reporting rules |
 | `receipt-logging.md` | `receipt_logging` | `personal-assistant` | General-purpose Obsidian receipt file creation |
+| `sinking-fund-reconciliation.md` | `sinking_fund_reconciliation` | `personal-assistant` | Lunch Money and Obsidian workflow for SB-backed expense reconciliation |
 | `recipe-format.md` | `recipe_format` | `nutrition-logger`, `recipe-librarian` | Recipe markdown structure and write rules |
 | `transaction-categorization.md` | `transaction_categorization` | `personal-assistant` | Lunch Money categorization, rules, splits |
 | `travel-routing.md` | `travel_routing` | `research-assistant` | Current-location and diesel-stop heuristics |

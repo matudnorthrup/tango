@@ -577,6 +577,7 @@ const ALLOWED_TOOL_IDS_BY_INTENT: Record<string, string[]> = {
   "finance.receipt_catalog": FINANCE_RECEIPT_CATALOG_ALLOWED_TOOL_IDS,
   "finance.receipt_lookup": FINANCE_RECEIPT_LOOKUP_ALLOWED_TOOL_IDS,
   "finance.reimbursement_submit": ["receipt_registry", "ramp_reimbursement", "gog_email", "onepassword", "obsidian"],
+  "finance.sinking_fund_reconciliation": ["lunch_money", "obsidian"],
   "finance.transaction_categorization": FINANCE_TRANSACTION_CATEGORIZATION_ALLOWED_TOOL_IDS,
   "finance.transaction_lookup": ["lunch_money"],
   "finance.unreviewed_transactions": ["lunch_money"],

@@ -877,6 +877,23 @@ registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
   };
 });
 
+registerPreCheckHandler("watson-sinking-fund-reconciliation-context", async (ctx) => {
+  const timeZone = "America/Los_Angeles";
+  const runDate = formatDateInTimeZone(new Date(), timeZone);
+  const cadence =
+    ctx.scheduleId === "sinking-fund-reconciliation-month-end"
+      ? "month-end pre-close"
+      : "weekly checkpoint";
+
+  return {
+    action: "proceed" as const,
+    context: {
+      runDate,
+      cadence,
+    },
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Persistent MCP server — eliminates 60-90s cold start per worker task
 // ---------------------------------------------------------------------------
