@@ -1,16 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const manager = {
-  launch: vi.fn(),
-  captureWalmartTipEvidence: vi.fn(),
-  captureEmailReimbursementEvidence: vi.fn(),
-  submitRampReimbursement: vi.fn(),
-  replaceRampReimbursementReceipt: vi.fn(),
-};
+const { manager, registry, evidence } = vi.hoisted(() => ({
+  manager: {
+    launch: vi.fn(),
+    captureWalmartTipEvidence: vi.fn(),
+    captureEmailReimbursementEvidence: vi.fn(),
+    submitRampReimbursement: vi.fn(),
+    replaceRampReimbursementReceipt: vi.fn(),
+  },
+  registry: {
+    backfillWalmartReceiptNote: vi.fn(),
+    findWalmartReceiptRecord: vi.fn(),
+    listWalmartDeliveryCandidates: vi.fn(),
+    reconcileWalmartReimbursementsAgainstRamp: vi.fn(),
+    upsertWalmartReimbursementTracking: vi.fn(),
+  },
+  evidence: {
+    loadReimbursementEvidenceRecord: vi.fn(),
+  },
+}));
 
 vi.mock("../src/browser-manager.js", () => ({
   getBrowserManager: () => manager,
 }));
+
+vi.mock("../src/receipt-reimbursement-registry.js", () => registry);
+
+vi.mock("../src/reimbursement-evidence.js", () => evidence);
 
 import { createReimbursementAutomationTools } from "../src/personal-agent-tools.js";
 
@@ -18,6 +34,8 @@ describe("personal-agent-tools reimbursement automation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     manager.launch.mockResolvedValue("Connected");
+    registry.findWalmartReceiptRecord.mockReturnValue(null);
+    evidence.loadReimbursementEvidenceRecord.mockReturnValue(null);
   });
 
   it("captures Walmart tip evidence through BrowserManager", async () => {
@@ -125,5 +143,47 @@ describe("personal-agent-tools reimbursement automation", () => {
         subject: "You paid Kip Everitt $600.00",
       },
     });
+  });
+
+  it("syncs Walmart receipt tracking after a successful Ramp submission", async () => {
+    manager.submitRampReimbursement.mockResolvedValue({
+      reviewUrl: "https://app.ramp.com/details/reimbursements/abc/review",
+      rampReportId: "abc",
+      amount: 41.03,
+      transactionDate: "04/01/2026",
+      memo: "executive buy back time",
+      evidencePath: "/tmp/archive/walmart-tip.png",
+    });
+    evidence.loadReimbursementEvidenceRecord.mockReturnValue({
+      orderId: "2000146-86460984",
+      archivedPath: "/tmp/archive/walmart-tip.png",
+    });
+    registry.findWalmartReceiptRecord.mockReturnValue({
+      orderId: "2000146-86460984",
+      reimbursement: {},
+    });
+
+    const tool = createReimbursementAutomationTools()[0];
+    if (!tool) throw new Error("Missing tool");
+
+    await tool.handler({
+      action: "submit_ramp_reimbursement",
+      amount: 41.03,
+      transaction_date: "2026-04-01",
+      memo: "executive buy back time",
+      evidence_path: "/tmp/walmart-tip.png",
+      merchant: "Walmart",
+    });
+
+    expect(registry.upsertWalmartReimbursementTracking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: "2000146-86460984",
+        status: "submitted",
+        amount: 41.03,
+        note: "executive buy back time",
+        evidencePath: "/tmp/archive/walmart-tip.png",
+        rampReportId: "abc",
+      }),
+    );
   });
 });

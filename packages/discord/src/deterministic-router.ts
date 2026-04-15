@@ -100,10 +100,12 @@ function buildExecutionConstraintLines(
     entry.id === "finance.reimbursement_submit"
       ? [
           "If this is a Walmart delivery-tip reimbursement, start by using receipt_registry to find outstanding candidates unless the user already pinned a specific order.",
+          "Before claiming any Walmart tip reimbursement is still unsubmitted, verify it against live Ramp history with receipt_registry rather than trusting Obsidian note status alone.",
           "If the requested Walmart history window is not fully cataloged yet, use receipt_registry backfill_walmart_delivery_candidates before filing reimbursements.",
           "If the user already pinned a specific Walmart order or receipt note, do not browse general Walmart order history first.",
           "If this reimbursement's invoice or receipt lives in Gmail, use gog_email to search the specified account, inspect the matching message, and download the attachment before filing in Ramp.",
-          "If the Gmail evidence is an HTML receipt email rather than a downloadable attachment, use ramp_reimbursement capture_email_reimbursement_evidence on the raw gog_email full-message output before submitting the reimbursement.",
+          "If Gmail provides a PDF or other real attachment, download that file and upload it directly to Ramp instead of converting it to a screenshot.",
+          "Only use ramp_reimbursement capture_email_reimbursement_evidence when the receipt lives in the email body and there is no better attachment to download.",
           "Use receipt_registry and capture_walmart_tip_evidence only for Walmart delivery-tip reimbursements, not for generic vendor invoices or Venmo receipts.",
           "For each submission, use ramp_reimbursement as the primary execution path once you have the right evidence file.",
           "Use the raw browser tool only for login, page-state inspection, or debugging when ramp_reimbursement cannot complete the step.",
