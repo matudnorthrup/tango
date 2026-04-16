@@ -188,6 +188,7 @@ export interface DetectReimbursementGapsInput {
   vendor?: string;
   history?: RampReimbursementHistoryRecord[];
   lookbackMonths?: number;
+  rootDir?: string;
 }
 
 export interface ReimbursementGap {
@@ -1400,7 +1401,7 @@ export function detectReimbursementGaps(
         includeSubmitted: true,
         updateNotes: false,
       }).records
-    : loadAllReceiptRecords()
+    : loadAllReceiptRecords(input.rootDir)
         .filter(isReimbursementCandidate)
         .filter((record) => recordMatchesFilters(record, input));
 
@@ -1415,6 +1416,16 @@ export function detectReimbursementGaps(
         merchant: record.merchant,
         notePath: record.filePath,
         detail: "Configured reimbursement receipt is missing the reimbursement tracking block.",
+      });
+    }
+    if (normalizeStatus(record.reimbursement.status) === "submitted" && !record.reimbursement.rampReportId) {
+      gaps.push({
+        type: "stale_tracking",
+        vendorKey: record.vendorKey,
+        merchant: record.merchant,
+        notePath: record.filePath,
+        amount: record.reimbursement.amount ?? record.reimbursableAmount,
+        detail: "Receipt is marked submitted but is missing the Ramp report id.",
       });
     }
     if (!record.date) {
