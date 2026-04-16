@@ -1930,6 +1930,9 @@ export function createReimbursementAutomationTools(): AgentTool[] {
         "  capture_email_reimbursement_evidence",
         "    Render a raw reimbursement email body into an archived screenshot evidence file for Ramp uploads when no better attachment exists.",
         "",
+        "  capture_email_as_pdf",
+        "    Render a raw email from `gog gmail get --format full` into a PDF file using the original email HTML. Prefer this over capture_email_reimbursement_evidence for HTML emails because it preserves original branding and layout.",
+        "",
         "  prepare_ramp_reimbursement_draft",
         "    Upload evidence and fill a Ramp reimbursement draft with amount, date, memo, and merchant. This stops before final submission.",
         "    A recent-history dedup gate runs automatically unless skip_dedup_check is true.",
@@ -1955,6 +1958,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             enum: [
               "capture_walmart_tip_evidence",
               "capture_email_reimbursement_evidence",
+              "capture_email_as_pdf",
               "prepare_ramp_reimbursement_draft",
               "submit_ramp_reimbursement",
               "submit_reviewed_ramp_reimbursement",
@@ -1969,15 +1973,15 @@ export function createReimbursementAutomationTools(): AgentTool[] {
           },
           output_path: {
             type: "string",
-            description: "For capture_walmart_tip_evidence or capture_email_reimbursement_evidence: optional destination png path.",
+            description: "For capture_walmart_tip_evidence or capture_email_reimbursement_evidence: optional destination png path. For capture_email_as_pdf: optional destination pdf path.",
           },
           email_content: {
             type: "string",
-            description: "For capture_email_reimbursement_evidence: raw `gog gmail get --format full` output for the reimbursement email.",
+            description: "For capture_email_reimbursement_evidence or capture_email_as_pdf: raw `gog gmail get --format full` output for the reimbursement email.",
           },
           label: {
             type: "string",
-            description: "For capture_email_reimbursement_evidence: optional evidence label.",
+            description: "For capture_email_reimbursement_evidence or capture_email_as_pdf: optional evidence label.",
           },
           amount: {
             type: "number",
@@ -2039,6 +2043,17 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             }
             return {
               result: await bm.captureEmailReimbursementEvidence({
+                emailContent: input.email_content,
+                label: typeof input.label === "string" ? input.label : undefined,
+                outputPath: typeof input.output_path === "string" ? input.output_path : undefined,
+              }),
+            };
+          case "capture_email_as_pdf":
+            if (typeof input.email_content !== "string" || input.email_content.trim().length === 0) {
+              return { error: "capture_email_as_pdf requires email_content" };
+            }
+            return {
+              result: await bm.captureEmailAsPdf({
                 emailContent: input.email_content,
                 label: typeof input.label === "string" ? input.label : undefined,
                 outputPath: typeof input.output_path === "string" ? input.output_path : undefined,
