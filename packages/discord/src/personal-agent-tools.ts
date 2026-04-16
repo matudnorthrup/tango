@@ -24,6 +24,16 @@ import {
   reconcileWalmartReimbursementsAgainstRamp,
   upsertWalmartReimbursementTracking,
 } from "./receipt-reimbursement-registry.js";
+import {
+  checkSubmissionDedup,
+  detectReimbursementGaps,
+  generateMonthlyLedger,
+  listReimbursementCandidates,
+  reconcileUniversalReimbursements,
+  resolveDefaultMemo,
+  resolveVendorConfig,
+  upsertReimbursementTracking,
+} from "./receipt-universal-registry.js";
 import { executeGoogleDocTabUpdate } from "./google-doc-update-executor.js";
 import { loadReimbursementEvidenceRecord } from "./reimbursement-evidence.js";
 import { extractRampReimbursementIdFromUrl } from "./reimbursement-automation.js";
@@ -590,6 +600,30 @@ export function createReceiptRegistryTools(): AgentTool[] {
         "    Create or update the standardized reimbursement tracking block inside a Walmart receipt note.",
         "    Provide either note_path or order_id, plus status.",
         "",
+        "  check_submission_dedup",
+        "    Check whether a reimbursement note or proposed submission already appears in local receipt notes or live Ramp history.",
+        "    Optional params: note_path, vendor, merchant, amount, transaction_date, memo, verify_with_ramp (boolean), max_pages (number).",
+        "",
+        "  list_reimbursement_candidates",
+        "    List configured reimbursement candidates across receipt folders using the universal reimbursement config.",
+        "    Optional params: since, until, vendor, include_submitted, verify_with_ramp, max_pages.",
+        "",
+        "  reconcile_reimbursements",
+        "    Verify configured reimbursement notes against live Ramp history and update stale tracking blocks in place.",
+        "    Optional params: since, until, vendor, max_pages.",
+        "",
+        "  upsert_reimbursement",
+        "    Create or update the standardized reimbursement tracking block inside any receipt note.",
+        "    Requires note_path and status. Optional params: vendor, system, reimbursable_item, amount, submitted, note, evidence_path, ramp_report_id.",
+        "",
+        "  generate_monthly_ledger",
+        "    Build a reimbursement ledger for a month or date range, grouped by vendor/category/status.",
+        "    Optional params: month (YYYY-MM), since, until, vendor, verify_with_ramp, max_pages.",
+        "",
+        "  detect_gaps",
+        "    Detect missing tracking blocks, missing recurring receipts, and other reimbursement coverage gaps.",
+        "    Optional params: since, until, vendor, lookback_months, verify_with_ramp, max_pages.",
+        "",
         "Tracking block fields:",
         "  status, system, reimbursable item, amount, submitted, note, evidence path, evidence provenance, Ramp report id",
       ].join("\n"),
@@ -603,6 +637,12 @@ export function createReceiptRegistryTools(): AgentTool[] {
               "backfill_walmart_delivery_candidates",
               "reconcile_walmart_reimbursements",
               "upsert_walmart_reimbursement",
+              "check_submission_dedup",
+              "list_reimbursement_candidates",
+              "reconcile_reimbursements",
+              "upsert_reimbursement",
+              "generate_monthly_ledger",
+              "detect_gaps",
             ],
             description: "Receipt-registry action to perform.",
           },
@@ -626,9 +666,29 @@ export function createReceiptRegistryTools(): AgentTool[] {
             type: "number",
             description: "For backfill/list/reconcile actions: maximum history pages to scan (default 8 for Walmart, 3 for Ramp).",
           },
+          vendor: {
+            type: "string",
+            description: "For universal reimbursement actions: configured vendor key, receipt directory, or merchant alias from reimbursement-config.yaml.",
+          },
+          merchant: {
+            type: "string",
+            description: "For check_submission_dedup: merchant or payee name when note_path is omitted.",
+          },
+          transaction_date: {
+            type: "string",
+            description: "For check_submission_dedup: transaction date in YYYY-MM-DD format when note_path is omitted.",
+          },
+          month: {
+            type: "string",
+            description: "For generate_monthly_ledger: optional month in YYYY-MM format.",
+          },
+          lookback_months: {
+            type: "number",
+            description: "For detect_gaps: recurring-receipt lookback window when since/until are omitted. Defaults to 3.",
+          },
           note_path: {
             type: "string",
-            description: "For upsert_walmart_reimbursement: absolute note path.",
+            description: "For upsert_walmart_reimbursement, upsert_reimbursement, or check_submission_dedup: absolute note path.",
           },
           order_id: {
             type: "string",
@@ -656,15 +716,19 @@ export function createReceiptRegistryTools(): AgentTool[] {
           },
           note: {
             type: "string",
-            description: "For upsert_walmart_reimbursement: note or memo used on the submission.",
+            description: "For upsert_walmart_reimbursement or upsert_reimbursement: note or memo used on the submission.",
+          },
+          memo: {
+            type: "string",
+            description: "For check_submission_dedup: proposed reimbursement memo when note_path is omitted.",
           },
           evidence_path: {
             type: "string",
-            description: "For upsert_walmart_reimbursement: screenshot or file path used as evidence.",
+            description: "For upsert_walmart_reimbursement or upsert_reimbursement: screenshot or file path used as evidence.",
           },
           ramp_report_id: {
             type: "string",
-            description: "For upsert_walmart_reimbursement: optional Ramp report or reimbursement identifier.",
+            description: "For upsert_walmart_reimbursement or upsert_reimbursement: optional Ramp report or reimbursement identifier.",
           },
         },
         required: ["action"],
@@ -673,6 +737,7 @@ export function createReceiptRegistryTools(): AgentTool[] {
         const action = String(input.action);
         const since = typeof input.since === "string" ? input.since : undefined;
         const until = typeof input.until === "string" ? input.until : undefined;
+        const vendor = typeof input.vendor === "string" ? input.vendor : undefined;
         const includeSubmitted = input.include_submitted === true;
         const verifyWithRamp = input.verify_with_ramp !== false;
         switch (action) {
@@ -831,6 +896,176 @@ export function createReceiptRegistryTools(): AgentTool[] {
                 rampReportId: typeof input.ramp_report_id === "string" ? input.ramp_report_id : undefined,
               }),
             };
+          case "check_submission_dedup": {
+            if (
+              (typeof input.note_path !== "string" || input.note_path.trim().length === 0)
+              && (typeof input.amount !== "number"
+                || typeof input.transaction_date !== "string"
+                || input.transaction_date.trim().length === 0)
+            ) {
+              return {
+                error: "check_submission_dedup requires note_path or both amount and transaction_date",
+              };
+            }
+
+            const history = verifyWithRamp
+              ? await (async () => {
+                  const bm = getBrowserManager();
+                  await bm.launch(9223);
+                  return bm.listRampReimbursementHistory({
+                    maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+                  });
+                })()
+              : undefined;
+
+            return {
+              vendor: resolveVendorConfig(vendor)?.key ?? vendor,
+              verified_with_ramp: verifyWithRamp,
+              result: checkSubmissionDedup({
+                notePath: typeof input.note_path === "string" ? input.note_path : undefined,
+                vendor,
+                merchant: typeof input.merchant === "string" ? input.merchant : undefined,
+                amount: typeof input.amount === "number" ? input.amount : undefined,
+                transactionDate:
+                  typeof input.transaction_date === "string" ? input.transaction_date : undefined,
+                memo: typeof input.memo === "string" ? input.memo : undefined,
+                history,
+              }),
+            };
+          }
+          case "list_reimbursement_candidates": {
+            if (!verifyWithRamp) {
+              return {
+                vendor: resolveVendorConfig(vendor)?.key ?? vendor,
+                verified_with_ramp: false,
+                results: listReimbursementCandidates({
+                  since,
+                  until,
+                  vendor,
+                  includeSubmitted,
+                }),
+              };
+            }
+
+            const bm = getBrowserManager();
+            await bm.launch(9223);
+            const history = await bm.listRampReimbursementHistory({
+              maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+            });
+            const reconciled = reconcileUniversalReimbursements({
+              history,
+              since,
+              until,
+              vendor,
+              includeSubmitted,
+              updateNotes: false,
+            });
+            return {
+              vendor: resolveVendorConfig(vendor)?.key ?? vendor,
+              verified_with_ramp: true,
+              results: includeSubmitted ? reconciled.records : reconciled.pending,
+              verification: {
+                notes_examined: reconciled.notesExamined,
+                history_entries_examined: reconciled.historyEntriesExamined,
+                matched: reconciled.matched,
+                unverified_submitted: reconciled.unverifiedSubmitted,
+              },
+            };
+          }
+          case "reconcile_reimbursements": {
+            const bm = getBrowserManager();
+            await bm.launch(9223);
+            const history = await bm.listRampReimbursementHistory({
+              maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+            });
+            const reconciled = reconcileUniversalReimbursements({
+              history,
+              since,
+              until,
+              vendor,
+              includeSubmitted: true,
+              updateNotes: true,
+            });
+            return {
+              vendor: resolveVendorConfig(vendor)?.key ?? vendor,
+              verified_with_ramp: true,
+              matched: reconciled.matched,
+              updated: reconciled.updated,
+              pending: reconciled.pending,
+              unverified_submitted: reconciled.unverifiedSubmitted,
+              notes_examined: reconciled.notesExamined,
+              history_entries_examined: reconciled.historyEntriesExamined,
+            };
+          }
+          case "upsert_reimbursement":
+            if (typeof input.note_path !== "string" || input.note_path.trim().length === 0) {
+              return { error: "upsert_reimbursement requires note_path" };
+            }
+            if (typeof input.status !== "string" || input.status.trim().length === 0) {
+              return { error: "upsert_reimbursement requires 'status'" };
+            }
+            return {
+              vendor: resolveVendorConfig(vendor)?.key ?? vendor,
+              result: upsertReimbursementTracking({
+                notePath: input.note_path,
+                vendor,
+                status: input.status,
+                system: typeof input.system === "string" ? input.system : undefined,
+                reimbursableItem: typeof input.reimbursable_item === "string" ? input.reimbursable_item : undefined,
+                amount: typeof input.amount === "number" ? input.amount : undefined,
+                submitted: typeof input.submitted === "string" ? input.submitted : undefined,
+                note: typeof input.note === "string" ? input.note : undefined,
+                evidencePath: typeof input.evidence_path === "string" ? input.evidence_path : undefined,
+                rampReportId: typeof input.ramp_report_id === "string" ? input.ramp_report_id : undefined,
+              }),
+            };
+          case "generate_monthly_ledger": {
+            const history = verifyWithRamp
+              ? await (async () => {
+                  const bm = getBrowserManager();
+                  await bm.launch(9223);
+                  return bm.listRampReimbursementHistory({
+                    maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+                  });
+                })()
+              : undefined;
+
+            return {
+              vendor: resolveVendorConfig(vendor)?.key ?? vendor,
+              verified_with_ramp: verifyWithRamp,
+              ledger: generateMonthlyLedger({
+                month: typeof input.month === "string" ? input.month : undefined,
+                since,
+                until,
+                vendor,
+                history,
+              }),
+            };
+          }
+          case "detect_gaps": {
+            const history = verifyWithRamp
+              ? await (async () => {
+                  const bm = getBrowserManager();
+                  await bm.launch(9223);
+                  return bm.listRampReimbursementHistory({
+                    maxPages: typeof input.max_pages === "number" ? input.max_pages : undefined,
+                  });
+                })()
+              : undefined;
+
+            return {
+              vendor: resolveVendorConfig(vendor)?.key ?? vendor,
+              verified_with_ramp: verifyWithRamp,
+              result: detectReimbursementGaps({
+                since,
+                until,
+                vendor,
+                history,
+                lookbackMonths:
+                  typeof input.lookback_months === "number" ? input.lookback_months : undefined,
+              }),
+            };
+          }
           default:
             return { error: `Unknown receipt_registry action: ${action}` };
         }
@@ -902,7 +1137,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
           },
           memo: {
             type: "string",
-            description: "For submit_ramp_reimbursement: reimbursement memo text.",
+            description: "For submit_ramp_reimbursement: optional reimbursement memo text. Defaults from reimbursement-config.yaml when merchant or vendor matches.",
           },
           evidence_path: {
             type: "string",
@@ -910,7 +1145,11 @@ export function createReimbursementAutomationTools(): AgentTool[] {
           },
           merchant: {
             type: "string",
-            description: "For submit_ramp_reimbursement: merchant name. Defaults to Walmart.",
+            description: "For submit_ramp_reimbursement: merchant name. Falls back to the vendor config when provided.",
+          },
+          vendor: {
+            type: "string",
+            description: "For submit_ramp_reimbursement: configured vendor key, receipt directory, or merchant alias from reimbursement-config.yaml.",
           },
           review_url: {
             type: "string",
@@ -952,19 +1191,34 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             if (typeof input.transaction_date !== "string" || input.transaction_date.trim().length === 0) {
               return { error: "submit_ramp_reimbursement requires transaction_date" };
             }
-            if (typeof input.memo !== "string" || input.memo.trim().length === 0) {
-              return { error: "submit_ramp_reimbursement requires memo" };
-            }
             if (typeof input.evidence_path !== "string" || input.evidence_path.trim().length === 0) {
               return { error: "submit_ramp_reimbursement requires evidence_path" };
             }
             {
+              const vendor = typeof input.vendor === "string" ? input.vendor : undefined;
+              const resolvedVendor =
+                resolveVendorConfig(vendor)
+                ?? resolveVendorConfig(typeof input.merchant === "string" ? input.merchant : undefined);
+              const resolvedMerchant =
+                typeof input.merchant === "string" && input.merchant.trim().length > 0
+                  ? input.merchant.trim()
+                  : resolvedVendor?.merchantName;
+              const resolvedMemo =
+                typeof input.memo === "string" && input.memo.trim().length > 0
+                  ? input.memo.trim()
+                  : resolveDefaultMemo(vendor ?? resolvedMerchant);
+              if (!resolvedMemo) {
+                return {
+                  error: "submit_ramp_reimbursement requires memo or a merchant/vendor with a configured default memo",
+                };
+              }
+
               const result = await bm.submitRampReimbursement({
                 amount: input.amount,
                 transactionDate: input.transaction_date,
-                memo: input.memo,
+                memo: resolvedMemo,
                 evidencePath: input.evidence_path,
-                merchant: typeof input.merchant === "string" ? input.merchant : undefined,
+                merchant: resolvedMerchant,
               });
               syncWalmartTrackingFromRampEvidence({
                 evidencePath: result.evidencePath,
