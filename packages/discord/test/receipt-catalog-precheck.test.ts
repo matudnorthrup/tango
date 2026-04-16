@@ -4,13 +4,29 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildMissingReceiptCandidates,
+  buildReimbursementGapCandidates,
   collectLinkedReceiptTransactionIds,
   formatReceiptCatalogCandidateDetails,
+  formatReimbursementGapCandidateDetails,
 } from "../src/receipt-catalog-precheck.js";
 
 const cleanupDirs: string[] = [];
+const originalTangoHome = process.env.TANGO_HOME;
+const originalTangoProfile = process.env.TANGO_PROFILE;
 
 afterEach(() => {
+  if (originalTangoHome == null) {
+    delete process.env.TANGO_HOME;
+  } else {
+    process.env.TANGO_HOME = originalTangoHome;
+  }
+
+  if (originalTangoProfile == null) {
+    delete process.env.TANGO_PROFILE;
+  } else {
+    process.env.TANGO_PROFILE = originalTangoProfile;
+  }
+
   while (cleanupDirs.length > 0) {
     const dir = cleanupDirs.pop();
     if (dir) {
@@ -68,6 +84,22 @@ describe("receipt catalog precheck", () => {
           status: "uncleared",
         },
         {
+          id: 6001,
+          date: "2026-04-03",
+          payee: "Maid in Newport",
+          original_name: "MAID IN NEWPORT",
+          amount: "350.0000",
+          status: "cleared",
+        },
+        {
+          id: 6002,
+          date: "2026-04-04",
+          payee: "Factor",
+          original_name: "FACTOR_",
+          amount: "89.9900",
+          status: "uncleared",
+        },
+        {
           id: 999,
           date: "2026-04-03",
           payee: "Ace Hardware",
@@ -88,8 +120,98 @@ describe("receipt catalog precheck", () => {
         amount: "292.23",
         status: "pending",
       },
+      {
+        id: "6001",
+        date: "2026-04-03",
+        payee: "Maid in Newport",
+        originalName: "MAID IN NEWPORT",
+        amount: "350.00",
+        status: "cleared",
+      },
+      {
+        id: "6002",
+        date: "2026-04-04",
+        payee: "Factor",
+        originalName: "FACTOR_",
+        amount: "89.99",
+        status: "uncleared",
+      },
     ]);
     expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("TXN 2375784675");
     expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("$292.23");
+    expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("Maid in Newport");
+    expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("Factor");
+  });
+
+  it("builds reimbursement gap candidates for configured vendors and recurring receipts", () => {
+    const tangoHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-home-"));
+    cleanupDirs.push(tangoHome);
+    process.env.TANGO_HOME = tangoHome;
+    process.env.TANGO_PROFILE = "receipt-precheck";
+
+    const receiptsRoot = path.join(
+      tangoHome,
+      "profiles",
+      "receipt-precheck",
+      "data",
+      "receipts",
+    );
+    fs.mkdirSync(path.join(receiptsRoot, "Venmo"), { recursive: true });
+    fs.mkdirSync(path.join(receiptsRoot, "Factor"), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(receiptsRoot, "Venmo", "2026-04-04 Payment 123.md"),
+      [
+        "# Venmo Payment to Kip Everitt",
+        "",
+        "- **Date:** 2026-04-04",
+        "- **Total:** $600.00",
+        "- **Recipient:** Kip Everitt",
+      ].join("\n"),
+    );
+
+    fs.writeFileSync(
+      path.join(receiptsRoot, "Factor", "2026-04-08 Invoice 456.md"),
+      [
+        "# Factor Invoice 456",
+        "",
+        "- **Date:** 2026-04-08",
+        "- **Total:** $89.99",
+        "- **Merchant:** Factor",
+        "",
+        "## Reimbursement Tracking",
+        "",
+        "- Status: submitted",
+        "- System: Ramp",
+        "- Amount: $89.99",
+      ].join("\n"),
+    );
+
+    const candidates = buildReimbursementGapCandidates({
+      receiptsRoot,
+      since: "2026-04-01",
+      until: "2026-04-30",
+    });
+
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "missing_tracking_section",
+        vendorKey: "venmo_services",
+        noteName: "Venmo/2026-04-04 Payment 123.md",
+      }),
+      expect.objectContaining({
+        type: "stale_tracking",
+        vendorKey: "factor",
+        noteName: "Factor/2026-04-08 Invoice 456.md",
+      }),
+      expect.objectContaining({
+        type: "missing_recurring_receipt",
+        vendorKey: "maid_in_newport",
+        month: "2026-04",
+      }),
+    ]));
+    expect(formatReimbursementGapCandidateDetails(candidates)).toContain("missing_tracking_section");
+    expect(formatReimbursementGapCandidateDetails(candidates)).toContain("stale_tracking");
+    expect(formatReimbursementGapCandidateDetails(candidates)).toContain("missing_recurring_receipt");
   });
 });
