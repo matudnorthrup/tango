@@ -48,7 +48,8 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
   - `gmail attachment <messageId> <attachmentId> --out /tmp --name <filename>` to download the invoice/receipt to an absolute local path for Ramp upload
 - `ramp_reimbursement`
   - `capture_walmart_tip_evidence` to grab the correct archived Walmart order-detail screenshot with driver tip and date/order context
-  - `capture_email_reimbursement_evidence` to turn a raw Gmail message body into an uploadable screenshot evidence file only when the receipt lives in the email body instead of an attachment
+  - `capture_email_as_pdf` to render an HTML email (Venmo, receipts with branding) into a PDF that preserves the original layout; prefer this over screenshot evidence for HTML emails
+  - `capture_email_reimbursement_evidence` to turn a plain-text email body into an uploadable screenshot evidence file only when the receipt lives in the email body instead of an attachment
   - `prepare_ramp_reimbursement_draft` to upload evidence and fill a Ramp reimbursement draft with the chosen amount, date, merchant, and memo, then stop before final submission
     - accepts PDF attachments directly; do not down-convert attached PDFs into screenshots
   - `submit_reviewed_ramp_reimbursement` to submit an already-prepared draft after Devin explicitly approves and the expected amount/date/memo/merchant checks pass
@@ -86,7 +87,8 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
    - fetch the message details and attachment metadata
    - if there is a real attachment, download it with `gmail attachment ... --out /tmp --name ...`
    - if the attachment is a PDF, use that PDF directly as the Ramp evidence file
-   - if there is no attachment but the email body itself is the receipt, feed the raw `gog gmail get --format full` output into `ramp_reimbursement capture_email_reimbursement_evidence` and use that generated screenshot as the evidence file
+   - if there is no attachment but the email body itself is the receipt, feed the raw `gog gmail get --format full` output into `ramp_reimbursement capture_email_as_pdf` for HTML emails and use that generated PDF as the evidence file
+   - only fall back to `capture_email_reimbursement_evidence` for plain-text emails with no HTML body
 4. For every reimbursement draft:
    - use `ramp_reimbursement prepare_ramp_reimbursement_draft`
    - use Ramp transaction dates in `MM/DD/YYYY` format
