@@ -57,7 +57,7 @@ When the user gives an explicit calorie count for a restaurant or branded item:
 1. Treat the user's calorie count as the target you should preserve. Do not decompose the item into ingredients just because an exact serving is missing.
 2. Search FatSecret for the same restaurant and item family first.
 3. If you find a strong same-brand same-item match but only in a nearby serving size, you may scale `number_of_units` to hit the user's stated calories.
-4. Use the user's wording as `food_entry_name` so the diary label reflects what they actually ate, not the nearest fallback serving title.
+4. Use the user's wording as `food_entry_name` so the diary label reflects what they actually ate, not the nearest fallback serving title. `food_entry_name` is a **first-class input** — always set it to what the user said rather than the FatSecret default.
 5. After the write, call `food_entries_get` and verify the refreshed diary entry before claiming success.
 6. Only stop for clarification if you cannot find a strong same-brand same-item match at all.
 

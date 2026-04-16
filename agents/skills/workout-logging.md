@@ -16,8 +16,9 @@ Any time the user wants to log a workout, record sets, check exercise history, o
    WHERE w.ended_at IS NULL
    ORDER BY started_at DESC LIMIT 1;
    ```
-2. If one exists, use it. Do not create a duplicate.
-3. If the user names a routine like `Push Day A`, `Pull Day 2`, or `Leg Day Large`, resolve it from `workout_routines` by `name` and `aliases` before creating the session:
+2. If one exists **and it's from today**, use it. Do not create a duplicate.
+3. If one exists but it's from a **previous day**, it's an orphan — close it with `ended_at` set to that day (not now), then create a fresh session for today. Mention the closure briefly in the receipt.
+4. If the user names a routine like `Push Day A`, `Pull Day 2`, or `Leg Day Large`, resolve it from `workout_routines` by `name` and `aliases` before creating the session:
    ```sql
    SELECT wr.id, wr.name, wr.workout_type
    FROM workout_routines wr
@@ -28,10 +29,16 @@ Any time the user wants to log a workout, record sets, check exercise history, o
         WHERE alias ILIKE '%push day a%'
       );
    ```
-4. If the user specifies a workout date, treat that date as authoritative. Query for a session on that date before looking at today's active session.
-5. If the request is for a historical date, never append to a different day's active session.
-6. If none exists, create one with the broad `workout_type` plus `routine_id` when a named routine was resolved. Only default to `CURRENT_DATE` when the user did not provide a date.
-7. `workout_type` is the family only (`push`, `pull`, `legs`, `other`). Named variants live in `workout_routines` and `workouts.routine_id`.
+5. If the user specifies a workout date, treat that date as authoritative. Query for a session on that date before looking at today's active session.
+6. If the request is for a historical date, never append to a different day's active session.
+7. If none exists, create one with the broad `workout_type` plus `routine_id` when a named routine was resolved. Only default to `CURRENT_DATE` when the user did not provide a date.
+8. `workout_type` is the family only (`push`, `pull`, `legs`, `other`). Named variants live in `workout_routines` and `workouts.routine_id`.
+
+## Mid-session routine swap
+
+If the user switches routines mid-workout (e.g., "actually doing Pull Day B"):
+1. Update the existing session's `routine_id` to the new routine. Do not create a second session.
+2. Sets already logged stay — real workouts deviate from templates.
 
 ## Logging sets
 
