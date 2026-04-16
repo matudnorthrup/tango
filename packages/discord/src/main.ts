@@ -173,8 +173,10 @@ import {
 } from "./message-referents.js";
 import { selectWarmStartMessages } from "./channel-surface-context.js";
 import {
+  buildReimbursementGapCandidates,
   buildMissingReceiptCandidates,
   collectLinkedReceiptTransactionIds,
+  formatReimbursementGapCandidateDetails,
   formatReceiptCatalogCandidateDetails,
 } from "./receipt-catalog-precheck.js";
 import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
@@ -849,11 +851,17 @@ registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
   const transactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
   const linkedTransactionIds = collectLinkedReceiptTransactionIds(receiptsRoot);
   const retailerCandidates = buildMissingReceiptCandidates(transactions, linkedTransactionIds);
+  const reimbursementGapCandidates = buildReimbursementGapCandidates({
+    receiptsRoot,
+    since: startDate,
+    until: endDate,
+  });
 
-  if (retailerCandidates.length === 0) {
+  if (retailerCandidates.length === 0 && reimbursementGapCandidates.length === 0) {
     return {
       action: "skip" as const,
-      reason: "No recent Amazon/Walmart/Costco/Venmo transactions missing receipt notes in the last 7 days.",
+      reason:
+        "No recent receipt candidates or reimbursement tracking gaps for Amazon/Walmart/Costco/Venmo/Maid in Newport/Factor in the last 7 days.",
     };
   }
 
@@ -873,6 +881,10 @@ registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
       ),
       candidateDetails: formatReceiptCatalogCandidateDetails(
         retailerCandidates.slice(0, RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN),
+      ),
+      reimbursementGapCandidateCount: reimbursementGapCandidates.length,
+      reimbursementGapDetails: formatReimbursementGapCandidateDetails(
+        reimbursementGapCandidates,
       ),
     },
   };
