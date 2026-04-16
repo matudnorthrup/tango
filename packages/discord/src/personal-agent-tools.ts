@@ -621,7 +621,7 @@ export function createReceiptRegistryTools(): AgentTool[] {
         "    Optional params: month (YYYY-MM), since, until, vendor, verify_with_ramp, max_pages.",
         "",
         "  detect_gaps",
-        "    Detect missing tracking blocks, missing recurring receipts, and other reimbursement coverage gaps.",
+        "    Detect missing tracking blocks, stale submitted notes, missing recurring receipts, and other reimbursement coverage gaps.",
         "    Optional params: since, until, vendor, lookback_months, verify_with_ramp, max_pages.",
         "",
         "Tracking block fields:",
@@ -1094,6 +1094,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
         "",
         "  submit_ramp_reimbursement",
         "    Create and submit a Ramp reimbursement draft with archived evidence, amount, date, memo, and merchant. Evidence may be a PDF or an image file.",
+        "    A recent-history dedup gate runs automatically unless skip_dedup_check is true.",
         "",
         "  replace_ramp_reimbursement_receipt",
         "    Open an existing Ramp reimbursement review page and replace or add receipt evidence, then capture a Ramp confirmation screenshot. Evidence may be a PDF or an image file.",
@@ -1150,6 +1151,10 @@ export function createReimbursementAutomationTools(): AgentTool[] {
           vendor: {
             type: "string",
             description: "For submit_ramp_reimbursement: configured vendor key, receipt directory, or merchant alias from reimbursement-config.yaml.",
+          },
+          skip_dedup_check: {
+            type: "boolean",
+            description: "For submit_ramp_reimbursement: bypass the automatic date+amount dedup gate. Use only for intentional re-submissions.",
           },
           review_url: {
             type: "string",
@@ -1211,6 +1216,24 @@ export function createReimbursementAutomationTools(): AgentTool[] {
                 return {
                   error: "submit_ramp_reimbursement requires memo or a merchant/vendor with a configured default memo",
                 };
+              }
+
+              if (input.skip_dedup_check !== true) {
+                const history = await bm.listRampReimbursementHistory();
+                const dedup = checkSubmissionDedup({
+                  vendor,
+                  merchant: resolvedMerchant,
+                  amount: input.amount,
+                  transactionDate: input.transaction_date,
+                  memo: resolvedMemo,
+                  history,
+                });
+                if (dedup.duplicate) {
+                  return {
+                    error: `submit_ramp_reimbursement blocked by dedup gate: ${dedup.reasons.join(", ")}`,
+                    dedup,
+                  };
+                }
               }
 
               const result = await bm.submitRampReimbursement({

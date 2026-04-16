@@ -24,6 +24,8 @@ Create retailer subfolders as needed. Do NOT create other folder nesting.
 
 Use the `obsidian` tool to create the file at `Records/Finance/Receipts/{Retailer}/` with this format:
 
+For any vendor listed in `reimbursement-config.yaml`, always include a `## Reimbursement Tracking` section.
+
 ```markdown
 # {Retailer} Order {ORDER_ID}
 
@@ -59,6 +61,33 @@ Any relevant context (partial shipment, return pending, Walmart Cash used, etc.)
 - Note: use the installation's configured reimbursement memo or leave blank
 ```
 
+## Venmo example
+
+When the receipt source is a Venmo confirmation email, use the same structure and include reimbursement tracking when the payment is reimbursable.
+
+```markdown
+# Venmo Payment to Kip Everitt
+
+- **Date:** 2026-04-04
+- **Total:** $600.00
+- **Recipient:** Kip Everitt
+
+## Linked Transactions
+
+- Lunch Money TXN 2376200290: $600.00 (One-off Expenses)
+
+## Notes
+
+Invoice-backed Venmo reimbursement created from the Gmail payment confirmation.
+
+## Reimbursement Tracking
+
+- Status: not_submitted
+- System: Ramp
+- Amount: $600.00
+- Note: executive buy back time
+```
+
 ## Category assignment rules
 
 Reference the installation's active finance rules note for the authoritative rules file.
@@ -79,6 +108,7 @@ Common product-to-category mappings for receipt items:
 
 - Always include the Lunch Money transaction ID if known.
 - Use the `obsidian` tool with `create` command and the installation's default vault.
+- Check `config/defaults/reimbursement-config.yaml` to determine if a vendor is reimbursable and what the default memo is.
 - Keep grocery summaries brief — don't list every item, just note the approximate total and key items.
 - Non-grocery items need individual line items with prices for accurate splits later.
 - If the order was split across multiple shipments/charges, note all transaction IDs.
