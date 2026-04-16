@@ -10,16 +10,29 @@ Use this when the user wants reimbursement submissions prepared or filed in Ramp
 
 - For Walmart delivery reimbursements: reimbursable amount is the Walmart **driver tip only**
 - For generic reimbursements: use the amount and merchant the user specified, plus the matching invoice or receipt evidence
-- Reimbursement note / memo: use the exact memo text the user requested; otherwise fall back to the installation's reimbursement policy or profile-owned template
+- A hard dedup gate runs automatically before every Ramp submission. If a matching date::amount exists in recent Ramp history, the submission is blocked. Use `skip_dedup_check: true` only for intentional re-submissions.
+- The memo field auto-resolves from `reimbursement-config.yaml`. Submit without explicit memo and the correct default will be used (for example `executive buy back time` for all exec buy back vendors). Only provide an explicit memo to override.
+- If the user explicitly requests a different memo, pass that exact memo as the override
 - Evidence must be a real invoice/receipt file or a real Walmart order-detail screenshot with an explicit visible date/order header so Ramp can verify it
 
 ## Tooling
 
 - `receipt_registry`
+  - `list_reimbursement_candidates` to find pending receipts across all configured reimbursement vendors
+    - use this first for any vendor reimbursement request before deciding whether you need the Walmart-only or Gmail-only branch
+    - add `vendor` when the request is scoped to one merchant or reimbursement program
+  - `reconcile_reimbursements` to verify configured reimbursement notes against live Ramp history and repair stale tracking blocks
+  - `upsert_reimbursement` to create or repair the `## Reimbursement Tracking` block on any configured vendor receipt note
+  - `generate_monthly_ledger` to build a month or date-range ledger grouped by vendor, category, and status
+  - `detect_gaps` to find missing tracking blocks, stale submitted notes, recurring monthly gaps, and other coverage issues
   - `list_walmart_delivery_candidates` to find cataloged Walmart receipts with delivery tips and no reimbursement recorded yet
     - this should verify against live Ramp history before treating anything as still pending unless you intentionally opt out
   - `reconcile_walmart_reimbursements` to repair stale Walmart note status fields from live Ramp submission history
   - `upsert_walmart_reimbursement` to record submission status back into the receipt note
+  - `vendor` param guidance:
+    - `vendor` accepts the configured vendor key, receipt directory, or merchant alias from `reimbursement-config.yaml`
+    - examples: `maid_in_newport`, `Venmo`, `Factor`
+    - prefer passing `vendor` when you know it because that resolves the merchant and default memo consistently
 - `gog_email`
   - `gmail search` or `gmail messages search` to find the matching invoice/receipt email
   - `gmail get <messageId> --format full` to inspect the selected message and its attachment metadata
@@ -42,6 +55,7 @@ Use this when the user wants reimbursement submissions prepared or filed in Ramp
 ## Workflow
 
 1. Decide which branch applies.
+   - For any vendor reimbursement: use `receipt_registry list_reimbursement_candidates` to find pending receipts across all configured vendors.
    - Walmart delivery-tip reimbursement:
      use `receipt_registry list_walmart_delivery_candidates`
      and if Obsidian note status looks suspicious or the user questions the pending list, use `receipt_registry reconcile_walmart_reimbursements`
@@ -63,7 +77,8 @@ Use this when the user wants reimbursement submissions prepared or filed in Ramp
 4. For every submission:
    - use `ramp_reimbursement submit_ramp_reimbursement`
    - use Ramp transaction dates in `MM/DD/YYYY` format
-   - use the exact memo text the user asked for when one is provided
+   - let the tool resolve the configured default memo unless the user asked for a specific override
+   - use `skip_dedup_check: true` only when intentionally re-submitting something that the automatic dedup gate would otherwise block
    - do not use generic `browser` actions in the normal submission path
 5. After successful Walmart submission, the Ramp tool should update the receipt note automatically.
    - Use `receipt_registry upsert_walmart_reimbursement` only for repairs or manual correction.
