@@ -1,0 +1,24 @@
+default_system: "Ramp"
+categories:
+  exec_buy_back_time:
+    memo: "executive buy back time"
+    vendors: [walmart_tip, venmo_services, maid_in_newport, factor]
+  offsite_reimbursements:
+    memo: "offsite reimbursement"
+vendors:
+  walmart_tip:
+    receipt_dir: Walmart
+    reimbursable_item: "Driver tip"
+    default_category: exec_buy_back_time
+  venmo_services:
+    receipt_dir: Venmo
+    default_category: exec_buy_back_time
+  maid_in_newport:
+    merchant_name: "Maid in Newport"
+    reimbursable_item: "House cleaning"
+    recurring: true
+    typical_amount: 350
+    default_category: exec_buy_back_time
+  factor:
+    merchant_name: Factor
+    default_category: exec_buy_back_time
