@@ -1967,9 +1967,14 @@ export class BrowserManager {
       throw new Error(`Could not extract Ramp reimbursement id from ${createdDraftUrl}`);
     }
 
-    // Wait for the Ramp draft form to fully render.
+    // Wait for the Ramp draft form to fully render and the OCR overlay to clear.
     await page.locator('input[name="amount"]').waitFor({ state: "visible", timeout: 60_000 });
     await page.locator('input[name="Memo"]').first().waitFor({ state: "visible", timeout: 30_000 });
+    // Ramp shows a processing overlay while analyzing the receipt — wait for inputs to become actionable.
+    await page
+      .locator('input[name="amount"]')
+      .click({ timeout: 60_000, trial: true })
+      .catch(() => undefined);
     await page.locator('input[name="amount"]').fill(input.amount.toFixed(2));
     await page
       .locator('input[name="transaction_date"]')
