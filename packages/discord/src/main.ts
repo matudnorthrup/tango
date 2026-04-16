@@ -7603,12 +7603,18 @@ client.on("interactionCreate", async (interaction) => {
 function enqueueChannelWork(
   channelKey: string,
   logPrefix: string,
-  work: () => Promise<void>
+  work: () => Promise<void>,
+  timeoutMs: number = 300_000
 ): void {
   const queuedWork = channelQueues.get(channelKey) ?? Promise.resolve();
   const nextWork = queuedWork
     .then(async () => {
-      await work();
+      await Promise.race([
+        work(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Channel work timed out after ${timeoutMs}ms`)), timeoutMs)
+        ),
+      ]);
     })
     .catch((error) => {
       console.error(`[${logPrefix}] unhandled channel work error`, error);
@@ -7666,7 +7672,17 @@ client.on("messageCreate", async (message) => {
 
   const channelKey = toChannelKey(message);
   enqueueChannelWork(channelKey, "tango-discord", async () => {
-    await handleMessage(message);
+    try {
+      await handleMessage(message);
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      console.error(`[tango-discord] handleMessage failed for ${message.author.username} in ${message.channelId}: ${errorText}`);
+      try {
+        await sendPresentedReply(message.channel, `Something went wrong processing your message. Please try again.`, systemAgent);
+      } catch (replyError) {
+        console.error(`[tango-discord] failed to send error reply:`, replyError instanceof Error ? replyError.message : replyError);
+      }
+    }
   });
 });
 
