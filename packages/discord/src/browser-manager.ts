@@ -1959,7 +1959,7 @@ export class BrowserManager {
     await page.waitForURL(/\/details\/reimbursements\/.+\/draft/, {
       timeout: 120_000,
     });
-    await page.waitForTimeout(1_000);
+    await page.waitForTimeout(3_000);
 
     const createdDraftUrl = page.url();
     const createdRampReportId = extractRampReimbursementIdFromUrl(createdDraftUrl);
@@ -1967,6 +1967,9 @@ export class BrowserManager {
       throw new Error(`Could not extract Ramp reimbursement id from ${createdDraftUrl}`);
     }
 
+    // Wait for the Ramp draft form to fully render.
+    await page.locator('input[name="amount"]').waitFor({ state: "visible", timeout: 60_000 });
+    await page.locator('input[name="Memo"]').first().waitFor({ state: "visible", timeout: 30_000 });
     await page.locator('input[name="amount"]').fill(input.amount.toFixed(2));
     await page
       .locator('input[name="transaction_date"]')
