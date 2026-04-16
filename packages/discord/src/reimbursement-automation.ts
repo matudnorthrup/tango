@@ -187,7 +187,21 @@ function buildEmailEvidenceSummary(parsed: ParsedGogEmailFullOutput): EmailEvide
 }
 
 export function parseGogEmailFullOutput(raw: string): ParsedGogEmailFullOutput {
-  const normalized = raw.replace(/\r\n/gu, "\n");
+  // Unwrap MCP tool result JSON envelope if present:
+  // Watson often passes {"result":"id\t...\n..."} from the gog_email tool response.
+  let unwrapped = raw;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed.result === "string") {
+        unwrapped = parsed.result;
+      }
+    } catch {
+      // not valid JSON, use raw
+    }
+  }
+  const normalized = unwrapped.replace(/\r\n/gu, "\n");
   const lines = normalized.split("\n");
   const headers: Record<string, string> = {};
   let bodyStartIndex = 0;

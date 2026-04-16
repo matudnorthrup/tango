@@ -857,6 +857,9 @@ export function createReimbursementAutomationTools(): AgentTool[] {
         "  capture_email_reimbursement_evidence",
         "    Render a raw reimbursement email body into an archived screenshot evidence file for Ramp uploads when no better attachment exists.",
         "",
+        "  capture_email_as_pdf",
+        "    Render a raw email (from `gog gmail get --format full`) into a PDF file using the original email HTML. Preferred over capture_email_reimbursement_evidence for HTML emails (Venmo, receipts) because it preserves the original branding and layout.",
+        "",
         "  submit_ramp_reimbursement",
         "    Create and submit a Ramp reimbursement draft with archived evidence, amount, date, memo, and merchant. Evidence may be a PDF or an image file.",
         "",
@@ -871,6 +874,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             enum: [
               "capture_walmart_tip_evidence",
               "capture_email_reimbursement_evidence",
+              "capture_email_as_pdf",
               "submit_ramp_reimbursement",
               "replace_ramp_reimbursement_receipt",
             ],
@@ -940,6 +944,17 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             }
             return {
               result: await bm.captureEmailReimbursementEvidence({
+                emailContent: input.email_content,
+                label: typeof input.label === "string" ? input.label : undefined,
+                outputPath: typeof input.output_path === "string" ? input.output_path : undefined,
+              }),
+            };
+          case "capture_email_as_pdf":
+            if (typeof input.email_content !== "string" || input.email_content.trim().length === 0) {
+              return { error: "capture_email_as_pdf requires email_content" };
+            }
+            return {
+              result: await bm.captureEmailAsPdf({
                 emailContent: input.email_content,
                 label: typeof input.label === "string" ? input.label : undefined,
                 outputPath: typeof input.output_path === "string" ? input.output_path : undefined,

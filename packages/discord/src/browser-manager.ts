@@ -1830,6 +1830,67 @@ export class BrowserManager {
     };
   }
 
+  async captureEmailAsPdf(input: {
+    emailContent: string;
+    label?: string;
+    outputPath?: string;
+  }): Promise<{
+    pdfPath: string;
+    archivedPath: string;
+    sha256: string;
+    bodyFormat: "html" | "text";
+    subject?: string;
+    date?: string;
+    from?: string;
+  }> {
+    const page = this.getPage();
+    const parsed = parseGogEmailFullOutput(input.emailContent);
+
+    // Use the original email HTML body directly when available;
+    // fall back to the styled evidence template for plain-text emails.
+    const html =
+      parsed.bodyFormat === "html"
+        ? `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{background:#fff;margin:0;}</style></head><body>${parsed.body}</body></html>`
+        : buildEmailEvidenceHtml(parsed);
+
+    const tempHtmlPath = path.join("/tmp", `ramp-email-pdf-${Date.now()}.html`);
+    const tempPdfPath = input.outputPath
+      ? path.resolve(input.outputPath)
+      : path.join("/tmp", `ramp-email-pdf-${Date.now()}.pdf`);
+    fs.writeFileSync(tempHtmlPath, html, "utf8");
+
+    await page.goto(`file://${tempHtmlPath}`, {
+      waitUntil: "load",
+      timeout: 30_000,
+    });
+    await page.waitForTimeout(750);
+    await page.pdf({
+      path: tempPdfPath,
+      format: "Letter",
+      printBackground: true,
+      margin: { top: "0.5in", bottom: "0.5in", left: "0.5in", right: "0.5in" },
+    });
+
+    const archived = archiveReimbursementEvidence({
+      sourcePath: tempPdfPath,
+      label: input.label ?? "email-receipt-pdf",
+      metadata: {
+        kind: "email_receipt_pdf",
+        capturedAt: new Date().toISOString(),
+      },
+    });
+
+    return {
+      pdfPath: tempPdfPath,
+      archivedPath: archived.archivedPath,
+      sha256: archived.sha256,
+      bodyFormat: parsed.bodyFormat,
+      subject: parsed.headers["subject"],
+      date: parsed.headers["date"],
+      from: parsed.headers["from"],
+    };
+  }
+
   private async captureRampConfirmationScreenshot(
     page: Page,
     evidencePath: string,

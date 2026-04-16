@@ -26,7 +26,8 @@ Use this when the user wants reimbursement submissions prepared or filed in Ramp
   - `gmail attachment <messageId> <attachmentId> --out /tmp --name <filename>` to download the invoice/receipt to an absolute local path for Ramp upload
 - `ramp_reimbursement`
   - `capture_walmart_tip_evidence` to grab the correct archived Walmart order-detail screenshot with driver tip and date/order context
-  - `capture_email_reimbursement_evidence` to turn a raw Gmail message body into an uploadable screenshot evidence file only when the receipt lives in the email body instead of an attachment
+  - `capture_email_as_pdf` to render an HTML email (Venmo, receipts with branding) into a PDF that preserves the original layout. **Preferred** over `capture_email_reimbursement_evidence` for HTML emails.
+  - `capture_email_reimbursement_evidence` to turn a plain-text email body into an uploadable screenshot evidence file. Only use this for emails that have no HTML body.
   - `submit_ramp_reimbursement` to create and submit a Ramp reimbursement draft with the chosen evidence file, amount, merchant, and memo
     - accepts PDF attachments directly; do not down-convert attached PDFs into screenshots
   - `replace_ramp_reimbursement_receipt` to repair a submitted reimbursement with better evidence if needed and capture a fresh Ramp confirmation screenshot
@@ -59,7 +60,7 @@ Use this when the user wants reimbursement submissions prepared or filed in Ramp
    - fetch the message details and attachment metadata
    - if there is a real attachment, download it with `gmail attachment ... --out /tmp --name ...`
    - if the attachment is a PDF, use that PDF directly as the Ramp evidence file
-   - if there is no attachment but the email body itself is the receipt, feed the raw `gog gmail get --format full` output into `ramp_reimbursement capture_email_reimbursement_evidence` and use that generated screenshot as the evidence file
+   - if there is no attachment but the email body itself is the receipt, feed the raw `gog gmail get --format full` output into `ramp_reimbursement capture_email_as_pdf` to generate a PDF that preserves the original email branding and layout. Only fall back to `capture_email_reimbursement_evidence` for plain-text emails with no HTML body.
 4. For every submission:
    - use `ramp_reimbursement submit_ramp_reimbursement`
    - use Ramp transaction dates in `MM/DD/YYYY` format
