@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { manager, registry, evidence } = vi.hoisted(() => ({
   manager: {
     launch: vi.fn(),
     captureWalmartTipEvidence: vi.fn(),
     captureEmailReimbursementEvidence: vi.fn(),
+    listRampReimbursementHistory: vi.fn(),
     submitRampReimbursement: vi.fn(),
     replaceRampReimbursementReceipt: vi.fn(),
   },
@@ -30,12 +34,45 @@ vi.mock("../src/reimbursement-evidence.js", () => evidence);
 
 import { createReimbursementAutomationTools } from "../src/personal-agent-tools.js";
 
+const cleanupDirs: string[] = [];
+const originalTangoHome = process.env.TANGO_HOME;
+const originalTangoProfile = process.env.TANGO_PROFILE;
+
 describe("personal-agent-tools reimbursement automation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    const tangoHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-reimbursement-tool-"));
+    cleanupDirs.push(tangoHome);
+    process.env.TANGO_HOME = tangoHome;
+    process.env.TANGO_PROFILE = "tool-test";
+    fs.mkdirSync(path.join(tangoHome, "profiles", "tool-test", "data", "receipts"), {
+      recursive: true,
+    });
     manager.launch.mockResolvedValue("Connected");
+    manager.listRampReimbursementHistory.mockResolvedValue([]);
     registry.findWalmartReceiptRecord.mockReturnValue(null);
     evidence.loadReimbursementEvidenceRecord.mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    if (originalTangoHome == null) {
+      delete process.env.TANGO_HOME;
+    } else {
+      process.env.TANGO_HOME = originalTangoHome;
+    }
+
+    if (originalTangoProfile == null) {
+      delete process.env.TANGO_PROFILE;
+    } else {
+      process.env.TANGO_PROFILE = originalTangoProfile;
+    }
+
+    while (cleanupDirs.length > 0) {
+      const dir = cleanupDirs.pop();
+      if (dir) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
   });
 
   it("captures Walmart tip evidence through BrowserManager", async () => {
@@ -98,12 +135,81 @@ describe("personal-agent-tools reimbursement automation", () => {
       evidencePath: "/tmp/walmart.png",
       merchant: "Walmart",
     });
+    expect(manager.listRampReimbursementHistory).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       result: {
         reviewUrl: "https://app.ramp.com/details/reimbursements/abc/review",
         rampReportId: "abc",
         amount: 27.38,
         transactionDate: "03/08/2026",
+        memo: "executive buy back time",
+      },
+    });
+  });
+
+  it("blocks duplicate Ramp reimbursements unless skip_dedup_check is true", async () => {
+    manager.listRampReimbursementHistory.mockResolvedValue([
+      {
+        merchant: "Factor",
+        amount: 89.99,
+        transactionDate: "2026-04-08",
+        submittedDate: "2026-04-09",
+        memo: "executive buy back time",
+        reviewUrl: "https://app.ramp.com/details/reimbursements/existing/review",
+        rampReportId: "existing",
+      },
+    ]);
+
+    const tool = createReimbursementAutomationTools()[0];
+    if (!tool) throw new Error("Missing tool");
+
+    const blocked = await tool.handler({
+      action: "submit_ramp_reimbursement",
+      amount: 89.99,
+      transaction_date: "2026-04-08",
+      evidence_path: "/tmp/factor.pdf",
+      vendor: "factor",
+    });
+
+    expect(manager.submitRampReimbursement).not.toHaveBeenCalled();
+    expect(blocked).toEqual(expect.objectContaining({
+      error: expect.stringContaining("submit_ramp_reimbursement blocked by dedup gate"),
+      dedup: expect.objectContaining({
+        duplicate: true,
+        reasons: expect.arrayContaining(["matching_ramp_history"]),
+      }),
+    }));
+
+    manager.submitRampReimbursement.mockResolvedValue({
+      reviewUrl: "https://app.ramp.com/details/reimbursements/new/review",
+      rampReportId: "new",
+      amount: 89.99,
+      transactionDate: "04/08/2026",
+      memo: "executive buy back time",
+    });
+
+    const forced = await tool.handler({
+      action: "submit_ramp_reimbursement",
+      amount: 89.99,
+      transaction_date: "2026-04-08",
+      evidence_path: "/tmp/factor.pdf",
+      vendor: "factor",
+      skip_dedup_check: true,
+    });
+
+    expect(manager.submitRampReimbursement).toHaveBeenCalledWith({
+      amount: 89.99,
+      transactionDate: "2026-04-08",
+      memo: "executive buy back time",
+      evidencePath: "/tmp/factor.pdf",
+      merchant: "Factor",
+    });
+    expect(forced).toEqual({
+      result: {
+        reviewUrl: "https://app.ramp.com/details/reimbursements/new/review",
+        rampReportId: "new",
+        amount: 89.99,
+        transactionDate: "04/08/2026",
         memo: "executive buy back time",
       },
     });
