@@ -1,6 +1,6 @@
 # Malibu Personality & Output Polish
 
-**Status:** Spec — awaiting stakeholder review
+**Status:** Shipped
 **Linear:** [Malibu Personality & Output Polish](https://linear.app/latitudegames/project/malibu-personality-and-output-polish-2860bdbd4a30)
 **Date:** 2026-04-16
 
