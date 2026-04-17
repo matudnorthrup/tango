@@ -144,6 +144,103 @@ WHERE w.id = target.id
 RETURNING w.id, w.started_at, w.ended_at;
 ```
 
+## Managing routines
+
+When the user wants to create, edit, rename, or delete a workout routine template.
+
+### Creating a routine
+
+1. Insert the routine:
+   ```sql
+   INSERT INTO workout_routines (name, workout_type, aliases, notes)
+   VALUES ('Push Day C', 'push', ARRAY['Push 3'], 'Added per user request')
+   RETURNING id, name, workout_type;
+   ```
+2. Resolve each exercise from the `exercises` table (by name/aliases), inserting any that don't exist.
+3. Add exercises to the routine with position ordering:
+   ```sql
+   INSERT INTO workout_routine_exercises (routine_id, exercise_id, position)
+   VALUES
+     (?, (SELECT id FROM exercises WHERE name ILIKE '%bench press%'), 1),
+     (?, (SELECT id FROM exercises WHERE name ILIKE '%overhead press%'), 2),
+     (?, (SELECT id FROM exercises WHERE name ILIKE '%incline dumbbell press%'), 3);
+   ```
+
+### Adding an exercise to a routine
+
+1. Resolve the exercise from `exercises`.
+2. Find the current max position:
+   ```sql
+   SELECT COALESCE(MAX(position), 0) + 1 AS next_pos
+   FROM workout_routine_exercises
+   WHERE routine_id = ?;
+   ```
+3. Insert at the next position (or a specific position if the user requested one):
+   ```sql
+   INSERT INTO workout_routine_exercises (routine_id, exercise_id, position)
+   VALUES (?, ?, ?);
+   ```
+4. If inserting at a specific position, shift existing exercises down first:
+   ```sql
+   UPDATE workout_routine_exercises
+   SET position = position + 1
+   WHERE routine_id = ? AND position >= ?;
+   ```
+
+### Removing an exercise from a routine
+
+1. Delete the exercise link:
+   ```sql
+   DELETE FROM workout_routine_exercises
+   WHERE routine_id = ? AND exercise_id = ?;
+   ```
+2. Reorder remaining positions to stay sequential:
+   ```sql
+   WITH reordered AS (
+     SELECT routine_id, exercise_id, ROW_NUMBER() OVER (ORDER BY position) AS new_pos
+     FROM workout_routine_exercises
+     WHERE routine_id = ?
+   )
+   UPDATE workout_routine_exercises wre
+   SET position = r.new_pos
+   FROM reordered r
+   WHERE wre.routine_id = r.routine_id AND wre.exercise_id = r.exercise_id;
+   ```
+
+### Reordering exercises
+
+Update positions directly:
+```sql
+UPDATE workout_routine_exercises
+SET position = ?
+WHERE routine_id = ? AND exercise_id = ?;
+```
+Reorder all positions afterward to keep them sequential (same CTE as removal).
+
+### Renaming a routine or updating aliases
+
+```sql
+UPDATE workout_routines
+SET name = 'New Name', aliases = ARRAY['Alias 1', 'Alias 2']
+WHERE id = ?
+RETURNING id, name, aliases;
+```
+
+### Deleting a routine
+
+1. **Check for sessions first** — warn the user if workouts reference this routine:
+   ```sql
+   SELECT COUNT(*) AS session_count
+   FROM workouts
+   WHERE routine_id = ?;
+   ```
+2. If sessions exist, tell the user how many sessions reference it and ask for confirmation. Deleting the routine will set those sessions' `routine_id` to NULL (or the user can reassign them first).
+3. If confirmed (or no sessions reference it):
+   ```sql
+   DELETE FROM workout_routines WHERE id = ?;
+   ```
+   `workout_routine_exercises` rows cascade-delete automatically.
+
 ## Rules
 
 - **Query before asking.** If the user asks "when did I last do legs?" or "what did I bench last week?" — check the database. Do not ask the user to recall what the database already knows.
