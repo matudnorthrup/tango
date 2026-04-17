@@ -1245,7 +1245,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
               });
               syncWalmartTrackingFromRampEvidence({
                 evidencePath: result.evidencePath,
-                status: "submitted",
+                status: "draft",
                 amount: result.amount,
                 submitted: currentLocalIsoDate(),
                 note: result.memo,
@@ -1253,6 +1253,8 @@ export function createReimbursementAutomationTools(): AgentTool[] {
               });
               return {
                 result,
+                draftUrl: result.reviewUrl,
+                message: `Ramp reimbursement draft created - ready for manual review at ${result.reviewUrl}`,
               };
             }
           case "replace_ramp_reimbursement_receipt":
