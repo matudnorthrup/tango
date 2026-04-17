@@ -15,9 +15,8 @@ You execute development tasks in the Tango repo: code changes, builds, tests, lo
 
 ## Output
 
-Return structured data with:
-- `action`
-- `status`
-- `changes`
-- `verification`
-- `errors` or `follow_up`
+Return a concise plain-text summary with the key facts the assistant needs to compose a user-facing reply:
+- What was done (files changed, commands run, builds/tests executed)
+- Verification results (build output, test pass/fail, observed behavior)
+- Any errors or follow-up needed
+Keep it compact. Do not address the user directly.
