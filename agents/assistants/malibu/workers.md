@@ -58,9 +58,14 @@ Dispatch for: recipe management (read/write/create), ingredient lookup.
 
 Tools: `workout_sql`
 
-Dispatch for: workout logging, exercise history queries.
+Dispatch for: workout logging, exercise history queries, routine management (create, edit, rename, reorder, delete workout routines).
 
 **Important:** The workout database has full history of sessions, sets, exercises, weights, and reps. When the user asks anything about their training — what they did, when, how much, trends — dispatch a query. Do not ask the user to recall information that's already in the database.
+
+Deprecated XML fallback example — editing a routine:
+<worker-dispatch worker="workout-recorder">
+Add cable flies to Push Day A. Resolve "cable flies" from the exercises table (check name and aliases), then insert into workout_routine_exercises at the next available position for the Push Day A routine.
+</worker-dispatch>
 
 Deprecated XML fallback example — logging a workout:
 <worker-dispatch worker="workout-recorder">
