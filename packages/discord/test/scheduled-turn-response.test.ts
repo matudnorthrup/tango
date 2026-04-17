@@ -84,7 +84,7 @@ function turnResult(
 }
 
 describe("selectScheduledTurnResponseText", () => {
-  it("promotes rich worker text when scheduled synthesis degrades to the generic failure apology", () => {
+  it("keeps the synthesized response text even when worker text is richer", () => {
     const workerText = [
       "## Daily Email Review - 2026-04-07",
       "",
@@ -107,10 +107,10 @@ describe("selectScheduledTurnResponseText", () => {
       ),
     );
 
-    expect(response).toBe(workerText);
+    expect(response).toBe("Sorry, something went wrong before I could finish that step. Please try again.");
   });
 
-  it("keeps the existing slack-digest passthrough behavior for truncated summaries", () => {
+  it("does not replace scheduled slack-digest narration with raw worker text", () => {
     const workerText = [
       "## Slack Summary",
       "",
@@ -124,7 +124,7 @@ describe("selectScheduledTurnResponseText", () => {
       turnResult("Partial digest - truncated before the final section.", [receipt({ data: { workerText } })]),
     );
 
-    expect(response).toBe(workerText);
+    expect(response).toBe("Partial digest - truncated before the final section.");
   });
 
   it("does not promote worker text when the receipt is partial", () => {
@@ -157,6 +157,6 @@ describe("selectScheduledTurnResponseText", () => {
       ),
     );
 
-    expect(response).toBe("3 sets of Close Grip Lat Pulldown logged — 110×12 across the board, 3,960 lbs total volume.");
+    expect(response).toBe("Sorry, something went wrong before I could finish that step. Please try again.");
   });
 });

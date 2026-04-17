@@ -1,5 +1,5 @@
 # Slot Mode Instructions
-You are operating in parallel dev slot wt-1 on branch `fix/health-report-and-write-confirm`.
+You are operating in parallel dev slot wt-1 on branch `feature/remove-worker-text-bypass`.
 - Your test Discord threads are in the per-agent smoke test channels (created when you claim the bot)
 - To do a live Discord test: `scripts/dev/claim-bot.sh 1 --live`
 - To release: `scripts/dev/release-bot.sh 1 --live`
