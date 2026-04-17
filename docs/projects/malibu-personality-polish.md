@@ -2,7 +2,7 @@
 
 **Status:** Shipped
 **Linear:** [Malibu Personality & Output Polish](https://linear.app/latitudegames/project/malibu-personality-and-output-polish-2860bdbd4a30)
-**Date:** 2026-04-16
+**Date:** 2026-04-16 (spec), 2026-04-17 (shipped)
 
 ## Problem
 
@@ -128,18 +128,47 @@ This preserves the "don't address the user" rule and the "compact output" intent
 
 ## What NOT to change
 
-- **No TypeScript changes.** The dispatch/synthesis pipeline code is fine; the prompts are the problem.
 - **No functionality changes.** Workers still do the same lookups, logging, and queries.
 - **No changes to worker rules or workflows.** The lookup cascades, safety rules, and tool usage stay identical.
 - **No changes to shared AGENTS.md or RULES.md.** The generic synthesis rules there are fine; the problem is Malibu-specific.
 
+## Phase 2: Code Fix (discovered post-initial-ship)
+
+Initial prompt-only changes were insufficient. Investigation revealed a **fourth root cause**: a performance optimization in `turn-executor.ts` that bypassed Phase 3 synthesis (agent voice) when worker output "looked deliverable" (non-JSON, well-formatted markdown). This sent raw worker output directly to Discord without the agent ever touching it.
+
+### Change 4: Remove direct-worker-text bypass (DEV-20)
+
+Removed both bypass paths so ALL worker results go through Phase 3 synthesis:
+- **Deterministic path** (`extractDeliverableWorkerTextsFromReceipts` in turn-executor.ts ~line 1537)
+- **Orchestrator path** (`extractDeliverableWorkerTextFromReport` in turn-executor.ts ~line 2056)
+- Deleted `deliverable-worker-text.ts` (dead code after bypass removal)
+- Simplified `scheduled-turn-response.ts` to use synthesized response directly
+- Removed `directResponse` flag from `DeterministicTurnState`
+
+**Trade-off:** ~20-30% latency increase on 10-15% of turns (one extra LLM call). Accepted because agent personality IS the product — skipping synthesis to save latency was the wrong trade for every agent, not just Malibu.
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `agents/assistants/malibu/soul.md` | Add `## Voice in Action` section with examples and anti-patterns |
+| `agents/assistants/malibu/workers.md` | Replace `## Synthesis Rules` with personality-driven guidance |
+| `agents/workers/nutrition-logger/soul.md` | Soften output format instructions |
+| `agents/workers/workout-recorder/soul.md` | Soften output format instructions |
+| `agents/workers/health-analyst/soul.md` | Soften output format instructions |
+| `agents/workers/recipe-librarian/soul.md` | Soften output format instructions |
+| `packages/discord/src/turn-executor.ts` | Remove both direct-worker-text bypass paths |
+| `packages/discord/src/deliverable-worker-text.ts` | Deleted (dead code) |
+| `packages/discord/src/scheduled-turn-response.ts` | Simplified — use synthesized response directly |
+| `packages/discord/src/deterministic-runtime.ts` | Remove `directResponse` narration flag |
+
 ## Risk
 
-Low. These are prompt-only changes. If the personality swings too far, individual files can be tuned independently. The worker output softening is the most sensitive change — if workers start producing output that's too loose for Malibu to extract numbers from, we can tighten the worker instructions while keeping the Malibu-side changes.
+Low-moderate. Prompt changes are easily tunable per-file. The code change adds latency but is functionally safe — Phase 3 synthesis was already the normal path for most turns; now it's the only path.
 
 ## Test Plan
 
-1. After implementation, claim the Discord bot for live testing
+1. Live test through Discord after deploy
 2. Test each worker type:
    - Log a meal → verify response has personality + correct numbers
    - Ask for sleep/health data → verify conversational tone + accurate metrics
@@ -149,3 +178,9 @@ Low. These are prompt-only changes. If the personality swings too far, individua
    - Unresolved food items → should still be clear something failed, but in voice
    - Evening calorie check-in → budget info delivered conversationally
 4. Verify numbers are still accurate (personality shouldn't compromise data correctness)
+5. Monitor response latency for regression
+
+## Known Issues
+
+- Live testing not yet completed — needs Discord bot claim and end-to-end verification
+- Other non-Malibu workers (personal-assistant, dev-assistant, research-assistant) still have old structured output format in their soul.md files — not in scope for this project but could be a follow-up
