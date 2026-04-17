@@ -60,6 +60,20 @@ Analyzed conversation messages 1781-1822 from the wellness session. Found 5 issu
 Live tested on slot bot (slot 1, thread 1494825524059570277):
 - "Swap rear delt fly for prone single arm rear delt fly in Pull Day B" → dispatched to **workout-recorder** (not recipe-librarian), 4 SQL calls, replied successfully
 
+## Phase 2: Write Guard Bug (URGENT)
+
+**6. Write guard blocking successful multi-step workout logging (FIXED)**
+- Stakeholder reported exercises "failed to log" — but they WERE logged correctly in DB
+- The response message said "I didn't get a confirmed write through" even though workout-recorder succeeded
+- Root cause: `guardDeterministicNarrationText` in `turn-executor.ts` checked `receipts.some(receiptExpectsWriteButHasNoConfirmedWrite)` — if ANY receipt lacked a confirmed write, it blocked the entire response
+- In multi-step turns (nutrition-logger rejects + workout-recorder succeeds), the nutrition-logger's missing write overrode the workout-recorder's success
+- Fix (commit `c7fb1f4`): Changed to `noReceiptHasConfirmedWrite(receipts)` — only block when NO receipt has a confirmed write
+
+**7. Bot was down after slot release**
+- The `release-bot.sh` script killed the Discord window but didn't fully restart the main bot
+- Bot was not running when stakeholder tried to log exercises
+- Restarted manually
+
 ## Known Issues Not Fixed
 
 1. **Session memory override** (issue 2) — old structured output patterns in compacted turns. Self-healing as turns age out. No action needed.
@@ -71,5 +85,6 @@ Live tested on slot bot (slot 1, thread 1494825524059570277):
 
 ## Key Files
 
+- `packages/discord/src/turn-executor.ts` (write guard fix)
 - `config/defaults/intent-contracts/workout.routine_edit.yaml` (new)
 - `agents/assistants/malibu/workers.md` (updated synthesis rules)
