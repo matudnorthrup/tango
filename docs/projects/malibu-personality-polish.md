@@ -180,7 +180,14 @@ Low-moderate. Prompt changes are easily tunable per-file. The code change adds l
 4. Verify numbers are still accurate (personality shouldn't compromise data correctness)
 5. Monitor response latency for regression
 
+## Live Test Results
+
+**Test: "how's my weight looking this week?"**
+Response: "Week started a little spicy — you hit 177.4 on Monday — but you've been sliding back down since, sitting at 174.1 this morning. Weekly average lands around 175.2, which is actually running about a pound above your recent trend, so the wave hasn't fully turned yet. Keep the nutrition tight through the weekend and you'll likely see that average come back in line."
+
+Confirmed: Phase 3 synthesis running (log: `[turn-executor] synthesizing completed worker result with a fresh tool-free prompt`). No structured fields, full personality, accurate numbers.
+
 ## Known Issues
 
-- Live testing not yet completed — needs Discord bot claim and end-to-end verification
-- Other non-Malibu workers (personal-assistant, dev-assistant, research-assistant) still have old structured output format in their soul.md files — not in scope for this project but could be a follow-up
+- Provider failover latency: some responses took 80s+ due to claude-oauth failures, but that's infrastructure, not this change
+- All 7 worker soul.md files updated (4 Malibu workers + dev-assistant, personal-assistant, research-assistant). research-coordinator was already in a different format.
