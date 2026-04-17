@@ -1174,6 +1174,10 @@ function buildDeterministicWriteGuardReply(receipts: readonly ExecutionReceipt[]
   return "I didn't get a confirmed write through on that step, so I can't say it was logged yet.";
 }
 
+function noReceiptHasConfirmedWrite(receipts: readonly ExecutionReceipt[]): boolean {
+  return !receipts.some((r) => receiptHasConfirmedWriteOutcome(r));
+}
+
 function guardDeterministicNarrationText(
   text: string,
   receipts: readonly ExecutionReceipt[],
@@ -1188,8 +1192,11 @@ function guardDeterministicNarrationText(
       ? buildDeterministicWriteGuardReply(receipts)
       : "Sorry, something went wrong before I could finish that step. Please try again.";
   }
+  // Only block "looks like success" narrations when NO receipt confirmed a write.
+  // When multiple steps run (e.g. nutrition-logger rejects + workout-recorder succeeds),
+  // the misdirected step's missing write should not override the successful one.
   if (
-    receipts.some(receiptExpectsWriteButHasNoConfirmedWrite)
+    noReceiptHasConfirmedWrite(receipts)
     && looksLikeDeterministicWriteSuccess(stripped)
   ) {
     return buildDeterministicWriteGuardReply(receipts);
