@@ -1939,140 +1939,158 @@ export class BrowserManager {
     evidenceImageHeight?: number;
     rampConfirmationPath: string;
   }> {
-    const page = this.getPage();
-    const merchant = (input.merchant ?? "Walmart").trim();
-    const isWalmartEvidence = /\bwalmart\b/iu.test(merchant);
-    const evidenceRecord = archiveReimbursementEvidence({
-      sourcePath: input.evidencePath,
-      label: isWalmartEvidence ? "walmart-tip-evidence" : "ramp-reimbursement-evidence",
-      metadata: {
-        kind: isWalmartEvidence ? "walmart_tip_evidence" : "ramp_reimbursement_evidence",
-      },
-    });
-    await page.goto("https://app.ramp.com/details/reimbursements/new", {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    }).catch(() => undefined);
-    await page.waitForTimeout(1_000);
-    await this.assertRampPageAuthenticated(page, "submit a Ramp reimbursement");
-    await page.locator('input[type="file"]').first().setInputFiles([evidenceRecord.archivedPath]);
-    await page.waitForURL(/\/details\/reimbursements\/.+\/draft/, {
-      timeout: 120_000,
-    });
-    await page.waitForTimeout(3_000);
+    const MAX_ATTEMPTS = 2;
+    let lastError: Error | undefined;
 
-    const createdDraftUrl = page.url();
-    const createdRampReportId = extractRampReimbursementIdFromUrl(createdDraftUrl);
-    if (!createdRampReportId) {
-      throw new Error(`Could not extract Ramp reimbursement id from ${createdDraftUrl}`);
-    }
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const page = this.getPage();
+        const merchant = (input.merchant ?? "Walmart").trim();
+        const isWalmartEvidence = /\bwalmart\b/iu.test(merchant);
+        const evidenceRecord = archiveReimbursementEvidence({
+          sourcePath: input.evidencePath,
+          label: isWalmartEvidence ? "walmart-tip-evidence" : "ramp-reimbursement-evidence",
+          metadata: {
+            kind: isWalmartEvidence ? "walmart_tip_evidence" : "ramp_reimbursement_evidence",
+          },
+        });
+        await page.goto("https://app.ramp.com/details/reimbursements/new", {
+          waitUntil: "domcontentloaded",
+          timeout: 30_000,
+        }).catch(() => undefined);
+        await page.waitForTimeout(1_000);
+        await this.assertRampPageAuthenticated(page, "submit a Ramp reimbursement");
+        await page.locator('input[type="file"]').first().setInputFiles([evidenceRecord.archivedPath]);
+        await page.waitForURL(/\/details\/reimbursements\/.+\/draft/, {
+          timeout: 120_000,
+        });
+        await page.waitForTimeout(3_000);
 
-    // Wait for the Ramp draft form to fully render and the OCR overlay to clear.
-    await page.locator('input[name="amount"]').waitFor({ state: "visible", timeout: 60_000 });
-    await page.locator('input[name="Memo"]').first().waitFor({ state: "visible", timeout: 30_000 });
-    // Ramp shows a processing overlay while analyzing the receipt — wait for inputs to become actionable.
-    await page
-      .locator('input[name="amount"]')
-      .click({ timeout: 60_000, trial: true })
-      .catch(() => undefined);
-    await page.locator('input[name="amount"]').fill(input.amount.toFixed(2));
-    await page
-      .locator('input[name="transaction_date"]')
-      .fill(formatRampTransactionDate(input.transactionDate));
-    const memoInput = page.locator('input[name="Memo"]').first();
-    const ensureMemoValue = async (): Promise<void> => {
-      await memoInput.fill(input.memo);
-      await memoInput.press("Tab").catch(() => undefined);
-      await page.waitForTimeout(250);
-      const currentValue = await memoInput.inputValue().catch(() => "");
-      if (currentValue.trim() !== input.memo.trim()) {
-        await memoInput.fill(input.memo);
-        await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
-        await page.waitForTimeout(250);
-      }
-    };
-    await ensureMemoValue();
-
-    try {
-      await this.selectRampMerchant(page, merchant);
-      await page.waitForTimeout(1_200);
-    } catch (error) {
-      debug(
-        `Continuing Ramp reimbursement without explicit merchant selection for '${merchant}': ${error instanceof Error ? error.message : String(error)}`,
-      );
-      await page.keyboard.press("Escape").catch(() => undefined);
-    }
-
-    const spendAllocation = page.locator('div[name="spend_allocation"] button').first();
-    if ((await spendAllocation.count().catch(() => 0)) > 0) {
-      const disabled = await spendAllocation.isDisabled().catch(() => false);
-      if (!disabled) {
-        await spendAllocation.click().catch(() => undefined);
-        await page.waitForTimeout(500);
-        const noneOption = page.getByRole("option", { name: /^None/i }).first();
-        if ((await noneOption.count().catch(() => 0)) > 0) {
-          await noneOption.click().catch(() => undefined);
-          await page.waitForTimeout(500);
+        const createdDraftUrl = page.url();
+        const createdRampReportId = extractRampReimbursementIdFromUrl(createdDraftUrl);
+        if (!createdRampReportId) {
+          throw new Error(`Could not extract Ramp reimbursement id from ${createdDraftUrl}`);
         }
+
+        // Wait for the Ramp draft form to fully render and the OCR overlay to clear.
+        await page.locator('input[name="amount"]').waitFor({ state: "visible", timeout: 60_000 });
+        await page.locator('input[name="Memo"]').first().waitFor({ state: "visible", timeout: 30_000 });
+        // Ramp shows a processing overlay while analyzing the receipt — wait for inputs to become actionable.
+        await page
+          .locator('input[name="amount"]')
+          .click({ timeout: 60_000, trial: true })
+          .catch(() => undefined);
+        await page.locator('input[name="amount"]').fill(input.amount.toFixed(2));
+        await page
+          .locator('input[name="transaction_date"]')
+          .fill(formatRampTransactionDate(input.transactionDate));
+        const memoInput = page.locator('input[name="Memo"]').first();
+        const ensureMemoValue = async (): Promise<void> => {
+          await memoInput.fill(input.memo);
+          await memoInput.press("Tab").catch(() => undefined);
+          await page.waitForTimeout(250);
+          const currentValue = await memoInput.inputValue().catch(() => "");
+          if (currentValue.trim() !== input.memo.trim()) {
+            await memoInput.fill(input.memo);
+            await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
+            await page.waitForTimeout(250);
+          }
+        };
+        await ensureMemoValue();
+
+        try {
+          await this.selectRampMerchant(page, merchant);
+          await page.waitForTimeout(1_200);
+        } catch (error) {
+          debug(
+            `Continuing Ramp reimbursement without explicit merchant selection for '${merchant}': ${error instanceof Error ? error.message : String(error)}`,
+          );
+          await page.keyboard.press("Escape").catch(() => undefined);
+        }
+
+        const spendAllocation = page.locator('div[name="spend_allocation"] button').first();
+        if ((await spendAllocation.count().catch(() => 0)) > 0) {
+          const disabled = await spendAllocation.isDisabled().catch(() => false);
+          if (!disabled) {
+            await spendAllocation.click().catch(() => undefined);
+            await page.waitForTimeout(500);
+            const noneOption = page.getByRole("option", { name: /^None/i }).first();
+            if ((await noneOption.count().catch(() => 0)) > 0) {
+              await noneOption.click().catch(() => undefined);
+              await page.waitForTimeout(500);
+            }
+          }
+        }
+
+        await ensureMemoValue();
+
+        await page.getByRole("button", { name: /Submit/i }).first().click({
+          timeout: 10_000,
+          force: true,
+        });
+        await page.waitForTimeout(4_000);
+
+        const rampReportId = createdRampReportId;
+        const reviewUrl = buildRampReviewUrl(rampReportId);
+        await page.goto(reviewUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 30_000,
+        }).catch(() => undefined);
+        await page.waitForTimeout(2_000);
+        await this.assertRampPageAuthenticated(page, "open the Ramp reimbursement review page");
+        const reviewBody = await page.locator("body").innerText().catch(() => "");
+        if (!rampReimbursementLooksSubmitted(reviewBody)) {
+          const memoValue = await memoInput.inputValue().catch(() => "");
+          if (memoValue.trim().length === 0 || /\bmemo \(required\)\b/iu.test(reviewBody)) {
+            throw new Error("Ramp reimbursement draft still requires a memo before submit.");
+          }
+          throw new Error("Ramp reimbursement submit did not reach a submitted review state.");
+        }
+        const confirmationScreenshot = await this.captureRampConfirmationScreenshot(
+          page,
+          evidenceRecord.archivedPath,
+          `ramp-review-confirmation-${rampReportId}`,
+        );
+        const updatedEvidenceRecord = archiveReimbursementEvidence({
+          sourcePath: evidenceRecord.archivedPath,
+          orderId: evidenceRecord.orderId,
+          label: isWalmartEvidence ? "walmart-tip-evidence" : "ramp-reimbursement-evidence",
+          metadata: {
+            uploadedAt: new Date().toISOString(),
+            rampReportId,
+            reviewUrl,
+            rampConfirmationPath: confirmationScreenshot.archivedPath,
+            rampConfirmationSha256: confirmationScreenshot.sha256,
+            rampConfirmationImageWidth: confirmationScreenshot.imageWidth,
+            rampConfirmationImageHeight: confirmationScreenshot.imageHeight,
+          },
+        });
+
+        return {
+          reviewUrl,
+          rampReportId,
+          amount: input.amount,
+          transactionDate: formatRampTransactionDate(input.transactionDate),
+          memo: input.memo,
+          evidencePath: updatedEvidenceRecord.archivedPath,
+          evidenceSha256: updatedEvidenceRecord.sha256,
+          evidenceImageWidth: updatedEvidenceRecord.imageWidth,
+          evidenceImageHeight: updatedEvidenceRecord.imageHeight,
+          rampConfirmationPath: confirmationScreenshot.archivedPath,
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < MAX_ATTEMPTS) {
+          debug(`Ramp submission attempt ${attempt} failed, retrying: ${lastError.message}`);
+          continue;
+        }
+        debug(`Ramp submission attempt ${attempt} failed: ${lastError.message}`);
       }
     }
 
-    await ensureMemoValue();
-
-    await page.getByRole("button", { name: /Submit/i }).first().click({
-      timeout: 10_000,
-      force: true,
-    });
-    await page.waitForTimeout(4_000);
-
-    const rampReportId = createdRampReportId;
-    const reviewUrl = buildRampReviewUrl(rampReportId);
-    await page.goto(reviewUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    }).catch(() => undefined);
-    await page.waitForTimeout(2_000);
-    await this.assertRampPageAuthenticated(page, "open the Ramp reimbursement review page");
-    const reviewBody = await page.locator("body").innerText().catch(() => "");
-    if (!rampReimbursementLooksSubmitted(reviewBody)) {
-      const memoValue = await memoInput.inputValue().catch(() => "");
-      if (memoValue.trim().length === 0 || /\bmemo \(required\)\b/iu.test(reviewBody)) {
-        throw new Error("Ramp reimbursement draft still requires a memo before submit.");
-      }
-      throw new Error("Ramp reimbursement submit did not reach a submitted review state.");
-    }
-    const confirmationScreenshot = await this.captureRampConfirmationScreenshot(
-      page,
-      evidenceRecord.archivedPath,
-      `ramp-review-confirmation-${rampReportId}`,
+    throw new Error(
+      `Ramp submission failed after ${MAX_ATTEMPTS} attempts: ${lastError?.message ?? "unknown error"}`,
     );
-    const updatedEvidenceRecord = archiveReimbursementEvidence({
-      sourcePath: evidenceRecord.archivedPath,
-      orderId: evidenceRecord.orderId,
-      label: isWalmartEvidence ? "walmart-tip-evidence" : "ramp-reimbursement-evidence",
-      metadata: {
-        uploadedAt: new Date().toISOString(),
-        rampReportId,
-        reviewUrl,
-        rampConfirmationPath: confirmationScreenshot.archivedPath,
-        rampConfirmationSha256: confirmationScreenshot.sha256,
-        rampConfirmationImageWidth: confirmationScreenshot.imageWidth,
-        rampConfirmationImageHeight: confirmationScreenshot.imageHeight,
-      },
-    });
-
-    return {
-      reviewUrl,
-      rampReportId,
-      amount: input.amount,
-      transactionDate: formatRampTransactionDate(input.transactionDate),
-      memo: input.memo,
-      evidencePath: updatedEvidenceRecord.archivedPath,
-      evidenceSha256: updatedEvidenceRecord.sha256,
-      evidenceImageWidth: updatedEvidenceRecord.imageWidth,
-      evidenceImageHeight: updatedEvidenceRecord.imageHeight,
-      rampConfirmationPath: confirmationScreenshot.archivedPath,
-    };
   }
 
   async replaceRampReimbursementReceipt(input: {
