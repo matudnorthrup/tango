@@ -1937,7 +1937,7 @@ export class BrowserManager {
     evidenceSha256: string;
     evidenceImageWidth?: number;
     evidenceImageHeight?: number;
-    rampConfirmationPath: string;
+    rampConfirmationPath?: string;
   }> {
     const MAX_ATTEMPTS = 2;
     let lastError: Error | undefined;
@@ -2024,59 +2024,17 @@ export class BrowserManager {
 
         await ensureMemoValue();
 
-        await page.getByRole("button", { name: /Submit/i }).first().click({
-          timeout: 10_000,
-          force: true,
-        });
-        await page.waitForTimeout(4_000);
-
-        const rampReportId = createdRampReportId;
-        const reviewUrl = buildRampReviewUrl(rampReportId);
-        await page.goto(reviewUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: 30_000,
-        }).catch(() => undefined);
-        await page.waitForTimeout(2_000);
-        await this.assertRampPageAuthenticated(page, "open the Ramp reimbursement review page");
-        const reviewBody = await page.locator("body").innerText().catch(() => "");
-        if (!rampReimbursementLooksSubmitted(reviewBody)) {
-          const memoValue = await memoInput.inputValue().catch(() => "");
-          if (memoValue.trim().length === 0 || /\bmemo \(required\)\b/iu.test(reviewBody)) {
-            throw new Error("Ramp reimbursement draft still requires a memo before submit.");
-          }
-          throw new Error("Ramp reimbursement submit did not reach a submitted review state.");
-        }
-        const confirmationScreenshot = await this.captureRampConfirmationScreenshot(
-          page,
-          evidenceRecord.archivedPath,
-          `ramp-review-confirmation-${rampReportId}`,
-        );
-        const updatedEvidenceRecord = archiveReimbursementEvidence({
-          sourcePath: evidenceRecord.archivedPath,
-          orderId: evidenceRecord.orderId,
-          label: isWalmartEvidence ? "walmart-tip-evidence" : "ramp-reimbursement-evidence",
-          metadata: {
-            uploadedAt: new Date().toISOString(),
-            rampReportId,
-            reviewUrl,
-            rampConfirmationPath: confirmationScreenshot.archivedPath,
-            rampConfirmationSha256: confirmationScreenshot.sha256,
-            rampConfirmationImageWidth: confirmationScreenshot.imageWidth,
-            rampConfirmationImageHeight: confirmationScreenshot.imageHeight,
-          },
-        });
-
         return {
-          reviewUrl,
-          rampReportId,
+          reviewUrl: createdDraftUrl,
+          rampReportId: createdRampReportId,
           amount: input.amount,
           transactionDate: formatRampTransactionDate(input.transactionDate),
           memo: input.memo,
-          evidencePath: updatedEvidenceRecord.archivedPath,
-          evidenceSha256: updatedEvidenceRecord.sha256,
-          evidenceImageWidth: updatedEvidenceRecord.imageWidth,
-          evidenceImageHeight: updatedEvidenceRecord.imageHeight,
-          rampConfirmationPath: confirmationScreenshot.archivedPath,
+          evidencePath: evidenceRecord.archivedPath,
+          evidenceSha256: evidenceRecord.sha256,
+          evidenceImageWidth: evidenceRecord.imageWidth,
+          evidenceImageHeight: evidenceRecord.imageHeight,
+          rampConfirmationPath: "",
         };
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
