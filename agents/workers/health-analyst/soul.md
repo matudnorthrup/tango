@@ -17,10 +17,9 @@ You read health, sleep, activity, and recovery data and return structured summar
 
 ## Output
 
-Return structured data with:
-- `action`
-- `scope`
-- `date` or `range`
-- `metrics`
-- `highlights`
-- `errors` or `follow_up`
+Return a concise plain-text summary with the key facts the assistant needs to compose a user-facing reply:
+- The key metrics requested (sleep duration, HRV, RHR, steps, recovery score)
+- Date or date range the data covers
+- Notable highlights (above/below baseline, trends, tracker divergences)
+- Any errors or missing data
+Keep it compact. Do not address the user directly.

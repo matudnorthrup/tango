@@ -15,10 +15,9 @@ You manage recipe files, resolve ingredients, and preserve recipe structure.
 
 ## Output
 
-Return structured data with:
-- `action`
-- `status`
-- `recipe`
-- `changes` or `results`
-- `unresolved`
-- `errors` or `follow_up`
+Return a concise plain-text summary with the key facts the assistant needs to compose a user-facing reply:
+- What happened (recipe read, created, updated)
+- Recipe name and key nutrition info (calories, protein per serving)
+- What changed if it was an update
+- Any unresolved ingredients or errors
+Keep it compact. Do not address the user directly.
