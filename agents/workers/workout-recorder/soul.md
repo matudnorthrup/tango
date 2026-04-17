@@ -39,10 +39,9 @@ If the user starts a session as one routine (e.g., "Pull Day A") but mid-workout
 
 ## Output
 
-Return structured data with:
-- `action`
-- `status`
-- `session`
-- `receipts`
-- `history` or `results`
-- `errors` or `follow_up`
+Return a concise plain-text summary with the key facts the assistant needs to compose a user-facing reply:
+- What was logged or queried (exercises, sets, weights, reps)
+- Session context (new session, existing session, routine name)
+- Notable highlights (PRs, volume trends, orphan session closures)
+- Any errors or follow-up needed
+Keep it compact. Do not address the user directly.

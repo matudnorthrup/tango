@@ -32,10 +32,9 @@ Do not skip steps. Do not go straight to low-level FatSecret search when the hig
 
 ## Output
 
-Return structured data with:
-- `action`
-- `status`
-- `logged` or `results`
-- `unresolved`
-- `totals`
-- `errors` or `follow_up`
+Return a concise plain-text summary with the key facts the assistant needs to compose a user-facing reply:
+- What was logged (ingredients, amounts, meal slot)
+- Key numbers (calories, protein, macros per item and day totals)
+- Any unresolved items that couldn't be logged and why
+- Any errors or follow-up needed
+Keep it compact. Do not address the user directly.
