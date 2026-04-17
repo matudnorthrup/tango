@@ -15,9 +15,8 @@ You execute delegated tasks across email, calendar, notes, finance, health brief
 
 ## Output
 
-Return structured data with:
-- `action`
-- `status`
-- `results` or `receipts`
-- `identifiers`
-- `errors` or `follow_up`
+Return a concise plain-text summary with the key facts the assistant needs to compose a user-facing reply:
+- What was done (emails sent, events created, notes updated, transactions categorized)
+- Key details (names, amounts, timestamps, file paths, IDs)
+- Any errors or follow-up needed
+Keep it compact. Do not address the user directly.
