@@ -745,24 +745,26 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(provider.calls[1]?.prompt).toContain("what changed after the worker ran?");
   });
 
-  it("skips worker synthesis when the worker already returned deliverable user text", async () => {
+  it("routes worker results through synthesis even when the worker already returned deliverable user text", async () => {
     const provider = new ScriptedProvider((callNumber) => {
-      if (callNumber !== 1) {
-        return new Error(`Unexpected provider call ${callNumber}`);
+      if (callNumber === 1) {
+        return {
+          text: "Checking that now.",
+          toolCalls: [
+            {
+              name: DISPATCH_TOOL_FULL_NAME,
+              input: {
+                worker_id: "planner",
+                task: "Pull the latest task state.",
+              },
+            },
+          ],
+          providerSessionId: "phase-1-session",
+        };
       }
 
       return {
-        text: "Checking that now.",
-        toolCalls: [
-          {
-            name: DISPATCH_TOOL_FULL_NAME,
-            input: {
-              worker_id: "planner",
-              task: "Pull the latest task state.",
-            },
-          },
-        ],
-        providerSessionId: "phase-1-session",
+        text: "Repo status is clean, and the latest executor latency patch is on `codex/executor-affinity-hardening`.",
       };
     });
 
@@ -816,9 +818,13 @@ describe("createDiscordVoiceTurnExecutor", () => {
       },
     );
 
-    expect(result.responseText).toBe(workerText);
+    expect(result.responseText).toBe(
+      "Repo status is clean, and the latest executor latency patch is on `codex/executor-affinity-hardening`.",
+    );
     expect(result.usedWorkerSynthesis).toBe(true);
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls).toHaveLength(2);
+    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
+    expect(provider.calls[1]?.prompt).toContain(workerText);
   });
 
   it("prefers structured dispatch tool calls before XML fallback", async () => {
@@ -1339,9 +1345,10 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.task).toContain("wellness.log_food_items");
     expect(workerCalls[0]?.task).toContain("Recent conversation:");
     expect(workerCalls[0]?.task).toContain("It was 60g per taco.");
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls).toHaveLength(2);
     expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
-    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
+    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
+    expect(provider.calls[1]?.prompt).toContain("Logged breakfast: two eggs and toast.");
   });
 
   it("narrows deterministic workout history turns to workout_sql when dispatching workout-recorder", async () => {
@@ -1946,33 +1953,42 @@ describe("createDiscordVoiceTurnExecutor", () => {
 
   it("classifies obvious docs follow-ups using recent deterministic context", async () => {
     const provider = new ScriptedProvider((callNumber, request) => {
-      expect(callNumber).toBe(1);
+      if (callNumber === 1) {
+        expect(request.tools).toEqual({ mode: "off" });
+        expect(request.prompt).toContain("Continue recent deterministic intent docs.google_doc_read_or_update");
+        expect(request.prompt).toContain("Expected intents: docs.google_doc_read_or_update");
+        expect(request.prompt).toContain("\"priorIntentId\":\"docs.google_doc_read_or_update\"");
+        expect(request.prompt).toContain("use this tab instead https://docs.google.com/document/d/1abcDocId/edit?tab=t.new");
+        return {
+          text: JSON.stringify({
+            intents: [
+              {
+                intentId: "docs.google_doc_read_or_update",
+                confidence: 0.96,
+                entities: {
+                  doc_query: "https://docs.google.com/document/d/1abcDocId/edit?tab=t.new",
+                  account: "devin@latitude.io",
+                  change_request: "Update the homepage copy",
+                },
+                rawEntities: ["https://docs.google.com/document/d/1abcDocId/edit?tab=t.new"],
+                missingSlots: [],
+                canRunInParallel: true,
+                routeHint: {
+                  kind: "worker",
+                  targetId: "personal-assistant",
+                },
+              },
+            ],
+          }),
+          metadata: { model: "gpt-5.4" },
+        };
+      }
+
+      expect(callNumber).toBe(2);
       expect(request.tools).toEqual({ mode: "off" });
-      expect(request.prompt).toContain("Continue recent deterministic intent docs.google_doc_read_or_update");
-      expect(request.prompt).toContain("Expected intents: docs.google_doc_read_or_update");
-      expect(request.prompt).toContain("\"priorIntentId\":\"docs.google_doc_read_or_update\"");
-      expect(request.prompt).toContain("use this tab instead https://docs.google.com/document/d/1abcDocId/edit?tab=t.new");
+      expect(request.prompt).toContain("Updated the requested Google Doc tab.");
       return {
-        text: JSON.stringify({
-          intents: [
-            {
-              intentId: "docs.google_doc_read_or_update",
-              confidence: 0.96,
-              entities: {
-                doc_query: "https://docs.google.com/document/d/1abcDocId/edit?tab=t.new",
-                account: "devin@latitude.io",
-                change_request: "Update the homepage copy",
-              },
-              rawEntities: ["https://docs.google.com/document/d/1abcDocId/edit?tab=t.new"],
-              missingSlots: [],
-              canRunInParallel: true,
-              routeHint: {
-                kind: "worker",
-                targetId: "personal-assistant",
-              },
-            },
-          ],
-        }),
+        text: "Updated the requested Google Doc tab.",
         metadata: { model: "gpt-5.4" },
       };
     });
@@ -2103,8 +2119,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.workerId).toBe("personal-assistant");
     expect(workerCalls[0]?.task).toContain("docs.google_doc_read_or_update");
     expect(workerCalls[0]?.task).toContain("https://docs.google.com/document/d/1abcDocId/edit?tab=t.new");
-    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls).toHaveLength(2);
   });
 
   it("classifies recent nutrition follow-ups through recent deterministic context", async () => {
@@ -2917,8 +2932,11 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.workerId).toBe("research-assistant");
     expect(workerCalls[0]?.task).toContain("research.note_read");
     expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
-    expect(provider.calls).toHaveLength(1);
-    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
+    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
+    expect(provider.calls[1]?.prompt).toContain(
+      "Print Summary says the section should be split into the two desk zones plus trench pieces.",
+    );
+    expect(provider.calls).toHaveLength(2);
   });
 
   it("routes Malibu health-trend and nutrition-budget analysis through the deterministic runtime", async () => {
@@ -4043,24 +4061,24 @@ describe("createDiscordVoiceTurnExecutor", () => {
       },
     );
 
-    expect(result.responseText).toBe("Budget looks under control.");
+    expect(result.responseText).toBe("Budget review completed successfully.");
     expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
     expect(result.deterministicTurn?.state.intent.classifierProvider).toBe("config");
-    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]?.workerId).toBe("personal-assistant");
     expect(workerCalls[0]?.task).toContain("finance.budget_review");
-    expect(provider.calls).toHaveLength(0);
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]?.prompt).toContain("Budget looks under control.");
   });
 
-  it("skips deterministic narration when a single receipt already has deliverable worker text", async () => {
+  it("still narrates explicit deterministic receipts when worker text is already deliverable", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       if (callNumber !== 1) {
         return new Error(`Unexpected provider call ${callNumber}`);
       }
 
       return {
-        text: "Classification should not run for explicit intents.",
+        text: "Budget review completed. Groceries are under budget, and travel remains on track.",
         metadata: {
           model: "gpt-5.4",
           durationMs: 12,
@@ -4131,9 +4149,11 @@ describe("createDiscordVoiceTurnExecutor", () => {
       },
     );
 
-    expect(result.responseText).toBe(workerText);
-    expect(result.providerName).toBe("config");
-    expect(result.deterministicTurn?.state.narration.directResponse).toBe(true);
-    expect(provider.calls).toHaveLength(0);
+    expect(result.responseText).toBe(
+      "Budget review completed. Groceries are under budget, and travel remains on track.",
+    );
+    expect(result.providerName).toBe("codex");
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]?.prompt).toContain(workerText);
   });
 });
