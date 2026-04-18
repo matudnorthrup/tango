@@ -589,7 +589,7 @@ export function createHealthTools(overrides?: WellnessToolPaths): AgentTool[] {
             if (input.date) args.push("--date", String(input.date));
             break;
           case "date":
-            args.push("--date", input.date ? String(input.date) : new Date().toISOString().slice(0, 10));
+            args.push("--date", input.date ? String(input.date) : new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }));
             break;
           case "morning":
             args.push("--morning");
