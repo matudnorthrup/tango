@@ -69,6 +69,7 @@ workout_routine_exercises (
 - Do not use `ORDER BY` or `LIMIT` directly inside `UPDATE` statements in Postgres. Resolve the target row first with a `SELECT` or CTE.
 - `workout_type` is the broad family only. Named templates such as `Push Day A`, `Pull Day B`, or `Leg Day Large` belong in `workout_routines`, and completed sessions should point at them through `workouts.routine_id`.
 - For named routine lookups, prefer `workout_routines` and `workout_routine_exercises`. Do not re-infer A/B variants from exercise fingerprints when `routine_id` or a routine row already answers the question.
+- **Timezone:** The Postgres server runs in UTC. Never use `CURRENT_DATE` — it returns the UTC date, which is wrong after 5 PM Pacific. Always use `(now() AT TIME ZONE 'America/Los_Angeles')::date` to get the user's local date.
 
 ## Examples
 
@@ -97,7 +98,7 @@ GROUP BY wr.id, wr.name, wr.workout_type;
 
 ```sql
 INSERT INTO workouts (date, workout_type, routine_id)
-SELECT CURRENT_DATE, wr.workout_type, wr.id
+SELECT (now() AT TIME ZONE 'America/Los_Angeles')::date, wr.workout_type, wr.id
 FROM workout_routines wr
 WHERE wr.name = 'Push Day A'
 RETURNING id, date, workout_type, routine_id, started_at;
