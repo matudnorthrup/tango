@@ -31,7 +31,7 @@ Any time the user wants to log a workout, record sets, check exercise history, o
    ```
 5. If the user specifies a workout date, treat that date as authoritative. Query for a session on that date before looking at today's active session.
 6. If the request is for a historical date, never append to a different day's active session.
-7. If none exists, create one with the broad `workout_type` plus `routine_id` when a named routine was resolved. Only default to `CURRENT_DATE` when the user did not provide a date.
+7. If none exists, create one with the broad `workout_type` plus `routine_id` when a named routine was resolved. Only default to `(now() AT TIME ZONE 'America/Los_Angeles')::date` when the user did not provide a date. **Never use `CURRENT_DATE`** — the Postgres server runs in UTC and `CURRENT_DATE` returns the wrong day after 5 PM Pacific.
 8. `workout_type` is the family only (`push`, `pull`, `legs`, `other`). Named variants live in `workout_routines` and `workouts.routine_id`.
 
 ## Mid-session routine swap
@@ -85,7 +85,7 @@ Common queries:
   ```sql
   SELECT w.date, SUM(s.volume) as total_volume
   FROM sets s JOIN workouts w ON s.workout_id = w.id
-  WHERE s.exercise_id = ? AND w.date >= CURRENT_DATE - INTERVAL '30 days'
+  WHERE s.exercise_id = ? AND w.date >= (now() AT TIME ZONE 'America/Los_Angeles')::date - INTERVAL '30 days'
   GROUP BY w.date ORDER BY w.date;
   ```
 - **Named routine lookup:**
