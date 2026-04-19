@@ -116,6 +116,7 @@ import {
   appendTopicContextToSystemPrompt,
   appendProjectContextToSystemPrompt,
   buildDefaultSessionKey,
+  extractChannelIdFromSessionKey,
   buildProjectSessionId,
   parseProjectSessionId,
   buildTopicSessionId,
@@ -3306,12 +3307,18 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     throw new Error(`Agent '${turnInput.agentId}' not found in config.`);
   }
 
+  const resolvedVoiceSyncChannelId =
+    turnInput.channelId?.trim() ||
+    extractChannelIdFromSessionKey(turnInput.sessionId) ||
+    targetAgent.voice?.defaultChannelId?.trim() ||
+    null;
+
   upsertSessionForRoute(
     {
       sessionId: turnInput.sessionId,
       agentId: targetAgent.id
     },
-    `voice:${turnInput.channelId ?? "default"}`
+    `voice:${resolvedVoiceSyncChannelId ?? "default"}`
   );
 
   let turnId: string | undefined;
@@ -3325,7 +3332,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
         inputSource: "voice-bridge",
         guildId: turnInput.guildId ?? null,
         voiceChannelId: turnInput.voiceChannelId ?? null,
-        channelId: turnInput.channelId ?? null,
+        channelId: resolvedVoiceSyncChannelId,
         discordUserId: turnInput.discordUserId ?? null
       }
     });
@@ -3419,7 +3426,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     direction: "inbound",
     source: "tango",
     visibility: "public",
-    discordChannelId: turnInput.channelId ?? null,
+    discordChannelId: resolvedVoiceSyncChannelId,
     discordUserId: turnInput.discordUserId ?? null,
     content: turnInput.transcript,
     metadata: {
@@ -3438,22 +3445,21 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
   });
 
   const startedAt = Date.now();
-  const voiceSyncChannelId = turnInput.channelId ?? targetAgent.voice?.defaultChannelId;
   const warmStartContext = await buildWarmStartContext({
     sessionId: turnInput.sessionId,
     agentId: targetAgent.id,
     currentUserPrompt: turnInput.transcript,
     excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
     orchestratorContinuityMode,
-    discordChannelId: voiceSyncChannelId,
+    discordChannelId: resolvedVoiceSyncChannelId,
   });
   const warmStartPrompt = warmStartContext.prompt;
 
   // Post user transcript to Discord immediately (before LLM processing).
-  // Prefer the turn's explicit channelId (set by route classifier for thread
-  // routing) over the agent's default voice channel.
+  // Prefer the turn's explicit channelId, then any discord channel encoded in
+  // the session key, before falling back to the agent's default voice channel.
   void syncVoiceUserMessageToDiscord(
-    voiceSyncChannelId,
+    resolvedVoiceSyncChannelId,
     turnInput.transcript,
     turnInput.discordUserId
   );
@@ -3461,10 +3467,10 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
   // Show "typing..." in the Discord text channel while the voice turn processes.
   // Discord's indicator lasts ~10s, so we repeat every 8s.
   let voiceTypingInterval: ReturnType<typeof setInterval> | undefined;
-  if (voiceSyncChannelId) {
+  if (resolvedVoiceSyncChannelId) {
     void (async () => {
       try {
-        const typingChannel = await client.channels.fetch(voiceSyncChannelId);
+        const typingChannel = await client.channels.fetch(resolvedVoiceSyncChannelId);
         if (typingChannel && typingChannel.isTextBased()) {
           const tc = typingChannel as { sendTyping?: () => Promise<void> };
           if (typeof tc.sendTyping === "function") {
@@ -3515,7 +3521,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       direction: "outbound",
       source: "tango",
       visibility: "public",
-      discordChannelId: turnInput.channelId ?? null,
+      discordChannelId: resolvedVoiceSyncChannelId,
       discordUserId: null,
       discordUsername: "Tango Voice",
       content: turnResult.responseText,
@@ -3644,7 +3650,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       turnResult,
       requestMessageId: inboundMessageId,
       responseMessageId: outboundMessageId,
-      discordChannelId: turnInput.channelId ?? null,
+      discordChannelId: resolvedVoiceSyncChannelId,
       projectId: providerSelection.project?.id ?? null,
       topicId: resolveTopicRecordForSession(turnInput.sessionId)?.id ?? null,
       latencyMs,
@@ -3689,12 +3695,12 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
 
     // Fire-and-forget: post agent response to Discord (user message was already posted before LLM call)
     console.log(
-      `[tango-voice] voice-discord-sync agent-response channel=${voiceSyncChannelId} agent=${targetAgent.id}`
+      `[tango-voice] voice-discord-sync agent-response channel=${resolvedVoiceSyncChannelId} agent=${targetAgent.id}`
     );
     if (voiceTypingInterval) clearInterval(voiceTypingInterval);
 
     void syncVoiceAgentResponseToDiscord(
-      voiceSyncChannelId,
+      resolvedVoiceSyncChannelId,
       turnResult.responseText,
       targetAgent
     );
@@ -3732,7 +3738,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       conversationKey,
       providerSessionId: providerSessionId ?? null,
       requestMessageId: inboundMessageId,
-      discordChannelId: turnInput.channelId ?? null,
+      discordChannelId: resolvedVoiceSyncChannelId,
       discordUserId: turnInput.discordUserId ?? null,
       promptText: turnInput.transcript,
       systemPrompt,
@@ -3763,7 +3769,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       direction: "error",
       source: "tango",
       visibility: "debug",
-      discordChannelId: turnInput.channelId ?? null,
+      discordChannelId: resolvedVoiceSyncChannelId,
       discordUserId: null,
       discordUsername: "Tango Voice",
       content: messageText,
