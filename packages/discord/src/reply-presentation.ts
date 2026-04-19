@@ -45,7 +45,26 @@ export interface PresentedReplyResult {
   delivery: "webhook" | "bot" | "mixed";
   intendedDisplayName: string;
   actualDisplayName: string;
+  failed: boolean;
   lastMessageId?: string;
+}
+
+export class DeliveryError extends Error {
+  readonly channelId?: string;
+  readonly result?: PresentedReplyResult;
+
+  constructor(
+    message: string,
+    options?: {
+      channelId?: string;
+      result?: PresentedReplyResult;
+    }
+  ) {
+    super(message);
+    this.name = "DeliveryError";
+    this.channelId = options?.channelId;
+    this.result = options?.result;
+  }
 }
 
 interface WebhookTarget {
@@ -56,6 +75,7 @@ interface WebhookTarget {
 
 interface ReplyPresentationLogger {
   warn(message: string): void;
+  error?(message: string): void;
 }
 
 export interface PresentedReplyOptions {
@@ -189,6 +209,9 @@ export function createReplyPresenter(options?: {
   const logger = options?.logger ?? {
     warn(message: string): void {
       console.warn(message);
+    },
+    error(message: string): void {
+      console.error(message);
     }
   };
   const webhookCache = new Map<string, Promise<ReplyWebhook | null>>();
@@ -225,23 +248,81 @@ export function createReplyPresenter(options?: {
     return resolved;
   }
 
+  function logBotSendFailure(channelId: string, chunkNumber: number, totalChunks: number, message: string): void {
+    const formattedMessage =
+      `[tango-discord] bot reply failed channel=${channelId} chunk=${chunkNumber}/${totalChunks}: ${message}`;
+    if (typeof logger.error === "function") {
+      logger.error(formattedMessage);
+      return;
+    }
+    console.error(formattedMessage);
+  }
+
+  async function sendBotChunks(
+    channel: ReplyChannelLike & { send(content: string): Promise<unknown> },
+    chunks: string[],
+    options: {
+      startChunkNumber: number;
+      totalChunks: number;
+    }
+  ): Promise<{
+    sentChunks: number;
+    failed: boolean;
+    lastMessageId?: string;
+  }> {
+    let sentChunks = 0;
+    let failed = false;
+    let lastMessageId: string | undefined;
+
+    for (const [index, chunk] of chunks.entries()) {
+      const chunkNumber = options.startChunkNumber + index + 1;
+      try {
+        const sent = await channel.send(chunk);
+        const sentObj = sent as { id?: string } | null | undefined;
+        if (sentObj && typeof sentObj.id === "string") lastMessageId = sentObj.id;
+        sentChunks += 1;
+      } catch (error) {
+        failed = true;
+        const message = error instanceof Error ? error.message : String(error);
+        logBotSendFailure(channel.id, chunkNumber, options.totalChunks, message);
+      }
+    }
+
+    return {
+      sentChunks,
+      failed,
+      lastMessageId
+    };
+  }
+
   return {
     async sendChunked(channel, text, replyOptions) {
       const speaker = replyOptions?.speaker ?? null;
       const intendedDisplayName = resolveSpeakerDisplayName(speaker, systemDisplayName);
       const botDisplayName = replyOptions?.botDisplayName?.trim() || systemDisplayName;
       if (!channel?.isSendable() || typeof channel.send !== "function") {
-        return {
+        const failedResult: PresentedReplyResult = {
           sentChunks: 0,
           delivery: "bot",
           intendedDisplayName,
-          actualDisplayName: botDisplayName
+          actualDisplayName: botDisplayName,
+          failed: true
         };
+        throw new DeliveryError(
+          `[tango-discord] reply channel not sendable channel=${channel?.id ?? "unknown"}`,
+          {
+            channelId: channel?.id,
+            result: failedResult
+          }
+        );
       }
+      const sendableChannel = channel as ReplyChannelLike & {
+        send(content: string): Promise<unknown>;
+      };
 
       const normalized = text.trim().length > 0 ? text.trim() : "[empty response]";
       const chunks = splitForDiscord(normalized);
-      const target = resolveWebhookTarget(channel);
+      const target = resolveWebhookTarget(sendableChannel);
       if (target) {
         const webhook = await getOrCreateWebhook(target);
         if (webhook) {
@@ -274,39 +355,39 @@ export function createReplyPresenter(options?: {
               delivery: "webhook",
               intendedDisplayName,
               actualDisplayName: intendedDisplayName,
+              failed: false,
               lastMessageId: lastMsgId
             };
           }
 
-          for (const chunk of chunks.slice(sentViaWebhook)) {
-            const sent = await channel.send(chunk);
-            const sentObj = sent as { id?: string } | null | undefined;
-            if (sentObj && typeof sentObj.id === "string") lastMsgId = sentObj.id;
-          }
+          const botSendResult = await sendBotChunks(sendableChannel, chunks.slice(sentViaWebhook), {
+            startChunkNumber: sentViaWebhook,
+            totalChunks: chunks.length
+          });
 
           return {
-            sentChunks: chunks.length,
+            sentChunks: sentViaWebhook + botSendResult.sentChunks,
             delivery: sentViaWebhook > 0 ? "mixed" : "bot",
             intendedDisplayName,
             actualDisplayName: sentViaWebhook > 0 ? intendedDisplayName : botDisplayName,
-            lastMessageId: lastMsgId
+            failed: botSendResult.failed,
+            lastMessageId: botSendResult.lastMessageId ?? lastMsgId
           };
         }
       }
 
-      let lastMsgId: string | undefined;
-      for (const chunk of chunks) {
-        const sent = await channel.send(chunk);
-        const sentObj = sent as { id?: string } | null | undefined;
-        if (sentObj && typeof sentObj.id === "string") lastMsgId = sentObj.id;
-      }
+      const botSendResult = await sendBotChunks(sendableChannel, chunks, {
+        startChunkNumber: 0,
+        totalChunks: chunks.length
+      });
 
       return {
-        sentChunks: chunks.length,
+        sentChunks: botSendResult.sentChunks,
         delivery: "bot",
         intendedDisplayName,
         actualDisplayName: botDisplayName,
-        lastMessageId: lastMsgId
+        failed: botSendResult.failed,
+        lastMessageId: botSendResult.lastMessageId
       };
     }
   };
