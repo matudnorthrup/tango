@@ -808,8 +808,8 @@ function looksLikeNarratedDispatch(text: string): boolean {
     /\bback in (?:a|one) sec\b/i,
     /\b(?:one sec|hold on)\b/i,
     /\bdispatched(?:\s+again)?\b/i,
-    /\b(?:let me|i(?:'ll| will)|i(?:'m| am))\s+(?:grab|fetch|pull|open|check|look up|look for|read|review|search|dig into|compare|dispatch|route|ask|hand off)\b/i,
-    /\b(?:grabbing|fetching|pulling|opening|checking|looking up|looking for|reading|reviewing|searching|dispatching|asking|handing off)\b/i,
+    /\b(?:let me|i(?:'ll| will)|i(?:'m| am))\s+(?:grab|fetch|pull|dig into|dispatch|route|hand off)\b/i,
+    /\b(?:grabbing|fetching|pulling|dispatching|handing off)\b/i,
     /\brouting\b.{0,24}\b(?:worker|tool|agent|task|request)\b/i,
     /\b(?:calling|using|dispatching)\s+(?:a|the)\s+worker\b/i,
     /\b(?:worker|tool call|dispatch)\b.{0,40}\b(?:cancel(?:ed|led)|timed out|failed|never came back|didn't return|did not return)\b/i,
@@ -1204,15 +1204,25 @@ function guardDeterministicNarrationText(
   receipts: readonly ExecutionReceipt[],
 ): string {
   const stripped = stripWorkerDispatchTags(text);
+
+  if (text.includes("<worker-dispatch")) {
+    return receipts.some(receiptExpectsWriteButHasNoConfirmedWrite)
+      ? buildDeterministicWriteGuardReply(receipts)
+      : stripped;
+  }
+
   if (
-    text.includes("<worker-dispatch")
-    || looksLikeNarratedDispatch(stripped)
-    || looksLikeIncompleteWorkerSynthesis(stripped)
+    (
+      looksLikeNarratedDispatch(stripped)
+      || looksLikeIncompleteWorkerSynthesis(stripped)
+    )
+    && noReceiptHasConfirmedWrite(receipts)
   ) {
     return receipts.some(receiptExpectsWriteButHasNoConfirmedWrite)
       ? buildDeterministicWriteGuardReply(receipts)
       : "Sorry, something went wrong before I could finish that step. Please try again.";
   }
+
   // Only block "looks like success" narrations when NO receipt confirmed a write.
   // When multiple steps run (e.g. nutrition-logger rejects + workout-recorder succeeds),
   // the misdirected step's missing write should not override the successful one.
@@ -2167,4 +2177,7 @@ export function createDiscordVoiceTurnExecutor(
 export const __testOnly = {
   detectConversationalTurnBypass,
   isLikelyContinuationForIntent,
+  looksLikeNarratedDispatch,
+  looksLikeIncompleteWorkerSynthesis,
+  guardDeterministicNarrationText,
 };

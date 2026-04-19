@@ -10,6 +10,7 @@ import {
   type WorkflowConfig,
 } from "@tango/core";
 import { describe, expect, it } from "vitest";
+import type { ExecutionReceipt } from "../src/deterministic-runtime.js";
 import { DISPATCH_TOOL_FULL_NAME } from "../src/dispatch-extractor.js";
 import { __testOnly, createDiscordVoiceTurnExecutor } from "../src/turn-executor.js";
 
@@ -28,6 +29,31 @@ class ScriptedProvider implements ChatProvider {
     }
     return result;
   }
+}
+
+function createConfirmedWriteReceipt(): ExecutionReceipt {
+  return {
+    stepId: "step-1",
+    intentId: "notes.note_update",
+    mode: "write",
+    kind: "worker",
+    targetId: "personal-assistant",
+    workerId: "personal-assistant",
+    status: "completed",
+    durationMs: 5,
+    operations: [
+      {
+        name: "obsidian",
+        toolNames: ["obsidian"],
+        input: { command: "append" },
+        output: { status: "success" },
+        mode: "write",
+      },
+    ],
+    hasWriteOperations: true,
+    data: {},
+    warnings: [],
+  };
 }
 
 function createDeterministicRegistry(): CapabilityRegistry {
@@ -1522,29 +1548,33 @@ describe("createDiscordVoiceTurnExecutor", () => {
 
   it("narrows deterministic workout history turns to workout_sql when dispatching workout-recorder", async () => {
     const provider = new ScriptedProvider((callNumber) => {
-      if (callNumber !== 1) {
-        return new Error(`Unexpected provider call ${callNumber}`);
+      if (callNumber === 1) {
+        return {
+          text: JSON.stringify({
+            intents: [
+              {
+                intentId: "workout.history",
+                confidence: 0.95,
+                entities: {
+                  workout_type: "push",
+                },
+                rawEntities: ["last push day", "push"],
+                missingSlots: [],
+                canRunInParallel: true,
+                routeHint: {
+                  kind: "worker",
+                  targetId: "workout-recorder",
+                },
+              },
+            ],
+          }),
+          metadata: { model: "gpt-5.4" },
+        };
       }
 
+      expect(callNumber).toBe(2);
       return {
-        text: JSON.stringify({
-          intents: [
-            {
-              intentId: "workout.history",
-              confidence: 0.95,
-              entities: {
-                workout_type: "push",
-              },
-              rawEntities: ["last push day", "push"],
-              missingSlots: [],
-              canRunInParallel: true,
-              routeHint: {
-                kind: "worker",
-                targetId: "workout-recorder",
-              },
-            },
-          ],
-        }),
+        text: "Last push day included bench press and incline dumbbell press.",
         metadata: { model: "gpt-5.4" },
       };
     });
@@ -1634,6 +1664,8 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.task).toContain(
       "Tool surface for this intent is intentionally narrowed to: workout_sql.",
     );
+    expect(provider.calls).toHaveLength(2);
+    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
   });
 
   it("resolves open-task follow-ups before deterministic classification", async () => {
@@ -2293,12 +2325,17 @@ describe("createDiscordVoiceTurnExecutor", () => {
 
   it("classifies recent nutrition follow-ups through recent deterministic context", async () => {
     const provider = new ScriptedProvider((callNumber, request) => {
-      expect(request.tools).toEqual({ mode: "off" });
-      expect(request.prompt).toContain("Continue recent deterministic intent nutrition.log_food");
-      expect(request.prompt).toContain("Expected intents: nutrition.log_food");
-      expect(request.prompt).toContain("\"priorIntentId\":\"nutrition.log_food\"");
-      expect(request.prompt).toContain("Short follow-up requests that explicitly ask to add or log food");
-      expect(request.prompt).toContain("want to try adding that rice now?");
+      if (callNumber <= 2) {
+        expect(request.tools).toEqual({ mode: "off" });
+        expect(request.prompt).toContain("Continue recent deterministic intent nutrition.log_food");
+        expect(request.prompt).toContain("Expected intents: nutrition.log_food");
+        expect(request.prompt).toContain("\"priorIntentId\":\"nutrition.log_food\"");
+        expect(request.prompt).toContain("Short follow-up requests that explicitly ask to add or log food");
+        expect(request.prompt).toContain("want to try adding that rice now?");
+      } else {
+        expect(request.tools).toEqual({ mode: "off" });
+        expect(request.prompt).toContain("Logged snack: 2 tablespoons of white rice.");
+      }
 
       if (callNumber === 1) {
         return {
@@ -2310,28 +2347,35 @@ describe("createDiscordVoiceTurnExecutor", () => {
         };
       }
 
-      expect(callNumber).toBe(2);
+      if (callNumber === 2) {
+        return {
+          text: JSON.stringify({
+            conversationMode: "follow_up",
+            intents: [
+              {
+                intentId: "nutrition.log_food",
+                confidence: 0.95,
+                entities: {
+                  items: ["2 tablespoons of white rice"],
+                  meal: "other",
+                },
+                rawEntities: ["white rice", "2 tablespoons"],
+                missingSlots: [],
+                canRunInParallel: true,
+                routeHint: {
+                  kind: "workflow",
+                  targetId: "wellness.log_food_items",
+                },
+              },
+            ],
+          }),
+          metadata: { model: "gpt-5.4" },
+        };
+      }
+
+      expect(callNumber).toBe(3);
       return {
-        text: JSON.stringify({
-          conversationMode: "follow_up",
-          intents: [
-            {
-              intentId: "nutrition.log_food",
-              confidence: 0.95,
-              entities: {
-                items: ["2 tablespoons of white rice"],
-                meal: "other",
-              },
-              rawEntities: ["white rice", "2 tablespoons"],
-              missingSlots: [],
-              canRunInParallel: true,
-              routeHint: {
-                kind: "workflow",
-                targetId: "wellness.log_food_items",
-              },
-            },
-          ],
-        }),
+        text: "Logged snack: 2 tablespoons of white rice.",
         metadata: { model: "gpt-5.4" },
       };
     });
@@ -2466,7 +2510,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.workerId).toBe("nutrition-logger");
     expect(workerCalls[0]?.task).toContain("wellness.log_food_items");
     expect(workerCalls[0]?.task).toContain("white rice");
-    expect(provider.calls).toHaveLength(2);
+    expect(provider.calls).toHaveLength(3);
   });
 
   it("does not reuse a prior nutrition food intent for an explicit recipe update", () => {
@@ -2903,28 +2947,38 @@ describe("createDiscordVoiceTurnExecutor", () => {
   });
 
   it("delivers confirmed Obsidian write results without tripping the deterministic write guard", async () => {
-    const provider = new ScriptedProvider(() => ({
-      text: JSON.stringify({
-        intents: [
-          {
-            intentId: "notes.note_update",
-            confidence: 0.95,
-            entities: {
-              note_query: "Planning/Daily/2026-04-07",
-              change_request: "mark meal prep complete and keep website copy in progress",
-            },
-            rawEntities: ["Planning/Daily/2026-04-07", "meal prep complete", "website copy in progress"],
-            missingSlots: [],
-            canRunInParallel: false,
-            routeHint: {
-              kind: "worker",
-              targetId: "personal-assistant",
-            },
-          },
-        ],
-      }),
-      metadata: { model: "gpt-5.4" },
-    }));
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber === 1) {
+        return {
+          text: JSON.stringify({
+            intents: [
+              {
+                intentId: "notes.note_update",
+                confidence: 0.95,
+                entities: {
+                  note_query: "Planning/Daily/2026-04-07",
+                  change_request: "mark meal prep complete and keep website copy in progress",
+                },
+                rawEntities: ["Planning/Daily/2026-04-07", "meal prep complete", "website copy in progress"],
+                missingSlots: [],
+                canRunInParallel: false,
+                routeHint: {
+                  kind: "worker",
+                  targetId: "personal-assistant",
+                },
+              },
+            ],
+          }),
+          metadata: { model: "gpt-5.4" },
+        };
+      }
+
+      expect(callNumber).toBe(2);
+      return {
+        text: "Updated today's daily note in Obsidian.",
+        metadata: { model: "gpt-5.4" },
+      };
+    });
 
     const deterministicRouting = {
       enabled: true,
@@ -2992,7 +3046,8 @@ describe("createDiscordVoiceTurnExecutor", () => {
       status: "completed",
       hasWriteOperations: true,
     });
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls).toHaveLength(2);
+    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
   });
 
   it("routes Sierra research turns through the deterministic runtime without project scope", async () => {
@@ -3253,7 +3308,8 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.workerId).toBe("health-analyst");
     expect(workerCalls[0]?.task).toContain("health.trend_analysis");
     expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
+    expect(provider.calls).toHaveLength(2);
     expect(result.usedWorkerSynthesis).toBe(false);
   });
 
@@ -3639,27 +3695,31 @@ describe("createDiscordVoiceTurnExecutor", () => {
 
   it("routes Watson current-time turns through the deterministic runtime", async () => {
     const provider = new ScriptedProvider((callNumber) => {
-      if (callNumber !== 1) {
-        return new Error(`Unexpected provider call ${callNumber}`);
+      if (callNumber === 1) {
+        return {
+          text: JSON.stringify({
+            intents: [
+              {
+                intentId: "planning.current_time_read",
+                confidence: 0.95,
+                entities: {},
+                rawEntities: ["current time"],
+                missingSlots: [],
+                canRunInParallel: true,
+                routeHint: {
+                  kind: "worker",
+                  targetId: "personal-assistant",
+                },
+              },
+            ],
+          }),
+          metadata: { model: "gpt-5.4" },
+        };
       }
 
+      expect(callNumber).toBe(2);
       return {
-        text: JSON.stringify({
-          intents: [
-            {
-              intentId: "planning.current_time_read",
-              confidence: 0.95,
-              entities: {},
-              rawEntities: ["current time"],
-              missingSlots: [],
-              canRunInParallel: true,
-              routeHint: {
-                kind: "worker",
-                targetId: "personal-assistant",
-              },
-            },
-          ],
-        }),
+        text: "It's 9:53 AM PDT.",
         metadata: { model: "gpt-5.4" },
       };
     });
@@ -3740,6 +3800,8 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[0]?.workerId).toBe("personal-assistant");
     expect(workerCalls[0]?.task).toContain("planning.current_time_read");
     expect(workerCalls[0]?.toolIds).toEqual(["system_clock"]);
+    expect(provider.calls).toHaveLength(2);
+    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
   });
 
   it("routes Watson mixed calendar and inbox review turns through the deterministic runtime", async () => {
@@ -4144,7 +4206,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
       },
     );
 
-    expect(result.responseText).toContain("Git status");
+    expect(result.responseText).toContain("repo is currently dirty");
     expect(result.responseText).toContain("deterministic routing");
     expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
     expect(result.deterministicTurn?.receipts).toHaveLength(2);
@@ -4324,5 +4386,60 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(result.providerName).toBe("codex");
     expect(provider.calls).toHaveLength(1);
     expect(provider.calls[0]?.prompt).toContain(workerText);
+  });
+
+  it("passes through confirmed-write narration that would otherwise look like normal progress text", () => {
+    expect(
+      __testOnly.guardDeterministicNarrationText(
+        "Checking the note — everything's saved correctly.",
+        [createConfirmedWriteReceipt()],
+      ),
+    ).toBe("Checking the note — everything's saved correctly.");
+  });
+
+  it("passes through confirmed-write narration even when it still matches a dispatch pattern", () => {
+    expect(
+      __testOnly.guardDeterministicNarrationText(
+        "Dispatching to the worker now. Everything is saved correctly.",
+        [createConfirmedWriteReceipt()],
+      ),
+    ).toBe("Dispatching to the worker now. Everything is saved correctly.");
+  });
+
+  it("blocks narration-like text when no receipt confirms a write", () => {
+    expect(
+      __testOnly.guardDeterministicNarrationText(
+        "Let me grab the results from the worker.",
+        [],
+      ),
+    ).toBe("Sorry, something went wrong before I could finish that step. Please try again.");
+  });
+
+  it("strips literal worker-dispatch tags and preserves confirmed-write narration", () => {
+    const text = [
+      "Update complete.",
+      "<worker-dispatch worker=\"personal-assistant\">task</worker-dispatch>",
+      "Everything's saved correctly.",
+    ].join("\n");
+
+    expect(
+      __testOnly.guardDeterministicNarrationText(text, [createConfirmedWriteReceipt()]),
+    ).toBe("Update complete.\n\nEverything's saved correctly.");
+  });
+
+  it("does not treat common present participles as narrated dispatch after narrowing", () => {
+    expect(
+      __testOnly.guardDeterministicNarrationText(
+        "The note is updated. I'm reviewing the sections now and everything looks correct.",
+        [createConfirmedWriteReceipt()],
+      ),
+    ).toBe("The note is updated. I'm reviewing the sections now and everything looks correct.");
+  });
+
+  it("narrows looksLikeNarratedDispatch to dispatch-specific phrasing", () => {
+    expect(__testOnly.looksLikeNarratedDispatch("Checking the updated file")).toBe(false);
+    expect(__testOnly.looksLikeNarratedDispatch("Reading through the outline")).toBe(false);
+    expect(__testOnly.looksLikeNarratedDispatch("Dispatching to the worker now")).toBe(true);
+    expect(__testOnly.looksLikeNarratedDispatch("Handing off to the assistant")).toBe(true);
   });
 });

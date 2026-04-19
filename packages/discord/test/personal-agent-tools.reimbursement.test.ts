@@ -144,6 +144,8 @@ describe("personal-agent-tools reimbursement automation", () => {
         transactionDate: "03/08/2026",
         memo: "executive buy back time",
       },
+      draftUrl: "https://app.ramp.com/details/reimbursements/abc/review",
+      message: "Ramp reimbursement draft created - ready for manual review at https://app.ramp.com/details/reimbursements/abc/review",
     });
   });
 
@@ -212,6 +214,8 @@ describe("personal-agent-tools reimbursement automation", () => {
         transactionDate: "04/08/2026",
         memo: "executive buy back time",
       },
+      draftUrl: "https://app.ramp.com/details/reimbursements/new/review",
+      message: "Ramp reimbursement draft created - ready for manual review at https://app.ramp.com/details/reimbursements/new/review",
     });
   });
 
@@ -284,11 +288,14 @@ describe("personal-agent-tools reimbursement automation", () => {
     expect(registry.upsertWalmartReimbursementTracking).toHaveBeenCalledWith(
       expect.objectContaining({
         orderId: "2000146-86460984",
-        status: "submitted",
+        status: "draft",
+        system: "Ramp",
+        reimbursableItem: "Driver tip",
         amount: 41.03,
         note: "executive buy back time",
         evidencePath: "/tmp/archive/walmart-tip.png",
         rampReportId: "abc",
+        submitted: expect.any(String),
       }),
     );
   });
