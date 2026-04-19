@@ -189,7 +189,13 @@ export const DEFAULT_SESSION_MEMORY_CONFIG: NormalizedSessionMemoryConfig = {
   },
 };
 
-type MemoryDomain = "wellness" | "planning" | "product" | "fabrication" | "relationships";
+type MemoryDomain =
+  | "wellness"
+  | "planning"
+  | "product"
+  | "fabrication"
+  | "relationships"
+  | "mental-health";
 
 interface QueryProfile {
   normalized: string;
@@ -237,6 +243,11 @@ const MEMORY_DOMAIN_PATTERNS: Array<{ domain: MemoryDomain; pattern: RegExp }> =
     domain: "relationships",
     pattern:
       /\b(dolly|relationship|reconciliation|boundary|boundaries|therapy|texted|no contact|custody|family)\b/iu,
+  },
+  {
+    domain: "mental-health",
+    pattern:
+      /\b(anxiety|anxious|stress|stressed|overwhelm|depression|depressed|mood|therapy|therapist|coping|trigger|triggered|panic|emotion|emotional|feelings|mental health|self-care|mindfulness|meditation|breathing|grounding|cognitive|pattern|parenting|teenager|adolescent|behavior|boundaries|communication|conflict|resilience)\b/iu,
   },
 ];
 

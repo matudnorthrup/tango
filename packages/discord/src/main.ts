@@ -1065,7 +1065,7 @@ registerDeterministicHandler("health-daily-reset", async (_ctx) => {
 });
 
 registerDeterministicHandler("memory-reflect", async (_ctx) => {
-  const agentIds = ["watson", "malibu", "sierra"];
+  const agentIds = ["watson", "malibu", "sierra", "juliet"];
   const allResults: Array<{ agentId: string; scanned: number; eligible: number; created: number }> = [];
   let totalCreated = 0;
 
