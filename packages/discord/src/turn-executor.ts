@@ -1742,11 +1742,6 @@ export async function executeDiscordTurn(
     console.warn(
       "[turn-executor] conversational follow-up attempted worker dispatch or progress narration — retrying for a direct answer",
     );
-    const retryContinuity = { ...continuityByProvider };
-    if (response1.providerSessionId) {
-      retryContinuity[phase1ProviderName] = response1.providerSessionId;
-    }
-
     const directRetryResult = await generateWithFailover(
       providerChain,
       {
@@ -1760,8 +1755,8 @@ export async function executeDiscordTurn(
         reasoningEffort: input.context.reasoningEffort,
       },
       dependencies.providerRetryLimit,
-      retryContinuity,
-      {}
+      {},
+      { warmStartPrompt: effectiveWarmStartPrompt }
     );
 
     phase1ProviderName = directRetryResult.providerName;
@@ -1802,11 +1797,6 @@ export async function executeDiscordTurn(
     looksLikeNarratedDispatch(response1.text)
   ) {
     console.warn("[turn-executor] narrated worker progress without dispatch — retrying phase 1 with stricter instruction");
-    const retryContinuity = { ...continuityByProvider };
-    if (response1.providerSessionId) {
-      retryContinuity[phase1ProviderName] = response1.providerSessionId;
-    }
-
     const guardedFailoverResult = await generateWithFailover(
       providerChain,
       {
@@ -1817,8 +1807,8 @@ export async function executeDiscordTurn(
         reasoningEffort: input.context.reasoningEffort,
       },
       dependencies.providerRetryLimit,
-      retryContinuity,
-      {}
+      {},
+      { warmStartPrompt: effectiveWarmStartPrompt }
     );
 
     phase1ProviderName = guardedFailoverResult.providerName;
@@ -1839,7 +1829,7 @@ export async function executeDiscordTurn(
       return {
         responseText: "Sorry, something went wrong before I could actually start that worker task. Please try again.",
         providerName: phase1ProviderName,
-        providerSessionId: response1.providerSessionId ?? retryContinuity[phase1ProviderName],
+        providerSessionId: response1.providerSessionId,
         providerUsedFailover: phase1UsedFailover,
         warmStartUsed,
         providerRequestPrompt: phase1RequestPrompt,
