@@ -1047,6 +1047,115 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(provider.calls[1]?.prompt).toContain("thanks");
   });
 
+  it("detects 'reply in context' confusion on conversational follow-ups", async () => {
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber === 1) {
+        return {
+          text: "I need to reply in context, but I don't have the conversation context right now.",
+          providerSessionId: "phase-1-session-a",
+        };
+      }
+
+      return {
+        text: "The transfer rules stay the same as the last step we discussed.",
+        providerSessionId: "phase-1-session-b",
+      };
+    });
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({ "claude-oauth": "stale-session-1" }),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => [
+          "Context handoff packet:",
+          "- prior workflow discussion",
+          "- assistant had already outlined the workflow",
+        ].join("\n"),
+      },
+      () => ({
+        conversationKey: "watson-follow-up:watson",
+        providerNames: ["claude-oauth"],
+        configuredProviderNames: ["claude-oauth"],
+        systemPrompt: "You are Watson.",
+        tools: { mode: "allowlist", allowlist: [DISPATCH_TOOL_FULL_NAME] },
+      }),
+    );
+
+    const result = await executor.executeTurn({
+      sessionId: "watson-follow-up",
+      agentId: "watson",
+      transcript: "thanks",
+      channelId: "channel-1",
+      discordUserId: "user-1",
+    });
+
+    expect(result.contextConfusionDetected).toBe(true);
+    expect(result.responseText).toBe("The transfer rules stay the same as the last step we discussed.");
+    expect(provider.calls).toHaveLength(2);
+  });
+
+  it("retries with tools enabled when context confusion is detected on conversational bypass", async () => {
+    const provider = new ScriptedProvider((callNumber, request) => {
+      if (callNumber === 1) {
+        expect(request.tools).toEqual({ mode: "off" });
+        expect(request.providerSessionId).toBe("stale-session-1");
+        return {
+          text: "I can't reply without the conversation context here.",
+          providerSessionId: "phase-1-session-a",
+        };
+      }
+
+      expect(request.tools).toEqual({ mode: "allowlist", allowlist: [DISPATCH_TOOL_FULL_NAME] });
+      expect(request.systemPrompt).toBe("You are Watson.");
+      expect(request.providerSessionId).toBeUndefined();
+      expect(request.prompt).toContain("Context handoff packet:");
+      expect(request.prompt).toContain("Current user message:");
+      expect(request.prompt).toContain("thanks");
+      return {
+        text: "I checked the thread and can answer directly now.",
+        providerSessionId: "phase-1-session-b",
+      };
+    });
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({ "claude-oauth": "stale-session-1" }),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => [
+          "Context handoff packet:",
+          "- prior workflow discussion",
+          "- assistant had already outlined the workflow",
+        ].join("\n"),
+      },
+      () => ({
+        conversationKey: "watson-follow-up:watson",
+        providerNames: ["claude-oauth"],
+        configuredProviderNames: ["claude-oauth"],
+        systemPrompt: "You are Watson.",
+        tools: { mode: "allowlist", allowlist: [DISPATCH_TOOL_FULL_NAME] },
+      }),
+    );
+
+    const result = await executor.executeTurn({
+      sessionId: "watson-follow-up",
+      agentId: "watson",
+      transcript: "thanks",
+      channelId: "channel-1",
+      discordUserId: "user-1",
+    });
+
+    expect(result.contextConfusionDetected).toBe(true);
+    expect(result.responseText).toBe("I checked the thread and can answer directly now.");
+    expect(result.attemptCount).toBe(2);
+    expect(provider.calls).toHaveLength(2);
+  });
+
   it("suppresses repeated fake worker-progress replies when no dispatch ever happens", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       if (callNumber === 1) {

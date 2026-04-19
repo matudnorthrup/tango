@@ -216,6 +216,7 @@ export interface DiscordTurnExecutionResult extends VoiceTurnResult {
   providerName: string;
   providerSessionId?: string;
   providerUsedFailover?: boolean;
+  contextConfusionDetected?: boolean;
   warmStartUsed?: boolean;
   providerRequestPrompt: string;
   providerRequestWarmStartUsed: boolean;
@@ -813,6 +814,26 @@ function looksLikeNarratedDispatch(text: string): boolean {
     /\b(?:calling|using|dispatching)\s+(?:a|the)\s+worker\b/i,
     /\b(?:worker|tool call|dispatch)\b.{0,40}\b(?:cancel(?:ed|led)|timed out|failed|never came back|didn't return|did not return)\b/i,
     /\b(?:couldn't|could not|can't|cannot)\s+(?:confirm|claim|say)\b.{0,80}\b(?:logged|saved|made it into|in the diary|went through)\b/i,
+  ];
+
+  return patterns.some((pattern) => pattern.test(normalized));
+}
+
+function looksLikeContextConfusion(text: string): boolean {
+  const normalized = text.trim();
+  if (normalized.length === 0) {
+    return false;
+  }
+
+  const patterns = [
+    /\breply in context\b/i,
+    /\bneed(?:s)?\s+(?:to\s+)?(?:see|have|access)\s+(?:the\s+)?(?:conversation|context|thread|prior)\b/i,
+    /\bdon'?t\s+have\s+(?:the\s+)?(?:context|conversation|thread)\b/i,
+    /\bwithout\s+(?:the\s+)?(?:context|conversation|prior\s+turns)\b/i,
+    /\bcan'?t\s+(?:answer|respond|reply)\s+(?:without|from)\b/i,
+    /\bno\s+(?:conversation\s+)?context\s+(?:available|to\s+work)\b/i,
+    /\bneed(?:s)?\s+(?:the\s+)?conversation\s+context\b/i,
+    /\banswer\s+(?:directly\s+)?from\s+(?:the\s+)?(?:conversation|context)\b/i,
   ];
 
   return patterns.some((pattern) => pattern.test(normalized));
@@ -1706,10 +1727,10 @@ export async function executeDiscordTurn(
   }
 
   // --- Phase 1: Call orchestrator ---
-  const phase1SystemPrompt = conversationalTurnBypass
+  let phase1SystemPrompt = conversationalTurnBypass
     ? appendSystemPrompt(input.context.systemPrompt, CONVERSATIONAL_FOLLOW_UP_SYSTEM_PROMPT)
     : input.context.systemPrompt;
-  const phase1Tools = conversationalTurnBypass ? { mode: "off" as const } : input.context.tools;
+  let phase1Tools = conversationalTurnBypass ? { mode: "off" as const } : input.context.tools;
   const failoverResult1 = await generateWithFailover(
     providerChain,
     {
@@ -1734,6 +1755,7 @@ export async function executeDiscordTurn(
   let phase1RequestPrompt = failoverResult1.requestPrompt;
   let phase1RequestWarmStartUsed = failoverResult1.warmStartUsed;
   let response1 = phase1RetryResult.response;
+  let contextConfusionDetected = false;
 
   // --- Phase 2: Check for orchestrator-directed worker dispatch ---
   let { dispatches, dispatchSource } = extractDispatchesFromResponse(response1);
@@ -1790,6 +1812,45 @@ export async function executeDiscordTurn(
     }
   }
 
+  // Phase 1: Detect context-confusion responses on conversational bypass path.
+  // When the LLM says it "needs context" or "can't reply without context", the provider
+  // session is stale and warm-start was skipped. Retry with empty continuity (forces
+  // warm-start) and tools re-enabled so the LLM can actually do work.
+  if (conversationalTurnBypass && looksLikeContextConfusion(response1.text)) {
+    console.warn(
+      "[turn-executor] conversational follow-up produced context-confusion response — retrying with warm-start and tools enabled",
+    );
+    phase1SystemPrompt = input.context.systemPrompt;
+    phase1Tools = input.context.tools;
+    contextConfusionDetected = true;
+    const contextRetryResult = await generateWithFailover(
+      providerChain,
+      {
+        prompt: effectivePrompt,
+        systemPrompt: phase1SystemPrompt,
+        tools: phase1Tools,
+        model: input.context.model,
+        reasoningEffort: input.context.reasoningEffort,
+      },
+      dependencies.providerRetryLimit,
+      {},
+      { warmStartPrompt: effectiveWarmStartPrompt }
+    );
+
+    phase1ProviderName = contextRetryResult.providerName;
+    phase1RetryResult = {
+      response: contextRetryResult.retryResult.response,
+      attempts: phase1RetryResult.attempts + contextRetryResult.retryResult.attempts,
+      attemptErrors: [...phase1RetryResult.attemptErrors, ...contextRetryResult.retryResult.attemptErrors],
+    };
+    phase1Failures = [...phase1Failures, ...contextRetryResult.failures];
+    phase1UsedFailover = phase1UsedFailover || contextRetryResult.usedFailover;
+    phase1RequestPrompt = contextRetryResult.requestPrompt;
+    phase1RequestWarmStartUsed = contextRetryResult.warmStartUsed;
+    response1 = contextRetryResult.retryResult.response;
+    ({ dispatches, dispatchSource } = extractDispatchesFromResponse(response1));
+  }
+
   if (
     dispatches.length === 0 &&
     dependencies.executeWorkerWithTask &&
@@ -1837,6 +1898,7 @@ export async function executeDiscordTurn(
         initialRequestPrompt,
         initialRequestWarmStartUsed,
         usedWorkerSynthesis: false,
+        contextConfusionDetected: contextConfusionDetected || undefined,
         response: response1,
         attemptCount: phase1RetryResult.attempts,
         attemptErrors: phase1RetryResult.attemptErrors,
@@ -2007,6 +2069,7 @@ export async function executeDiscordTurn(
       initialRequestPrompt,
       initialRequestWarmStartUsed,
       usedWorkerSynthesis: true,
+      contextConfusionDetected: contextConfusionDetected || undefined,
       synthesisRetried,
       response: response2,
       attemptCount: phase1RetryResult.attempts + failoverResult2.retryResult.attempts,
@@ -2040,6 +2103,7 @@ export async function executeDiscordTurn(
         initialRequestPrompt,
         initialRequestWarmStartUsed,
         usedWorkerSynthesis: false,
+        contextConfusionDetected: contextConfusionDetected || undefined,
         response: response1,
         attemptCount: phase1RetryResult.attempts,
         attemptErrors: phase1RetryResult.attemptErrors,
@@ -2066,6 +2130,7 @@ export async function executeDiscordTurn(
     initialRequestPrompt,
     initialRequestWarmStartUsed,
     usedWorkerSynthesis: false,
+    contextConfusionDetected: contextConfusionDetected || undefined,
     response: response1,
     attemptCount: phase1RetryResult.attempts,
     attemptErrors: phase1RetryResult.attemptErrors,
