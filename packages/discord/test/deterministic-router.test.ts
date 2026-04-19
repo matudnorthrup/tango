@@ -1956,6 +1956,7 @@ describe("deterministic router", () => {
       "gog_email",
       "onepassword",
       "obsidian",
+      "browser",
     ]);
     expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
       "use ramp_reimbursement as the primary execution path",
