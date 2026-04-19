@@ -1429,6 +1429,11 @@ startPersistentMcpServer().then((port) => {
           explicitIntentIds: intentIds,
         },
       });
+      recoverProviderContinuityAfterContextConfusion({
+        sessionId,
+        conversationKey,
+        turnResult,
+      });
       const latencyMs = Date.now() - startedAt;
       const routeOutcome = turnResult.deterministicTurn?.state.routing.routeOutcome;
       if (routeOutcome !== "executed") {
@@ -2740,7 +2745,10 @@ function composeSystemPrompt(
   return appendTopicContextToSystemPrompt(projectScopedPrompt, topicTitle);
 }
 
-function getConversationKey(sessionId: string, agentId: string): string {
+function getConversationKey(sessionId: string, agentId: string, threadChannelId?: string | null): string {
+  if (threadChannelId) {
+    return `${sessionId}:${agentId}:${threadChannelId}`;
+  }
   return `${sessionId}:${agentId}`;
 }
 
@@ -3398,7 +3406,16 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     throw new Error(`Provider resolution failed: ${messageText}`);
   }
 
-  const conversationKey = getConversationKey(turnInput.sessionId, targetAgent.id);
+  const voiceDefaultChannelId = targetAgent.voice?.defaultChannelId;
+  const isVoiceThread =
+    turnInput.channelId &&
+    voiceDefaultChannelId &&
+    turnInput.channelId !== voiceDefaultChannelId;
+  const conversationKey = getConversationKey(
+    turnInput.sessionId,
+    targetAgent.id,
+    isVoiceThread ? turnInput.channelId : null,
+  );
   const orchestratorContinuityMode = resolveOrchestratorContinuityMode(turnInput.sessionId);
   const deterministicRouting = resolveDeterministicRoutingForTurn({
     sessionId: turnInput.sessionId,
@@ -3499,6 +3516,11 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       continuityByProvider,
       capabilityRegistry,
       deterministicRouting,
+    });
+    recoverProviderContinuityAfterContextConfusion({
+      sessionId: turnInput.sessionId,
+      conversationKey,
+      turnResult,
     });
 
     const response = turnResult.response;
@@ -5226,6 +5248,21 @@ function clearProviderContinuityCacheForSession(sessionId: string): void {
   }
 }
 
+function recoverProviderContinuityAfterContextConfusion(input: {
+  sessionId: string;
+  conversationKey: string;
+  turnResult: DiscordTurnExecutionResult;
+}): void {
+  if (!input.turnResult.contextConfusionDetected) {
+    return;
+  }
+
+  console.warn(
+    `[tango-discord] context confusion detected — clearing provider session for conversation=${input.conversationKey}`,
+  );
+  clearProviderContinuityCacheForSession(input.sessionId);
+}
+
 function savePersistedProviderSession(input: {
   conversationKey: string;
   sessionId: string;
@@ -6807,7 +6844,12 @@ async function handleMessage(
     return;
   }
 
-  const conversationKey = getConversationKey(promptRoute.sessionId, targetAgent.id);
+  const isThread = message.channelId !== routingChannelId;
+  const conversationKey = getConversationKey(
+    promptRoute.sessionId,
+    targetAgent.id,
+    isThread ? message.channelId : null,
+  );
   const orchestratorContinuityMode = resolveOrchestratorContinuityMode(promptRoute.sessionId);
   const deterministicRouting = resolveDeterministicRoutingForTurn({
     sessionId: promptRoute.sessionId,
@@ -6871,6 +6913,11 @@ async function handleMessage(
       continuityByProvider,
       capabilityRegistry,
       deterministicRouting,
+    });
+    recoverProviderContinuityAfterContextConfusion({
+      sessionId: promptRoute.sessionId,
+      conversationKey,
+      turnResult,
     });
 
     const providerName = turnResult.providerName;
