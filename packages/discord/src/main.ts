@@ -158,8 +158,10 @@ import {
 } from "./voice-turn-receipts.js";
 import {
   createReplyPresenter,
+  DeliveryError,
   resolveSpeakerAvatarURL,
   resolveSpeakerDisplayName,
+  type PresentedReplyResult,
 } from "./reply-presentation.js";
 import { resolveVoiceWatermarkTarget } from "./voice-watermarks.js";
 import { IMessageListener, type IMessageInboundMessage } from "./imessage-listener.js";
@@ -2765,6 +2767,40 @@ async function sendPresentedReply(
   });
 }
 
+function buildFailedReplyDeliveryResult(speaker: AgentConfig | null): PresentedReplyResult {
+  const intendedDisplayName = resolveSpeakerDisplayName(speaker, systemDisplayName);
+  return {
+    sentChunks: 0,
+    delivery: "bot",
+    intendedDisplayName,
+    actualDisplayName: client.user?.username ?? systemDisplayName,
+    failed: true
+  };
+}
+
+function ensureReplyDeliverySucceeded(
+  result: PresentedReplyResult,
+  channelId: string | null | undefined
+): void {
+  if (!result.failed) {
+    return;
+  }
+
+  throw new DeliveryError(
+    `[tango-discord] reply delivery incomplete channel=${channelId ?? "unknown"} sentChunks=${result.sentChunks}`,
+    {
+      channelId: channelId ?? undefined,
+      result
+    }
+  );
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function resolveIMessageRoute(
   channelKey: string
 ): {
@@ -3176,6 +3212,7 @@ async function syncVoiceUserMessageToDiscord(
       botDisplayName: userVoiceLabel,
       avatarURL: userAvatarURL,
     });
+    ensureReplyDeliverySucceeded(userResult, channelId);
     console.log(
       `[tango-voice] voice-discord-sync user-msg channel=${channelId} delivery=${userResult.delivery} displayName=${userResult.actualDisplayName} avatarURL=${userAvatarURL ?? "none"} resolvedUser=${userDisplayName}`
     );
@@ -3191,34 +3228,60 @@ async function syncVoiceAgentResponseToDiscord(
   speaker: AgentConfig
 ): Promise<void> {
   if (!channelId) return;
-  try {
-    const channel = await client.channels.fetch(channelId);
-    if (!channel || !channel.isTextBased()) return;
+  const channel = await client.channels.fetch(channelId);
+  if (!channel || !channel.isTextBased()) {
+    throw new Error(`Discord channel ${channelId} unavailable for voice sync.`);
+  }
 
-    // Post agent response with agent avatar and (voice) label
-    const agentDisplayName = speaker.displayName?.trim() || speaker.id;
-    const agentVoiceLabel = `${agentDisplayName} (voice)`;
-    const agentResult = await replyPresenter.sendChunked(channel, responseText, {
-      speaker: { id: "voice-agent", displayName: agentVoiceLabel } as AgentConfig,
-      botDisplayName: agentVoiceLabel,
-      avatarURL: resolveSpeakerAvatarURL(speaker, client.user?.displayAvatarURL()),
-    });
-    console.log(
-      `[tango-voice] voice-discord-sync agent-msg channel=${channelId} delivery=${agentResult.delivery} displayName=${agentResult.actualDisplayName}`
-    );
+  // Post agent response with agent avatar and (voice) label
+  const agentDisplayName = speaker.displayName?.trim() || speaker.id;
+  const agentVoiceLabel = `${agentDisplayName} (voice)`;
+  const agentResult = await replyPresenter.sendChunked(channel, responseText, {
+    speaker: { id: "voice-agent", displayName: agentVoiceLabel } as AgentConfig,
+    botDisplayName: agentVoiceLabel,
+    avatarURL: resolveSpeakerAvatarURL(speaker, client.user?.displayAvatarURL()),
+  });
+  ensureReplyDeliverySucceeded(agentResult, channelId);
+  console.log(
+    `[tango-voice] voice-discord-sync agent-msg channel=${channelId} delivery=${agentResult.delivery} displayName=${agentResult.actualDisplayName}`
+  );
 
-    // Advance watermark past the agent response — the user already heard it via voice TTS,
-    // so it should not appear as "unread" in the inbox.
-    if (agentResult.lastMessageId) {
-      try {
-        advanceVoiceWatermarkById(channelId, agentResult.lastMessageId, "voice-agent-sync");
-      } catch (watermarkError) {
-        console.warn(`[voice-inbox] voice-agent-sync watermark failed channel=${channelId}: ${watermarkError instanceof Error ? watermarkError.message : watermarkError}`);
-      }
+  // Advance watermark past the agent response — the user already heard it via voice TTS,
+  // so it should not appear as "unread" in the inbox.
+  if (agentResult.lastMessageId) {
+    try {
+      advanceVoiceWatermarkById(channelId, agentResult.lastMessageId, "voice-agent-sync");
+    } catch (watermarkError) {
+      console.warn(`[voice-inbox] voice-agent-sync watermark failed channel=${channelId}: ${watermarkError instanceof Error ? watermarkError.message : watermarkError}`);
     }
+  }
+}
+
+async function syncVoiceAgentResponseToDiscordWithRetry(
+  channelId: string | null | undefined,
+  responseText: string,
+  speaker: AgentConfig
+): Promise<void> {
+  if (!channelId) return;
+
+  try {
+    await syncVoiceAgentResponseToDiscord(channelId, responseText, speaker);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[tango-voice] voice-discord-sync agent-msg failed channel=${channelId}: ${message}`);
+    console.warn(
+      `[tango-voice] voice-discord-sync retrying channel=${channelId} agent=${speaker.id} error=${message}`
+    );
+    await waitMs(2_000);
+
+    try {
+      await syncVoiceAgentResponseToDiscord(channelId, responseText, speaker);
+    } catch (retryError) {
+      const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      console.error(
+        `[tango-voice] voice-discord-sync FAILED after retry channel=${channelId} agent=${speaker.id} error=${retryMessage}`
+      );
+      throw retryError;
+    }
   }
 }
 
@@ -3721,11 +3784,17 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     );
     if (voiceTypingInterval) clearInterval(voiceTypingInterval);
 
-    void syncVoiceAgentResponseToDiscord(
+    const syncPromise = syncVoiceAgentResponseToDiscordWithRetry(
       resolvedVoiceSyncChannelId,
       turnResult.responseText,
       targetAgent
     );
+    syncPromise.catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[tango-voice] voice-discord-sync PERMANENTLY FAILED channel=${resolvedVoiceSyncChannelId} agent=${targetAgent.id}: ${message}`
+      );
+    });
 
     return {
       turnId,
@@ -6957,8 +7026,89 @@ async function handleMessage(
       );
     }
 
-    const replyDelivery = await sendPresentedReply(message.channel, turnResult.responseText, targetAgent);
     const latencyMs = Date.now() - startedAt;
+    let replyDelivery = buildFailedReplyDeliveryResult(targetAgent);
+    let deliveryFailed = false;
+    let deliveryFailureMessage: string | null = null;
+    let deliveryDeadLetterId: number | null = null;
+
+    try {
+      replyDelivery = await sendPresentedReply(message.channel, turnResult.responseText, targetAgent);
+      ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
+    } catch (error) {
+      deliveryFailed = true;
+      if (error instanceof DeliveryError && error.result) {
+        replyDelivery = error.result;
+      }
+      deliveryFailureMessage = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[tango-discord] delivery failed session=${promptRoute.sessionId} agent=${targetAgent.id} error=${deliveryFailureMessage}`
+      );
+
+      deliveryDeadLetterId = writeDeadLetter({
+        sessionId: promptRoute.sessionId,
+        agentId: targetAgent.id,
+        providerName,
+        conversationKey,
+        providerSessionId: selectedProviderSessionId ?? null,
+        requestMessageId: inboundMessageId,
+        discordChannelId: message.channelId,
+        discordUserId: message.author.id,
+        discordUsername: message.author.username,
+        promptText: prompt,
+        systemPrompt,
+        responseMode,
+        lastErrorMessage: deliveryFailureMessage,
+        metadata: {
+          failureType: "delivery",
+          generatedResponseText: turnResult.responseText,
+          replyToDiscordMessageId: message.id,
+          sentChunks: replyDelivery.sentChunks,
+          senderIdentity: {
+            intendedDisplayName: replyDelivery.intendedDisplayName,
+            actualDisplayName: replyDelivery.actualDisplayName,
+            delivery: replyDelivery.delivery
+          },
+          latencyMs,
+          responseMode,
+          attemptCount,
+          attemptedRetry: attemptCount > 1,
+          attemptErrors,
+          providerSessionId: selectedProviderSessionId ?? null,
+          providerUsedFailover: usedFailover,
+          warmStartUsed,
+          warmStartContextChars: turnWarmStartContextChars,
+          topicId: promptRoute.topic?.id ?? null,
+          topicSlug: promptRoute.topic?.slug ?? null,
+          topicTitle: promptRoute.topic?.title ?? null,
+          projectId: promptRoute.project?.id ?? null,
+          projectTitle: promptRoute.project?.displayName ?? null,
+          providerOverride: providerSelection.overrideProviderName ?? null,
+          configuredProviders: providerSelection.configuredProviderNames,
+          effectiveProviders: providerSelection.providerNames,
+          providerFailures: failures,
+          ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
+          ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
+          executionTrace
+        }
+      });
+
+      if (deliveryDeadLetterId !== null) {
+        console.error(
+          `[tango-discord] delivery dead letter queued id=${deliveryDeadLetterId} session=${promptRoute.sessionId} agent=${targetAgent.id}`
+        );
+      }
+
+      try {
+        await sendPresentedReply(
+          message.channel,
+          "I generated a response but couldn't deliver it. Please try again.",
+          systemAgent
+        );
+      } catch {
+        // Ignore fallback send failures to avoid cascading errors.
+      }
+    }
 
     const outboundMessageId = writeMessage({
       sessionId: promptRoute.sessionId,
@@ -6966,7 +7116,7 @@ async function handleMessage(
       providerName,
       direction: "outbound",
       source: "tango",
-      visibility: "public",
+      visibility: deliveryFailed ? "internal" : "public",
       discordMessageId: replyDelivery.lastMessageId ?? null,
       discordChannelId: message.channelId,
       discordUserId: replyDelivery.delivery === "bot" ? client.user?.id ?? null : null,
@@ -6980,6 +7130,9 @@ async function handleMessage(
           actualDisplayName: replyDelivery.actualDisplayName,
           delivery: replyDelivery.delivery
         },
+        deliveryFailed,
+        deliveryFailureMessage,
+        deliveryDeadLetterId,
         latencyMs,
         responseMode,
         attemptCount,
@@ -7026,6 +7179,9 @@ async function handleMessage(
       metadata: {
         sentChunks: replyDelivery.sentChunks,
         replyToDiscordMessageId: message.id,
+        deliveryFailed,
+        deliveryFailureMessage,
+        deliveryDeadLetterId,
         responseMode,
         attemptCount,
         attemptedRetry: attemptCount > 1,
@@ -7067,6 +7223,7 @@ async function handleMessage(
         metadata: {
           inputSource: "discord",
           responseMode,
+          deliveryFailed,
           promptChars: turnResult.providerRequestPrompt.length,
           systemPromptChars: systemPrompt?.length ?? 0,
           warmStartPromptChars: warmStartPrompt?.length ?? 0,
@@ -7123,7 +7280,7 @@ async function handleMessage(
 
     const synthesisRetriedSuffix = turnResult.synthesisRetried ? ` synthesisRetried=yes` : "";
     console.log(
-      `[tango-discord] reply session=${promptRoute.sessionId} agent=${targetAgent.id} provider=${providerName} mode=${responseMode} attempts=${attemptCount} failover=${usedFailover ? "yes" : "no"} warmStart=${warmStartUsed ? "yes" : "no"} ms=${latencyMs} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks}${workerDispatchLogSummary}${synthesisRetriedSuffix}${executionTraceSummary ? ` ${executionTraceSummary}` : ""}`
+      `[tango-discord] reply session=${promptRoute.sessionId} agent=${targetAgent.id} provider=${providerName} mode=${responseMode} attempts=${attemptCount} failover=${usedFailover ? "yes" : "no"} warmStart=${warmStartUsed ? "yes" : "no"} ms=${latencyMs} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks} deliveryFailed=${deliveryFailed ? "yes" : "no"}${workerDispatchLogSummary}${synthesisRetriedSuffix}${executionTraceSummary ? ` ${executionTraceSummary}` : ""}`
     );
     if (typingInterval) clearInterval(typingInterval);
   } catch (error) {

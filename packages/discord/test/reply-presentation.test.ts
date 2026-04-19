@@ -1,9 +1,11 @@
 import type { AgentConfig } from "@tango/core";
 import { describe, expect, it, vi } from "vitest";
 import {
+  DeliveryError,
   createReplyPresenter,
   resolveSpeakerAvatarURL,
   resolveSpeakerDisplayName,
+  splitForDiscord,
   type ReplyChannelLike
 } from "../src/reply-presentation.js";
 
@@ -108,7 +110,8 @@ describe("createReplyPresenter", () => {
       sentChunks: 1,
       delivery: "webhook",
       intendedDisplayName: "Watson",
-      actualDisplayName: "Watson"
+      actualDisplayName: "Watson",
+      failed: false
     });
     expect(webhook.send).toHaveBeenCalledWith({
       content: "hello world",
@@ -181,7 +184,8 @@ describe("createReplyPresenter", () => {
       sentChunks: 1,
       delivery: "bot",
       intendedDisplayName: "Watson",
-      actualDisplayName: "Tango"
+      actualDisplayName: "Tango",
+      failed: false
     });
     expect(channel.send).toHaveBeenCalledWith("fallback path");
     expect(logger.warn).toHaveBeenCalledWith(
@@ -255,5 +259,124 @@ describe("createReplyPresenter", () => {
     });
 
     expect(result.lastMessageId).toBe("discord-msg-123");
+  });
+
+  it("throws a delivery error when the channel cannot send", async () => {
+    const presenter = createReplyPresenter({ systemDisplayName: "Tango" });
+
+    await expect(
+      presenter.sendChunked(null, "hello world", {
+        speaker: createAgent({
+          id: "watson",
+          type: "personal",
+          displayName: "Watson"
+        }),
+        botDisplayName: "Tango"
+      })
+    ).rejects.toBeInstanceOf(DeliveryError);
+  });
+
+  it("tracks partial delivery when bot sends fail on a later chunk", async () => {
+    const logger = {
+      warn: vi.fn(),
+      error: vi.fn()
+    };
+    const text = "x".repeat(4_200);
+    const chunks = splitForDiscord(text);
+    let sendAttempt = 0;
+    const channel: ReplyChannelLike = {
+      id: "channel-4",
+      isSendable: () => true,
+      send: vi.fn(async () => {
+        sendAttempt += 1;
+        if (sendAttempt === 2) {
+          throw new Error("chunk send failed");
+        }
+        return { id: `bot-msg-${sendAttempt}` };
+      })
+    };
+    const presenter = createReplyPresenter({
+      systemDisplayName: "Tango",
+      logger
+    });
+
+    const result = await presenter.sendChunked(channel, text, {
+      speaker: createAgent({
+        id: "watson",
+        type: "personal",
+        displayName: "Watson"
+      }),
+      botDisplayName: "Tango"
+    });
+
+    expect(channel.send).toHaveBeenCalledTimes(chunks.length);
+    expect(result).toMatchObject({
+      sentChunks: chunks.length - 1,
+      delivery: "bot",
+      intendedDisplayName: "Watson",
+      actualDisplayName: "Tango",
+      failed: true,
+      lastMessageId: `bot-msg-${chunks.length}`
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining(`channel=channel-4 chunk=2/${chunks.length}`)
+    );
+  });
+
+  it("tracks partial delivery when webhook fallback bot sends fail", async () => {
+    const logger = {
+      warn: vi.fn(),
+      error: vi.fn()
+    };
+    const text = "y".repeat(4_200);
+    const chunks = splitForDiscord(text);
+    const webhook = createWebhook();
+    let webhookAttempt = 0;
+    webhook.send = vi.fn(async () => {
+      webhookAttempt += 1;
+      if (webhookAttempt === 2) {
+        throw new Error("webhook failed");
+      }
+      return { id: `webhook-msg-${webhookAttempt}` };
+    });
+    let botAttempt = 0;
+    const channel = createWebhookChannel(webhook);
+    channel.send = vi.fn(async () => {
+      botAttempt += 1;
+      if (botAttempt === 1) {
+        throw new Error("bot fallback failed");
+      }
+      return { id: `bot-msg-${botAttempt}` };
+    });
+    const presenter = createReplyPresenter({
+      systemDisplayName: "Tango",
+      logger
+    });
+
+    const result = await presenter.sendChunked(channel, text, {
+      speaker: createAgent({
+        id: "watson",
+        type: "personal",
+        displayName: "Watson"
+      }),
+      botDisplayName: "Tango"
+    });
+
+    expect(webhook.send).toHaveBeenCalledTimes(2);
+    expect(channel.send).toHaveBeenCalledTimes(chunks.length - 1);
+    expect(result).toMatchObject({
+      sentChunks: 2,
+      delivery: "mixed",
+      intendedDisplayName: "Watson",
+      actualDisplayName: "Watson",
+      failed: true,
+      lastMessageId: "bot-msg-2"
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("webhook reply failed channel=channel-1 speaker=Watson")
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining(`channel=channel-1 chunk=2/${chunks.length}`)
+    );
   });
 });
