@@ -947,7 +947,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
           providerNames.map((providerName) => ({ providerName, provider })),
         loadProviderContinuityMap: () => ({}),
         savePersistedProviderSession: () => undefined,
-        buildWarmStartContextPrompt: () => undefined,
+        buildWarmStartContextPrompt: () => "Context handoff packet:\n- prior print strategy summary",
         executeWorkerWithTask: async () => ({
           operations: [{
             name: "obsidian.read",
@@ -982,9 +982,69 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(result.workerDispatchTelemetry?.dispatchSource).toBe("tool");
     expect(provider.calls).toHaveLength(3);
     expect(provider.calls[1]?.systemPrompt).toContain("Do not send progress-only replies");
-    expect(provider.calls[1]?.providerSessionId).toBe("phase-1-session-a");
+    expect(provider.calls[1]?.providerSessionId).toBeUndefined();
+    expect(provider.calls[1]?.prompt).toContain("Context handoff packet:");
+    expect(provider.calls[1]?.prompt).toContain("Current user message:");
     expect(provider.calls[2]?.providerSessionId).toBeUndefined();
     expect(provider.calls[2]?.tools).toEqual({ mode: "off" });
+  });
+
+  it("retries conversational follow-up narration in a fresh session with warm-start context", async () => {
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber === 1) {
+        return {
+          text: "Let me grab that and check on it.",
+          providerSessionId: "phase-1-session-a",
+        };
+      }
+
+      return {
+        text: "The next step is to confirm the transfer rules and then wire them into the workflow.",
+        providerSessionId: "phase-1-session-b",
+      };
+    });
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => [
+          "Context handoff packet:",
+          "- prior workflow discussion",
+          "- assistant had already outlined the workflow",
+        ].join("\n"),
+      },
+      () => ({
+        conversationKey: "watson-follow-up:watson",
+        providerNames: ["claude-oauth"],
+        configuredProviderNames: ["claude-oauth"],
+        systemPrompt: "You are Watson.",
+        tools: { mode: "allowlist", allowlist: [DISPATCH_TOOL_FULL_NAME] },
+      }),
+    );
+
+    const result = await executor.executeTurn({
+      sessionId: "watson-follow-up",
+      agentId: "watson",
+      transcript: "thanks",
+      channelId: "channel-1",
+      discordUserId: "user-1",
+    });
+
+    expect(result.responseText).toBe(
+      "The next step is to confirm the transfer rules and then wire them into the workflow.",
+    );
+    expect(provider.calls).toHaveLength(2);
+    expect(provider.calls[0]?.tools).toEqual({ mode: "off" });
+    expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
+    expect(provider.calls[1]?.systemPrompt).toContain("Do not emit worker-dispatch tags");
+    expect(provider.calls[1]?.providerSessionId).toBeUndefined();
+    expect(provider.calls[1]?.prompt).toContain("Context handoff packet:");
+    expect(provider.calls[1]?.prompt).toContain("Current user message:");
+    expect(provider.calls[1]?.prompt).toContain("thanks");
   });
 
   it("suppresses repeated fake worker-progress replies when no dispatch ever happens", async () => {
