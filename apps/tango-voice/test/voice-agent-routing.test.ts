@@ -523,6 +523,60 @@ describe('VoicePipeline agent routing', () => {
     pipeline.stop();
   });
 
+  it('passes thread channel ids through the Tango bridge when the session key is channel-scoped', async () => {
+    const pipeline = makePipeline();
+    const queueState = {
+      markReady: vi.fn(),
+      markHeard: vi.fn(),
+      getReadyItems: vi.fn(() => []),
+      getPendingItems: vi.fn(() => []),
+    };
+    const responsePoller = { check: vi.fn() };
+    const threadChannelId = '100000000000010099';
+    const router = {
+      refreshHistory: vi.fn(async () => {}),
+      getHistory: vi.fn(() => []),
+      setHistory: vi.fn(() => {}),
+      getLogChannelFor: vi.fn(async () => null),
+      getTangoRouteFor: vi.fn(() => ({
+        sessionId: 'tango-thread',
+        agentId: 'dispatch',
+        source: 'tango-config',
+        channelKey: `discord:${threadChannelId}`,
+      })),
+    };
+
+    pipeline.setQueueState(queueState as any);
+    pipeline.setResponsePoller(responsePoller as any);
+    pipeline.setRouter(router as any);
+
+    (pipeline as any).dispatchToLLMFireAndForget(
+      'voice-user',
+      'follow up in the thread',
+      'qid-thread-1',
+      {
+        channelName: 'default',
+        displayName: 'Default',
+        sessionKey: `channel:${threadChannelId}`,
+        systemPrompt: 'system',
+        sessionId: 'tango-thread',
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(requestTangoVoiceTurn).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'tango-thread',
+      transcript: 'follow up in the thread',
+      utteranceId: 'qid-thread-1',
+      channelId: threadChannelId,
+    }));
+    expect(queueState.markReady).toHaveBeenCalledWith('qid-thread-1', 'Added.', 'Added.', expect.any(String));
+    expect(responsePoller.check).toHaveBeenCalled();
+
+    pipeline.stop();
+  });
+
   it('opens topics and routes follow-up prompts into topic sessions', async () => {
     const pipeline = makePipeline();
     pipeline.setRouter({

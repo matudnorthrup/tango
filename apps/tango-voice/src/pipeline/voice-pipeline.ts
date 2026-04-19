@@ -3,6 +3,7 @@ import {
   appendTopicContextToSystemPrompt,
   buildProjectSessionId,
   coerceSpokenText,
+  extractChannelIdFromSessionKey as extractDiscordChannelIdFromSessionKey,
   extractInlineTopicReference,
   formatCurrentTopicMessage,
   formatOpenedTopicMessage,
@@ -571,8 +572,7 @@ export class VoicePipeline {
   }
 
   private extractChannelIdFromSessionKey(sessionKey: string): string | undefined {
-    const match = sessionKey.match(/:channel:(\d+)$/);
-    return match?.[1];
+    return extractDiscordChannelIdFromSessionKey(sessionKey) ?? undefined;
   }
 
   private mergeHistoryWithAssistantTurn(
@@ -1608,7 +1608,7 @@ export class VoicePipeline {
 
   private getReadyItemKeys(item: QueuedResponse): Set<string> {
     const keys = new Set<string>();
-    const sessionChannelMatch = item.sessionKey.match(/:channel:([^:]+)$/);
+    const sessionChannelMatch = item.sessionKey.match(/(?:^|:)channel:([^:]+)$/);
     const channelId = this.extractChannelIdFromSessionKey(item.sessionKey);
     if (channelId) keys.add(`id:${channelId}`);
     if (sessionChannelMatch?.[1]) keys.add(`name:${this.normalizeChannelLabel(sessionChannelMatch[1])}`);
