@@ -1182,6 +1182,66 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(provider.calls).toHaveLength(2);
   });
 
+  it("retries with tools re-enabled when conversational follow-up narration persists after retry", async () => {
+    const provider = new ScriptedProvider((callNumber, request) => {
+      if (callNumber === 1) {
+        // First attempt: conversational bypass, tools off — LLM narrates dispatch
+        expect(request.tools).toEqual({ mode: "off" });
+        return {
+          text: "Let me grab the workout history for you.",
+          providerSessionId: "phase-1-session-a",
+        };
+      }
+      if (callNumber === 2) {
+        // Second attempt: retry still with tools off — LLM narrates again
+        expect(request.tools).toEqual({ mode: "off" });
+        return {
+          text: "Checking your last push day now — one sec.",
+          providerSessionId: "phase-1-session-b",
+        };
+      }
+
+      // Third attempt: escape hatch — tools re-enabled, original system prompt
+      expect(request.tools).toEqual({ mode: "allowlist", allowlist: [DISPATCH_TOOL_FULL_NAME] });
+      expect(request.systemPrompt).toBe("You are Malibu.");
+      expect(request.providerSessionId).toBeUndefined();
+      return {
+        text: "Last push day you hit 80kg on bench for 3x8. Let's aim for 82.5 today.",
+        providerSessionId: "phase-1-session-c",
+      };
+    });
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => "Context handoff packet:\n- prior workout discussion",
+      },
+      () => ({
+        conversationKey: "malibu-follow-up:malibu",
+        providerNames: ["claude-oauth"],
+        configuredProviderNames: ["claude-oauth"],
+        systemPrompt: "You are Malibu.",
+        tools: { mode: "allowlist", allowlist: [DISPATCH_TOOL_FULL_NAME] },
+      }),
+    );
+
+    const result = await executor.executeTurn({
+      sessionId: "malibu-follow-up",
+      agentId: "malibu",
+      transcript: "thanks",
+      channelId: "channel-1",
+      discordUserId: "user-1",
+    });
+
+    expect(result.contextConfusionDetected).toBe(true);
+    expect(result.responseText).toBe("Last push day you hit 80kg on bench for 3x8. Let's aim for 82.5 today.");
+    expect(provider.calls).toHaveLength(3);
+  });
+
   it("suppresses repeated fake worker-progress replies when no dispatch ever happens", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       if (callNumber === 1) {
