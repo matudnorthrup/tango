@@ -4746,10 +4746,22 @@ Use channel names (the part before the colon). Do not explain.`,
       // Unrecognized input during confirmation
       // Try parsing as a voice command (e.g., "route to X" overrides confirmation)
       const cmd = parseVoiceCommand(transcript, this.getAllWakeNames());
-      if (cmd?.type === 'switch' && this.router) {
+      const bareRedirectMatch = cmd
+        ? null
+        : transcript
+            .trim()
+            .toLowerCase()
+            .replace(/[.!?,]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .match(/^(?:route|root|rout|switch|go|send|move)\s+to\s+(.+)$/);
+      const redirectTarget = cmd?.type === 'switch'
+        ? cmd.channel
+        : bareRedirectMatch?.[1]?.trim().replace(/\s+channel$/, '').trim();
+      if (redirectTarget && this.router) {
         this.transitionAndResetWatchdog({ type: 'CANCEL_FLOW' });
-        console.log(`Route confirmation: redirected via switch command to "${cmd.channel}"`);
-        await this.router.switchTo(cmd.channel);
+        console.log(`Route confirmation: redirected via ${cmd?.type === 'switch' ? 'switch command' : 'bare command'} to "${redirectTarget}"`);
+        await this.router.switchTo(redirectTarget);
         await this.dispatchPromptWithIntent(
           confirmState.userId,
           confirmState.transcript,
