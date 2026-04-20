@@ -65,7 +65,7 @@ function isReadOnlyWorkerStep(task: string): boolean {
   return /\bREAD-ONLY step:/u.test(task);
 }
 
-function isReadOnlySql(value: unknown): boolean {
+export function isReadOnlySql(value: unknown): boolean {
   if (typeof value !== "string") {
     return true;
   }
@@ -73,7 +73,10 @@ function isReadOnlySql(value: unknown): boolean {
   if (!normalized) {
     return true;
   }
-  return /^(select|with|pragma|explain)\b/i.test(normalized);
+  if (/^with\b/i.test(normalized)) {
+    return !/\b(?:insert|update|delete)\b/i.test(normalized);
+  }
+  return /^(select|pragma|explain)\b/i.test(normalized);
 }
 
 function browserActionLooksMutating(action: string): boolean {
