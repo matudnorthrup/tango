@@ -833,7 +833,9 @@ function looksLikeContextConfusion(text: string): boolean {
     /\bcan'?t\s+(?:answer|respond|reply)\s+(?:without|from)\b/i,
     /\bno\s+(?:conversation\s+)?context\s+(?:available|to\s+work)\b/i,
     /\bneed(?:s)?\s+(?:the\s+)?conversation\s+context\b/i,
-    /\banswer\s+(?:directly\s+)?from\s+(?:the\s+)?(?:conversation|context)\b/i,
+    /\banswer\b.{0,20}\b(?:directly\s+)?from\s+(?:the\s+)?(?:current\s+)?(?:conversation|context)\b/i,
+    /\bneed to answer\b.{0,30}\bconversation context\b/i,
+    /\bnot start another worker task\b/i,
   ];
 
   return patterns.some((pattern) => pattern.test(normalized));
@@ -1807,18 +1809,51 @@ export async function executeDiscordTurn(
     if (dispatches.length > 0 || looksLikeNarratedDispatch(response1.text)) {
       const strippedResponse = stripWorkerDispatchTags(response1.text);
       if (!strippedResponse || looksLikeNarratedDispatch(strippedResponse)) {
-        response1 = {
-          ...response1,
-          text: "Sorry, I need to answer that directly from the current conversation context, not start another worker task.",
+        // Both attempts with tools disabled produced dispatch/narration.
+        // The LLM clearly needs tools to answer this turn. Retry with
+        // original system prompt and tools re-enabled as an escape hatch.
+        console.warn(
+          "[turn-executor] conversational follow-up suppression triggered — retrying with tools re-enabled",
+        );
+        phase1SystemPrompt = input.context.systemPrompt;
+        phase1Tools = input.context.tools;
+        contextConfusionDetected = true;
+        const escapeRetryResult = await generateWithFailover(
+          providerChain,
+          {
+            prompt: effectivePrompt,
+            systemPrompt: phase1SystemPrompt,
+            tools: phase1Tools,
+            model: input.context.model,
+            reasoningEffort: input.context.reasoningEffort,
+          },
+          dependencies.providerRetryLimit,
+          {},
+          { warmStartPrompt: effectiveWarmStartPrompt }
+        );
+
+        phase1ProviderName = escapeRetryResult.providerName;
+        phase1RetryResult = {
+          response: escapeRetryResult.retryResult.response,
+          attempts: phase1RetryResult.attempts + escapeRetryResult.retryResult.attempts,
+          attemptErrors: [...phase1RetryResult.attemptErrors, ...escapeRetryResult.retryResult.attemptErrors],
         };
+        phase1Failures = [...phase1Failures, ...escapeRetryResult.failures];
+        phase1UsedFailover = phase1UsedFailover || escapeRetryResult.usedFailover;
+        phase1RequestPrompt = escapeRetryResult.requestPrompt;
+        phase1RequestWarmStartUsed = escapeRetryResult.warmStartUsed;
+        response1 = escapeRetryResult.retryResult.response;
+        ({ dispatches, dispatchSource } = extractDispatchesFromResponse(response1));
       } else {
         response1 = {
           ...response1,
           text: strippedResponse,
         };
       }
-      dispatches = [];
-      dispatchSource = "none";
+      if (dispatches.length > 0) {
+        dispatches = [];
+        dispatchSource = "none";
+      }
     }
   }
 
