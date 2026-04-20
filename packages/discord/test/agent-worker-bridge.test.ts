@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildWorkerProviderTools,
   executeAgentWorker,
+  isReadOnlySql,
   workerAgentResultToReport,
 } from "../src/agent-worker-bridge.js";
 import { SPAWN_SUB_AGENTS_TOOL_FULL_NAME } from "../src/sub-agent-tool.js";
@@ -32,6 +33,75 @@ class ScriptedProvider implements ChatProvider {
     return result;
   }
 }
+
+describe("isReadOnlySql", () => {
+  it("classifies plain select statements as read-only", () => {
+    expect(isReadOnlySql("SELECT * FROM foo")).toBe(true);
+  });
+
+  it("classifies pure select CTEs as read-only", () => {
+    expect(
+      isReadOnlySql("WITH cte AS (SELECT id FROM foo) SELECT * FROM cte"),
+    ).toBe(true);
+  });
+
+  it("classifies CTEs ending in update as writes", () => {
+    expect(
+      isReadOnlySql("WITH target AS (SELECT id FROM foo) UPDATE foo SET bar = 1 FROM target WHERE foo.id = target.id"),
+    ).toBe(false);
+  });
+
+  it("classifies CTEs ending in insert as writes", () => {
+    expect(
+      isReadOnlySql("WITH data AS (SELECT 1 AS id) INSERT INTO foo (id) SELECT id FROM data"),
+    ).toBe(false);
+  });
+
+  it("classifies CTEs ending in delete as writes", () => {
+    expect(
+      isReadOnlySql("WITH old AS (SELECT id FROM foo) DELETE FROM foo USING old WHERE foo.id = old.id"),
+    ).toBe(false);
+  });
+
+  it("classifies plain update statements as writes", () => {
+    expect(isReadOnlySql("UPDATE foo SET bar = 1")).toBe(false);
+  });
+
+  it("classifies plain insert statements as writes", () => {
+    expect(isReadOnlySql("INSERT INTO foo (id) VALUES (1)")).toBe(false);
+  });
+
+  it("classifies plain delete statements as writes", () => {
+    expect(isReadOnlySql("DELETE FROM foo")).toBe(false);
+  });
+
+  it("classifies pragma statements as read-only", () => {
+    expect(isReadOnlySql("PRAGMA table_info(foo)")).toBe(true);
+  });
+
+  it("classifies explain statements as read-only", () => {
+    expect(isReadOnlySql("EXPLAIN SELECT * FROM foo")).toBe(true);
+  });
+
+  it("classifies the workout close CTE pattern as a write", () => {
+    expect(
+      isReadOnlySql(`
+        WITH target AS (
+          SELECT id
+          FROM workouts
+          WHERE ended_at IS NULL
+          ORDER BY started_at DESC
+          LIMIT 1
+        )
+        UPDATE workouts w
+        SET ended_at = now()
+        FROM target
+        WHERE w.id = target.id
+        RETURNING w.id, w.started_at, w.ended_at;
+      `),
+    ).toBe(false);
+  });
+});
 
 describe("buildWorkerProviderTools", () => {
   it("builds allowlisted worker MCP config with proxy support", () => {
