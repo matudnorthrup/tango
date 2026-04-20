@@ -56,6 +56,21 @@ describe('parseVoiceCommand — existing commands still work', () => {
     expect(result).toEqual({ type: 'switch', channel: 'general' });
   });
 
+  it('route command', () => {
+    const result = parseVoiceCommand('Tango route to malibu', [BOT, 'Tango']);
+    expect(result).toEqual({ type: 'switch', channel: 'malibu' });
+  });
+
+  it('root command', () => {
+    const result = parseVoiceCommand('Tango root to watson', [BOT, 'Tango']);
+    expect(result).toEqual({ type: 'switch', channel: 'watson' });
+  });
+
+  it('rout command', () => {
+    const result = parseVoiceCommand('Watson rout to sierra', BOT);
+    expect(result).toEqual({ type: 'switch', channel: 'sierra' });
+  });
+
   it('list command', () => {
     const result = parseVoiceCommand('Hey Watson, list channels', BOT);
     expect(result).toEqual({ type: 'inbox-check' });

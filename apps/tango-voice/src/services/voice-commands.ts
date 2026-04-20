@@ -177,7 +177,7 @@ export function parseVoiceCommand(transcript: string, botName: WakeNamesInput): 
   // "switch to X", "go to X", "change to X", "move to X"
   // "which/scratch to X" — common Whisper mishearings of "switch to"
   // Exclude "inbox" — handled below as inbox-check
-  const switchMatch = rest.match(/^(?:switch|which|scratch|go|change|move)\s+to\s+(.+)$/);
+  const switchMatch = rest.match(/^(?:switch|which|scratch|go|change|move|route|root|rout)\s+to\s+(.+)$/);
   if (switchMatch) {
     const target = switchMatch[1].trim();
     if (/^(?:inbox|the\s+inbox|my\s+inbox)$/.test(target)) {

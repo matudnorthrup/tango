@@ -272,6 +272,36 @@ describe('VoicePipeline agent routing', () => {
     pipeline.stop();
   });
 
+  it('accepts bare redirect commands during route redirect confirmation', async () => {
+    const pipeline = makePipeline();
+    const switchTo = vi.fn(async () => ({ success: true, displayName: 'Malibu' }));
+
+    pipeline.setRouter({
+      switchTo,
+      getActiveChannel: vi.fn(() => ({ name: 'watson', channelId: 'watson-id' })),
+    } as any);
+
+    const dispatchSpy = vi.spyOn(pipeline as any, 'dispatchPromptWithIntent').mockResolvedValue(undefined);
+
+    (pipeline as any).transitionAndResetWatchdog({
+      type: 'ENTER_ROUTE_CONFIRMATION',
+      userId: 'user-1',
+      transcript: 'find those emails for me',
+      targetId: 'thread-1',
+      targetName: 'Email (in watson)',
+      confirmAction: 'redirect',
+      deliveryMode: 'wait',
+      closeType: null,
+    });
+
+    await (pipeline as any).handleRouteConfirmationResponse('root to malibu', 'user-1');
+
+    expect(switchTo).toHaveBeenCalledWith('malibu');
+    expect(dispatchSpy).toHaveBeenCalledWith('user-1', 'find those emails for me', 'wait', null);
+
+    pipeline.stop();
+  });
+
   it('formats route confirmation prompts as explicit questions', () => {
     const pipeline = makePipeline();
 
