@@ -17,6 +17,7 @@ import { fork, execSync, type ChildProcess } from "node:child_process";
 import { request as httpRequest, createServer as createHttpServer } from "node:http";
 import {
   AgentRegistry,
+  type AgentRuntimeConfig,
   assembleSessionMemoryPrompt,
   buildDeterministicConversationMemory,
   buildDeterministicConversationSummary,
@@ -71,10 +72,12 @@ import {
   loadScheduleConfigs,
   loadToolContractConfigs,
   loadWorkflowConfigs,
+  loadV2AgentConfig,
   renderMemoryEvalDiscordSummary,
   renderMemoryEvalMarkdownReport,
   buildRuntimePathEnv,
   resolveConfigDir,
+  resolveConfiguredPath,
   resolveDatabasePath,
   loadAllV2AgentConfigs,
   renderContextPacket,
@@ -88,6 +91,8 @@ import {
   registerPreCheckHandler,
   runMemoryEvalBenchmarks,
   contactsSyncHandler,
+  isV2RuntimeEnabled,
+  type V2AgentConfig,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
@@ -201,6 +206,12 @@ import {
   routeV2MessageIfEnabled,
   shutdownV2Runtime,
 } from "./v2-runtime.js";
+import {
+  buildVoiceRouterErrorResult,
+  buildVoiceRouterResult,
+  dispatchVoiceTurnByRuntime,
+  VOICE_V2_TTS_ERROR_MESSAGE,
+} from "./voice-turn-runtime-routing.js";
 
 export * from "./tango-router.js";
 
@@ -590,6 +601,21 @@ const capabilityRegistry = new CapabilityRegistry({
 });
 const dbPath = resolveDatabasePath(env.TANGO_DB_PATH);
 const orchestratorMcpServers = buildOrchestratorMcpServers(agentConfigs, workerConfigById);
+const voiceV2AgentRuntimeConfigs = loadEnabledVoiceV2AgentRuntimeConfigs({
+  dbPath,
+  configDir,
+  timeoutMs: maxProviderTimeoutMs,
+});
+const voiceTangoRouter = voiceV2AgentRuntimeConfigs.size > 0
+  ? new TangoRouter({
+      agentConfigs: new Map(
+        [...voiceV2AgentRuntimeConfigs.entries()].map(([agentId, entry]) => [
+          agentId,
+          entry.runtimeConfig,
+        ]),
+      ),
+    })
+  : null;
 const scheduleConfigs = loadScheduleConfigs(configDir);
 const memoryEvalConfig = loadMemoryEvalConfig(configDir);
 const agentRegistry = new AgentRegistry(agentConfigs);
@@ -781,6 +807,78 @@ function resolveOrchestratorProviderTools(agent: AgentConfig | undefined): Provi
     allowlist: [...allowlist],
     mcpServers,
   };
+}
+
+function normalizeRuntimeReasoningEffort(
+  value: ProviderReasoningEffort,
+): AgentRuntimeConfig["runtimePreferences"]["reasoningEffort"] {
+  return value === "xhigh" ? "max" : value;
+}
+
+function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
+  dbPath: string;
+  configDir: string;
+  timeoutMs: number;
+}): Map<string, { config: V2AgentConfig; runtimeConfig: AgentRuntimeConfig }> {
+  const agentsDir = resolveConfiguredPath("config/v2/agents");
+  if (!fs.existsSync(agentsDir)) {
+    return new Map();
+  }
+
+  const configs = new Map<string, { config: V2AgentConfig; runtimeConfig: AgentRuntimeConfig }>();
+  for (const entry of fs.readdirSync(agentsDir)) {
+    if (!entry.endsWith(".yaml")) {
+      continue;
+    }
+
+    const configPath = path.join(agentsDir, entry);
+
+    try {
+      const config = loadV2AgentConfig(configPath);
+      if (!isV2RuntimeEnabled(config)) {
+        continue;
+      }
+
+      const systemPromptPath = resolveConfiguredPath(config.systemPromptFile);
+      const systemPrompt = fs.readFileSync(systemPromptPath, "utf8").trim();
+      if (systemPrompt.length === 0) {
+        throw new Error(`System prompt file '${systemPromptPath}' is empty.`);
+      }
+
+      configs.set(config.id, {
+        config,
+        runtimeConfig: {
+          agentId: config.id,
+          systemPrompt,
+          mcpServers: config.mcpServers.map((server) => ({
+            name: server.name,
+            command: server.command,
+            ...(server.args ? { args: [...server.args] } : {}),
+            env: {
+              ...buildRuntimePathEnv({
+                dbPath: input.dbPath,
+                configDir: input.configDir,
+              }),
+              ...(server.env ?? {}),
+            },
+          })),
+          runtimePreferences: {
+            model: config.runtime.model,
+            reasoningEffort: normalizeRuntimeReasoningEffort(config.runtime.reasoningEffort),
+            timeout: input.timeoutMs,
+          },
+        },
+      });
+    } catch (error) {
+      console.warn(
+        `[tango-voice] failed to load v2 agent config ${configPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  return configs;
 }
 
 // ---------------------------------------------------------------------------
@@ -3448,27 +3546,8 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
   }
 
   const responseMode = resolveResponseMode(targetAgent, null);
-  const providerSelection = resolveProviderNamesForTurn({
-    sessionId: turnInput.sessionId,
-    agent: targetAgent
-  });
-  const systemPrompt = composeSystemPrompt(
-    targetAgent.prompt,
-    responseMode,
-    resolveTopicRecordForSession(turnInput.sessionId)?.title ?? null,
-    providerSelection.project?.displayName ?? null,
-  );
-  const providerTools = resolveOrchestratorProviderTools(targetAgent);
-
-  let providerChain: Array<{ providerName: string; provider: ChatProvider }>;
-  try {
-    providerChain = resolveProviderChain(providerSelection.providerNames);
-  } catch (error) {
-    const messageText = error instanceof Error ? error.message : String(error);
-    throw new Error(`Provider resolution failed: ${messageText}`);
-  }
-
-  const voiceDefaultChannelId = targetAgent.voice?.defaultChannelId;
+  const v2AgentConfig = voiceV2AgentRuntimeConfigs.get(targetAgent.id)?.config ?? null;
+  const voiceDefaultChannelId = targetAgent.voice?.defaultChannelId?.trim() || null;
   const isVoiceThread =
     turnInput.channelId &&
     voiceDefaultChannelId &&
@@ -3478,19 +3557,10 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     targetAgent.id,
     isVoiceThread ? turnInput.channelId : null,
   );
-  const orchestratorContinuityMode = resolveOrchestratorContinuityMode(turnInput.sessionId);
-  const deterministicRouting = resolveDeterministicRoutingForTurn({
-    sessionId: turnInput.sessionId,
-    agent: targetAgent,
-    project: providerSelection.project,
-  });
-  const continuityByProvider =
-    orchestratorContinuityMode === "provider"
-      ? loadProviderContinuityMap(
-          conversationKey,
-          providerSelection.providerNames
-        )
-      : undefined;
+  const voiceRouterChannelId = isVoiceThread
+    ? (voiceDefaultChannelId ?? resolvedVoiceSyncChannelId ?? `voice:${turnInput.sessionId}`)
+    : (resolvedVoiceSyncChannelId ?? voiceDefaultChannelId ?? `voice:${turnInput.sessionId}`);
+  const voiceRouterThreadId = isVoiceThread ? turnInput.channelId ?? undefined : undefined;
 
   const inboundMessageId = writeMessage({
     sessionId: turnInput.sessionId,
@@ -3508,24 +3578,12 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       guildId: turnInput.guildId ?? null,
       voiceChannelId: turnInput.voiceChannelId ?? null,
       responseMode,
-      projectId: providerSelection.project?.id ?? null,
-      projectTitle: providerSelection.project?.displayName ?? null,
-      providerOverride: providerSelection.overrideProviderName ?? null,
-      configuredProviders: providerSelection.configuredProviderNames,
-      effectiveProviders: providerSelection.providerNames
+      runtime: v2AgentConfig ? "v2" : "legacy",
+      conversationKey,
     }
   });
 
   const startedAt = Date.now();
-  const warmStartContext = await buildWarmStartContext({
-    sessionId: turnInput.sessionId,
-    agentId: targetAgent.id,
-    currentUserPrompt: turnInput.transcript,
-    excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
-    orchestratorContinuityMode,
-    discordChannelId: resolvedVoiceSyncChannelId,
-  });
-  const warmStartPrompt = warmStartContext.prompt;
 
   // Post user transcript to Discord immediately (before LLM processing).
   // Prefer the turn's explicit channelId, then any discord channel encoded in
@@ -3558,227 +3616,20 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     })();
   }
 
-  try {
-    const turnResult = await voiceTurnExecutor.executeTurnDetailed(turnInput, {
-      conversationKey,
-      providerNames: providerSelection.providerNames,
-      configuredProviderNames: providerSelection.configuredProviderNames,
-      projectId: providerSelection.project?.id,
-      topicId: resolveTopicRecordForSession(turnInput.sessionId)?.id,
-      orchestratorContinuityMode,
-      overrideProviderName: providerSelection.overrideProviderName,
-      model: providerSelection.model,
-      reasoningEffort: providerSelection.reasoningEffort,
-      systemPrompt,
-      tools: providerTools,
-      warmStartPrompt,
-      excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
-      providerChain,
-      continuityByProvider,
-      capabilityRegistry,
-      deterministicRouting,
-    });
-    recoverProviderContinuityAfterContextConfusion({
-      sessionId: turnInput.sessionId,
-      conversationKey,
-      turnResult,
-    });
-
-    const response = turnResult.response;
-    const toolTelemetry = extractToolTelemetry(response.raw);
-    const executionTrace = extractExecutionTrace(response.raw);
-    const executionTraceSummary = formatExecutionTraceForLog(executionTrace);
-    const workerDispatchLogSummary = formatWorkerDispatchTelemetryForLog(turnResult.workerDispatchTelemetry);
-    const latencyMs = Date.now() - startedAt;
-
-    const outboundMessageId = writeMessage({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id,
-      providerName: turnResult.providerName,
-      direction: "outbound",
-      source: "tango",
-      visibility: "public",
-      discordChannelId: resolvedVoiceSyncChannelId,
-      discordUserId: null,
-      discordUsername: "Tango Voice",
-      content: turnResult.responseText,
-      metadata: {
-        inputSource: "voice-bridge",
-        turnId: turnId ?? null,
-        utteranceId: turnInput.utteranceId ?? null,
-        guildId: turnInput.guildId ?? null,
-        voiceChannelId: turnInput.voiceChannelId ?? null,
-        responseMode,
-        projectId: providerSelection.project?.id ?? null,
-        projectTitle: providerSelection.project?.displayName ?? null,
-        latencyMs,
-        attemptCount: turnResult.attemptCount,
-        attemptedRetry: turnResult.attemptCount > 1,
-        attemptErrors: turnResult.attemptErrors,
-        providerSessionId: turnResult.providerSessionId ?? null,
-        providerUsedFailover: turnResult.providerUsedFailover ?? false,
-        warmStartUsed: turnResult.warmStartUsed ?? false,
-        warmStartContextChars: turnResult.warmStartContextChars,
-        providerOverride: turnResult.providerOverrideName ?? null,
-        configuredProviders: turnResult.configuredProviders,
-        effectiveProviders: turnResult.effectiveProviders,
-        providerFailures: turnResult.providerFailures,
-        ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-        ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-        executionTrace
-      }
-    });
-
-    const modelRunId = writeModelRun({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id,
-      providerName: turnResult.providerName,
-      conversationKey,
-      providerSessionId: turnResult.providerSessionId ?? null,
-      model: response.metadata?.model,
-      stopReason: response.metadata?.stopReason,
-      responseMode,
-      latencyMs,
-      providerDurationMs: response.metadata?.durationMs,
-      providerApiDurationMs: response.metadata?.durationApiMs,
-      inputTokens: response.metadata?.usage?.inputTokens,
-      outputTokens: response.metadata?.usage?.outputTokens,
-      cacheReadInputTokens: response.metadata?.usage?.cacheReadInputTokens,
-      cacheCreationInputTokens: response.metadata?.usage?.cacheCreationInputTokens,
-      totalCostUsd: response.metadata?.totalCostUsd,
-      requestMessageId: inboundMessageId,
-      responseMessageId: outboundMessageId,
-      metadata: {
-        inputSource: "voice-bridge",
-        turnId: turnId ?? null,
-        utteranceId: turnInput.utteranceId ?? null,
-        guildId: turnInput.guildId ?? null,
-        voiceChannelId: turnInput.voiceChannelId ?? null,
-        responseMode,
-        projectId: providerSelection.project?.id ?? null,
-        projectTitle: providerSelection.project?.displayName ?? null,
-        attemptCount: turnResult.attemptCount,
-        attemptedRetry: turnResult.attemptCount > 1,
-        attemptErrors: turnResult.attemptErrors,
-        providerUsedFailover: turnResult.providerUsedFailover ?? false,
-        warmStartUsed: turnResult.warmStartUsed ?? false,
-        warmStartContextChars: turnResult.warmStartContextChars,
-        providerOverride: turnResult.providerOverrideName ?? null,
-        configuredProviders: turnResult.configuredProviders,
-        effectiveProviders: turnResult.effectiveProviders,
-        orchestratorContinuityMode,
-        providerFailures: turnResult.providerFailures,
-        ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-        ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-        toolTelemetry,
-        executionTrace
-      },
-      rawResponse:
-        captureProviderRaw && response.raw && typeof response.raw === "object"
-          ? (response.raw as Record<string, unknown>)
-          : null
-    });
-    if (modelRunId !== null) {
-      writePromptSnapshot({
-        modelRunId,
-        sessionId: turnInput.sessionId,
-        agentId: targetAgent.id,
-        providerName: turnResult.providerName,
-        requestMessageId: inboundMessageId,
-        responseMessageId: outboundMessageId,
-        promptText: turnResult.providerRequestPrompt,
-        systemPrompt,
-        warmStartPrompt: warmStartPrompt ?? null,
-        metadata: {
-          inputSource: "voice-bridge",
-          responseMode,
-          promptChars: turnResult.providerRequestPrompt.length,
-          systemPromptChars: systemPrompt?.length ?? 0,
-          warmStartPromptChars: warmStartPrompt?.length ?? 0,
-          orchestratorContinuityMode,
-          turnWarmStartUsed: turnResult.warmStartUsed ?? false,
-          requestWarmStartUsed: turnResult.providerRequestWarmStartUsed,
-          initialRequestWarmStartUsed: turnResult.initialRequestWarmStartUsed,
-          usedWorkerSynthesis: turnResult.usedWorkerSynthesis ?? false,
-          synthesisRetried: turnResult.synthesisRetried ?? false,
-          initialRequestPrompt:
-            turnResult.initialRequestPrompt !== turnResult.providerRequestPrompt
-              ? turnResult.initialRequestPrompt
-              : null,
-          warmStartContext: warmStartContext.diagnostics,
-        },
-      });
+  const clearVoiceTyping = (): void => {
+    if (voiceTypingInterval) {
+      clearInterval(voiceTypingInterval);
+      voiceTypingInterval = undefined;
     }
+  };
 
-    const deterministicIntentModelRunId = persistDeterministicClassifierArtifacts({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id,
-      conversationKey,
-      turnResult,
-      requestMessageId: inboundMessageId,
-      captureRawResponse: captureProviderRaw,
-    });
-
-    persistDeterministicTurnArtifacts({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id,
-      conversationKey,
-      providerName: turnResult.providerName,
-      turnResult,
-      requestMessageId: inboundMessageId,
-      responseMessageId: outboundMessageId,
-      discordChannelId: resolvedVoiceSyncChannelId,
-      projectId: providerSelection.project?.id ?? null,
-      topicId: resolveTopicRecordForSession(turnInput.sessionId)?.id ?? null,
-      latencyMs,
-      intentModelRunId: deterministicIntentModelRunId,
-      narrationModelRunId: modelRunId,
-    });
-    persistActiveTaskArtifacts({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id,
-      turnResult,
-      userMessage: turnInput.transcript,
-      requestMessageId: inboundMessageId,
-      responseMessageId: outboundMessageId,
-    });
-
-    if (turnId) {
-      storage.completeVoiceTurnReceipt({
-        turnId,
-        providerName: turnResult.providerName,
-        providerSessionId: turnResult.providerSessionId ?? null,
-        responseText: turnResult.responseText,
-        providerUsedFailover: turnResult.providerUsedFailover,
-        warmStartUsed: turnResult.warmStartUsed,
-        requestMessageId: inboundMessageId,
-        responseMessageId: outboundMessageId,
-        modelRunId,
-        metadata: {
-          inputSource: "voice-bridge",
-          utteranceId: turnInput.utteranceId ?? null
-        }
-      });
-    }
-
-    maybeCompactSessionMemory({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id
-    });
-
-    console.log(
-      `[tango-voice] reply session=${turnInput.sessionId} agent=${targetAgent.id} provider=${turnResult.providerName} attempts=${turnResult.attemptCount} failover=${turnResult.providerUsedFailover ? "yes" : "no"} warmStart=${turnResult.warmStartUsed ? "yes" : "no"} ms=${latencyMs}${workerDispatchLogSummary}${executionTraceSummary ? ` ${executionTraceSummary}` : ""}`
-    );
-
-    // Fire-and-forget: post agent response to Discord (user message was already posted before LLM call)
+  const syncVoiceAgentResponse = (responseText: string): void => {
     console.log(
       `[tango-voice] voice-discord-sync agent-response channel=${resolvedVoiceSyncChannelId} agent=${targetAgent.id}`
     );
-    if (voiceTypingInterval) clearInterval(voiceTypingInterval);
-
     const syncPromise = syncVoiceAgentResponseToDiscordWithRetry(
       resolvedVoiceSyncChannelId,
-      turnResult.responseText,
+      responseText,
       targetAgent
     );
     syncPromise.catch((error) => {
@@ -3787,170 +3638,646 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
         `[tango-voice] voice-discord-sync PERMANENTLY FAILED channel=${resolvedVoiceSyncChannelId} agent=${targetAgent.id}: ${message}`
       );
     });
+  };
 
-    return {
-      turnId,
-      deduplicated: false,
-      responseText: turnResult.responseText,
-      providerName: turnResult.providerName,
-      providerSessionId: turnResult.providerSessionId,
-      providerUsedFailover: turnResult.providerUsedFailover,
-      warmStartUsed: turnResult.warmStartUsed
-    };
-  } catch (error) {
-    if (voiceTypingInterval) clearInterval(voiceTypingInterval);
-
-    const failoverError = error instanceof ProviderFailoverError ? error : null;
-    const failures = failoverError?.failures ?? [];
-    const attempts = failoverError?.totalAttempts ?? 1;
-    const attemptErrors = failures.flatMap((failure) => failure.attemptErrors);
-    const providerName =
-      failures.at(-1)?.providerName ??
-      providerChain[0]?.providerName ??
-      providerSelection.providerNames[0] ??
-      targetAgent.provider.default;
-    const attemptedRequests = failoverError?.attemptedRequests ?? [];
-    const finalAttempt = attemptedRequests.at(-1);
-    const providerSessionId = continuityByProvider?.[providerName];
-    const messageText = error instanceof Error ? error.message : String(error);
-
-    const deadLetterId = writeDeadLetter({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id,
-      providerName,
-      conversationKey,
-      providerSessionId: providerSessionId ?? null,
-      requestMessageId: inboundMessageId,
-      discordChannelId: resolvedVoiceSyncChannelId,
-      discordUserId: turnInput.discordUserId ?? null,
-      promptText: turnInput.transcript,
-      systemPrompt,
-      responseMode,
-      lastErrorMessage: messageText,
-      failureCount: attempts,
-      metadata: {
-        inputSource: "voice-bridge",
-        turnId: turnId ?? null,
-        utteranceId: turnInput.utteranceId ?? null,
-        guildId: turnInput.guildId ?? null,
-        voiceChannelId: turnInput.voiceChannelId ?? null,
-        attemptErrors,
+  return dispatchVoiceTurnByRuntime({
+    transcript: turnInput.transcript,
+    agentId: targetAgent.id,
+    channelId: voiceRouterChannelId,
+    ...(voiceRouterThreadId ? { threadId: voiceRouterThreadId } : {}),
+    conversationKey,
+    v2AgentConfig,
+    tangoRouter: voiceTangoRouter,
+    executeLegacyTurn: async (): Promise<VoiceTurnResult> => {
+      const providerSelection = resolveProviderNamesForTurn({
+        sessionId: turnInput.sessionId,
+        agent: targetAgent
+      });
+      const topicRecord = resolveTopicRecordForSession(turnInput.sessionId);
+      const systemPrompt = composeSystemPrompt(
+        targetAgent.prompt,
         responseMode,
-        projectId: providerSelection.project?.id ?? null,
-        projectTitle: providerSelection.project?.displayName ?? null,
-        providerOverride: providerSelection.overrideProviderName ?? null,
-        configuredProviders: providerSelection.configuredProviderNames,
-        effectiveProviders: providerSelection.providerNames,
-        providerFailures: failures
+        topicRecord?.title ?? null,
+        providerSelection.project?.displayName ?? null,
+      );
+      const providerTools = resolveOrchestratorProviderTools(targetAgent);
+
+      let providerChain: Array<{ providerName: string; provider: ChatProvider }>;
+      try {
+        providerChain = resolveProviderChain(providerSelection.providerNames);
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : String(error);
+        throw new Error(`Provider resolution failed: ${messageText}`);
       }
-    });
 
-    const errorMessageId = writeMessage({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id,
-      providerName,
-      direction: "error",
-      source: "tango",
-      visibility: "debug",
-      discordChannelId: resolvedVoiceSyncChannelId,
-      discordUserId: null,
-      discordUsername: "Tango Voice",
-      content: messageText,
-      metadata: {
-        inputSource: "voice-bridge",
-        turnId: turnId ?? null,
-        utteranceId: turnInput.utteranceId ?? null,
-        guildId: turnInput.guildId ?? null,
-        voiceChannelId: turnInput.voiceChannelId ?? null,
-        responseMode,
-        projectId: providerSelection.project?.id ?? null,
-        projectTitle: providerSelection.project?.displayName ?? null,
-        attemptCount: attempts,
-        attemptErrors,
-        deadLetterId,
-        providerFailures: failures
-      }
-    });
+      const orchestratorContinuityMode = resolveOrchestratorContinuityMode(turnInput.sessionId);
+      const deterministicRouting = resolveDeterministicRoutingForTurn({
+        sessionId: turnInput.sessionId,
+        agent: targetAgent,
+        project: providerSelection.project,
+      });
+      const continuityByProvider =
+        orchestratorContinuityMode === "provider"
+          ? loadProviderContinuityMap(
+              conversationKey,
+              providerSelection.providerNames
+            )
+          : undefined;
 
-    const errorModelRunId = writeModelRun({
-      sessionId: turnInput.sessionId,
-      agentId: targetAgent.id,
-      providerName,
-      conversationKey,
-      providerSessionId: providerSessionId ?? null,
-      responseMode,
-      latencyMs: Date.now() - startedAt,
-      isError: true,
-      errorMessage: messageText,
-      requestMessageId: inboundMessageId,
-      responseMessageId: errorMessageId,
-      metadata: {
-        inputSource: "voice-bridge",
-        turnId: turnId ?? null,
-        utteranceId: turnInput.utteranceId ?? null,
-        guildId: turnInput.guildId ?? null,
-        voiceChannelId: turnInput.voiceChannelId ?? null,
-        responseMode,
-        projectId: providerSelection.project?.id ?? null,
-        projectTitle: providerSelection.project?.displayName ?? null,
-        attemptCount: attempts,
-        attemptErrors,
-        deadLetterId,
-        providerOverride: providerSelection.overrideProviderName ?? null,
-        configuredProviders: providerSelection.configuredProviderNames,
-        effectiveProviders: providerSelection.providerNames,
-        orchestratorContinuityMode,
-        providerFailures: failures,
-        toolTelemetry: emptyToolTelemetry()
-      },
-      rawResponse: null
-    });
-    if (errorModelRunId !== null) {
-      writePromptSnapshot({
-        modelRunId: errorModelRunId,
+      const warmStartContext = await buildWarmStartContext({
         sessionId: turnInput.sessionId,
         agentId: targetAgent.id,
-        providerName,
-        requestMessageId: inboundMessageId,
-        responseMessageId: errorMessageId,
-        promptText: finalAttempt?.promptText ?? turnInput.transcript,
-        systemPrompt,
-        warmStartPrompt: warmStartPrompt ?? null,
+        currentUserPrompt: turnInput.transcript,
+        excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
+        orchestratorContinuityMode,
+        discordChannelId: resolvedVoiceSyncChannelId,
+      });
+      const warmStartPrompt = warmStartContext.prompt;
+
+      try {
+        const turnResult = await voiceTurnExecutor.executeTurnDetailed(turnInput, {
+          conversationKey,
+          providerNames: providerSelection.providerNames,
+          configuredProviderNames: providerSelection.configuredProviderNames,
+          projectId: providerSelection.project?.id,
+          topicId: topicRecord?.id,
+          orchestratorContinuityMode,
+          overrideProviderName: providerSelection.overrideProviderName,
+          model: providerSelection.model,
+          reasoningEffort: providerSelection.reasoningEffort,
+          systemPrompt,
+          tools: providerTools,
+          warmStartPrompt,
+          excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
+          providerChain,
+          continuityByProvider,
+          capabilityRegistry,
+          deterministicRouting,
+        });
+        recoverProviderContinuityAfterContextConfusion({
+          sessionId: turnInput.sessionId,
+          conversationKey,
+          turnResult,
+        });
+
+        const response = turnResult.response;
+        const toolTelemetry = extractToolTelemetry(response.raw);
+        const executionTrace = extractExecutionTrace(response.raw);
+        const executionTraceSummary = formatExecutionTraceForLog(executionTrace);
+        const workerDispatchLogSummary = formatWorkerDispatchTelemetryForLog(turnResult.workerDispatchTelemetry);
+        const latencyMs = Date.now() - startedAt;
+
+        const outboundMessageId = writeMessage({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          providerName: turnResult.providerName,
+          direction: "outbound",
+          source: "tango",
+          visibility: "public",
+          discordChannelId: resolvedVoiceSyncChannelId,
+          discordUserId: null,
+          discordUsername: "Tango Voice",
+          content: turnResult.responseText,
+          metadata: {
+            inputSource: "voice-bridge",
+            turnId: turnId ?? null,
+            utteranceId: turnInput.utteranceId ?? null,
+            guildId: turnInput.guildId ?? null,
+            voiceChannelId: turnInput.voiceChannelId ?? null,
+            responseMode,
+            projectId: providerSelection.project?.id ?? null,
+            projectTitle: providerSelection.project?.displayName ?? null,
+            latencyMs,
+            attemptCount: turnResult.attemptCount,
+            attemptedRetry: turnResult.attemptCount > 1,
+            attemptErrors: turnResult.attemptErrors,
+            providerSessionId: turnResult.providerSessionId ?? null,
+            providerUsedFailover: turnResult.providerUsedFailover ?? false,
+            warmStartUsed: turnResult.warmStartUsed ?? false,
+            warmStartContextChars: turnResult.warmStartContextChars,
+            providerOverride: turnResult.providerOverrideName ?? null,
+            configuredProviders: turnResult.configuredProviders,
+            effectiveProviders: turnResult.effectiveProviders,
+            providerFailures: turnResult.providerFailures,
+            ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
+            ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
+            executionTrace
+          }
+        });
+
+        const modelRunId = writeModelRun({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          providerName: turnResult.providerName,
+          conversationKey,
+          providerSessionId: turnResult.providerSessionId ?? null,
+          model: response.metadata?.model,
+          stopReason: response.metadata?.stopReason,
+          responseMode,
+          latencyMs,
+          providerDurationMs: response.metadata?.durationMs,
+          providerApiDurationMs: response.metadata?.durationApiMs,
+          inputTokens: response.metadata?.usage?.inputTokens,
+          outputTokens: response.metadata?.usage?.outputTokens,
+          cacheReadInputTokens: response.metadata?.usage?.cacheReadInputTokens,
+          cacheCreationInputTokens: response.metadata?.usage?.cacheCreationInputTokens,
+          totalCostUsd: response.metadata?.totalCostUsd,
+          requestMessageId: inboundMessageId,
+          responseMessageId: outboundMessageId,
+          metadata: {
+            inputSource: "voice-bridge",
+            turnId: turnId ?? null,
+            utteranceId: turnInput.utteranceId ?? null,
+            guildId: turnInput.guildId ?? null,
+            voiceChannelId: turnInput.voiceChannelId ?? null,
+            responseMode,
+            projectId: providerSelection.project?.id ?? null,
+            projectTitle: providerSelection.project?.displayName ?? null,
+            attemptCount: turnResult.attemptCount,
+            attemptedRetry: turnResult.attemptCount > 1,
+            attemptErrors: turnResult.attemptErrors,
+            providerUsedFailover: turnResult.providerUsedFailover ?? false,
+            warmStartUsed: turnResult.warmStartUsed ?? false,
+            warmStartContextChars: turnResult.warmStartContextChars,
+            providerOverride: turnResult.providerOverrideName ?? null,
+            configuredProviders: turnResult.configuredProviders,
+            effectiveProviders: turnResult.effectiveProviders,
+            orchestratorContinuityMode,
+            providerFailures: turnResult.providerFailures,
+            ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
+            ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
+            toolTelemetry,
+            executionTrace
+          },
+          rawResponse:
+            captureProviderRaw && response.raw && typeof response.raw === "object"
+              ? (response.raw as Record<string, unknown>)
+              : null
+        });
+        if (modelRunId !== null) {
+          writePromptSnapshot({
+            modelRunId,
+            sessionId: turnInput.sessionId,
+            agentId: targetAgent.id,
+            providerName: turnResult.providerName,
+            requestMessageId: inboundMessageId,
+            responseMessageId: outboundMessageId,
+            promptText: turnResult.providerRequestPrompt,
+            systemPrompt,
+            warmStartPrompt: warmStartPrompt ?? null,
+            metadata: {
+              inputSource: "voice-bridge",
+              responseMode,
+              promptChars: turnResult.providerRequestPrompt.length,
+              systemPromptChars: systemPrompt?.length ?? 0,
+              warmStartPromptChars: warmStartPrompt?.length ?? 0,
+              orchestratorContinuityMode,
+              turnWarmStartUsed: turnResult.warmStartUsed ?? false,
+              requestWarmStartUsed: turnResult.providerRequestWarmStartUsed,
+              initialRequestWarmStartUsed: turnResult.initialRequestWarmStartUsed,
+              usedWorkerSynthesis: turnResult.usedWorkerSynthesis ?? false,
+              synthesisRetried: turnResult.synthesisRetried ?? false,
+              initialRequestPrompt:
+                turnResult.initialRequestPrompt !== turnResult.providerRequestPrompt
+                  ? turnResult.initialRequestPrompt
+                  : null,
+              warmStartContext: warmStartContext.diagnostics,
+            },
+          });
+        }
+
+        const deterministicIntentModelRunId = persistDeterministicClassifierArtifacts({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          conversationKey,
+          turnResult,
+          requestMessageId: inboundMessageId,
+          captureRawResponse: captureProviderRaw,
+        });
+
+        persistDeterministicTurnArtifacts({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          conversationKey,
+          providerName: turnResult.providerName,
+          turnResult,
+          requestMessageId: inboundMessageId,
+          responseMessageId: outboundMessageId,
+          discordChannelId: resolvedVoiceSyncChannelId,
+          projectId: providerSelection.project?.id ?? null,
+          topicId: topicRecord?.id ?? null,
+          latencyMs,
+          intentModelRunId: deterministicIntentModelRunId,
+          narrationModelRunId: modelRunId,
+        });
+        persistActiveTaskArtifacts({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          turnResult,
+          userMessage: turnInput.transcript,
+          requestMessageId: inboundMessageId,
+          responseMessageId: outboundMessageId,
+        });
+
+        if (turnId) {
+          storage.completeVoiceTurnReceipt({
+            turnId,
+            providerName: turnResult.providerName,
+            providerSessionId: turnResult.providerSessionId ?? null,
+            responseText: turnResult.responseText,
+            providerUsedFailover: turnResult.providerUsedFailover,
+            warmStartUsed: turnResult.warmStartUsed,
+            requestMessageId: inboundMessageId,
+            responseMessageId: outboundMessageId,
+            modelRunId,
+            metadata: {
+              inputSource: "voice-bridge",
+              utteranceId: turnInput.utteranceId ?? null
+            }
+          });
+        }
+
+        maybeCompactSessionMemory({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id
+        });
+
+        console.log(
+          `[tango-voice] reply session=${turnInput.sessionId} agent=${targetAgent.id} provider=${turnResult.providerName} attempts=${turnResult.attemptCount} failover=${turnResult.providerUsedFailover ? "yes" : "no"} warmStart=${turnResult.warmStartUsed ? "yes" : "no"} ms=${latencyMs}${workerDispatchLogSummary}${executionTraceSummary ? ` ${executionTraceSummary}` : ""}`
+        );
+
+        clearVoiceTyping();
+        syncVoiceAgentResponse(turnResult.responseText);
+
+        return {
+          turnId,
+          deduplicated: false,
+          responseText: turnResult.responseText,
+          providerName: turnResult.providerName,
+          providerSessionId: turnResult.providerSessionId,
+          providerUsedFailover: turnResult.providerUsedFailover,
+          warmStartUsed: turnResult.warmStartUsed
+        };
+      } catch (error) {
+        clearVoiceTyping();
+
+        const failoverError = error instanceof ProviderFailoverError ? error : null;
+        const failures = failoverError?.failures ?? [];
+        const attempts = failoverError?.totalAttempts ?? 1;
+        const attemptErrors = failures.flatMap((failure) => failure.attemptErrors);
+        const providerName =
+          failures.at(-1)?.providerName ??
+          providerChain[0]?.providerName ??
+          providerSelection.providerNames[0] ??
+          targetAgent.provider.default;
+        const attemptedRequests = failoverError?.attemptedRequests ?? [];
+        const finalAttempt = attemptedRequests.at(-1);
+        const providerSessionId = continuityByProvider?.[providerName];
+        const messageText = error instanceof Error ? error.message : String(error);
+
+        const deadLetterId = writeDeadLetter({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          providerName,
+          conversationKey,
+          providerSessionId: providerSessionId ?? null,
+          requestMessageId: inboundMessageId,
+          discordChannelId: resolvedVoiceSyncChannelId,
+          discordUserId: turnInput.discordUserId ?? null,
+          promptText: turnInput.transcript,
+          systemPrompt,
+          responseMode,
+          lastErrorMessage: messageText,
+          failureCount: attempts,
+          metadata: {
+            inputSource: "voice-bridge",
+            turnId: turnId ?? null,
+            utteranceId: turnInput.utteranceId ?? null,
+            guildId: turnInput.guildId ?? null,
+            voiceChannelId: turnInput.voiceChannelId ?? null,
+            attemptErrors,
+            responseMode,
+            projectId: providerSelection.project?.id ?? null,
+            projectTitle: providerSelection.project?.displayName ?? null,
+            providerOverride: providerSelection.overrideProviderName ?? null,
+            configuredProviders: providerSelection.configuredProviderNames,
+            effectiveProviders: providerSelection.providerNames,
+            providerFailures: failures
+          }
+        });
+
+        const errorMessageId = writeMessage({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          providerName,
+          direction: "error",
+          source: "tango",
+          visibility: "debug",
+          discordChannelId: resolvedVoiceSyncChannelId,
+          discordUserId: null,
+          discordUsername: "Tango Voice",
+          content: messageText,
+          metadata: {
+            inputSource: "voice-bridge",
+            turnId: turnId ?? null,
+            utteranceId: turnInput.utteranceId ?? null,
+            guildId: turnInput.guildId ?? null,
+            voiceChannelId: turnInput.voiceChannelId ?? null,
+            responseMode,
+            projectId: providerSelection.project?.id ?? null,
+            projectTitle: providerSelection.project?.displayName ?? null,
+            attemptCount: attempts,
+            attemptErrors,
+            deadLetterId,
+            providerFailures: failures
+          }
+        });
+
+        const errorModelRunId = writeModelRun({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          providerName,
+          conversationKey,
+          providerSessionId: providerSessionId ?? null,
+          responseMode,
+          latencyMs: Date.now() - startedAt,
+          isError: true,
+          errorMessage: messageText,
+          requestMessageId: inboundMessageId,
+          responseMessageId: errorMessageId,
+          metadata: {
+            inputSource: "voice-bridge",
+            turnId: turnId ?? null,
+            utteranceId: turnInput.utteranceId ?? null,
+            guildId: turnInput.guildId ?? null,
+            voiceChannelId: turnInput.voiceChannelId ?? null,
+            responseMode,
+            projectId: providerSelection.project?.id ?? null,
+            projectTitle: providerSelection.project?.displayName ?? null,
+            attemptCount: attempts,
+            attemptErrors,
+            deadLetterId,
+            providerOverride: providerSelection.overrideProviderName ?? null,
+            configuredProviders: providerSelection.configuredProviderNames,
+            effectiveProviders: providerSelection.providerNames,
+            orchestratorContinuityMode,
+            providerFailures: failures,
+            toolTelemetry: emptyToolTelemetry()
+          },
+          rawResponse: null
+        });
+        if (errorModelRunId !== null) {
+          writePromptSnapshot({
+            modelRunId: errorModelRunId,
+            sessionId: turnInput.sessionId,
+            agentId: targetAgent.id,
+            providerName,
+            requestMessageId: inboundMessageId,
+            responseMessageId: errorMessageId,
+            promptText: finalAttempt?.promptText ?? turnInput.transcript,
+            systemPrompt,
+            warmStartPrompt: warmStartPrompt ?? null,
+            metadata: {
+              inputSource: "voice-bridge",
+              responseMode,
+              promptChars: finalAttempt?.promptText.length ?? turnInput.transcript.length,
+              systemPromptChars: systemPrompt?.length ?? 0,
+              warmStartPromptChars: warmStartPrompt?.length ?? 0,
+              orchestratorContinuityMode,
+              failed: true,
+              turnWarmStartUsed: attemptedRequests.some((attempt) => attempt.warmStartUsed),
+              requestWarmStartUsed: finalAttempt?.warmStartUsed ?? false,
+              attemptedRequests,
+              warmStartContext: warmStartContext.diagnostics,
+            },
+          });
+        }
+
+        if (turnId) {
+          storage.failVoiceTurnReceipt({
+            turnId,
+            errorMessage: messageText,
+            requestMessageId: inboundMessageId,
+            responseMessageId: errorMessageId,
+            modelRunId: errorModelRunId,
+            metadata: {
+              inputSource: "voice-bridge",
+              utteranceId: turnInput.utteranceId ?? null
+            }
+          });
+        }
+
+        console.error(
+          `[tango-voice] turn failed session=${turnInput.sessionId} agent=${targetAgent.id} provider=${providerName} error=${messageText}`
+        );
+        throw error;
+      }
+    },
+    mapRouterResult: async (routeResult): Promise<VoiceTurnResult> => {
+      const baseTurnResult = buildVoiceRouterResult({
+        routeResult,
+        v2AgentConfig: v2AgentConfig!,
+        turnId,
+      });
+      const turnResult = baseTurnResult.responseText.trim().length > 0
+        ? baseTurnResult
+        : buildVoiceRouterErrorResult({
+            v2AgentConfig: v2AgentConfig!,
+            turnId,
+            responseText: VOICE_V2_TTS_ERROR_MESSAGE,
+          });
+      const latencyMs = Date.now() - startedAt;
+      const response = routeResult.response;
+
+      const outboundMessageId = writeMessage({
+        sessionId: turnInput.sessionId,
+        agentId: targetAgent.id,
+        providerName: turnResult.providerName,
+        direction: "outbound",
+        source: "tango",
+        visibility: "public",
+        discordChannelId: resolvedVoiceSyncChannelId,
+        discordUserId: null,
+        discordUsername: "Tango Voice",
+        content: turnResult.responseText,
         metadata: {
           inputSource: "voice-bridge",
+          turnId: turnId ?? null,
+          utteranceId: turnInput.utteranceId ?? null,
+          guildId: turnInput.guildId ?? null,
+          voiceChannelId: turnInput.voiceChannelId ?? null,
           responseMode,
-          promptChars: finalAttempt?.promptText.length ?? turnInput.transcript.length,
-          systemPromptChars: systemPrompt?.length ?? 0,
-          warmStartPromptChars: warmStartPrompt?.length ?? 0,
-          orchestratorContinuityMode,
-          failed: true,
-          turnWarmStartUsed: attemptedRequests.some((attempt) => attempt.warmStartUsed),
-          requestWarmStartUsed: finalAttempt?.warmStartUsed ?? false,
-          attemptedRequests,
-          warmStartContext: warmStartContext.diagnostics,
-        },
+          runtime: "v2",
+          latencyMs,
+          providerSessionId: turnResult.providerSessionId ?? null,
+          providerUsedFailover: false,
+          conversationKey: routeResult.conversationKey,
+          toolsUsed: response.toolsUsed ?? [],
+        }
       });
-    }
 
-    if (turnId) {
-      storage.failVoiceTurnReceipt({
+      const modelRunId = writeModelRun({
+        sessionId: turnInput.sessionId,
+        agentId: targetAgent.id,
+        providerName: turnResult.providerName,
+        conversationKey: routeResult.conversationKey,
+        providerSessionId: turnResult.providerSessionId ?? null,
+        model: response.model,
+        responseMode,
+        latencyMs,
+        providerDurationMs: response.durationMs,
+        requestMessageId: inboundMessageId,
+        responseMessageId: outboundMessageId,
+        metadata: {
+          inputSource: "voice-bridge",
+          turnId: turnId ?? null,
+          utteranceId: turnInput.utteranceId ?? null,
+          guildId: turnInput.guildId ?? null,
+          voiceChannelId: turnInput.voiceChannelId ?? null,
+          responseMode,
+          runtime: "v2",
+          toolsUsed: response.toolsUsed ?? [],
+        },
+        rawResponse: null,
+      });
+
+      if (turnId) {
+        storage.completeVoiceTurnReceipt({
+          turnId,
+          providerName: turnResult.providerName,
+          providerSessionId: turnResult.providerSessionId ?? null,
+          responseText: turnResult.responseText,
+          providerUsedFailover: false,
+          requestMessageId: inboundMessageId,
+          responseMessageId: outboundMessageId,
+          modelRunId,
+          metadata: {
+            inputSource: "voice-bridge",
+            utteranceId: turnInput.utteranceId ?? null,
+            runtime: "v2",
+          }
+        });
+      }
+
+      maybeCompactSessionMemory({
+        sessionId: turnInput.sessionId,
+        agentId: targetAgent.id
+      });
+
+      console.log(
+        `[tango-voice] reply session=${turnInput.sessionId} agent=${targetAgent.id} provider=${turnResult.providerName} runtime=v2 ms=${latencyMs} conversation=${routeResult.conversationKey}`
+      );
+
+      clearVoiceTyping();
+      syncVoiceAgentResponse(turnResult.responseText);
+
+      return turnResult;
+    },
+    onRouterError: async (error): Promise<VoiceTurnResult> => {
+      const messageText = error instanceof Error ? error.message : String(error);
+      const turnResult = buildVoiceRouterErrorResult({
+        v2AgentConfig: v2AgentConfig!,
         turnId,
+      });
+      const latencyMs = Date.now() - startedAt;
+
+      const errorMessageId = writeMessage({
+        sessionId: turnInput.sessionId,
+        agentId: targetAgent.id,
+        providerName: turnResult.providerName,
+        direction: "error",
+        source: "tango",
+        visibility: "debug",
+        discordChannelId: resolvedVoiceSyncChannelId,
+        discordUserId: null,
+        discordUsername: "Tango Voice",
+        content: messageText,
+        metadata: {
+          inputSource: "voice-bridge",
+          turnId: turnId ?? null,
+          utteranceId: turnInput.utteranceId ?? null,
+          guildId: turnInput.guildId ?? null,
+          voiceChannelId: turnInput.voiceChannelId ?? null,
+          responseMode,
+          runtime: "v2",
+        }
+      });
+
+      const outboundMessageId = writeMessage({
+        sessionId: turnInput.sessionId,
+        agentId: targetAgent.id,
+        providerName: turnResult.providerName,
+        direction: "outbound",
+        source: "tango",
+        visibility: "public",
+        discordChannelId: resolvedVoiceSyncChannelId,
+        discordUserId: null,
+        discordUsername: "Tango Voice",
+        content: turnResult.responseText,
+        metadata: {
+          inputSource: "voice-bridge",
+          turnId: turnId ?? null,
+          utteranceId: turnInput.utteranceId ?? null,
+          guildId: turnInput.guildId ?? null,
+          voiceChannelId: turnInput.voiceChannelId ?? null,
+          responseMode,
+          runtime: "v2",
+          latencyMs,
+          failed: true,
+        }
+      });
+
+      const errorModelRunId = writeModelRun({
+        sessionId: turnInput.sessionId,
+        agentId: targetAgent.id,
+        providerName: turnResult.providerName,
+        conversationKey,
+        responseMode,
+        latencyMs,
+        isError: true,
         errorMessage: messageText,
         requestMessageId: inboundMessageId,
         responseMessageId: errorMessageId,
-        modelRunId: errorModelRunId,
         metadata: {
           inputSource: "voice-bridge",
-          utteranceId: turnInput.utteranceId ?? null
-        }
+          turnId: turnId ?? null,
+          utteranceId: turnInput.utteranceId ?? null,
+          guildId: turnInput.guildId ?? null,
+          voiceChannelId: turnInput.voiceChannelId ?? null,
+          responseMode,
+          runtime: "v2",
+          toolTelemetry: emptyToolTelemetry(),
+        },
+        rawResponse: null
       });
-    }
 
-    console.error(
-      `[tango-voice] turn failed session=${turnInput.sessionId} agent=${targetAgent.id} provider=${providerName} error=${messageText}`
-    );
-    throw error;
-  }
+      if (turnId) {
+        storage.completeVoiceTurnReceipt({
+          turnId,
+          providerName: turnResult.providerName,
+          responseText: turnResult.responseText,
+          requestMessageId: inboundMessageId,
+          responseMessageId: outboundMessageId,
+          modelRunId: errorModelRunId,
+          metadata: {
+            inputSource: "voice-bridge",
+            utteranceId: turnInput.utteranceId ?? null,
+            runtime: "v2",
+            errorMessage: messageText,
+          }
+        });
+      }
+
+      console.error(
+        `[tango-voice] v2 turn failed session=${turnInput.sessionId} agent=${targetAgent.id} error=${messageText}`
+      );
+
+      clearVoiceTyping();
+      syncVoiceAgentResponse(turnResult.responseText);
+
+      return turnResult;
+    },
+  });
 }
 
 // --- Voice Inbox: Discord-anchored read watermarks ---
@@ -7677,6 +8004,13 @@ client.once("clientReady", async () => {
   console.log(`[tango-discord] db-path=${dbPath}`);
   console.log(`[tango-discord] config=${cwdRelativeConfigDir}`);
   console.log(`[tango-voice] bridge-enabled=${voiceBridgeEnabled}`);
+  console.log(
+    `[tango-voice] v2-router-agents=${
+      voiceV2AgentRuntimeConfigs.size > 0
+        ? [...voiceV2AgentRuntimeConfigs.keys()].sort().join(",")
+        : "(none)"
+    }`
+  );
   if (voiceBridgeEnabled) {
     console.log(`[tango-voice] bridge-host=${voiceBridgeHost}`);
     console.log(`[tango-voice] bridge-port=${voiceBridgePort}`);
@@ -8046,6 +8380,13 @@ function shutdown(signal: "SIGINT" | "SIGTERM"): void {
       }
     } catch (error) {
       console.error("[tango-voice] bridge shutdown failed", error);
+    }
+    try {
+      if (voiceTangoRouter) {
+        await voiceTangoRouter.shutdown();
+      }
+    } catch (error) {
+      console.error("[tango-voice] router shutdown failed", error);
     }
     try {
       if (imessageListener) {
