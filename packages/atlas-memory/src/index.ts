@@ -10,6 +10,10 @@ import { pathToFileURL } from "node:url";
 import { openAtlasMemoryDatabase } from "./schema.js";
 import { createAtlasMemoryTools } from "./tools.js";
 
+export * from "./schema.js";
+export * from "./tools.js";
+export * from "./types.js";
+
 const debug = (...args: unknown[]): void => {
   console.error("[atlas-memory]", ...args);
 };

@@ -1,53 +1,40 @@
 #!/usr/bin/env tsx
 
-import {
-  createVoyageEmbeddingProviderFromEnv,
-  resolveDatabasePath,
-  runMemoryReflectionCycle,
-  TangoStorage,
-} from "../packages/core/src/index.ts";
+import { runAtlasScheduledReflections } from "../packages/discord/src/atlas-memory-reflection.ts";
 
 interface CliOptions {
   dbPath?: string;
   lookbackHours?: number;
-  maxReflections?: number;
-  minimumImportance?: number;
-  scanLimit?: number;
   sessionId?: string;
   agentId?: string;
-  useEmbeddings: boolean;
+  ignoredOptions: string[];
 }
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const dbPath = resolveDatabasePath(options.dbPath);
-  const storage = new TangoStorage(dbPath);
-  const embeddingProvider = options.useEmbeddings ? createVoyageEmbeddingProviderFromEnv() : null;
+  if (options.ignoredOptions.length > 0) {
+    console.warn(
+      `[memory-reflect] ignored legacy Atlas-incompatible options: ${options.ignoredOptions.join(", ")}`,
+    );
+  }
 
-  try {
-    const result = await runMemoryReflectionCycle({
-      storage,
-      embeddingProvider,
-      lookbackHours: options.lookbackHours,
-      maxReflections: options.maxReflections,
-      minimumImportance: options.minimumImportance,
-      scanLimit: options.scanLimit,
-      sessionId: options.sessionId,
-      agentId: options.agentId,
-    });
+  const result = await runAtlasScheduledReflections({
+    ...(options.dbPath ? { dbPath: options.dbPath } : {}),
+    ...(options.lookbackHours ? { lookbackHours: options.lookbackHours } : {}),
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+    ...(options.agentId ? { agentId: options.agentId } : {}),
+  });
 
-    console.log(JSON.stringify({
-      dbPath,
-      result,
-    }, null, 2));
-  } finally {
-    storage.close();
+  console.log(JSON.stringify(result, null, 2));
+
+  if (result.errors.length > 0 && result.totalMemoriesCreated === 0) {
+    process.exitCode = 1;
   }
 }
 
 function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
-    useEmbeddings: false,
+    ignoredOptions: [],
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -68,17 +55,17 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--max-reflections":
         if (!next) throw new Error("--max-reflections requires a value");
-        options.maxReflections = parseInteger(next, "--max-reflections");
+        options.ignoredOptions.push("--max-reflections");
         index += 1;
         break;
       case "--minimum-importance":
         if (!next) throw new Error("--minimum-importance requires a value");
-        options.minimumImportance = parseNumber(next, "--minimum-importance");
+        options.ignoredOptions.push("--minimum-importance");
         index += 1;
         break;
       case "--scan-limit":
         if (!next) throw new Error("--scan-limit requires a value");
-        options.scanLimit = parseInteger(next, "--scan-limit");
+        options.ignoredOptions.push("--scan-limit");
         index += 1;
         break;
       case "--session-id":
@@ -92,7 +79,7 @@ function parseArgs(args: string[]): CliOptions {
         index += 1;
         break;
       case "--embed":
-        options.useEmbeddings = true;
+        options.ignoredOptions.push("--embed");
         break;
       case "--help":
       case "-h":
@@ -104,14 +91,6 @@ function parseArgs(args: string[]): CliOptions {
   }
 
   return options;
-}
-
-function parseInteger(value: string, label: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    throw new Error(`${label} must be a positive integer`);
-  }
-  return parsed;
 }
 
 function parseNumber(value: string, label: string): number {
@@ -128,14 +107,16 @@ Usage:
   node --import tsx ./scripts/memory-reflect.ts [options]
 
 Options:
-  --db-path <path>              Override Tango SQLite path
-  --lookback-hours <n>          How far back to scan for source memories
-  --max-reflections <n>         Max reflections to create
-  --minimum-importance <n>      Minimum source-memory importance threshold
-  --scan-limit <n>              Max memories to inspect
+  --db-path <path>              Override Atlas memory SQLite path
+  --lookback-hours <n>          Restrict reflections to sessions active in the window
   --session-id <id>             Restrict reflections to one session
   --agent-id <id>               Restrict reflections to one agent
-  --embed                       Try to embed created reflections with Voyage
+
+Legacy options are accepted for compatibility but ignored:
+  --max-reflections <n>
+  --minimum-importance <n>
+  --scan-limit <n>
+  --embed
 `);
 }
 

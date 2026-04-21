@@ -114,10 +114,15 @@ export function createAtlasMemoryTools(
             enum: [...MEMORY_SOURCES],
           },
           agent_id: { type: "string" },
+          session_id: { type: "string" },
           importance: { type: "number" },
           tags: {
             type: "array",
             items: { type: "string" },
+          },
+          metadata: {
+            type: "object",
+            additionalProperties: true,
           },
         },
         required: ["content", "source"],
@@ -127,8 +132,10 @@ export function createAtlasMemoryTools(
         const content = readString(input.content, "content");
         const source = readMemorySource(input.source);
         const agentId = readOptionalString(input.agent_id) ?? null;
+        const sessionId = readOptionalString(input.session_id) ?? null;
         const importance = readNumber(input.importance, 0.5, 0, 1);
         const tags = normalizeTags(readOptionalStringArray(input.tags) ?? []);
+        const metadata = buildMemoryMetadata(input.metadata, sessionId);
         const timestamp = now().toISOString();
         const id = uuidv4();
         const embedding =
@@ -163,7 +170,7 @@ export function createAtlasMemoryTools(
           embedding ? embeddingProvider?.model ?? null : null,
           timestamp,
           timestamp,
-          JSON.stringify({}),
+          metadata ? JSON.stringify(metadata) : JSON.stringify({}),
         );
 
         return { id };
@@ -853,6 +860,19 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function buildMemoryMetadata(
+  value: unknown,
+  sessionId: string | null,
+): Record<string, unknown> | null {
+  const base = isRecord(value) ? { ...value } : {};
+
+  if (sessionId) {
+    base.session_id = sessionId;
+  }
+
+  return Object.keys(base).length > 0 ? base : null;
 }
 
 function normalizeTags(tags: string[]): string[] {

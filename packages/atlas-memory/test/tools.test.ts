@@ -265,6 +265,36 @@ describe("atlas-memory tools", () => {
     db.close();
   });
 
+  it("stores optional session metadata through memory_add", async () => {
+    const { dbPath } = createTempDb();
+    const { db, tools } = createTestTools({ dbPath });
+    const memoryAdd = getTool(tools, "memory_add");
+
+    const created = await memoryAdd.handler({
+      content: "Keep updates concise.",
+      source: "conversation",
+      agent_id: "atlas",
+      session_id: "session-88",
+      metadata: {
+        channel_id: "channel-1",
+      },
+    }) as { id: string };
+
+    const stored = db.prepare(`
+      SELECT metadata
+      FROM memories
+      WHERE id = ?
+    `).get(created.id) as { metadata: string | null } | undefined;
+
+    expect(stored?.metadata).toBeTruthy();
+    expect(JSON.parse(stored?.metadata ?? "{}")).toMatchObject({
+      session_id: "session-88",
+      channel_id: "channel-1",
+    });
+
+    db.close();
+  });
+
   it("supports pinned fact CRUD across global, agent, and session scopes", async () => {
     const { dbPath } = createTempDb();
     const { db, tools } = createTestTools({ dbPath });

@@ -86,10 +86,9 @@ import {
   registerDeterministicHandler,
   registerPreCheckHandler,
   runMemoryEvalBenchmarks,
-  runMemoryReflectionCycle,
-  extractPrimaryKeyword,
   contactsSyncHandler,
 } from "@tango/core";
+import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
@@ -1070,73 +1069,44 @@ registerDeterministicHandler("health-daily-reset", async (_ctx) => {
 });
 
 registerDeterministicHandler("memory-reflect", async (_ctx) => {
-  const agentIds = ["watson", "malibu", "sierra", "juliet"];
-  const allResults: Array<{ agentId: string; scanned: number; eligible: number; created: number }> = [];
-  let totalCreated = 0;
-
-  // One-time cleanup: archive duplicate reflections that share a primary keyword,
-  // keeping only the newest per keyword.
-  let archivedDupes = 0;
-  const allReflections = storage.listMemories({ source: "reflection", limit: 2000 });
-  const byKeyword = new Map<string, typeof allReflections>();
-  for (const mem of allReflections) {
-    if (mem.archivedAt !== null) continue;
-    const pk = extractPrimaryKeyword(mem.content);
-    if (!pk) continue;
-    const group = byKeyword.get(pk) ?? [];
-    group.push(mem);
-    byKeyword.set(pk, group);
-  }
-  for (const [, group] of byKeyword) {
-    if (group.length <= 1) continue;
-    // Sort newest first, archive the rest
-    group.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-    for (const mem of group.slice(1)) {
-      storage.archiveMemory(mem.id);
-      archivedDupes++;
-    }
-  }
-
-  // Run per-agent so reflections carry domain-scoped signal
-  for (const agentId of agentIds) {
-    const result = await runMemoryReflectionCycle({
-      storage,
-      embeddingProvider: getEmbeddingProvider(),
-      lookbackHours: 48,
-      maxReflections: 5,
-      agentId,
-    });
-    allResults.push({
-      agentId,
-      scanned: result.scannedCount,
-      eligible: result.eligibleCount,
-      created: result.createdCount,
-    });
-    totalCreated += result.createdCount;
-  }
-
-  // Also run a global pass for unscoped memories
-  const globalResult = await runMemoryReflectionCycle({
-    storage,
-    embeddingProvider: getEmbeddingProvider(),
+  const result = await runAtlasScheduledReflections({
     lookbackHours: 48,
-    maxReflections: 3,
   });
-  totalCreated += globalResult.createdCount;
 
-  const dedupNote = archivedDupes > 0 ? `, archived ${archivedDupes} duplicate reflections` : "";
-
-  if (totalCreated === 0) {
+  if (result.discoveredTargets === 0) {
     return {
       status: "skipped",
-      summary: `No new reflections created across ${agentIds.length} agents${dedupNote}`,
+      summary: result.enabledAgentIds.length > 0
+        ? `No Atlas reflection targets needed updates for ${result.enabledAgentIds.length} configured agent(s)`
+        : "No Atlas reflection targets found",
+      data: {
+        enabledAgents: result.enabledAgentIds,
+      },
+    };
+  }
+
+  const errorNote =
+    result.errors.length > 0 ? `, ${result.errors.length} target(s) failed` : "";
+
+  if (result.totalMemoriesCreated === 0 && result.errors.length === 0) {
+    return {
+      status: "skipped",
+      summary: `Atlas reflections were already up to date across ${result.processedTargets} session(s)`,
+      data: {
+        enabledAgents: result.enabledAgentIds,
+        processed: result.processed,
+      },
     };
   }
 
   return {
-    status: "ok",
-    summary: `Created ${totalCreated} reflection memories (${allResults.map((r) => `${r.agentId}:${r.created}`).join(", ")}, global:${globalResult.createdCount})${dedupNote}`,
-    data: { perAgent: allResults, global: { created: globalResult.createdCount }, archivedDupes },
+    status: result.totalMemoriesCreated > 0 ? "ok" : "error",
+    summary: `Created ${result.totalMemoriesCreated} Atlas reflection memories across ${result.processedTargets} session(s)${errorNote}`,
+    data: {
+      enabledAgents: result.enabledAgentIds,
+      processed: result.processed,
+      errors: result.errors,
+    },
   };
 });
 
