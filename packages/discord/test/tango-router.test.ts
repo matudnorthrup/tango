@@ -142,6 +142,33 @@ describe("TangoRouter", () => {
     expect(router.getConversationKey("channel-1", "thread-9")).toBe("thread:thread-9");
   });
 
+  it("uses an explicit conversation key override when provided", async () => {
+    const response = createResponse("Scoped reply");
+
+    mockState.sendMessage.mockResolvedValue(response);
+
+    const router = new TangoRouter({
+      agentConfigs: new Map([
+        ["alpha", createAgentConfig("alpha")],
+      ]),
+    });
+
+    const result = await router.routeMessage({
+      message: "hello",
+      channelId: "channel-1",
+      conversationKey: "voice:session-42:alpha",
+      agentId: "alpha",
+    });
+
+    expect(result.conversationKey).toBe("voice:session-42:alpha");
+    expect(mockState.sendMessage).toHaveBeenCalledWith(
+      "voice:session-42:alpha",
+      createAgentConfig("alpha"),
+      "hello",
+      undefined,
+    );
+  });
+
   it("fires the post-turn hook after returning the response", async () => {
     const response = createResponse("Async reply");
     const onPostTurn = vi.fn(async () => {});

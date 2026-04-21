@@ -58,10 +58,13 @@ export class TangoRouter {
     message: string;
     channelId: string;
     threadId?: string;
+    conversationKey?: string;
     agentId: string;
     sendOptions?: SendOptions;
   }): Promise<RouteResult> {
-    const conversationKey = this.getConversationKey(params.channelId, params.threadId);
+    const conversationKey =
+      params.conversationKey?.trim()
+      || this.getConversationKey(params.channelId, params.threadId);
     const agentConfig = this.resolveAgentConfig(params.agentId);
     const response = await this.lifecycleManager.sendMessage(
       conversationKey,
