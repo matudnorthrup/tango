@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { isV2RuntimeEnabled, loadV2AgentConfig } from "../src/v2-config-loader.js";
+import {
+  isV2RuntimeEnabled,
+  loadAllV2AgentConfigs,
+  loadV2AgentConfig,
+} from "../src/v2-config-loader.js";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const tempDirs: string[] = [];
@@ -125,5 +129,81 @@ describe("isV2RuntimeEnabled", () => {
     );
 
     expect(isV2RuntimeEnabled(loadV2AgentConfig(configPath))).toBe(true);
+  });
+});
+
+describe("loadAllV2AgentConfigs", () => {
+  it("loads every YAML config in the target directory and keys them by agent id", () => {
+    const tempDir = createTempDir("tango-v2-config-dir-");
+
+    fs.writeFileSync(
+      path.join(tempDir, "bravo.yaml"),
+      [
+        "id: bravo",
+        "display_name: Bravo",
+        "type: test",
+        "system_prompt_file: agents/assistants/bravo/soul.md",
+        "mcp_servers:",
+        "  - name: memory",
+        "    command: node",
+        "runtime:",
+        "  mode: persistent",
+        "  provider: legacy",
+        "  model: claude-sonnet-4-6",
+        "  reasoning_effort: medium",
+        "  idle_timeout_hours: 24",
+        "  context_reset_threshold: 0.8",
+        "memory:",
+        "  post_turn_extraction: enabled",
+        "  extraction_model: claude-haiku-4-5",
+        "  importance_threshold: 0.4",
+        "  scheduled_reflection: enabled",
+        "discord:",
+        "  default_channel_id: \"123\"",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(tempDir, "alpha.yaml"),
+      [
+        "id: alpha",
+        "display_name: Alpha",
+        "type: test",
+        "system_prompt_file: agents/assistants/alpha/soul.md",
+        "mcp_servers:",
+        "  - name: memory",
+        "    command: node",
+        "runtime:",
+        "  mode: persistent",
+        "  provider: claude-code-v2",
+        "  model: claude-sonnet-4-6",
+        "  reasoning_effort: high",
+        "  idle_timeout_hours: 12",
+        "  context_reset_threshold: 0.7",
+        "memory:",
+        "  post_turn_extraction: disabled",
+        "  extraction_model: claude-haiku-4-5",
+        "  importance_threshold: 0.5",
+        "  scheduled_reflection: disabled",
+        "discord:",
+        "  default_channel_id: \"456\"",
+      ].join("\n"),
+    );
+    fs.writeFileSync(path.join(tempDir, "README.md"), "ignored");
+
+    const configs = loadAllV2AgentConfigs(tempDir);
+
+    expect([...configs.keys()]).toEqual(["alpha", "bravo"]);
+    expect(configs.get("alpha")).toMatchObject({
+      id: "alpha",
+      runtime: {
+        provider: "claude-code-v2",
+      },
+    });
+    expect(configs.get("bravo")).toMatchObject({
+      id: "bravo",
+      runtime: {
+        provider: "legacy",
+      },
+    });
   });
 });

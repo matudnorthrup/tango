@@ -3,6 +3,8 @@ import {
   openAtlasMemoryDatabase,
   type AtlasMemoryToolDefinition,
   type MemoryRecord,
+  type PinnedFactRecord,
+  type PinnedFactScope,
   type MemorySource,
   type SqliteDatabase,
 } from "@tango/atlas-memory";
@@ -43,6 +45,13 @@ export class AtlasMemoryClient {
     limit?: number;
   }): Promise<MemoryRecord[]> {
     return await this.callTool<MemoryRecord[]>("memory_search", params);
+  }
+
+  async pinnedFactGet(params: {
+    scope: PinnedFactScope;
+    scope_id?: string;
+  }): Promise<PinnedFactRecord[]> {
+    return await this.callTool<PinnedFactRecord[]>("pinned_fact_get", params);
   }
 
   async memoryReflect(params: {
