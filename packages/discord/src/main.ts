@@ -1300,11 +1300,7 @@ startPersistentMcpServer().then((port) => {
       const { executeAgentWorker, loadAgentSoulPrompt } = await import("./agent-worker-bridge.js");
       const workerConfig = workerConfigById.get(workerId);
       const workerProviderConfig = resolveWorkerProviderConfig(workerConfig);
-      const soulPrompt = workerConfig?.prompt
-        ?? loadAgentSoulPrompt(workerId, {
-          toolIds: workerConfig?.toolContractIds,
-          skillIds: workerConfig?.skillDocIds,
-        });
+      const soulPrompt = workerConfig?.prompt ?? loadAgentSoulPrompt(workerId);
       const result = await executeAgentWorker(workerId, task, soulPrompt, {
         mcpServerScript: path.resolve("packages/discord/dist/mcp-wellness-server.js"),
         mcpServerName: "wellness",
@@ -3113,11 +3109,7 @@ const voiceTurnExecutor = createDiscordVoiceTurnExecutor(
         }
         return baseToolIds;
       })();
-      const soulPrompt = workerConfig?.prompt
-        ?? loadAgentSoulPrompt(workerId, {
-          toolIds: effectiveToolIds,
-          skillIds: workerConfig?.skillDocIds,
-        });
+      const soulPrompt = workerConfig?.prompt ?? loadAgentSoulPrompt(workerId);
       return executeAgentWorker(workerId, task, soulPrompt, {
         mcpServerScript: path.resolve("packages/discord/dist/mcp-wellness-server.js"),
         mcpServerName: "wellness",
