@@ -90,6 +90,7 @@ describe('earcon durations within expected ranges', () => {
     'timeout-warning': 720,
     'cancelled': 620,
     'ready': 720,
+    'question': 340,
     'busy': 320,
     'gate-closed': 270,
     'paused': 420,
