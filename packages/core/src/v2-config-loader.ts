@@ -132,6 +132,22 @@ export function loadV2AgentConfig(configPath: string): V2AgentConfig {
   };
 }
 
+export function loadAllV2AgentConfigs(configDir = "config/v2/agents"): Map<string, V2AgentConfig> {
+  const resolvedConfigDir = resolveConfiguredPath(configDir);
+  const files = fs
+    .readdirSync(resolvedConfigDir)
+    .filter((file) => file.endsWith(".yaml"))
+    .sort((left, right) => left.localeCompare(right));
+  const configs = new Map<string, V2AgentConfig>();
+
+  for (const file of files) {
+    const config = loadV2AgentConfig(`${resolvedConfigDir}/${file}`);
+    configs.set(config.id, config);
+  }
+
+  return configs;
+}
+
 export function isV2RuntimeEnabled(config: V2AgentConfig): boolean {
   return config.runtime.provider === "claude-code-v2";
 }

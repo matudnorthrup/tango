@@ -87,6 +87,13 @@ export function assembleSoulPrompt(
   });
 }
 
+export function assembleV2SystemPrompt(
+  config: SoulPromptConfig,
+  options: SoulPromptAssemblyOptions = {},
+): string {
+  return assembleSoulPrompt(config, options);
+}
+
 export function traceAgentPrompt(
   agentDir: string,
   options: PromptAssemblyOptions = {},
