@@ -1,21 +1,15 @@
 /**
  * Prompt Assembly — Convention-based multi-file prompt loading.
  *
- * Assembles a full system prompt for an agent or worker by reading
- * conventional files from the agent's directory and shared root files.
+ * Assembles a full system prompt by reading conventional files from the
+ * agent's directory and shared root files.
  *
  * File loading order:
  *   1. <agentDir>/soul.md      (identity — who you are)
- *   2. agents/shared/AGENTS.md (shared — how to function)
- *   3. agents/shared/RULES.md  (shared — behavioral guardrails)
- *   4. agents/shared/USER.md   (shared — about the human)
- *   5. <agentDir>/knowledge.md (orchestrator domain knowledge)
- *   6. <agentDir>/workers.md   (worker dispatch rules)
- *   7. agents/tools/*.md       (tool docs loaded from tool IDs)
- *   8. prompts/tools/*.md      (optional profile-owned tool overlays)
- *   9. agents/skills/*.md      (skill docs loaded from skill IDs)
- *  10. prompts/skills/*.md     (optional profile-owned skill overlays)
- *  11. prompts/<kind>/<id>/*   (optional profile-owned agent/worker overlays)
+ *   2. agents/shared/RULES.md  (shared — behavioral guardrails)
+ *   3. agents/shared/USER.md   (shared — about the human)
+ *   4. <agentDir>/knowledge.md (domain knowledge)
+ *   5. prompts/<kind>/<id>/*   (optional profile-owned prompt overlays)
  *
  * Missing files are silently skipped. If no files are found at all,
  * returns a minimal fallback prompt.
@@ -24,90 +18,23 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-export const TOOL_DOC_MAP: Record<string, string> = {
-  agent_docs: "agent-docs",
-  atlas_sql: "atlas-sql",
-  browser: "browser",
-  discord_manage: "discord-manage",
-  exa_answer: "exa",
-  exa_search: "exa",
-  fatsecret_api: "fatsecret",
-  nutrition_log_items: "nutrition-log-items",
-  find_diesel: "travel",
-  gog_calendar: "gog-calendar",
-  gog_docs: "gog-docs",
-  gog_docs_update_tab: "gog-docs-update-tab",
-  gog_email: "gog-email",
-  latitude_run: "latitude-remote",
-  health_morning: "health-morning",
-  health_query: "health",
-  location_read: "travel",
-  lunch_money: "lunch-money",
-  memory_add: "memory",
-  memory_reflect: "memory",
-  memory_search: "memory",
-  obsidian: "obsidian",
-  openscad_render: "printing",
-  printer_command: "printing",
-  prusa_slice: "printing",
-  receipt_registry: "receipt-registry",
-  recipe_list: "recipe",
-  recipe_read: "recipe",
-  recipe_write: "recipe",
-  tango_file: "tango-dev",
-  tango_shell: "tango-dev",
-  walmart: "walmart",
-  workout_sql: "workout-sql",
-  onepassword: "onepassword",
-  linear: "linear",
-  imessage: "imessage",
-  youtube_transcript: "youtube",
-  youtube_analyze: "youtube",
-};
-
-export const SKILL_DOC_MAP: Record<string, string> = {
-  amazon_orders: "amazon-orders",
-  daily_planning: "daily-planning",
-  deep_research: "deep-research",
-  email_review: "email-review",
-  evening_checkin: "evening-checkin",
-  health_baselines: "health-baselines",
-  obsidian_note_conventions: "obsidian-note-conventions",
-  printing_profile_selection: "printing-profile-selection",
-  ramp_reimbursements: "ramp-reimbursements",
-  receipt_logging: "receipt-logging",
-  recipe_format: "recipe-format",
-  sinking_fund_reconciliation: "sinking-fund-reconciliation",
-  transaction_categorization: "transaction-categorization",
-  chipotle_ordering: "chipotle-ordering",
-  open_meteo_weather: "open-meteo-weather",
-  osrm_routing: "osrm-routing",
-  travel_routing: "travel-routing",
-  walmart_orders: "walmart-orders",
-};
-
 /**
  * Assemble the full prompt for an agent by reading conventional files.
  *
  * @param agentDir  Absolute path to the agent's directory
- * @param options   Tool IDs, skill IDs, and optional agents root override
+ * @param options   Optional agents root override and prompt overlay directory
  * @returns         Concatenated prompt text
  */
 export interface PromptAssemblyOptions {
-  toolIds?: string[];
-  skillIds?: string[];
   agentsRootDir?: string;
   overlayDir?: string;
-  overlayRootDir?: string;
 }
 
 export type PromptSectionKind =
   | "fallback"
   | "overlay"
   | "shared"
-  | "skill"
-  | "tool"
-  | "worker";
+  | "base";
 
 export interface PromptSectionTrace {
   kind: PromptSectionKind;
@@ -141,13 +68,13 @@ export function traceAgentPrompt(
   // ── Identity first (soul) ───────────────────────────────────────
   appendFileSection({
     filePath: path.join(agentDir, "soul.md"),
-    kind: "worker",
-    label: "soul",
+    kind: "base",
+    label: "soul.md",
     sections,
   });
 
   // ── Shared files from agents/ root ──────────────────────────────
-  for (const filename of ["AGENTS.md", "RULES.md", "USER.md"]) {
+  for (const filename of ["RULES.md", "USER.md"]) {
     appendFileSection({
       filePath: path.join(sharedDir, filename),
       kind: "shared",
@@ -157,47 +84,19 @@ export function traceAgentPrompt(
   }
 
   // ── Optional per-agent files ────────────────────────────────────
-  for (const filename of ["knowledge.md", "workers.md"]) {
+  for (const filename of ["knowledge.md"]) {
     appendFileSection({
       filePath: path.join(agentDir, filename),
-      kind: "worker",
+      kind: "base",
       label: filename,
       sections,
-    });
-  }
-
-  // ── Optional tool docs from agents/tools/ ───────────────────────
-  if (options.toolIds && options.toolIds.length > 0) {
-    appendMappedDocs({
-      ids: options.toolIds,
-      docMap: TOOL_DOC_MAP,
-      docsDir: path.join(agentsRootDir, "tools"),
-      overlayDocsDir: options.overlayRootDir
-        ? path.join(options.overlayRootDir, "tools")
-        : undefined,
-      sections,
-      kind: "tool",
-    });
-  }
-
-  // ── Optional skill docs from agents/skills/ ─────────────────────
-  if (options.skillIds && options.skillIds.length > 0) {
-    appendMappedDocs({
-      ids: options.skillIds,
-      docMap: SKILL_DOC_MAP,
-      docsDir: path.join(agentsRootDir, "skills"),
-      overlayDocsDir: options.overlayRootDir
-        ? path.join(options.overlayRootDir, "skills")
-        : undefined,
-      sections,
-      kind: "skill",
     });
   }
 
   if (options.overlayDir) {
     appendOptionalSections({
       dir: options.overlayDir,
-      filenames: ["soul.md", "persona.md", "knowledge.md", "workers.md"],
+      filenames: ["soul.md", "persona.md", "knowledge.md"],
       sections,
       kind: "overlay",
     });
@@ -223,41 +122,6 @@ export function traceAgentPrompt(
     text: sections.map((section) => section.content).join("\n\n"),
     sections,
   };
-}
-
-function appendMappedDocs(input: {
-  ids?: string[];
-  docMap: Record<string, string>;
-  docsDir: string;
-  overlayDocsDir?: string;
-  sections: PromptSectionTrace[];
-  kind: "skill" | "tool";
-}): void {
-  if (!input.ids || input.ids.length === 0) return;
-
-  const loadedDocs = new Set<string>();
-
-  for (const id of input.ids) {
-    const docFile = input.docMap[id];
-    if (!docFile || loadedDocs.has(docFile)) continue;
-
-    loadedDocs.add(docFile);
-    appendFileSection({
-      filePath: path.join(input.docsDir, `${docFile}.md`),
-      kind: input.kind,
-      label: docFile,
-      sections: input.sections,
-    });
-
-    if (input.overlayDocsDir) {
-      appendFileSection({
-        filePath: path.join(input.overlayDocsDir, `${docFile}.md`),
-        kind: "overlay",
-        label: `${input.kind}:${docFile}`,
-        sections: input.sections,
-      });
-    }
-  }
 }
 
 function appendOptionalSections(input: {
@@ -311,14 +175,11 @@ function findAgentsRoot(agentDir: string): string {
 
 function looksLikeAgentsRoot(dir: string): boolean {
   const sharedDir = path.join(dir, "shared");
-  const toolsDir = path.join(dir, "tools");
-  const skillsDir = path.join(dir, "skills");
-
-  if (fs.existsSync(sharedDir) && (fs.existsSync(toolsDir) || fs.existsSync(skillsDir))) {
+  if (fs.existsSync(sharedDir)) {
     return true;
   }
 
-  return ["AGENTS.md", "RULES.md", "USER.md"].some((filename) =>
+  return ["RULES.md", "USER.md"].some((filename) =>
     fs.existsSync(path.join(dir, filename)),
   );
 }

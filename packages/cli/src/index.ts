@@ -680,7 +680,6 @@ promptCommand
       if (agent.promptFile && path.basename(agent.promptFile) === "soul.md") {
         promptTrace = traceAgentPrompt(path.dirname(agent.promptFile), {
           overlayDir: resolveTangoProfileAgentPromptDir(agent.id),
-          overlayRootDir: resolveTangoProfilePromptsDir(),
         });
       } else {
         promptTrace = {
@@ -705,10 +704,7 @@ promptCommand
       promptFile = worker.promptFile;
       if (worker.promptFile && path.basename(worker.promptFile) === "soul.md") {
         promptTrace = traceAgentPrompt(path.dirname(worker.promptFile), {
-          toolIds: worker.toolContractIds,
-          skillIds: worker.skillDocIds,
           overlayDir: resolveTangoProfileWorkerPromptDir(worker.id),
-          overlayRootDir: resolveTangoProfilePromptsDir(),
         });
       } else {
         promptTrace = {
