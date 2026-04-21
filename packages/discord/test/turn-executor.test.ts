@@ -56,6 +56,42 @@ function createConfirmedWriteReceipt(): ExecutionReceipt {
   };
 }
 
+function createReadReceipt(
+  status: ExecutionReceipt["status"] = "completed",
+): ExecutionReceipt {
+  return {
+    stepId: "step-1",
+    intentId: "wellness.body_fat_trend",
+    mode: "read",
+    kind: "worker",
+    targetId: "health-analyst",
+    workerId: "health-analyst",
+    status,
+    durationMs: 5,
+    operations: [],
+    hasWriteOperations: false,
+    data: {},
+    warnings: [],
+  };
+}
+
+function createUnconfirmedWriteReceipt(): ExecutionReceipt {
+  return {
+    stepId: "step-1",
+    intentId: "notes.note_update",
+    mode: "write",
+    kind: "worker",
+    targetId: "personal-assistant",
+    workerId: "personal-assistant",
+    status: "completed",
+    durationMs: 5,
+    operations: [],
+    hasWriteOperations: true,
+    data: {},
+    warnings: [],
+  };
+}
+
 function createDeterministicRegistry(): CapabilityRegistry {
   const agents: AgentConfig[] = [
     {
@@ -4466,13 +4502,49 @@ describe("createDiscordVoiceTurnExecutor", () => {
     ).toBe("Dispatching to the worker now. Everything is saved correctly.");
   });
 
-  it("blocks narration-like text when no receipt confirms a write", () => {
+  it("passes through narrated-dispatch text when a read receipt completed", () => {
+    expect(
+      __testOnly.guardDeterministicNarrationText(
+        "Let me pull up your body fat trend data.",
+        [createReadReceipt()],
+      ),
+    ).toBe("Let me pull up your body fat trend data.");
+  });
+
+  it("passes through incomplete-synthesis text when a read receipt completed", () => {
+    expect(
+      __testOnly.guardDeterministicNarrationText(
+        "Standing by for the analysis.",
+        [createReadReceipt()],
+      ),
+    ).toBe("Standing by for the analysis.");
+  });
+
+  it("blocks narrated-dispatch text when the read receipt failed", () => {
+    expect(
+      __testOnly.guardDeterministicNarrationText(
+        "Let me pull up your body fat trend data.",
+        [createReadReceipt("failed")],
+      ),
+    ).toBe("Sorry, something went wrong before I could finish that step. Please try again.");
+  });
+
+  it("blocks narrated-dispatch text when there are no receipts", () => {
     expect(
       __testOnly.guardDeterministicNarrationText(
         "Let me grab the results from the worker.",
         [],
       ),
     ).toBe("Sorry, something went wrong before I could finish that step. Please try again.");
+  });
+
+  it("keeps the unconfirmed-write guard reply even when the write receipt completed", () => {
+    expect(
+      __testOnly.guardDeterministicNarrationText(
+        "Let me grab the results from the worker.",
+        [createUnconfirmedWriteReceipt()],
+      ),
+    ).toBe("I didn't get a confirmed write through on that step, so I can't say it was logged yet.");
   });
 
   it("strips literal worker-dispatch tags and preserves confirmed-write narration", () => {
