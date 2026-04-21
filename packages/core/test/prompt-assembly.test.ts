@@ -15,14 +15,12 @@ afterEach(() => {
 function createAgentsDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-prompt-assembly-"));
   tempDirs.push(dir);
-  fs.mkdirSync(path.join(dir, "tools"), { recursive: true });
-  fs.mkdirSync(path.join(dir, "skills"), { recursive: true });
   fs.mkdirSync(path.join(dir, "shared"), { recursive: true });
   return dir;
 }
 
 describe("assembleAgentPrompt", () => {
-  it("loads shared files, knowledge, workers, and deduplicated tool and skill docs", () => {
+  it("assembles soul, shared rules, user context, and knowledge into one string", () => {
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "watson");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -33,29 +31,29 @@ describe("assembleAgentPrompt", () => {
     fs.writeFileSync(path.join(agentDir, "soul.md"), "watson soul");
     fs.writeFileSync(path.join(agentDir, "knowledge.md"), "watson knowledge");
     fs.writeFileSync(path.join(agentDir, "workers.md"), "watson workers");
+    fs.mkdirSync(path.join(agentsDir, "tools"), { recursive: true });
+    fs.mkdirSync(path.join(agentsDir, "skills"), { recursive: true });
     fs.writeFileSync(path.join(agentsDir, "tools", "atlas-sql.md"), "atlas tool doc");
     fs.writeFileSync(path.join(agentsDir, "tools", "fatsecret.md"), "fatsecret tool doc");
     fs.writeFileSync(path.join(agentsDir, "skills", "recipe-format.md"), "recipe format skill");
     fs.writeFileSync(path.join(agentsDir, "skills", "health-baselines.md"), "health baselines skill");
 
     const prompt = assembleAgentPrompt(agentDir, {
-      toolIds: ["atlas_sql", "fatsecret_api", "atlas_sql"],
-      skillIds: ["recipe_format", "health_baselines", "recipe_format"],
       agentsRootDir: agentsDir,
     });
 
+    expect(typeof prompt).toBe("string");
+    expect(prompt).toBe("watson soul\n\nshared rules\n\nshared user\n\nwatson knowledge");
     expect(prompt).toContain("watson soul");
-    expect(prompt).toContain("shared agents");
     expect(prompt).toContain("shared rules");
     expect(prompt).toContain("shared user");
     expect(prompt).toContain("watson knowledge");
-    expect(prompt).toContain("watson workers");
-    expect(prompt).toContain("atlas tool doc");
-    expect(prompt).toContain("fatsecret tool doc");
-    expect(prompt).toContain("recipe format skill");
-    expect(prompt).toContain("health baselines skill");
-    expect(prompt.match(/atlas tool doc/gu)).toHaveLength(1);
-    expect(prompt.match(/recipe format skill/gu)).toHaveLength(1);
+    expect(prompt).not.toContain("shared agents");
+    expect(prompt).not.toContain("watson workers");
+    expect(prompt).not.toContain("atlas tool doc");
+    expect(prompt).not.toContain("fatsecret tool doc");
+    expect(prompt).not.toContain("recipe format skill");
+    expect(prompt).not.toContain("health baselines skill");
   });
 
   it("falls back to a minimal prompt when no prompt files exist", () => {
@@ -74,49 +72,39 @@ describe("assembleAgentPrompt", () => {
     fs.mkdirSync(agentDir, { recursive: true });
 
     fs.writeFileSync(path.join(agentsDir, "shared", "AGENTS.md"), "shared agents");
+    fs.writeFileSync(path.join(agentsDir, "shared", "RULES.md"), "shared rules");
     fs.writeFileSync(path.join(agentDir, "soul.md"), "dispatch soul");
 
     const prompt = assembleAgentPrompt(agentDir);
 
     expect(prompt).toContain("dispatch soul");
-    expect(prompt).toContain("shared agents");
+    expect(prompt).toContain("shared rules");
+    expect(prompt).not.toContain("shared agents");
   });
 
   it("appends profile overlay prompt sections after the base prompt", () => {
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "watson");
-    const overlayRootDir = path.join(agentsDir, "profile-overrides");
-    const overlayDir = path.join(overlayRootDir, "agents", "watson");
+    const overlayDir = path.join(agentsDir, "profile-overrides", "agents", "watson");
     fs.mkdirSync(agentDir, { recursive: true });
     fs.mkdirSync(overlayDir, { recursive: true });
-    fs.mkdirSync(path.join(overlayRootDir, "tools"), { recursive: true });
-    fs.mkdirSync(path.join(overlayRootDir, "skills"), { recursive: true });
 
     fs.writeFileSync(path.join(agentDir, "soul.md"), "base soul");
     fs.writeFileSync(path.join(agentDir, "knowledge.md"), "base knowledge");
-    fs.writeFileSync(path.join(agentsDir, "tools", "exa.md"), "base tool");
-    fs.writeFileSync(path.join(agentsDir, "skills", "deep-research.md"), "base skill");
-    fs.writeFileSync(path.join(overlayRootDir, "tools", "exa.md"), "profile tool overlay");
-    fs.writeFileSync(path.join(overlayRootDir, "skills", "deep-research.md"), "profile skill overlay");
     fs.writeFileSync(path.join(overlayDir, "persona.md"), "profile persona");
     fs.writeFileSync(path.join(overlayDir, "knowledge.md"), "profile knowledge");
+    fs.writeFileSync(path.join(overlayDir, "workers.md"), "profile worker overlay");
 
     const prompt = assembleAgentPrompt(agentDir, {
       agentsRootDir: agentsDir,
       overlayDir,
-      overlayRootDir,
-      toolIds: ["exa_search"],
-      skillIds: ["deep_research"],
     });
 
     expect(prompt).toContain("base soul");
     expect(prompt).toContain("base knowledge");
-    expect(prompt).toContain("base tool");
-    expect(prompt).toContain("profile tool overlay");
-    expect(prompt).toContain("base skill");
-    expect(prompt).toContain("profile skill overlay");
     expect(prompt).toContain("profile persona");
     expect(prompt).toContain("profile knowledge");
+    expect(prompt).not.toContain("profile worker overlay");
     expect(prompt.indexOf("profile persona")).toBeGreaterThan(prompt.indexOf("base knowledge"));
   });
 });

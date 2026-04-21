@@ -13,7 +13,6 @@ import {
   resolveConfiguredPath,
   resolveTangoProfileAgentPromptDir,
   resolveTangoProfileConfigDir,
-  resolveTangoProfilePromptsDir,
   resolveTangoProfileWorkerPromptDir,
 } from "./runtime-paths.js";
 import type {
@@ -289,15 +288,12 @@ function resolvePromptFields(
   const prompt =
     path.basename(resolvedPromptFile) === "soul.md"
       ? assembleAgentPrompt(path.dirname(resolvedPromptFile), {
-          toolIds: parsed.tool_contract_ids,
-          skillIds: parsed.skill_doc_ids,
           overlayDir:
             kind === "Agent"
               ? resolveTangoProfileAgentPromptDir(parsed.id)
               : kind === "Worker"
                 ? resolveTangoProfileWorkerPromptDir(parsed.id)
                 : undefined,
-          overlayRootDir: resolveTangoProfilePromptsDir(),
         })
       : fs.readFileSync(resolvedPromptFile, "utf8");
 

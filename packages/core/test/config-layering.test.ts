@@ -249,6 +249,8 @@ describe("layered config loading", () => {
       ].join("\n"),
     );
     writeFile(path.join(repoRoot, "agents", "shared", "AGENTS.md"), "shared agents");
+    writeFile(path.join(repoRoot, "agents", "shared", "RULES.md"), "shared rules");
+    writeFile(path.join(repoRoot, "agents", "shared", "USER.md"), "shared user");
     writeFile(path.join(repoRoot, "agents", "assistants", "watson", "soul.md"), "base soul");
     writeFile(
       path.join(homeDir, "profiles", "default", "prompts", "agents", "watson", "persona.md"),
@@ -261,12 +263,14 @@ describe("layered config loading", () => {
 
     const [agent] = loadAgentConfigs(resolveConfigDir());
     expect(agent.prompt).toContain("base soul");
-    expect(agent.prompt).toContain("shared agents");
+    expect(agent.prompt).toContain("shared rules");
+    expect(agent.prompt).toContain("shared user");
+    expect(agent.prompt).not.toContain("shared agents");
     expect(agent.prompt).toContain("profile persona");
     expect(agent.prompt).toContain("profile knowledge");
   });
 
-  it("applies profile-owned tool and skill overlays when assembling worker prompts", () => {
+  it("applies profile-owned prompt overlays when assembling worker prompts", () => {
     const repoRoot = createTempDir("tango-worker-overlay-repo-");
     const homeDir = createTempDir("tango-worker-overlay-home-");
     process.chdir(repoRoot);
@@ -289,7 +293,13 @@ describe("layered config loading", () => {
       ].join("\n"),
     );
     writeFile(path.join(repoRoot, "agents", "shared", "AGENTS.md"), "shared agents");
+    writeFile(path.join(repoRoot, "agents", "shared", "RULES.md"), "shared rules");
+    writeFile(path.join(repoRoot, "agents", "shared", "USER.md"), "shared user");
     writeFile(path.join(repoRoot, "agents", "workers", "research-assistant", "soul.md"), "worker soul");
+    writeFile(
+      path.join(repoRoot, "agents", "workers", "research-assistant", "knowledge.md"),
+      "worker knowledge",
+    );
     writeFile(path.join(repoRoot, "agents", "tools", "exa.md"), "base exa tool");
     writeFile(path.join(repoRoot, "agents", "skills", "deep-research.md"), "base deep research");
     writeFile(
@@ -307,10 +317,14 @@ describe("layered config loading", () => {
 
     const [worker] = loadWorkerConfigs(resolveConfigDir());
     expect(worker.prompt).toContain("worker soul");
-    expect(worker.prompt).toContain("base exa tool");
-    expect(worker.prompt).toContain("profile exa overlay");
-    expect(worker.prompt).toContain("base deep research");
-    expect(worker.prompt).toContain("profile deep research overlay");
+    expect(worker.prompt).toContain("shared rules");
+    expect(worker.prompt).toContain("shared user");
+    expect(worker.prompt).toContain("worker knowledge");
     expect(worker.prompt).toContain("worker profile knowledge");
+    expect(worker.prompt).not.toContain("shared agents");
+    expect(worker.prompt).not.toContain("base exa tool");
+    expect(worker.prompt).not.toContain("profile exa overlay");
+    expect(worker.prompt).not.toContain("base deep research");
+    expect(worker.prompt).not.toContain("profile deep research overlay");
   });
 });
