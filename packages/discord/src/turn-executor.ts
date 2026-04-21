@@ -1213,6 +1213,12 @@ function guardDeterministicNarrationText(
       : stripped;
   }
 
+  const anyReceiptCompleted = receipts.some((receipt) => receipt.status === "completed");
+  const anyUnconfirmedWrite = receipts.some(receiptExpectsWriteButHasNoConfirmedWrite);
+  if (anyReceiptCompleted && !anyUnconfirmedWrite) {
+    return stripped;
+  }
+
   if (
     (
       looksLikeNarratedDispatch(stripped)
