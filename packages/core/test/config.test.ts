@@ -624,13 +624,16 @@ describe("loadWorkerConfigs", () => {
     });
   });
 
-  it("assembles worker soul prompts with configured tool and skill docs", () => {
+  it("assembles worker soul prompts from soul, shared files, and knowledge only", () => {
     const dir = createTempConfigDir();
     const workerPromptDir = path.join(dir, "agents", "workers", "recipe-librarian");
     fs.mkdirSync(workerPromptDir, { recursive: true });
 
     fs.writeFileSync(path.join(dir, "agents", "shared", "AGENTS.md"), "shared agents");
+    fs.writeFileSync(path.join(dir, "agents", "shared", "RULES.md"), "shared rules");
+    fs.writeFileSync(path.join(dir, "agents", "shared", "USER.md"), "shared user");
     fs.writeFileSync(path.join(workerPromptDir, "soul.md"), "recipe soul");
+    fs.writeFileSync(path.join(workerPromptDir, "knowledge.md"), "recipe knowledge");
     fs.writeFileSync(path.join(dir, "agents", "tools", "recipe.md"), "recipe tool doc");
     fs.writeFileSync(path.join(dir, "agents", "skills", "recipe-format.md"), "recipe skill doc");
 
@@ -657,9 +660,12 @@ describe("loadWorkerConfigs", () => {
       promptFile: path.join(workerPromptDir, "soul.md"),
     });
     expect(workers[0]?.prompt).toContain("recipe soul");
-    expect(workers[0]?.prompt).toContain("shared agents");
-    expect(workers[0]?.prompt).toContain("recipe tool doc");
-    expect(workers[0]?.prompt).toContain("recipe skill doc");
+    expect(workers[0]?.prompt).toContain("shared rules");
+    expect(workers[0]?.prompt).toContain("shared user");
+    expect(workers[0]?.prompt).toContain("recipe knowledge");
+    expect(workers[0]?.prompt).not.toContain("shared agents");
+    expect(workers[0]?.prompt).not.toContain("recipe tool doc");
+    expect(workers[0]?.prompt).not.toContain("recipe skill doc");
   });
 });
 

@@ -4920,20 +4920,17 @@ export async function executeAgentWorker(
 
 /**
  * Load the assembled prompt for a worker.
- * Uses convention-based multi-file assembly: soul.md, shared agent docs,
- * knowledge/workers docs, matching tool docs from agents/tools/, and
- * matching skill docs from agents/skills/.
+ * Uses convention-based multi-file assembly: soul.md, shared rules,
+ * shared user context, and knowledge.md.
  */
 export function loadAgentSoulPrompt(
   workerId: string,
-  options?: { agentsDir?: string; toolIds?: string[]; skillIds?: string[] },
+  options?: { agentsDir?: string },
 ): string {
   const baseDir = options?.agentsDir ?? path.resolve("agents");
   const agentDir = resolveAgentDir(baseDir, workerId);
 
   return assembleAgentPrompt(agentDir, {
-    toolIds: options?.toolIds,
-    skillIds: options?.skillIds,
     agentsRootDir: baseDir,
   });
 }
