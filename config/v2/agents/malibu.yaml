@@ -1,0 +1,58 @@
+id: malibu
+display_name: Malibu
+type: wellness
+
+# System prompt = personality + domain + rules
+system_prompt_file: agents/assistants/malibu/soul.md
+
+# MCP servers this agent can access
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+  - name: wellness
+    command: node
+    args: ["packages/discord/dist/mcp-wellness-server.js", "--stdio"]
+  - name: fatsecret
+    # External MCP — uses existing proxy
+    command: node
+    args: ["packages/discord/dist/mcp-proxy.js", "fatsecret"]
+  - name: atlas
+    # Existing Atlas nutrition SQL tool
+    command: node
+    args: ["packages/discord/dist/mcp-proxy.js", "atlas"]
+  - name: obsidian
+    # Note: read-only for Malibu (enforced at MCP server level)
+    command: node
+    args: ["packages/discord/dist/mcp-proxy.js", "obsidian"]
+
+# Runtime configuration
+runtime:
+  mode: persistent
+  provider: legacy
+  fallback: codex
+  model: claude-sonnet-4-6
+  reasoning_effort: medium
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+
+# Memory configuration
+memory:
+  post_turn_extraction: enabled
+  extraction_model: claude-haiku-4-5
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+# Voice configuration (unchanged from legacy)
+voice:
+  call_signs:
+    - Malibu
+    - Malibooth
+    - "Coach Malibu"
+  kokoro_voice: am_puck
+  default_channel_id: "100000000000000002"
+
+# Discord routing
+discord:
+  default_channel_id: "100000000000000002"
+  smoke_test_channel_id: "100000000000001002"

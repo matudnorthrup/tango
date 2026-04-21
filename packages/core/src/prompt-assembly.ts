@@ -17,6 +17,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { expandHomePath } from "./runtime-paths.js";
 
 /**
  * Assemble the full prompt for an agent by reading conventional files.
@@ -27,6 +28,15 @@ import * as path from "node:path";
  */
 export interface PromptAssemblyOptions {
   agentsRootDir?: string;
+  overlayDir?: string;
+}
+
+export interface SoulPromptConfig {
+  systemPromptFile: string;
+}
+
+export interface SoulPromptAssemblyOptions {
+  repoRoot?: string;
   overlayDir?: string;
 }
 
@@ -53,6 +63,28 @@ export function assembleAgentPrompt(
   options: PromptAssemblyOptions = {},
 ): string {
   return traceAgentPrompt(agentDir, options).text;
+}
+
+export function assembleSoulPrompt(
+  config: SoulPromptConfig,
+  options: SoulPromptAssemblyOptions = {},
+): string {
+  const promptFile = resolveSystemPromptFile(config.systemPromptFile, options.repoRoot);
+  if (!fs.existsSync(promptFile)) {
+    throw new Error(`System prompt file not found: ${promptFile}`);
+  }
+
+  if (path.basename(promptFile) !== "soul.md") {
+    const prompt = readIfExists(promptFile);
+    if (!prompt) {
+      throw new Error(`System prompt file is empty: ${promptFile}`);
+    }
+    return prompt;
+  }
+
+  return assembleAgentPrompt(path.dirname(promptFile), {
+    overlayDir: options.overlayDir,
+  });
 }
 
 export function traceAgentPrompt(
@@ -182,6 +214,18 @@ function looksLikeAgentsRoot(dir: string): boolean {
   return ["RULES.md", "USER.md"].some((filename) =>
     fs.existsSync(path.join(dir, filename)),
   );
+}
+
+function resolveSystemPromptFile(systemPromptFile: string, repoRoot?: string): string {
+  const trimmed = systemPromptFile.trim();
+  if (!trimmed) {
+    throw new Error("systemPromptFile must be a non-empty path.");
+  }
+
+  const expanded = expandHomePath(trimmed);
+  return path.isAbsolute(expanded)
+    ? path.resolve(expanded)
+    : path.resolve(repoRoot ?? process.cwd(), expanded);
 }
 
 function readIfExists(filePath: string): string | null {
