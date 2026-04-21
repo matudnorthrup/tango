@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+  annotateTargetsWithRecency,
   buildRouteTargetInventory,
   inferRouteTarget,
   isHighConfidence,
@@ -53,6 +54,16 @@ function makeAgents(agents?: Array<{ id: string; defaultChannelId?: string }>) {
     { id: 'malibu', defaultChannelId: 'ch-malibu' },
     { id: 'sierra', defaultChannelId: 'ch-sierra' },
   ]) as any[];
+}
+
+function makeRecencyDb(rows: Array<{ discordChannelId: string; lastActive: string | null }>) {
+  const all = vi.fn(() => rows);
+  return {
+    db: {
+      prepare: vi.fn(() => ({ all })),
+    } as any,
+    all,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,11 +124,11 @@ describe('buildRouteTargetInventory', () => {
     const targets = await buildRouteTargetInventory(
       router, makeTopicManager(), makeProjectManager(), makeAgents(),
     );
-    expect(targets).toContainEqual({
+    expect(targets).toContainEqual(expect.objectContaining({
       id: 'thread-1',
       type: 'thread',
       name: 'Messaging Principles (in latitude)',
-    });
+    }));
   });
 
   it('excludes agent default channels from thread results', async () => {
@@ -214,6 +225,40 @@ describe('buildRouteTargetInventory', () => {
     const threadTargets = targets.filter((t: RouteTarget) => t.type === 'thread');
     expect(threadTargets).toEqual([]);
     warnSpy.mockRestore();
+  });
+});
+
+describe('annotateTargetsWithRecency', () => {
+  it('labels routable targets by recent inbound activity', async () => {
+    const { db, all } = makeRecencyDb([
+      { discordChannelId: 'thread-today', lastActive: '2026-04-20 15:00:00' },
+      { discordChannelId: 'thread-recent', lastActive: '2026-04-18 18:00:00' },
+      { discordChannelId: 'thread-stale', lastActive: '2026-04-15 18:00:00' },
+      { discordChannelId: 'thread-very-stale', lastActive: '2026-04-10 18:00:00' },
+    ]);
+
+    const annotated = await annotateTargetsWithRecency([
+      { id: 'thread-today', type: 'thread', name: 'Today Thread' },
+      { id: 'thread-recent', type: 'thread', name: 'Recent Thread' },
+      { id: 'thread-stale', type: 'thread', name: 'Stale Thread' },
+      { id: 'thread-very-stale', type: 'thread', name: 'Very Stale Thread' },
+      { id: 'thread-never', type: 'thread', name: 'Never Active' },
+      { id: 'forum-1', type: 'forum', name: 'General Forum' },
+    ], db, new Date('2026-04-20T18:00:00Z'));
+
+    expect(all).toHaveBeenCalledWith(
+      'thread-today',
+      'thread-recent',
+      'thread-stale',
+      'thread-very-stale',
+      'thread-never',
+    );
+    expect(annotated.find((target) => target.id === 'thread-today')?.recencyLabel).toBe('active-today');
+    expect(annotated.find((target) => target.id === 'thread-recent')?.recencyLabel).toBe('recent');
+    expect(annotated.find((target) => target.id === 'thread-stale')?.recencyLabel).toBe('stale');
+    expect(annotated.find((target) => target.id === 'thread-very-stale')?.recencyLabel).toBe('very-stale');
+    expect(annotated.find((target) => target.id === 'thread-never')?.recencyLabel).toBe('very-stale');
+    expect(annotated.find((target) => target.id === 'forum-1')?.recencyLabel).toBeUndefined();
   });
 });
 
@@ -514,5 +559,59 @@ describe('inferRouteTarget', () => {
     expect(systemPrompt).toContain('Messaging Principles (in latitude)');
     expect(systemPrompt).toContain('API Design (in latitude)');
     expect(systemPrompt).toContain('[thread]');
+  });
+
+  it('includes recency metadata in the classifier prompt', async () => {
+    mockQuickCompletion.mockResolvedValue('{"action":"none","confidence":0.1}');
+
+    const router = makeRouter({
+      forumThreads: [
+        { name: 'id:t1', displayName: 'Lunch Money (in watson)', threadId: 't1' },
+      ],
+    });
+    const { db } = makeRecencyDb([
+      { discordChannelId: 't1', lastActive: '2026-04-15 18:00:00' },
+    ]);
+
+    await inferRouteTarget(
+      'check the lunch money thread',
+      router,
+      makeTopicManager(),
+      makeProjectManager(),
+      makeAgents(),
+      { db, now: new Date('2026-04-20T18:00:00Z') },
+    );
+
+    const systemPrompt = mockQuickCompletion.mock.calls[0][0];
+    expect(systemPrompt).toContain('stale - 5 days inactive');
+    expect(systemPrompt).toContain('Stale targets (>3 days inactive)');
+    expect(systemPrompt).toContain('Very stale targets (>7 days inactive)');
+  });
+
+  it('adds short-input bias instructions when no target names are mentioned', async () => {
+    mockQuickCompletion.mockResolvedValue('{"action":"none","confidence":0.1}');
+
+    const router = makeRouter({
+      forumThreads: [
+        { name: 'id:t1', displayName: 'Lunch Money (in watson)', threadId: 't1' },
+      ],
+    });
+    const { db } = makeRecencyDb([
+      { discordChannelId: 't1', lastActive: '2026-04-20 17:00:00' },
+    ]);
+
+    await inferRouteTarget(
+      'check on it',
+      router,
+      makeTopicManager(),
+      makeProjectManager(),
+      makeAgents(),
+      { db, now: new Date('2026-04-20T18:00:00Z') },
+    );
+
+    const systemPrompt = mockQuickCompletion.mock.calls[0][0];
+    expect(systemPrompt).toContain(
+      'IMPORTANT: The user\'s input is short/generic and does not mention any specific thread or topic by name.',
+    );
   });
 });

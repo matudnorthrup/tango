@@ -10,6 +10,7 @@ export type EarconName =
   | 'timeout-warning'
   | 'cancelled'
   | 'ready'
+  | 'question'
   | 'busy'
   | 'gate-closed'
   | 'paused'
@@ -251,6 +252,28 @@ function generateReady(): Buffer {
 }
 
 /**
+ * Rising C5→E5 prompt — "Question / confirm?" (~320ms)
+ * Two quick ascending notes so confirmation prompts feel inquisitive instead
+ * of reusing the longer ready cue.
+ */
+function generateQuestion(): Buffer {
+  const duration = 0.32;
+  const samples = Math.floor(duration * SAMPLE_RATE);
+  const mix = new Float64Array(samples);
+  const amp = 2600;
+
+  // C5 (523 Hz) — quick lead-in
+  const note1 = warmBellTone(523, amp, 0.16, 9);
+  mixInto(mix, note1, 0);
+
+  // E5 (659 Hz) — brighter rise
+  const note2 = warmBellTone(659, amp * 0.92, 0.16, 8.5);
+  mixInto(mix, note2, Math.floor(0.12 * SAMPLE_RATE));
+
+  return mixToWav(mix);
+}
+
+/**
  * Warm low G3 hum — "I heard you but I'm busy" (~300ms)
  */
 function generateBusy(): Buffer {
@@ -349,6 +372,7 @@ const generators: Record<EarconName, () => Buffer> = {
   'timeout-warning': generateTimeoutWarning,
   'cancelled': generateCancelled,
   'ready': generateReady,
+  'question': generateQuestion,
   'busy': generateBusy,
   'gate-closed': generateGateClosed,
   'paused': generatePaused,
@@ -386,6 +410,6 @@ export function getEarcon(name: EarconName): Buffer {
  */
 export const EARCON_NAMES: EarconName[] = [
   'listening', 'acknowledged', 'error', 'timeout-warning',
-  'cancelled', 'ready', 'busy', 'gate-closed',
+  'cancelled', 'ready', 'question', 'busy', 'gate-closed',
   'paused', 'resumed', 'nudge',
 ];
