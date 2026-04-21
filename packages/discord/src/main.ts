@@ -192,6 +192,8 @@ import {
 } from "./slot-mode.js";
 import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
 
+export * from "./tango-router.js";
+
 dotenv.config();
 
 const slotModeActive = isSlotModeActive(process.env);
