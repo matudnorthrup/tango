@@ -1,11 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import os from 'node:os';
 import { resolve } from 'node:path';
+import { TangoStorage } from '@tango/core';
 import type { ChannelRouter } from './channel-router.js';
 import type { VoiceTopicManager } from './voice-topics.js';
 import type { VoiceProjectManager } from './voice-projects.js';
 import type { VoiceAddressAgent } from '@tango/voice';
 import { quickCompletion } from './claude.js';
-import { resolveSharedTangoConfigPath } from './shared-storage.js';
+import { resolveSharedTangoConfigPath, resolveSharedTangoDbPath } from './shared-storage.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,6 +19,8 @@ export interface RouteTarget {
   type: 'thread' | 'topic' | 'channel' | 'forum';
   name: string;
   parent?: string;
+  recencyLabel?: 'active-today' | 'recent' | 'stale' | 'very-stale';
+  lastActiveAt?: string;
 }
 
 export interface RouteClassifierResult {
@@ -23,8 +28,11 @@ export interface RouteClassifierResult {
   target?: string;
   targetName?: string;
   targetType?: RouteTarget['type'];
+  recencyLabel?: RouteTarget['recencyLabel'];
   confidence: number;
   createTitle?: string;
+  mentionsAnyTargetName?: boolean;
+  targetMentionedInTranscript?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +45,23 @@ const HIGH_CONFIDENCE = 0.85;
 const MEDIUM_CONFIDENCE = 0.60;
 
 const TARGET_CACHE_TTL_MS = 60_000; // 1 minute
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface RouteClassifierDatabase {
+  prepare(sql: string): {
+    all(...params: string[]): Array<{
+      discordChannelId?: string | null;
+      discord_channel_id?: string | null;
+      lastActive?: string | null;
+      last_active?: string | null;
+    }>;
+  };
+}
+
+export interface RouteClassifierBuildOptions {
+  db?: RouteClassifierDatabase;
+  now?: Date;
+}
 
 // ---------------------------------------------------------------------------
 // Routing rules (config-driven hints)
@@ -115,6 +140,155 @@ function buildRoutingRulesHint(rules: RoutingRule[]): string {
 
 let cachedTargets: RouteTarget[] | null = null;
 let cachedTargetsAt = 0;
+let routeClassifierStorage: TangoStorage | null = null;
+
+function isVitestRuntime(): boolean {
+  return Boolean(
+    process.env.VITEST ||
+      process.env.VITEST_POOL_ID ||
+      process.argv.some((arg) => arg.toLowerCase().includes('vitest')),
+  );
+}
+
+function getRouteClassifierDatabase(): RouteClassifierDatabase {
+  if (!routeClassifierStorage) {
+    const dbPath = isVitestRuntime()
+      ? resolveSharedTangoDbPath(resolve(
+          os.tmpdir(),
+          `tango-voice-route-classifier-${process.pid}-${randomUUID()}.sqlite`,
+        ))
+      : resolveSharedTangoDbPath();
+    routeClassifierStorage = new TangoStorage(dbPath);
+  }
+
+  return routeClassifierStorage.getDatabase();
+}
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export function normalizeRouteTargetName(name: string): string {
+  return name.toLowerCase().replace(/\s*\(.*\)$/, '').trim();
+}
+
+export function promptMentionsRouteTargetName(
+  strippedPrompt: string,
+  targetName: string | null | undefined,
+): boolean {
+  const normalizedTargetName = targetName ? normalizeRouteTargetName(targetName) : '';
+  if (!normalizedTargetName) return false;
+  return strippedPrompt.toLowerCase().includes(normalizedTargetName);
+}
+
+export function promptMentionsAnyRouteTargetName(
+  strippedPrompt: string,
+  targets: RouteTarget[],
+): boolean {
+  const normalizedPrompt = strippedPrompt.toLowerCase();
+  return targets.some((target) => {
+    const normalizedName = normalizeRouteTargetName(target.name);
+    return normalizedName.length > 0 && normalizedPrompt.includes(normalizedName);
+  });
+}
+
+function parseSqliteTimestamp(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const withTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)
+    ? normalized
+    : `${normalized}Z`;
+  const parsed = new Date(withTimezone);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getInactiveDays(lastActiveAt: string | undefined, now: Date): number | null {
+  const lastActive = parseSqliteTimestamp(lastActiveAt);
+  if (!lastActive) return null;
+  const ageMs = Math.max(0, now.getTime() - lastActive.getTime());
+  return Math.floor(ageMs / DAY_MS);
+}
+
+function resolveRecencyLabel(
+  lastActiveAt: string | undefined,
+  now: Date,
+): RouteTarget['recencyLabel'] {
+  const lastActive = parseSqliteTimestamp(lastActiveAt);
+  if (!lastActive) return 'very-stale';
+
+  const ageMs = Math.max(0, now.getTime() - lastActive.getTime());
+  if (ageMs < DAY_MS) return 'active-today';
+  if (ageMs < 3 * DAY_MS) return 'recent';
+  if (ageMs <= 7 * DAY_MS) return 'stale';
+  return 'very-stale';
+}
+
+function formatRecencyNote(target: RouteTarget, now: Date): string {
+  if (!target.recencyLabel) return '';
+
+  if (target.recencyLabel === 'active-today') {
+    return ' (active today)';
+  }
+
+  const inactiveDays = getInactiveDays(target.lastActiveAt, now);
+  if (inactiveDays === null) {
+    return target.recencyLabel === 'very-stale'
+      ? ' (very stale - no inbound activity)'
+      : ` (${target.recencyLabel.replace('-', ' ')})`;
+  }
+
+  const dayLabel = inactiveDays === 1 ? 'day' : 'days';
+  return ` (${target.recencyLabel.replace('-', ' ')} - ${inactiveDays} ${dayLabel} inactive)`;
+}
+
+export async function annotateTargetsWithRecency(
+  targets: RouteTarget[],
+  db: RouteClassifierDatabase,
+  now = new Date(),
+): Promise<RouteTarget[]> {
+  const routableTargetIds = targets
+    .filter((target) => target.type === 'thread' || target.type === 'topic')
+    .map((target) => target.id);
+
+  if (routableTargetIds.length === 0) {
+    return targets;
+  }
+
+  const placeholders = routableTargetIds.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `
+        SELECT discord_channel_id AS discordChannelId, MAX(created_at) AS lastActive
+        FROM messages
+        WHERE direction = 'inbound'
+          AND discord_channel_id IN (${placeholders})
+        GROUP BY discord_channel_id
+      `,
+    )
+    .all(...routableTargetIds);
+
+  const lastActiveByChannelId = new Map<string, string>();
+  for (const row of rows) {
+    const channelId = row.discordChannelId ?? row.discord_channel_id ?? null;
+    const lastActive = row.lastActive ?? row.last_active ?? null;
+    if (channelId && lastActive) {
+      lastActiveByChannelId.set(channelId, lastActive);
+    }
+  }
+
+  return targets.map((target) => {
+    if (target.type !== 'thread' && target.type !== 'topic') {
+      return target;
+    }
+
+    const lastActiveAt = lastActiveByChannelId.get(target.id);
+    return {
+      ...target,
+      lastActiveAt,
+      recencyLabel: resolveRecencyLabel(lastActiveAt, now),
+    };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Build target inventory
@@ -130,9 +304,11 @@ export async function buildRouteTargetInventory(
   topicManager: VoiceTopicManager,
   projectManager: VoiceProjectManager,
   agents: VoiceAddressAgent[],
+  options?: RouteClassifierBuildOptions,
 ): Promise<RouteTarget[]> {
+  const useCache = !options?.db && !options?.now;
   const now = Date.now();
-  if (cachedTargets && now - cachedTargetsAt < TARGET_CACHE_TTL_MS) {
+  if (useCache && cachedTargets && now - cachedTargetsAt < TARGET_CACHE_TTL_MS) {
     return cachedTargets;
   }
 
@@ -207,9 +383,23 @@ export async function buildRouteTargetInventory(
     });
   }
 
-  cachedTargets = targets;
-  cachedTargetsAt = now;
-  return targets;
+  let annotatedTargets = targets;
+  try {
+    annotatedTargets = await annotateTargetsWithRecency(
+      targets,
+      options?.db ?? getRouteClassifierDatabase(),
+      options?.now ?? new Date(),
+    );
+  } catch (err: any) {
+    console.warn(`Route classifier: failed to annotate target recency: ${err.message}`);
+  }
+
+  if (useCache) {
+    cachedTargets = annotatedTargets;
+    cachedTargetsAt = now;
+  }
+
+  return annotatedTargets;
 }
 
 /**
@@ -228,13 +418,18 @@ function buildClassifierPrompt(
   targets: RouteTarget[],
   currentChannel: string,
   currentTopic: string | null,
+  options?: {
+    preferNoneForShortGeneric?: boolean;
+    now?: Date;
+  },
 ): string {
+  const promptNow = options?.now ?? new Date();
   const routingTargets = targets.filter((t) => t.type === 'thread' || t.type === 'topic');
   const creationTargets = targets.filter((t) => t.type === 'forum' || t.type === 'channel');
 
   const routingList = routingTargets.map((t) => {
     const parent = t.parent ? ` (in ${t.parent})` : '';
-    return `- [${t.type}] id="${t.id}" name="${t.name}"${parent}`;
+    return `- [${t.type}] id="${t.id}" name="${t.name}"${parent}${formatRecencyNote(t, promptNow)}`;
   }).join('\n');
 
   const creationList = creationTargets.map((t) => {
@@ -263,6 +458,11 @@ function buildClassifierPrompt(
     '- "create": ONLY when the user uses an explicit creation verb like "create a thread", "make a post", "start a new thread/post/topic". Extract a concise title. Set target to the best-fit creation container.',
     '- "none": no routing or creation intent detected.',
     '- IMPORTANT: Talking about something new or mentioning a topic that relates to a forum is NOT creation intent. "Create" requires an explicit verb (create/make/start) paired with a noun (thread/post/topic/conversation). Never infer creation from topic novelty alone.',
+    '- Stale targets (>3 days inactive): require the user to explicitly mention the thread name or topic. Do not route to stale targets based on loose topical similarity alone.',
+    '- Very stale targets (>7 days inactive): NEVER suggest routing to these unless the user explicitly names them. Set action to "none" for very stale targets.',
+    options?.preferNoneForShortGeneric
+      ? 'IMPORTANT: The user\'s input is short/generic and does not mention any specific thread or topic by name. Strongly prefer action: "none". Only suggest routing if there is an unmistakable topical match with confidence > 0.95.'
+      : '',
   ].join('\n');
 }
 
@@ -283,23 +483,35 @@ export async function inferRouteTarget(
   topicManager: VoiceTopicManager,
   projectManager: VoiceProjectManager,
   agents: VoiceAddressAgent[],
+  options?: RouteClassifierBuildOptions,
 ): Promise<RouteClassifierResult> {
   const noRoute: RouteClassifierResult = { action: 'none', confidence: 0 };
 
   // Short prompts rarely contain routing signals
-  const wordCount = strippedPrompt.trim().split(/\s+/).filter(Boolean).length;
+  const wordCount = countWords(strippedPrompt);
   if (wordCount < 3) return noRoute;
 
-  const targets = await buildRouteTargetInventory(router, topicManager, projectManager, agents);
+  const targets = await buildRouteTargetInventory(
+    router,
+    topicManager,
+    projectManager,
+    agents,
+    options,
+  );
   if (targets.length === 0) return noRoute;
 
   const activeChannel = router.getActiveChannel();
   const currentTopic = topicManager.getFocusedTopic(activeChannel.name)?.title ?? null;
+  const mentionsAnyTargetName = promptMentionsAnyRouteTargetName(strippedPrompt, targets);
 
   const systemPrompt = buildClassifierPrompt(
     targets,
     activeChannel.name,
     currentTopic,
+    {
+      preferNoneForShortGeneric: !mentionsAnyTargetName && wordCount < 10,
+      now: options?.now,
+    },
   );
 
   const userMessage = JSON.stringify({ transcript: strippedPrompt });
@@ -353,13 +565,16 @@ export async function inferRouteTarget(
       target: matchedTarget.id,
       targetName: matchedTarget.name,
       targetType: matchedTarget.type,
+      recencyLabel: matchedTarget.recencyLabel,
       confidence,
       createTitle: title,
+      mentionsAnyTargetName,
+      targetMentionedInTranscript: promptMentionsRouteTargetName(strippedPrompt, matchedTarget.name),
     };
   }
 
   if (action !== 'route' || !targetId) {
-    return { action: 'none', confidence };
+    return { action: 'none', confidence, mentionsAnyTargetName };
   }
 
   // Validate that the target exists in our inventory
@@ -378,7 +593,10 @@ export async function inferRouteTarget(
     target: matchedTarget.id,
     targetName: matchedTarget.name,
     targetType: matchedTarget.type,
+    recencyLabel: matchedTarget.recencyLabel,
     confidence,
+    mentionsAnyTargetName,
+    targetMentionedInTranscript: promptMentionsRouteTargetName(strippedPrompt, matchedTarget.name),
   };
 }
 
