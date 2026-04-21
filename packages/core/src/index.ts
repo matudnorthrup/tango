@@ -19,6 +19,7 @@ export * from "./provider-artifacts.js";
 export * from "./provider-registry.js";
 export * from "./runtime-pool.js";
 export * from "./runtime-paths.js";
+export * from "./session-lifecycle.js";
 export * from "./session-manager.js";
 export * from "./storage.js";
 export * from "./sub-agent-runner.js";
