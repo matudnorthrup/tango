@@ -36,7 +36,7 @@ import { generateAgentSummary, classifyTopicSelection, getInboxChannelVoiceLabel
 import type { InboxAgentItem, AwaitingRouteConfirmationState } from './pipeline-state.js';
 import { VoiceTopicManager } from '../services/voice-topics.js';
 import { VoiceProjectManager } from '../services/voice-projects.js';
-import { inferRouteTarget, isHighConfidence, isMediumConfidence, isHighCreateConfidence, isMediumCreateConfidence, invalidateRouteTargetCache, type RouteClassifierResult } from '../services/route-classifier.js';
+import { inferRouteTarget, isHighCreateConfidence, isMediumCreateConfidence, invalidateRouteTargetCache, type RouteClassifierResult } from '../services/route-classifier.js';
 
 type ChannelActivity = {
   channelName: string;
@@ -92,6 +92,66 @@ export interface IdleNotificationDiagnostics {
   processing: boolean;
   inFlight: boolean;
   recentEvents: IdleNotificationEvent[];
+}
+
+const DEFAULT_ROUTE_HIGH_THRESHOLD = 0.85;
+const DEFAULT_ROUTE_MEDIUM_THRESHOLD = 0.60;
+const SHORT_INPUT_ROUTE_HIGH_THRESHOLD = 0.92;
+const SHORT_INPUT_ROUTE_MEDIUM_THRESHOLD = 0.80;
+const CALLSIGN_ROUTE_HIGH_THRESHOLD = 0.95;
+const CALLSIGN_ROUTE_MEDIUM_THRESHOLD = 0.90;
+
+function countRoutingWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function normalizeRouteTargetTranscriptMatch(targetName: string | null | undefined): string {
+  return targetName?.toLowerCase().replace(/\s*\(.*\)$/, '').trim() ?? '';
+}
+
+function transcriptMentionsRouteTargetName(
+  transcript: string,
+  targetName: string | null | undefined,
+): boolean {
+  const normalizedTargetName = normalizeRouteTargetTranscriptMatch(targetName);
+  if (!normalizedTargetName) return false;
+  return transcript.toLowerCase().includes(normalizedTargetName);
+}
+
+export interface EffectiveRouteThresholds {
+  highThreshold: number;
+  mediumThreshold: number;
+  blocked: boolean;
+}
+
+export function computeEffectiveThresholds(
+  explicitAddress: ResolvedVoiceAddress | null,
+  transcript: string,
+  routeResult: RouteClassifierResult | null,
+  wordCount: number,
+): EffectiveRouteThresholds {
+  let highThreshold = DEFAULT_ROUTE_HIGH_THRESHOLD;
+  let mediumThreshold = DEFAULT_ROUTE_MEDIUM_THRESHOLD;
+  let blocked = false;
+
+  const mentionsAnyTargetName =
+    routeResult?.mentionsAnyTargetName ??
+    transcriptMentionsRouteTargetName(transcript, routeResult?.targetName);
+
+  if (wordCount < 10 && !mentionsAnyTargetName) {
+    highThreshold = Math.max(highThreshold, SHORT_INPUT_ROUTE_HIGH_THRESHOLD);
+    mediumThreshold = Math.max(mediumThreshold, SHORT_INPUT_ROUTE_MEDIUM_THRESHOLD);
+  }
+
+  if (explicitAddress?.kind === 'agent') {
+    highThreshold = Math.max(highThreshold, CALLSIGN_ROUTE_HIGH_THRESHOLD);
+    mediumThreshold = Math.max(mediumThreshold, CALLSIGN_ROUTE_MEDIUM_THRESHOLD);
+    if (routeResult?.targetName && !transcriptMentionsRouteTargetName(transcript, routeResult.targetName)) {
+      blocked = true;
+    }
+  }
+
+  return { highThreshold, mediumThreshold, blocked };
 }
 
 export class VoicePipeline {
@@ -2455,6 +2515,7 @@ export class VoicePipeline {
       const strippedForRouting = explicitAddress
         ? this.stripExplicitAddressPrefix(transcript, explicitAddress)
         : transcript.trim();
+      const routingWordCount = countRoutingWords(strippedForRouting);
       const routeClassifierPromise: Promise<RouteClassifierResult | null> =
         !preserveCurrentChannelForFollowup && this.router && this.topicManager && this.projectManager
           ? inferRouteTarget(
@@ -2531,7 +2592,54 @@ export class VoicePipeline {
         this.consumeFollowupPromptGrace();
       }
       let routeApplied = false;
-      if (routeResult && isHighConfidence(routeResult) && routeResult.target && this.router) {
+      const effectiveThresholds = computeEffectiveThresholds(
+        explicitAddress,
+        strippedForRouting,
+        routeResult,
+        routingWordCount,
+      );
+      const targetMentionedInTranscript = routeResult?.targetMentionedInTranscript
+        ?? transcriptMentionsRouteTargetName(strippedForRouting, routeResult?.targetName);
+      const meetsHighConfidenceThreshold = Boolean(
+        routeResult
+          && routeResult.action === 'route'
+          && routeResult.confidence > effectiveThresholds.highThreshold,
+      );
+      const meetsMediumConfidenceThreshold = Boolean(
+        routeResult
+          && routeResult.action === 'route'
+          && routeResult.confidence >= effectiveThresholds.mediumThreshold
+          && routeResult.confidence <= effectiveThresholds.highThreshold,
+      );
+
+      let allowAutoRoute = meetsHighConfidenceThreshold;
+      let allowRouteConfirmation = meetsMediumConfidenceThreshold;
+      if (routeResult?.action === 'route') {
+        if (effectiveThresholds.blocked) {
+          if (allowAutoRoute || allowRouteConfirmation) {
+            console.log(
+              `Route classifier: skipped "${routeResult.targetName ?? routeResult.target ?? 'target'}" because the addressed-agent prompt did not mention the target by name`,
+            );
+          }
+          allowAutoRoute = false;
+          allowRouteConfirmation = false;
+        } else if (routeResult.recencyLabel === 'very-stale' && !targetMentionedInTranscript) {
+          if (allowAutoRoute || allowRouteConfirmation) {
+            console.log(
+              `Route classifier: blocked very stale target "${routeResult.targetName ?? routeResult.target ?? 'target'}" because it was not explicitly named in the transcript`,
+            );
+          }
+          allowAutoRoute = false;
+          allowRouteConfirmation = false;
+        } else if (routeResult.recencyLabel === 'stale' && allowRouteConfirmation) {
+          console.log(
+            `Route classifier: skipped medium-confidence confirmation for stale target "${routeResult.targetName ?? routeResult.target ?? 'target'}"`,
+          );
+          allowRouteConfirmation = false;
+        }
+      }
+
+      if (routeResult && allowAutoRoute && routeResult.target && this.router) {
         // High confidence: auto-route to the matched target
         const switchResult = await this.router.switchTo(routeResult.target);
         if (switchResult.success) {
@@ -2587,10 +2695,10 @@ export class VoicePipeline {
           fallbackChannelId,
         });
         await this.speakResponse(question, { inbox: true });
-        await this.playReadyEarcon();
+        await this.player.playEarcon('question');
         this.transitionAndResetWatchdog({ type: 'REFRESH_AWAITING_TIMEOUT' });
         return;
-      } else if (routeResult && isMediumConfidence(routeResult) && routeResult.target && routeResult.targetName) {
+      } else if (routeResult && allowRouteConfirmation && routeResult.target && routeResult.targetName) {
         // Medium confidence: ask user to confirm before routing
         const question = this.formatRouteConfirmationQuestion(routeResult.targetName);
         const currentChannel = this.router?.getActiveChannel() as any;
@@ -2613,7 +2721,7 @@ export class VoicePipeline {
           fallbackChannelId,
         });
         await this.speakResponse(question, { inbox: true });
-        await this.playReadyEarcon();
+        await this.player.playEarcon('question');
         this.transitionAndResetWatchdog({ type: 'REFRESH_AWAITING_TIMEOUT' });
         return;
       }

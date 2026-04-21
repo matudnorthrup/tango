@@ -84,7 +84,7 @@ vi.mock('../src/services/tango-voice.js', () => ({
   requestTangoVoiceTurn,
 }));
 
-import { VoicePipeline } from '../src/pipeline/voice-pipeline.js';
+import { VoicePipeline, computeEffectiveThresholds } from '../src/pipeline/voice-pipeline.js';
 
 describe('VoicePipeline agent routing', () => {
   beforeEach(() => {
@@ -189,6 +189,93 @@ describe('VoicePipeline agent routing', () => {
     vi.spyOn(pipeline as any, 'playReadyEarcon').mockResolvedValue(undefined);
     return pipeline;
   }
+
+  describe('computeEffectiveThresholds', () => {
+    const agentAddress = {
+      kind: 'agent',
+      agent: {
+        id: 'watson',
+        displayName: 'Watson',
+        defaultChannelId: 'ch-watson',
+      },
+    } as any;
+
+    it('raises thresholds and blocks agent-addressed routing when the target name is not mentioned', () => {
+      expect(computeEffectiveThresholds(
+        agentAddress,
+        'hello watson, can you look at this',
+        {
+          action: 'route',
+          target: 'thread-1',
+          targetName: 'Lunch Money (in watson)',
+          confidence: 0.94,
+          mentionsAnyTargetName: false,
+        },
+        7,
+      )).toEqual({
+        highThreshold: 0.95,
+        mediumThreshold: 0.9,
+        blocked: true,
+      });
+    });
+
+    it('keeps the stricter callsign thresholds without blocking when the target is explicitly named', () => {
+      expect(computeEffectiveThresholds(
+        agentAddress,
+        'watson, check the lunch money thread',
+        {
+          action: 'route',
+          target: 'thread-1',
+          targetName: 'Lunch Money (in watson)',
+          confidence: 0.94,
+          mentionsAnyTargetName: true,
+        },
+        6,
+      )).toEqual({
+        highThreshold: 0.95,
+        mediumThreshold: 0.9,
+        blocked: false,
+      });
+    });
+
+    it('raises thresholds for short ambiguous input without a callsign', () => {
+      expect(computeEffectiveThresholds(
+        null,
+        'check on it',
+        {
+          action: 'route',
+          target: 'thread-1',
+          targetName: 'Lunch Money (in watson)',
+          confidence: 0.84,
+          mentionsAnyTargetName: false,
+        },
+        3,
+      )).toEqual({
+        highThreshold: 0.92,
+        mediumThreshold: 0.8,
+        blocked: false,
+      });
+    });
+
+    it('keeps the default thresholds when the prompt already names a target', () => {
+      expect(computeEffectiveThresholds(
+        null,
+        'check lunch money',
+        {
+          action: 'route',
+          target: 'thread-1',
+          targetName: 'Lunch Money (in watson)',
+          confidence: 0.84,
+          mentionsAnyTargetName: true,
+        },
+        3,
+      )).toEqual({
+        highThreshold: 0.85,
+        mediumThreshold: 0.6,
+        blocked: false,
+      });
+    });
+  });
 
   it('accepts system commands through explicit addressing while preserving wake-only checks', () => {
     const pipeline = makePipeline();
