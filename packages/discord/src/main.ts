@@ -76,6 +76,7 @@ import {
   buildRuntimePathEnv,
   resolveConfigDir,
   resolveDatabasePath,
+  loadAllV2AgentConfigs,
   renderContextPacket,
   planSessionCompaction,
   SessionManager,
@@ -190,6 +191,16 @@ import {
   shouldInitializeSlotMode,
 } from "./slot-mode.js";
 import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
+import { AtlasMemoryClient } from "./atlas-memory-client.js";
+import { TangoRouter } from "./tango-router.js";
+import {
+  buildV2EnabledAgentSet,
+  buildV2RuntimeConfigs,
+  createAtlasColdStartContextBuilder,
+  createV2PostTurnHook,
+  routeV2MessageIfEnabled,
+  shutdownV2Runtime,
+} from "./v2-runtime.js";
 
 export * from "./tango-router.js";
 
@@ -599,6 +610,23 @@ const slotModeAgentTestChannels = agentConfigs
   }));
 const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !== undefined).length;
 const storage = new TangoStorage(dbPath);
+// Manual enablement: flip config/v2/agents/<agent>.yaml runtime.provider to
+// "claude-code-v2" and restart the bot. Keep committed configs on "legacy".
+const v2Configs = loadAllV2AgentConfigs();
+const v2EnabledAgents = buildV2EnabledAgentSet(v2Configs);
+const atlasMemoryClient = new AtlasMemoryClient(dbPath);
+const tangoRouter = new TangoRouter({
+  agentConfigs: buildV2RuntimeConfigs(v2Configs),
+  lifecycleConfig: {
+    idleTimeoutHours: 24,
+    contextResetThreshold: 0.80,
+  },
+  buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient),
+  onPostTurn: createV2PostTurnHook({
+    v2Configs,
+    atlasMemoryClient,
+  }),
+});
 let embeddingProvider: EmbeddingProvider | null | undefined;
 
 function getEmbeddingProvider(): EmbeddingProvider | null {
@@ -6867,6 +6895,76 @@ async function handleMessage(
     return;
   }
 
+  if (v2EnabledAgents.has(targetAgent.id)) {
+    const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
+    const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
+    let typingInterval: ReturnType<typeof setInterval> | undefined;
+    if (typeof maybeTypingChannel.sendTyping === "function") {
+      await maybeTypingChannel.sendTyping();
+      typingInterval = setInterval(() => {
+        maybeTypingChannel.sendTyping?.().catch(() => {/* ignore */});
+      }, 8_000);
+    }
+
+    try {
+      const v2Result = await routeV2MessageIfEnabled(
+        {
+          message: prompt,
+          channelId: routingChannelId,
+          ...(threadId ? { threadId } : {}),
+          agentId: targetAgent.id,
+        },
+        {
+          v2EnabledAgents,
+          tangoRouter,
+        },
+      );
+
+      if (!v2Result) {
+        throw new Error(`Expected v2 routing to be enabled for agent '${targetAgent.id}'.`);
+      }
+
+      const replyDelivery = await sendPresentedReply(message.channel, v2Result.response.text, targetAgent);
+      ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
+
+      writeMessage({
+        sessionId: promptRoute.sessionId,
+        agentId: targetAgent.id,
+        providerName: "claude-code-v2",
+        direction: "outbound",
+        source: "tango",
+        visibility: "public",
+        discordMessageId: replyDelivery.lastMessageId ?? null,
+        discordChannelId: message.channelId,
+        discordUserId: replyDelivery.delivery === "bot" ? client.user?.id ?? null : null,
+        discordUsername: replyDelivery.actualDisplayName,
+        content: v2Result.response.text,
+        metadata: {
+          replyToDiscordMessageId: message.id,
+          sentChunks: replyDelivery.sentChunks,
+          senderIdentity: {
+            intendedDisplayName: replyDelivery.intendedDisplayName,
+            actualDisplayName: replyDelivery.actualDisplayName,
+            delivery: replyDelivery.delivery,
+          },
+          runtimePath: "v2",
+          conversationKey: v2Result.conversationKey,
+          runtimeDurationMs: v2Result.response.durationMs,
+          runtimeModel: v2Result.response.model ?? null,
+          runtimeToolsUsed: v2Result.response.toolsUsed ?? [],
+          runtimeMetadata: v2Result.response.metadata ?? null,
+        },
+      });
+
+      console.log(
+        `[tango-discord] v2 reply session=${promptRoute.sessionId} agent=${targetAgent.id} conversation=${v2Result.conversationKey} ms=${v2Result.response.durationMs} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks}`,
+      );
+      return;
+    } finally {
+      if (typingInterval) clearInterval(typingInterval);
+    }
+  }
+
   const providerTools = resolveOrchestratorProviderTools(targetAgent);
   const providerSelection = resolveProviderNamesForTurn({
     sessionId: promptRoute.sessionId,
@@ -7955,6 +8053,14 @@ function shutdown(signal: "SIGINT" | "SIGTERM"): void {
       }
     } catch (error) {
       console.error("[tango-imessage] listener shutdown failed", error);
+    }
+    try {
+      await shutdownV2Runtime({
+        tangoRouter,
+        atlasMemoryClient,
+      });
+    } catch (error) {
+      console.error("[tango] v2 runtime shutdown failed", error);
     } finally {
       storage.close();
       process.exit(0);
