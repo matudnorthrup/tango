@@ -139,6 +139,15 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     return this.stateValue;
   }
 
+  getSessionId(): string | undefined {
+    return this.sessionId;
+  }
+
+  resumeSession(sessionId: string): void {
+    const normalized = sessionId.trim();
+    this.sessionId = normalized.length > 0 ? normalized : undefined;
+  }
+
   async initialize(config: AgentRuntimeConfig): Promise<void> {
     await this.teardown();
     this.config = cloneRuntimeConfig(config);
