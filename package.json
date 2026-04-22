@@ -12,8 +12,8 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @tango/core && npm run build -w @tango/atlas-memory && npm run build -w @tango/voice && npm run build -w @tango/discord && npm run build -w @tango/cli",
-    "test": "npm run test -w @tango/core && npm run test -w @tango/discord && npm run test -w @tango/voice && npm run test -w @tango/atlas-memory",
+    "build": "npm run build -w @tango/core && npm run build -w @tango/atlas-memory && npm run build -w @tango/tango-dev-mcp && npm run build -w @tango/voice && npm run build -w @tango/discord && npm run build -w @tango/cli",
+    "test": "npm run test -w @tango/core && npm run test -w @tango/discord && npm run test -w @tango/voice && npm run test -w @tango/atlas-memory && npm run test -w @tango/tango-dev-mcp",
     "dev:discord": "tsx packages/discord/src/main.ts",
     "start:discord": "node packages/discord/dist/main.js",
     "build:voice-app": "npm run build -w @tango/core && npm run build -w @tango/voice && npm run build -w @tango/tango-voice",
