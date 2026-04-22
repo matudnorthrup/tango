@@ -7251,10 +7251,21 @@ async function handleMessage(
         throw new Error(`Expected v2 routing to be enabled for agent '${targetAgent.id}'.`);
       }
 
+      const runtimeMetadata = asRecord(v2Result.response.metadata);
+      const providerMetadata = asRecord(runtimeMetadata?.providerMetadata);
+      const providerUsage = asRecord(providerMetadata?.usage);
+      const providerSessionId = metadataString(runtimeMetadata, "sessionId") ?? null;
+      const runtimeModel =
+        v2Result.response.model
+        ?? metadataString(providerMetadata, "model")
+        ?? null;
+      const toolsUsed = v2Result.response.toolsUsed ?? [];
+      const runtimeError = metadataBoolean(runtimeMetadata, "error") ?? false;
+      const rawRuntimeResponse = asRecord(runtimeMetadata?.raw);
       const replyDelivery = await sendPresentedReply(message.channel, v2Result.response.text, targetAgent);
       ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
 
-      writeMessage({
+      const outboundMessageId = writeMessage({
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
         providerName: "claude-code-v2",
@@ -7277,10 +7288,55 @@ async function handleMessage(
           runtimePath: "v2",
           conversationKey: v2Result.conversationKey,
           runtimeDurationMs: v2Result.response.durationMs,
-          runtimeModel: v2Result.response.model ?? null,
-          runtimeToolsUsed: v2Result.response.toolsUsed ?? [],
+          runtimeModel,
+          runtimeToolsUsed: toolsUsed,
           runtimeMetadata: v2Result.response.metadata ?? null,
         },
+      });
+
+      writeModelRun({
+        sessionId: promptRoute.sessionId,
+        agentId: targetAgent.id,
+        providerName: "claude-code-v2",
+        conversationKey: v2Result.conversationKey,
+        providerSessionId,
+        model: runtimeModel,
+        stopReason: metadataString(providerMetadata, "stopReason") ?? null,
+        responseMode,
+        latencyMs: v2Result.response.durationMs,
+        providerDurationMs: metadataNumber(providerMetadata, "durationMs") ?? null,
+        providerApiDurationMs: metadataNumber(providerMetadata, "durationApiMs") ?? null,
+        inputTokens: metadataNumber(providerUsage, "inputTokens") ?? null,
+        outputTokens: metadataNumber(providerUsage, "outputTokens") ?? null,
+        cacheReadInputTokens: metadataNumber(providerUsage, "cacheReadInputTokens") ?? null,
+        cacheCreationInputTokens: metadataNumber(providerUsage, "cacheCreationInputTokens") ?? null,
+        totalCostUsd: metadataNumber(providerMetadata, "totalCostUsd") ?? null,
+        isError: runtimeError,
+        errorMessage:
+          runtimeError
+            ? metadataString(runtimeMetadata, "stderr") ?? "Claude Code runtime returned an error response."
+            : null,
+        requestMessageId: inboundMessageId,
+        responseMessageId: outboundMessageId,
+        metadata: {
+          replyToDiscordMessageId: message.id,
+          sentChunks: replyDelivery.sentChunks,
+          senderIdentity: {
+            intendedDisplayName: replyDelivery.intendedDisplayName,
+            actualDisplayName: replyDelivery.actualDisplayName,
+            delivery: replyDelivery.delivery,
+          },
+          responseMode,
+          runtimePath: "v2",
+          toolsUsed,
+          runtimeExitCode: metadataNumber(runtimeMetadata, "exitCode") ?? null,
+          runtimeSignal: metadataString(runtimeMetadata, "signal") ?? null,
+          runtimeStderr: metadataString(runtimeMetadata, "stderr") ?? null,
+        },
+        rawResponse:
+          captureProviderRaw && rawRuntimeResponse
+            ? rawRuntimeResponse
+            : null,
       });
 
       console.log(
