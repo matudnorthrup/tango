@@ -640,7 +640,7 @@ const storage = new TangoStorage(dbPath);
 // "claude-code-v2" and restart the bot. Keep committed configs on "legacy".
 const v2Configs = loadAllV2AgentConfigs();
 const v2EnabledAgents = buildV2EnabledAgentSet(v2Configs);
-const atlasMemoryClient = new AtlasMemoryClient(dbPath);
+const atlasMemoryClient = new AtlasMemoryClient();
 const tangoRouter = new TangoRouter({
   agentConfigs: buildV2RuntimeConfigs(v2Configs),
   lifecycleConfig: {
