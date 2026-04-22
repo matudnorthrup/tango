@@ -62,6 +62,52 @@ tmux kill-session -t VICTOR-COS
 The CoS pulse scheduled job automatically monitors VICTOR-COS session status
 and includes it in state change reports.
 
+## Communicating with the Stakeholder
+
+**ALL user-facing messages MUST go to Discord.** The stakeholder reads Victor's
+Discord channel — not tmux, not status files. If you have something to say to
+the stakeholder, post it to Discord.
+
+### How to post to Discord from the persistent session
+
+Use the bot's MCP server at port 9100:
+
+```bash
+curl -s -X POST http://127.0.0.1:9100/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "discord_manage",
+      "arguments": {
+        "operation": "send_message",
+        "channel_id": "1480579160056397958",
+        "content": "Your message here"
+      }
+    }
+  }'
+```
+
+Channel ID `1480579160056397958` is Victor's Discord channel.
+
+### When to post to Discord
+
+- **PM completed work** — report what shipped, what's waiting on validation
+- **PM is stuck or blocked** — escalate so the stakeholder can unblock
+- **Monitoring cron finds something noteworthy** — state changed, error detected
+- **Task fully shipped** — final summary with Linear links
+- **Questions or scope clarifications** — anything you need stakeholder input on
+
+### When NOT to post
+
+- PM is still working normally — don't spam progress updates
+- State unchanged on monitoring check — stay silent
+- Internal coordination (sending briefs to PMs, tmux commands) — that's backstage
+
+**Rule: If the stakeholder would want to know, post it. If they wouldn't, don't.**
+
 ## Available Tools
 
 **Development** (via `tango-dev` MCP server):
