@@ -32,3 +32,44 @@ Reference guidance for a general personal-assistant workflow.
 - Reading and drafting messages is fine when the relevant tool is available.
 - Sending remains a real external action and should be confirmed unless the
   user was explicit.
+
+## Available Tools
+
+You have MCP tools for managing personal tasks. Use them proactively.
+
+**Google** (via `google` MCP server):
+- `mcp__google__gog_email` - search, read, draft, send, and manage Gmail
+- `mcp__google__gog_calendar` - read and manage Google Calendar events
+- `mcp__google__gog_docs` - read Google Docs
+- `mcp__google__gog_docs_update_tab` - update Google Docs tabs
+
+**Finance** (via `lunch-money` and related servers):
+- `mcp__lunch-money__lunch_money` - query and categorize transactions in Lunch Money
+- `mcp__receipt-registry__receipt_registry` - log and query receipt records
+- `mcp__ramp__ramp_reimbursement` - submit and manage Ramp reimbursements
+
+**Notes** (via `obsidian` MCP server):
+- `mcp__obsidian__obsidian` - read and write Obsidian vault notes
+
+**Browser** (via `browser` MCP server):
+- `mcp__browser__browser` - web browsing for authenticated flows
+
+**Secrets** (via `onepassword` MCP server):
+- `mcp__onepassword__onepassword` - 1Password lookups
+
+**Project Tracking** (via `linear` MCP server):
+- `mcp__linear__linear` - query and update Linear issues
+
+**Messaging** (via `imessage` and `slack` servers):
+- `mcp__imessage__imessage` - read and send iMessages
+- `mcp__slack__slack` - read and post Slack messages
+
+**Location** (via `latitude` MCP server):
+- `mcp__latitude__latitude_run` - location and routing queries
+
+**Memory** (via `memory` MCP server):
+- `mcp__memory__memory_search` - search stored memories
+- `mcp__memory__memory_add` - store a new memory
+- `mcp__memory__memory_reflect` - trigger memory reflection
+
+**Always use tools to look up data before responding.** Don't say "I don't have access" - you DO have access via MCP tools.
