@@ -1,0 +1,95 @@
+id: watson
+display_name: Watson
+type: personal
+
+# System prompt = personality + domain + rules
+system_prompt_file: agents/assistants/watson/soul.md
+
+# MCP servers this agent can access
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+  - name: google
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "google"]
+    env:
+      ALLOWED_TOOL_IDS: "gog_email,gog_calendar,gog_docs,gog_docs_update_tab"
+  - name: obsidian
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
+    env:
+      ALLOWED_TOOL_IDS: "obsidian"
+  - name: lunch-money
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "lunch-money"]
+    env:
+      ALLOWED_TOOL_IDS: "lunch_money"
+  - name: receipt-registry
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "receipt-registry"]
+    env:
+      ALLOWED_TOOL_IDS: "receipt_registry"
+  - name: ramp
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "ramp"]
+    env:
+      ALLOWED_TOOL_IDS: "ramp_reimbursement"
+  - name: browser
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "browser"]
+    env:
+      ALLOWED_TOOL_IDS: "browser"
+  - name: onepassword
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "onepassword"]
+    env:
+      ALLOWED_TOOL_IDS: "onepassword"
+  - name: linear
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "linear"]
+    env:
+      ALLOWED_TOOL_IDS: "linear"
+  - name: imessage
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "imessage"]
+    env:
+      ALLOWED_TOOL_IDS: "imessage"
+  - name: latitude
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "latitude"]
+    env:
+      ALLOWED_TOOL_IDS: "latitude_run"
+  - name: slack
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "slack"]
+    env:
+      ALLOWED_TOOL_IDS: "slack"
+
+# Runtime configuration
+runtime:
+  mode: persistent
+  provider: legacy
+  fallback: codex
+  model: claude-sonnet-4-6
+  reasoning_effort: medium
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+
+# Memory configuration
+memory:
+  post_turn_extraction: enabled
+  extraction_model: claude-haiku-4-5
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+# Voice configuration (unchanged from legacy)
+voice:
+  call_signs:
+    - Watson
+  default_channel_id: "100000000000000001"
+
+# Discord routing
+discord:
+  default_channel_id: "100000000000000001"
+  smoke_test_channel_id: "100000000000001001"
