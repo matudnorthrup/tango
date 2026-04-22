@@ -3,6 +3,10 @@
 set -euo pipefail
 
 SESSION_NAME="${VICTOR_COS_SESSION_NAME:-VICTOR-COS}"
+# Target the Claude Code window explicitly (window 0), not the active window.
+# The watcher runs in a separate window and tmux send-keys defaults to the
+# active window, which would send the prompt back to the watcher itself.
+SESSION_TARGET="${SESSION_NAME}:0"
 INBOX_DIR="${VICTOR_COS_INBOX_DIR:-/tmp/victor-cos-inbox}"
 OUTBOX_DIR="${VICTOR_COS_OUTBOX_DIR:-/tmp/victor-cos-outbox}"
 IDLE_WAIT_SECONDS=5
@@ -20,14 +24,14 @@ tmux_target_available() {
 pane_looks_idle() {
   local current_command pane_text last_nonempty
 
-  current_command="$(tmux display-message -p -t "$SESSION_NAME" '#{pane_current_command}' 2>/dev/null || true)"
+  current_command="$(tmux display-message -p -t "$SESSION_TARGET" '#{pane_current_command}' 2>/dev/null || true)"
   case "$current_command" in
     bash|zsh|sh|fish)
       return 0
       ;;
   esac
 
-  pane_text="$(tmux capture-pane -t "$SESSION_NAME" -p -S -40 2>/dev/null || true)"
+  pane_text="$(tmux capture-pane -t "$SESSION_TARGET" -p -S -40 2>/dev/null || true)"
   last_nonempty="$(printf '%s\n' "$pane_text" | awk 'NF { line = $0 } END { print line }')"
 
   case "$last_nonempty" in
@@ -105,10 +109,16 @@ NODE
 
 send_prompt_to_victor() {
   local prompt="$1"
-  while IFS= read -r line || [ -n "$line" ]; do
-    tmux send-keys -t "$SESSION_NAME" -l -- "$line"
-    tmux send-keys -t "$SESSION_NAME" Enter
-  done <<<"$prompt"
+  local tmp_file
+
+  # Write the prompt to a temp file, then use send-tmux-message.sh which handles
+  # Claude Code's multi-line paste detection reliably (paste + wait + Enter + verify).
+  tmp_file="$(mktemp /tmp/victor-cos-prompt-XXXXXX.md)"
+  printf '%s' "$prompt" > "$tmp_file"
+
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  "$SCRIPT_DIR/send-tmux-message.sh" "$SESSION_TARGET" "$tmp_file"
+  rm -f "$tmp_file"
 }
 
 deliver_file() {
