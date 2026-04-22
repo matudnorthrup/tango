@@ -15,6 +15,7 @@ export type EarconName =
   | 'gate-closed'
   | 'paused'
   | 'resumed'
+  | 'still-listening'
   | 'nudge';
 
 const cache = new Map<EarconName, Buffer>();
@@ -348,6 +349,28 @@ function generateResumed(): Buffer {
 }
 
 /**
+ * Low overlapping minor-third bloom — "I'm still here" (~1.2s)
+ * Two soft low tones with slow decay so the cue feels ambient rather than
+ * attention-grabbing. Intentionally distinct from ready's bright ascent and
+ * nudge's single higher notification bell.
+ */
+function generateStillListening(): Buffer {
+  const duration = 1.2;
+  const samples = Math.floor(duration * SAMPLE_RATE);
+  const mix = new Float64Array(samples);
+
+  // C3 (131 Hz) — warm, grounded fundamental.
+  const note1 = warmBellTone(131, 1900, 1.0, 2.5);
+  mixInto(mix, note1, 0);
+
+  // Eb3 (156 Hz) — soft minor-third overlap that blooms in after the first tone.
+  const note2 = warmBellTone(156, 1650, 0.9, 2.8);
+  mixInto(mix, note2, Math.floor(0.28 * SAMPLE_RATE));
+
+  return mixToWav(mix);
+}
+
+/**
  * Single clean bell with a longer tail — "Something finished" (~900ms)
  * Intentionally avoids a second note so it reads as a clear notification
  * instead of a clashing interval.
@@ -377,6 +400,7 @@ const generators: Record<EarconName, () => Buffer> = {
   'gate-closed': generateGateClosed,
   'paused': generatePaused,
   'resumed': generateResumed,
+  'still-listening': generateStillListening,
   'nudge': generateNudge,
 };
 
@@ -411,5 +435,5 @@ export function getEarcon(name: EarconName): Buffer {
 export const EARCON_NAMES: EarconName[] = [
   'listening', 'acknowledged', 'error', 'timeout-warning',
   'cancelled', 'ready', 'question', 'busy', 'gate-closed',
-  'paused', 'resumed', 'nudge',
+  'paused', 'resumed', 'still-listening', 'nudge',
 ];
