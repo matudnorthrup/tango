@@ -4607,6 +4607,15 @@ export class TangoStorage {
             )
             AND NOT EXISTS (
               SELECT 1
+              FROM messages AS reply
+              WHERE reply.direction = 'outbound'
+                AND reply.session_id = messages.session_id
+                AND COALESCE(reply.agent_id, '') = COALESCE(messages.agent_id, '')
+                AND reply.id > messages.id
+                AND json_extract(reply.metadata_json, '$.runtimePath') = 'victor-bridge'
+            )
+            AND NOT EXISTS (
+              SELECT 1
               FROM messages AS newer
               WHERE newer.id > messages.id
                 AND newer.source = 'discord'
