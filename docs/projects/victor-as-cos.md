@@ -1,6 +1,6 @@
 # Victor as Chief-of-Staff
 
-**Status:** Stage 1: Implementation
+**Status:** Stage 2: Implementation
 **Linear:** [Victor as Chief-of-Staff](https://linear.app/seaside-hq/project/victor-as-chief-of-staff-ca2e60674ae1)
 **Date:** 2026-04-22
 
@@ -388,13 +388,39 @@ This avoids:
 
 **Before Stage 2**, run the CoS pulse prototype (Part 2) for real validation. The prototype is additive (new YAML file) and low-risk.
 
+## Stage 2: Implementation Notes
+
+### CoS Pulse (shipped 2026-04-22)
+
+- Schedule config: `config/defaults/schedules/cos-pulse.yaml`
+- Profile override: `~/.tango/profiles/default/config/schedules/cos-pulse.yaml` (real channel IDs)
+- Fires every 120 seconds via `every_seconds: 120`
+- Runs as v2 agent turn with `delivery.agent_id: victor` (routes through Victor's MCP servers)
+- Uses haiku model for lightweight state checks
+- `__NO_OUTPUT__` sentinel suppresses delivery when state unchanged (confirmed in executor.ts:224)
+- State file: `/tmp/cos-pulse-state.json`
+- Checks: PM sessions, worktree slots, bot health (tango:discord), VICTOR-COS session
+
+### VICTOR-COS Tmux Visibility (shipped 2026-04-22)
+
+- Added to `agents/assistants/victor/knowledge.md`
+- Pattern: `tmux new-session -d -s VICTOR-COS` for complex tasks > 5 minutes
+- One session at a time — check before spawning
+- CoS pulse monitors VICTOR-COS session status automatically
+- Stakeholder can `tmux attach -t VICTOR-COS` for live visibility
+
+### Channel ID Resolution
+
+Victor's channel IDs are placeholder in `config/defaults/` (`100000000000000004`). Real Discord snowflake ID (`1480579160056397958`) is in the profile override at `~/.tango/profiles/default/config/channels.yaml`. The cos-pulse profile override uses the real ID directly.
+
 ## Key Files
 
-- `config/v2/agents/victor.yaml` — Victor's agent config (to be updated)
-- `agents/assistants/victor/soul.md` — Victor's personality (to be rewritten)
-- `agents/assistants/victor/knowledge.md` — Victor's domain knowledge (to be rewritten)
+- `config/v2/agents/victor.yaml` — Victor's agent config (updated Stage 1)
+- `agents/assistants/victor/soul.md` — Victor's personality (rewritten Stage 1)
+- `agents/assistants/victor/knowledge.md` — Victor's domain knowledge (rewritten Stage 1, VICTOR-COS added Stage 2)
+- `config/defaults/schedules/cos-pulse.yaml` — CoS pulse schedule config (Stage 2)
 - `packages/core/src/scheduler/engine.ts` — Scheduler engine (delivers proactive messages)
-- `packages/core/src/scheduler/executor.ts` — Job executor (v2 turn path)
+- `packages/core/src/scheduler/executor.ts` — Job executor (v2 turn path, __NO_OUTPUT__ handling)
 - `packages/discord/src/main.ts:1695` — V2 scheduled turn executor
 - `packages/discord/src/main.ts:1830` — `deliverToChannel` — session-aware delivery
 - `docs/guides/cos-pm-architecture.md` — Current manual CoS architecture

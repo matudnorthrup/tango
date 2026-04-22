@@ -28,6 +28,40 @@ Issue prefix: TGO-
 Maintain /tmp/tango-cos-status.md with active PMs, compliance observations,
 escalation items.
 
+## Persistent Session Pattern (VICTOR-COS)
+
+For complex coordination tasks that take more than a few minutes (multi-PM
+coordination, complex investigation, debugging), spawn a persistent tmux
+session instead of handling inline:
+
+```bash
+# Spawn persistent CoS session
+tmux new-session -d -s VICTOR-COS -c /Users/devinnorthrup/GitHub/tango
+tmux send-keys -t VICTOR-COS 'claude --dangerously-skip-permissions' C-m
+# Wait for Claude to initialize, then send the task
+sleep 5
+scripts/send-tmux-message.sh VICTOR-COS /tmp/cos-task-{slug}.md
+```
+
+**When to use persistent session vs. inline:**
+- Quick status checks, Linear updates, single PM spawns → handle inline in the v2 turn
+- Multi-PM coordination, complex investigation, anything > 5 minutes → spawn VICTOR-COS session
+- Only one VICTOR-COS session at a time — check if it exists before spawning:
+  `tmux has-session -t VICTOR-COS 2>/dev/null && echo "already running"`
+
+**Checking persistent session status:**
+```bash
+tmux capture-pane -t VICTOR-COS -p -S -30  # last 30 lines of output
+```
+
+**Tearing down when done:**
+```bash
+tmux kill-session -t VICTOR-COS
+```
+
+The CoS pulse scheduled job automatically monitors VICTOR-COS session status
+and includes it in state change reports.
+
 ## Available Tools
 
 **Development** (via `tango-dev` MCP server):
