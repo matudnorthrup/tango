@@ -87,6 +87,7 @@ memory:
 voice:
   call_signs:
     - Watson
+  kokoro_voice: am_adam
   default_channel_id: "100000000000000001"
 
 # Discord routing
