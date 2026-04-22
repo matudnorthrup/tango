@@ -1,0 +1,91 @@
+id: sierra
+display_name: Sierra
+type: research
+
+# System prompt = personality + domain + rules
+system_prompt_file: agents/assistants/sierra/soul.md
+
+# MCP servers this agent can access
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+  - name: exa
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "exa"]
+    env:
+      ALLOWED_TOOL_IDS: "exa_search,exa_answer"
+  - name: browser
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "browser"]
+    env:
+      ALLOWED_TOOL_IDS: "browser"
+  - name: obsidian
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
+    env:
+      ALLOWED_TOOL_IDS: "obsidian"
+  - name: onepassword
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "onepassword"]
+    env:
+      ALLOWED_TOOL_IDS: "onepassword"
+  - name: printer
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "printer"]
+    env:
+      ALLOWED_TOOL_IDS: "printer_command,openscad_render,prusa_slice"
+  - name: location
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "location"]
+    env:
+      ALLOWED_TOOL_IDS: "location_read,find_diesel"
+  - name: walmart
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "walmart"]
+    env:
+      ALLOWED_TOOL_IDS: "walmart"
+  - name: file-ops
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "file-ops"]
+    env:
+      ALLOWED_TOOL_IDS: "file_ops"
+  - name: slack
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "slack"]
+    env:
+      ALLOWED_TOOL_IDS: "slack"
+  - name: youtube
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "youtube"]
+    env:
+      ALLOWED_TOOL_IDS: "youtube_transcript,youtube_analyze"
+
+# Runtime configuration
+runtime:
+  mode: persistent
+  provider: legacy
+  fallback: codex
+  model: claude-sonnet-4-6
+  reasoning_effort: high
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+
+# Memory configuration
+memory:
+  post_turn_extraction: enabled
+  extraction_model: claude-haiku-4-5
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+# Voice configuration (unchanged from legacy)
+voice:
+  call_signs:
+    - Sierra
+  kokoro_voice: af_heart
+  default_channel_id: "100000000000000003"
+
+# Discord routing
+discord:
+  default_channel_id: "100000000000000003"
+  smoke_test_channel_id: "100000000000001003"

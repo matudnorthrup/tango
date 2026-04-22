@@ -1,0 +1,47 @@
+id: victor
+display_name: Victor
+type: developer
+
+# System prompt = personality + domain + rules
+system_prompt_file: agents/assistants/victor/soul.md
+
+# MCP servers this agent can access
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+  - name: tango-dev
+    command: node
+    args: ["packages/tango-dev-mcp/dist/index.js"]
+  - name: discord-manage
+    command: node
+    args: ["packages/discord-manage-mcp/dist/index.js"]
+
+# Runtime configuration
+runtime:
+  mode: persistent
+  provider: legacy
+  fallback: codex
+  model: claude-sonnet-4-6
+  reasoning_effort: max
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+
+# Memory configuration
+memory:
+  post_turn_extraction: enabled
+  extraction_model: claude-haiku-4-5
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+# Voice configuration (unchanged from legacy)
+voice:
+  call_signs:
+    - Victor
+  kokoro_voice: am_liam
+  default_channel_id: "100000000000000004"
+
+# Discord routing
+discord:
+  default_channel_id: "100000000000000004"
+  smoke_test_channel_id: "100000000000001004"
