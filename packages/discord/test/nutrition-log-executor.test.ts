@@ -366,6 +366,85 @@ describe("executeNutritionLogItems", () => {
     expect(fatsecretCall).not.toHaveBeenCalled();
   });
 
+  it("logs resolved items when strict is omitted and another item misses Atlas", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Light Vanilla Greek Yogurt",
+        food_id: "1001",
+        serving_id: "2001",
+        serving_description: "100 g",
+        serving_size: "100 g",
+        grams_per_serving: 100,
+        calories: 60,
+        protein: 10,
+        carbs: 5,
+        fat: 0,
+        aliases: JSON.stringify(["light vanilla greek yogurt"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return {
+          success: true,
+          food_entry_id: `${params.food_id}-entry`,
+        };
+      }
+      if (method === "food_entries_get") {
+        return {
+          breakfast: [{ food_entry_id: "1001-entry" }],
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [
+          { name: "light vanilla greek yogurt", quantity: "100g" },
+          { name: "mystery protein bar", quantity: "1 bar" },
+        ],
+        meal: "breakfast",
+        date: "2026-04-09",
+      },
+      {
+        atlasDbPath,
+        fatsecretCall,
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "partial_success",
+      meal: "breakfast",
+      date: "2026-04-09",
+      unresolved: [
+        {
+          item: "mystery protein bar",
+          quantity: "1 bar",
+          reason: "No Atlas ingredient match found. Use low-level FatSecret search for this item.",
+        },
+      ],
+      totals: {
+        calories: 60,
+        protein: 10,
+        carbs: 5,
+        fat: 0,
+        fiber: 0,
+      },
+    });
+    expect(result.logged).toHaveLength(1);
+    expect(result.logged[0]).toMatchObject({
+      item: "light vanilla greek yogurt",
+      food_id: "1001",
+      serving_id: "2001",
+      number_of_units: 1,
+    });
+    expect(fatsecretCall.mock.calls.map(([method]) => method)).toEqual([
+      "food_entry_create",
+      "food_entries_get",
+    ]);
+  });
+
   it("treats branded package quantities as one serving when Atlas only exposes gram serving metadata", async () => {
     const atlasDbPath = createAtlasDb([
       {
