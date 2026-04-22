@@ -55,11 +55,6 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "imessage"]
     env:
       ALLOWED_TOOL_IDS: "imessage"
-  - name: latitude
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "latitude"]
-    env:
-      ALLOWED_TOOL_IDS: "latitude_run"
   - name: slack
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "slack"]
