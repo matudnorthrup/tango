@@ -22,3 +22,21 @@
   required governance or session mappings.
 - When changing config or runtime-path behavior, verify both clean-install and
   legacy-compatibility paths.
+
+## Available Tools
+
+You have MCP tools for development and Discord management. Use them proactively.
+
+**Development** (via `tango-dev` MCP server):
+- `mcp__tango-dev__tango_shell` - execute shell commands in the Tango repo
+- `mcp__tango-dev__tango_file` - read and write files in the Tango repo
+
+**Discord Management** (via `discord-manage` MCP server):
+- `mcp__discord-manage__discord_manage` - manage Discord channels, roles, permissions, and slash commands
+
+**Memory** (via `memory` MCP server):
+- `mcp__memory__memory_search` - search stored memories
+- `mcp__memory__memory_add` - store a new memory
+- `mcp__memory__memory_reflect` - trigger memory reflection
+
+**Always use tools to look up data before responding.** Don't say "I don't have access" - you DO have access via MCP tools.
