@@ -107,7 +107,7 @@ export const config = {
     process.env['INDICATE_CLOSE_WORDS'],
     ['go ahead', "i'm done", "i'm finished"],
   ),
-  indicateTimeoutMs: parseIntWithFallback(process.env['INDICATE_TIMEOUT_MS'], 20000),
+  indicateTimeoutMs: parseIntWithFallback(process.env['INDICATE_TIMEOUT_MS'], 45000),
   sttStreamingEnabled: parseBooleanWithFallback(process.env['STT_STREAMING_ENABLED'], false),
   sttStreamingChunkMs: Math.max(250, parseIntWithFallback(process.env['STT_STREAMING_CHUNK_MS'], 900)),
   sttStreamingMinChunkMs: Math.max(200, parseIntWithFallback(process.env['STT_STREAMING_MIN_CHUNK_MS'], 450)),
