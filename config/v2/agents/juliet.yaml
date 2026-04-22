@@ -1,0 +1,40 @@
+id: juliet
+display_name: Juliet
+type: mental-health
+
+# System prompt = personality + domain + rules
+system_prompt_file: agents/assistants/juliet/soul.md
+
+# MCP servers this agent can access
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+
+# Runtime configuration
+runtime:
+  mode: persistent
+  provider: legacy
+  fallback: codex
+  model: claude-sonnet-4-6
+  reasoning_effort: high
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+
+# Memory configuration
+memory:
+  post_turn_extraction: enabled
+  extraction_model: claude-haiku-4-5
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+# Voice configuration (unchanged from legacy)
+voice:
+  call_signs:
+    - Juliet
+  default_channel_id: "1495415367118618766"
+
+# Discord routing
+discord:
+  default_channel_id: "1495415367118618766"
+  smoke_test_channel_id: "1495415369043673189"
