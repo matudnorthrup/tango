@@ -1,6 +1,6 @@
 id: victor
 display_name: Victor
-type: developer
+type: coordinator
 
 # System prompt = personality + domain + rules
 system_prompt_file: agents/assistants/victor/soul.md
