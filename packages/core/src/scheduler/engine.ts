@@ -14,6 +14,7 @@ import type {
   RunStatus,
   WorkerExecuteFn,
   ScheduledTurnExecuteFn,
+  V2ScheduledTurnExecuteFn,
   DeliveryFn,
   AlertFn,
   SystemLogFn,
@@ -32,6 +33,7 @@ export interface EngineDeps {
   store: SchedulerStore;
   executeWorker: WorkerExecuteFn;
   executeScheduledTurn?: ScheduledTurnExecuteFn;
+  executeV2Turn?: V2ScheduledTurnExecuteFn;
   deliver?: DeliveryFn;
   alert?: AlertFn;
   systemLog?: SystemLogFn;
@@ -221,6 +223,7 @@ export class SchedulerEngine {
       store,
       executeWorker: this.deps.executeWorker,
       executeScheduledTurn: this.deps.executeScheduledTurn,
+      executeV2Turn: this.deps.executeV2Turn,
       db: this.deps.db,
     });
 

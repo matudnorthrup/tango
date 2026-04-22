@@ -11,6 +11,7 @@ import type {
   ScheduleConfig,
   WorkerExecuteFn,
   ScheduledTurnExecuteFn,
+  V2ScheduledTurnExecuteFn,
   HandlerContext,
   RunStatus,
 } from "./types.js";
@@ -31,6 +32,7 @@ export interface ExecutorDeps {
   store: SchedulerStore;
   executeWorker: WorkerExecuteFn;
   executeScheduledTurn?: ScheduledTurnExecuteFn;
+  executeV2Turn?: V2ScheduledTurnExecuteFn;
   db: import("node:sqlite").DatabaseSync;
 }
 
@@ -209,6 +211,27 @@ async function runAgentWorker(
   const model = config.provider?.model;
   const reasoningEffort = config.provider?.reasoningEffort;
   const timeoutMs = (config.execution.timeoutSeconds ?? 300) * 1000;
+
+  // v2 runtime path: spawn a fresh Claude Code adapter for this job
+  if (config.runtime === "v2" && deps.executeV2Turn) {
+    const agentId = config.delivery?.agentId ?? config.execution.deterministicAgentId ?? "dispatch";
+    const v2Result = await withTimeout(
+      deps.executeV2Turn({ config, task, agentId }),
+      timeoutMs,
+      `V2 scheduled turn for agent '${agentId}' timed out`,
+    );
+    const trimmedText = v2Result.text.trim();
+    const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
+
+    return {
+      status: "ok",
+      durationMs: Date.now() - startTime,
+      summary,
+      modelUsed: v2Result.model,
+      preCheckResult: preCheckContext ? JSON.stringify({ action: "proceed", context: preCheckContext }) : undefined,
+      metadata: v2Result.metadata,
+    };
+  }
 
   if ((config.execution.intentIds?.length ?? 0) > 0) {
     if (!deps.executeScheduledTurn) {
