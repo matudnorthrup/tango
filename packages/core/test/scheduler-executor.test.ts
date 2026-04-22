@@ -80,6 +80,46 @@ describe("executeSchedule", () => {
     expect(executeScheduledTurn).not.toHaveBeenCalled();
   });
 
+  it("routes runtime=v2 agent schedules through executeV2Turn", async () => {
+    const executeWorker = vi.fn(async () => ({ text: "legacy worker run", durationMs: 12 }));
+    const executeScheduledTurn = vi.fn();
+    const executeV2Turn = vi.fn(async () => ({
+      text: "fresh v2 runtime run",
+      durationMs: 20,
+      model: "claude-sonnet-4-6",
+      metadata: { runtime: "v2", sessionId: "provider-session-123" },
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        runtime: "v2",
+        delivery: {
+          agentId: "malibu",
+          mode: "message",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeWorker,
+        executeScheduledTurn,
+        executeV2Turn,
+        db: {} as never,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.summary).toBe("fresh v2 runtime run");
+    expect(result.modelUsed).toBe("claude-sonnet-4-6");
+    expect(result.metadata).toEqual({ runtime: "v2", sessionId: "provider-session-123" });
+    expect(executeV2Turn).toHaveBeenCalledOnce();
+    expect(executeV2Turn).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: "malibu",
+      task: "Review and maintain the inbox.",
+    }));
+    expect(executeWorker).not.toHaveBeenCalled();
+    expect(executeScheduledTurn).not.toHaveBeenCalled();
+  });
+
   it("routes conditional-agent schedules through the deterministic turn only after a proceed pre-check", async () => {
     if (!getPreCheckHandler("test-unreviewed-transactions")) {
       registerPreCheckHandler("test-unreviewed-transactions", async () => ({

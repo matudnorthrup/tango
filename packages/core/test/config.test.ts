@@ -464,6 +464,7 @@ describe("loadScheduleConfigs", () => {
         "id: daily-email-review",
         "description: Run inbox maintenance.",
         "enabled: true",
+        "runtime: v2",
         "schedule:",
         "  cron: \"0 16 * * *\"",
         "execution:",
@@ -480,6 +481,7 @@ describe("loadScheduleConfigs", () => {
     expect(schedules).toHaveLength(1);
     expect(schedules[0]).toMatchObject({
       id: "daily-email-review",
+      runtime: "v2",
       execution: {
         mode: "agent",
         workerId: "personal-assistant",

@@ -13,6 +13,7 @@ import type {
   ScheduleConfig,
   WorkerExecuteFn,
   ScheduledTurnExecuteFn,
+  V2ScheduledTurnExecuteFn,
   DeliveryFn,
   AlertFn,
   SystemLogFn,
@@ -27,6 +28,8 @@ export interface SchedulerServiceDeps {
   executeWorker: WorkerExecuteFn;
   /** Optional function to execute an explicit deterministic scheduled turn */
   executeScheduledTurn?: ScheduledTurnExecuteFn;
+  /** Optional function to execute a scheduled turn via the fresh v2 runtime */
+  executeV2Turn?: V2ScheduledTurnExecuteFn;
   /** Function to deliver messages to Discord channels */
   deliver?: DeliveryFn;
   /** Function to send alert messages */
@@ -47,6 +50,7 @@ export class SchedulerService {
       store: this.store,
       executeWorker: deps.executeWorker,
       executeScheduledTurn: deps.executeScheduledTurn,
+      executeV2Turn: deps.executeV2Turn,
       deliver: deps.deliver,
       alert: deps.alert,
       systemLog: deps.systemLog,
@@ -115,6 +119,7 @@ export type {
   PreCheckHandler,
   WorkerExecuteFn,
   ScheduledTurnExecuteFn,
+  V2ScheduledTurnExecuteFn,
   DeliveryFn,
   AlertFn,
   SystemLogFn,
