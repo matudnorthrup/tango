@@ -64,7 +64,7 @@ mcp_servers:
 # Runtime configuration
 runtime:
   mode: persistent
-  provider: legacy
+  provider: claude-code-v2
   fallback: codex
   model: claude-sonnet-4-6
   reasoning_effort: high
