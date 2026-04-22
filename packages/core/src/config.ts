@@ -700,6 +700,7 @@ const scheduleSchema = z.object({
   display_name: z.string().min(1).optional(),
   description: z.string().min(1),
   enabled: z.boolean(),
+  runtime: z.enum(["legacy", "v2"]).optional(),
   schedule: scheduleTimingSchema,
   execution: scheduleExecutionSchema,
   provider: scheduleProviderSchema,
@@ -720,6 +721,7 @@ export function loadScheduleConfigs(configDir: string): ScheduleConfig[] {
       displayName: parsed.display_name,
       description: parsed.description,
       enabled: parsed.enabled,
+      runtime: parsed.runtime,
       schedule: {
         cron: parsed.schedule.cron,
         everySeconds: parsed.schedule.every_seconds,

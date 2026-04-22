@@ -87,6 +87,7 @@ import {
   SchedulerService,
   type ScheduleConfig,
   type SystemLogEntry,
+  type V2ScheduledTurnExecuteFn,
   registerDeterministicHandler,
   registerPreCheckHandler,
   runMemoryEvalBenchmarks,
@@ -203,6 +204,8 @@ import {
   buildV2RuntimeConfigs,
   createAtlasColdStartContextBuilder,
   createV2PostTurnHook,
+  formatMemories,
+  formatPinnedFacts,
   routeV2MessageIfEnabled,
   shutdownV2Runtime,
 } from "./v2-runtime.js";
@@ -1689,6 +1692,138 @@ startPersistentMcpServer().then((port) => {
       };
     };
 
+    const executeV2TurnForScheduler: V2ScheduledTurnExecuteFn = async (input) => {
+      const v2Entry = v2Configs.get(input.agentId);
+      if (!v2Entry) {
+        throw new Error(
+          `Schedule '${input.config.id}' requests v2 runtime but agent '${input.agentId}' has no v2 config.`,
+        );
+      }
+
+      const systemPromptPath = resolveConfiguredPath(v2Entry.systemPromptFile);
+      const systemPrompt = fs.readFileSync(systemPromptPath, "utf8").trim();
+      if (systemPrompt.length === 0) {
+        throw new Error(`System prompt file for agent '${input.agentId}' is empty.`);
+      }
+
+      const runtimeConfig: AgentRuntimeConfig = {
+        agentId: input.agentId,
+        systemPrompt,
+        mcpServers: v2Entry.mcpServers.map((server) => ({
+          name: server.name,
+          command: server.command,
+          ...(server.args ? { args: [...server.args] } : {}),
+          env: {
+            ...buildRuntimePathEnv({ dbPath, configDir }),
+            ...(server.env ?? {}),
+          },
+        })),
+        runtimePreferences: {
+          model: input.config.provider?.model ?? v2Entry.runtime.model,
+          reasoningEffort: normalizeRuntimeReasoningEffort(
+            input.config.provider?.reasoningEffort ?? v2Entry.runtime.reasoningEffort,
+          ),
+          timeout: (input.config.execution.timeoutSeconds ?? 300) * 1000,
+        },
+      };
+
+      let coldStartContext = "";
+      try {
+        const [pinnedFacts, agentFacts, relevantMemories] = await Promise.all([
+          atlasMemoryClient.pinnedFactGet({ scope: "global" }),
+          atlasMemoryClient.pinnedFactGet({ scope: "agent", scope_id: input.agentId }),
+          atlasMemoryClient.memorySearch({
+            query: input.task.slice(0, 200),
+            agent_id: input.agentId,
+            limit: 5,
+          }),
+        ]);
+        const facts = formatPinnedFacts([...pinnedFacts, ...agentFacts]);
+        const memories = formatMemories(relevantMemories);
+        if (facts) coldStartContext += `Pinned facts:\n${facts}\n\n`;
+        if (memories) coldStartContext += `Relevant memories:\n${memories}\n\n`;
+      } catch (err) {
+        console.warn(`[scheduler-v2] cold-start context failed for ${input.config.id}:`, err);
+      }
+      runtimeConfig.coldStartContext = coldStartContext || undefined;
+
+      const { ClaudeCodeAdapter } = await import("@tango/core");
+      const adapter = new ClaudeCodeAdapter();
+      await adapter.initialize(runtimeConfig);
+
+      try {
+        const response = await adapter.send(input.task);
+        const runtimeMetadata = asRecord(response.metadata);
+        const providerMetadata = asRecord(runtimeMetadata?.providerMetadata);
+        const providerUsage = asRecord(providerMetadata?.usage);
+        const providerSessionId = metadataString(runtimeMetadata, "sessionId") ?? null;
+        const runtimeModel =
+          response.model
+          ?? metadataString(providerMetadata, "model")
+          ?? runtimeConfig.runtimePreferences.model
+          ?? "unknown";
+        const toolsUsed = response.toolsUsed ?? [];
+        const runtimeError = metadataBoolean(runtimeMetadata, "error") ?? false;
+        const rawRuntimeResponse = asRecord(runtimeMetadata?.raw);
+        const sessionId = buildScheduleExecutionSessionId(input.config.id, input.agentId);
+        const conversationKey = `schedule-v2:${input.config.id}`;
+
+        upsertSessionForRoute({ sessionId, agentId: input.agentId }, conversationKey);
+
+        writeModelRun({
+          sessionId,
+          agentId: input.agentId,
+          providerName: "claude-code-v2",
+          conversationKey,
+          providerSessionId,
+          model: runtimeModel,
+          stopReason: metadataString(providerMetadata, "stopReason") ?? null,
+          responseMode: "scheduled-v2",
+          latencyMs: response.durationMs,
+          providerDurationMs: metadataNumber(providerMetadata, "durationMs") ?? response.durationMs,
+          providerApiDurationMs: metadataNumber(providerMetadata, "durationApiMs") ?? null,
+          inputTokens: metadataNumber(providerUsage, "inputTokens") ?? null,
+          outputTokens: metadataNumber(providerUsage, "outputTokens") ?? null,
+          cacheReadInputTokens: metadataNumber(providerUsage, "cacheReadInputTokens") ?? null,
+          cacheCreationInputTokens: metadataNumber(providerUsage, "cacheCreationInputTokens") ?? null,
+          totalCostUsd: metadataNumber(providerMetadata, "totalCostUsd") ?? null,
+          isError: runtimeError,
+          errorMessage:
+            runtimeError
+              ? metadataString(runtimeMetadata, "stderr") ?? "Claude Code runtime returned an error response."
+              : null,
+          metadata: {
+            phase: "scheduled-v2",
+            scheduleId: input.config.id,
+            runtime: "v2",
+            runtimeMode: "fresh",
+            toolsUsed,
+            runtimeExitCode: metadataNumber(runtimeMetadata, "exitCode") ?? null,
+            runtimeSignal: metadataString(runtimeMetadata, "signal") ?? null,
+            runtimeStderr: metadataString(runtimeMetadata, "stderr") ?? null,
+            coldStartContextChars: runtimeConfig.coldStartContext?.length ?? 0,
+          },
+          rawResponse:
+            captureProviderRaw && rawRuntimeResponse
+              ? rawRuntimeResponse
+              : null,
+        });
+
+        return {
+          text: response.text,
+          durationMs: response.durationMs,
+          model: runtimeModel,
+          metadata: {
+            ...(response.metadata ?? {}),
+            runtime: "v2",
+            sessionId: providerSessionId,
+          },
+        };
+      } finally {
+        await adapter.teardown();
+      }
+    };
+
     // --- Scheduler delivery: post job output to agent channels ---
     // Also writes to the session DB so the agent has conversation history when
     // the user replies (e.g., correcting a transaction categorization).
@@ -1779,6 +1914,7 @@ startPersistentMcpServer().then((port) => {
       db: storage.getDatabase(),
       executeWorker: executeWorkerForScheduler,
       executeScheduledTurn: executeScheduledTurnForScheduler,
+      executeV2Turn: executeV2TurnForScheduler,
       deliver: deliverToChannel,
       alert: sendAlert,
       systemLog: sendSystemLog,

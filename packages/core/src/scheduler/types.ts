@@ -115,6 +115,8 @@ export interface ScheduleConfig {
   displayName?: string;
   description: string;
   enabled: boolean;
+  /** Runtime to use for agent execution: 'legacy' (default) or 'v2' (Claude Code adapter) */
+  runtime?: "legacy" | "v2";
   schedule: ScheduleTimingConfig;
   execution: ScheduleExecutionConfig;
   provider?: ScheduleProviderConfig;
@@ -221,6 +223,18 @@ export type ScheduledTurnExecuteFn = (input: {
   text: string;
   durationMs: number;
   modelUsed?: string;
+  metadata?: Record<string, unknown>;
+}>;
+
+/** Function signature for executing a scheduled turn via the v2 Claude Code runtime. */
+export type V2ScheduledTurnExecuteFn = (input: {
+  config: ScheduleConfig;
+  task: string;
+  agentId: string;
+}) => Promise<{
+  text: string;
+  durationMs: number;
+  model?: string;
   metadata?: Record<string, unknown>;
 }>;
 
