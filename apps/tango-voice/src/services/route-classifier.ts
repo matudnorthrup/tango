@@ -46,6 +46,7 @@ const MEDIUM_CONFIDENCE = 0.60;
 
 const TARGET_CACHE_TTL_MS = 60_000; // 1 minute
 const DAY_MS = 24 * 60 * 60 * 1000;
+export const CREATION_INTENT_PATTERN = /\b(create|make|start|open|new)\b[\s\S]{0,30}\b(thread|post|topic|conversation|discussion)\b/i;
 
 export interface RouteClassifierDatabase {
   prepare(sql: string): {
@@ -166,6 +167,10 @@ function getRouteClassifierDatabase(): RouteClassifierDatabase {
 
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export function hasCreationIntent(transcript: string): boolean {
+  return CREATION_INTENT_PATTERN.test(transcript);
 }
 
 export function normalizeRouteTargetName(name: string): string {
@@ -546,6 +551,13 @@ export async function inferRouteTarget(
     return noRoute;
   }
 
+  if (action === 'create' && !hasCreationIntent(strippedPrompt)) {
+    console.log(
+      `Route classifier: downgraded create action to none — no creation verb found in transcript`,
+    );
+    return { action: 'none', confidence, mentionsAnyTargetName };
+  }
+
   if (action === 'create') {
     const title = String(parsed.title ?? '').trim();
     if (!title || !targetId) {
@@ -617,7 +629,7 @@ export function isMediumConfidence(result: RouteClassifierResult): boolean {
 }
 
 const HIGH_CREATE_CONFIDENCE = 0.90;
-const MEDIUM_CREATE_CONFIDENCE = 0.70;
+const MEDIUM_CREATE_CONFIDENCE = 0.80;
 
 export function isHighCreateConfidence(result: RouteClassifierResult): boolean {
   return result.action === 'create' && result.confidence > HIGH_CREATE_CONFIDENCE;

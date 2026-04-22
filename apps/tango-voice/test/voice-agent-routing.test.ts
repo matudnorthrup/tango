@@ -84,7 +84,7 @@ vi.mock('../src/services/tango-voice.js', () => ({
   requestTangoVoiceTurn,
 }));
 
-import { VoicePipeline, computeEffectiveThresholds } from '../src/pipeline/voice-pipeline.js';
+import { VoicePipeline, computeEffectiveThresholds, shouldBlockCreateAction } from '../src/pipeline/voice-pipeline.js';
 
 describe('VoicePipeline agent routing', () => {
   beforeEach(() => {
@@ -274,6 +274,77 @@ describe('VoicePipeline agent routing', () => {
         mediumThreshold: 0.6,
         blocked: false,
       });
+    });
+  });
+
+  describe('shouldBlockCreateAction', () => {
+    const agentAddress = {
+      kind: 'agent',
+      agent: {
+        id: 'watson',
+        displayName: 'Watson',
+        defaultChannelId: 'ch-watson',
+      },
+    } as any;
+
+    it('blocks create when callsign is present and the target is not mentioned', () => {
+      expect(shouldBlockCreateAction(
+        agentAddress,
+        'daily planning for today',
+        {
+          action: 'create',
+          target: 'forum-1',
+          targetName: 'latitude (forum)',
+          confidence: 0.85,
+          createTitle: 'Daily Planning',
+        },
+        4,
+      )).toBe(true);
+    });
+
+    it('allows create when callsign is present and the target is mentioned', () => {
+      expect(shouldBlockCreateAction(
+        agentAddress,
+        'create a new thread in latitude for architecture',
+        {
+          action: 'create',
+          target: 'forum-1',
+          targetName: 'latitude (forum)',
+          confidence: 0.85,
+          createTitle: 'Architecture',
+        },
+        8,
+      )).toBe(false);
+    });
+
+    it('blocks create for short input without a target mention', () => {
+      expect(shouldBlockCreateAction(
+        null,
+        'plan my day',
+        {
+          action: 'create',
+          target: 'forum-1',
+          targetName: 'latitude (forum)',
+          confidence: 0.85,
+          createTitle: 'Daily Planning',
+        },
+        3,
+      )).toBe(true);
+    });
+
+    it('allows create for long input without a callsign', () => {
+      expect(shouldBlockCreateAction(
+        null,
+        'I want to create a new thread about the architecture decisions we discussed',
+        {
+          action: 'create',
+          target: 'forum-1',
+          targetName: 'latitude (forum)',
+          confidence: 0.85,
+          createTitle: 'Architecture Decisions',
+        },
+        12,
+      )).toBe(false);
     });
   });
 
