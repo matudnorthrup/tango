@@ -14,6 +14,7 @@ import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
 import { fork, execSync, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { request as httpRequest, createServer as createHttpServer } from "node:http";
 import {
   AgentRegistry,
@@ -215,6 +216,12 @@ import {
   dispatchVoiceTurnByRuntime,
   VOICE_V2_TTS_ERROR_MESSAGE,
 } from "./voice-turn-runtime-routing.js";
+import {
+  isVictorPersistentSessionActive,
+  sendToVictorInbox,
+  waitForVictorResponse,
+  type VictorBridgeMessage,
+} from "./victor-bridge.js";
 
 export * from "./tango-router.js";
 
@@ -3775,6 +3782,61 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       );
     });
   };
+
+  // Victor persistent session bridge: route voice to VICTOR-COS tmux if active
+  if (targetAgent.id === "victor" && isVictorPersistentSessionActive()) {
+    try {
+      const bridgeMessage: VictorBridgeMessage = {
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        source: "discord-voice",
+        user: turnInput.discordUserId
+          ? { id: turnInput.discordUserId, username: "voice-user" }
+          : null,
+        channel: { id: resolvedVoiceSyncChannelId ?? `voice:${turnInput.sessionId}` },
+        content: turnInput.transcript,
+        sessionId: turnInput.sessionId,
+        agentId: targetAgent.id,
+      };
+
+      const requestId = await sendToVictorInbox(bridgeMessage);
+      clearVoiceTyping();
+      const bridgeResponse = await waitForVictorResponse(requestId, 120_000);
+
+      writeMessage({
+        sessionId: turnInput.sessionId,
+        agentId: targetAgent.id,
+        providerName: "victor-bridge",
+        direction: "outbound",
+        source: "tango",
+        visibility: "public",
+        discordChannelId: resolvedVoiceSyncChannelId,
+        content: bridgeResponse.text,
+        metadata: {
+          inputSource: "voice-bridge",
+          runtimePath: "victor-bridge",
+          bridgeRequestId: requestId,
+          turnId: turnId ?? null,
+        },
+      });
+
+      syncVoiceAgentResponse(bridgeResponse.text);
+
+      return {
+        deduplicated: false,
+        responseText: bridgeResponse.text,
+        providerName: "victor-bridge",
+        providerUsedFailover: false,
+        ...(turnId ? { turnId } : {}),
+      };
+    } catch (error) {
+      console.error(
+        `[tango-discord] victor-bridge voice failed, falling back to ephemeral:`,
+        error instanceof Error ? error.message : error,
+      );
+      // Fall through to normal dispatch
+    }
+  }
 
   return dispatchVoiceTurnByRuntime({
     transcript: turnInput.transcript,
@@ -7356,6 +7418,73 @@ async function handleMessage(
       systemAgent
     );
     return;
+  }
+
+  // Victor persistent session bridge: route to VICTOR-COS tmux if active
+  if (targetAgent.id === "victor" && isVictorPersistentSessionActive()) {
+    const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
+    const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
+    let typingInterval: ReturnType<typeof setInterval> | undefined;
+    if (typeof maybeTypingChannel.sendTyping === "function") {
+      await maybeTypingChannel.sendTyping();
+      typingInterval = setInterval(() => {
+        maybeTypingChannel.sendTyping?.().catch(() => {});
+      }, 8_000);
+    }
+
+    try {
+      const bridgeMessage: VictorBridgeMessage = {
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        source: "discord-text",
+        user: { id: message.author.id, username: message.author.username },
+        channel: { id: routingChannelId, ...(threadId ? { threadId } : {}) },
+        content: prompt,
+        sessionId: promptRoute.sessionId,
+        agentId: targetAgent.id,
+      };
+
+      const requestId = await sendToVictorInbox(bridgeMessage);
+      const bridgeResponse = await waitForVictorResponse(requestId, 300_000);
+
+      const replyDelivery = await sendPresentedReply(message.channel, bridgeResponse.text, targetAgent);
+      ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
+
+      writeMessage({
+        sessionId: promptRoute.sessionId,
+        agentId: targetAgent.id,
+        providerName: "victor-bridge",
+        direction: "outbound",
+        source: "tango",
+        visibility: "public",
+        discordMessageId: replyDelivery.lastMessageId ?? null,
+        discordChannelId: message.channelId,
+        discordUserId: null,
+        discordUsername: replyDelivery.actualDisplayName,
+        content: bridgeResponse.text,
+        metadata: {
+          replyToDiscordMessageId: message.id,
+          sentChunks: replyDelivery.sentChunks,
+          runtimePath: "victor-bridge",
+          bridgeRequestId: requestId,
+        },
+      });
+
+      console.log(
+        `[tango-discord] victor-bridge reply session=${promptRoute.sessionId} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks}`,
+      );
+      return;
+    } catch (error) {
+      console.error(
+        `[tango-discord] victor-bridge failed, falling back to ephemeral v2:`,
+        error instanceof Error ? error.message : error,
+      );
+      // Fall through to normal v2 path
+    } finally {
+      if (typingInterval) {
+        clearInterval(typingInterval);
+      }
+    }
   }
 
   if (v2EnabledAgents.has(targetAgent.id)) {
