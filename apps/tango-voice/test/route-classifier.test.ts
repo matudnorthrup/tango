@@ -2,8 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   annotateTargetsWithRecency,
   buildRouteTargetInventory,
+  CREATION_INTENT_PATTERN,
+  hasCreationIntent,
   inferRouteTarget,
+  isHighCreateConfidence,
   isHighConfidence,
+  isMediumCreateConfidence,
   isMediumConfidence,
   invalidateRouteTargetCache,
   type RouteTarget,
@@ -262,6 +266,23 @@ describe('annotateTargetsWithRecency', () => {
   });
 });
 
+describe('creation intent validation', () => {
+  it('hasCreationIntent returns true for explicit creation phrases', () => {
+    expect(CREATION_INTENT_PATTERN).toBeInstanceOf(RegExp);
+    expect(hasCreationIntent('create a thread about architecture')).toBe(true);
+    expect(hasCreationIntent('make a new post for the meeting')).toBe(true);
+    expect(hasCreationIntent('start a new discussion about budgets')).toBe(true);
+    expect(hasCreationIntent('open a new topic for recipes')).toBe(true);
+  });
+
+  it('hasCreationIntent returns false for non-creation phrases', () => {
+    expect(hasCreationIntent('i have been fairly negligent of doing my daily planning')).toBe(false);
+    expect(hasCreationIntent('check on the lunch money thread')).toBe(false);
+    expect(hasCreationIntent('what is the weather today')).toBe(false);
+    expect(hasCreationIntent('let us continue the messaging principles discussion')).toBe(false);
+  });
+});
+
 describe('inferRouteTarget', () => {
   beforeEach(() => {
     invalidateRouteTargetCache();
@@ -380,6 +401,87 @@ describe('inferRouteTarget', () => {
       makeAgents(),
     );
     expect(result.action).toBe('none');
+  });
+
+  it('downgrades create to none when no creation verb is present', async () => {
+    mockQuickCompletion.mockResolvedValue(
+      '{"action":"create","target":"forum-1","confidence":0.85,"title":"Daily Planning"}',
+    );
+
+    const router = makeRouter({
+      forumChannels: [
+        { name: 'latitude', id: 'forum-1' },
+      ],
+    });
+
+    const result = await inferRouteTarget(
+      'i have been fairly negligent of doing my daily planning, we can get started but i need to kind of start small for now',
+      router,
+      makeTopicManager(),
+      makeProjectManager(),
+      makeAgents(),
+    );
+
+    expect(result.action).toBe('none');
+    expect(result.confidence).toBe(0.85);
+  });
+
+  it('allows create when a creation verb is present', async () => {
+    mockQuickCompletion.mockResolvedValue(
+      '{"action":"create","target":"forum-1","confidence":0.85,"title":"Daily Planning"}',
+    );
+
+    const router = makeRouter({
+      forumChannels: [
+        { name: 'latitude', id: 'forum-1' },
+      ],
+    });
+
+    const result = await inferRouteTarget(
+      'create a new thread about daily planning in latitude',
+      router,
+      makeTopicManager(),
+      makeProjectManager(),
+      makeAgents(),
+    );
+
+    expect(result.action).toBe('create');
+    expect(result.target).toBe('forum-1');
+    expect(result.targetName).toBe('latitude (forum)');
+    expect(result.createTitle).toBe('Daily Planning');
+  });
+
+  it('downgrades the incident transcript create result to none', async () => {
+    mockQuickCompletion.mockResolvedValue(
+      '{"action":"create","target":"forum-1","confidence":0.85,"title":"Daily Planning - 5am Schedule & Today\'s Tasks"}',
+    );
+
+    const router = makeRouter({
+      forumChannels: [
+        { name: 'latitude', id: 'forum-1' },
+      ],
+    });
+
+    const transcript = [
+      'i have been fairly negligent of doing my daily planning, we can get started but... i need to kind of start small for now,',
+      "we've got a couple important changes i should make note of one, is that i've started waking up the 5am and trying to work,",
+      'pretty much straight through up until my meetings start at 9am that gives me more time, in the afternoon, for family things, exercise,',
+      "that's all, that's all, that's all, that's all, that's all, that's all, that's and recreation, so that's a broader schedule shift, but...",
+      "we need to account for then what i've been trying to do is walk on into my meeting schedule and just take, walks, while i'm in meetings where possible.",
+      "today, is early out day, for calipo, but he's going to be going to the gym, so i'm gonna probably need to pick him up sometime between three o'clock and...",
+      "free 30 one task that i need to do today is find a hotel, for friday, i also need to call - Aye, Doctor. let's go ahead and get started, with that for now. for today's plan.",
+    ].join(' ');
+
+    const result = await inferRouteTarget(
+      transcript,
+      router,
+      makeTopicManager(),
+      makeProjectManager(),
+      makeAgents(),
+    );
+
+    expect(result.action).toBe('none');
+    expect(result.confidence).toBe(0.85);
   });
 
   it('handles LLM timeout gracefully', async () => {
@@ -613,5 +715,14 @@ describe('inferRouteTarget', () => {
     expect(systemPrompt).toContain(
       'IMPORTANT: The user\'s input is short/generic and does not mention any specific thread or topic by name.',
     );
+  });
+});
+
+describe('create confidence helpers', () => {
+  it('uses the raised medium create threshold of 0.80', () => {
+    expect(isMediumCreateConfidence({ action: 'create', confidence: 0.75 })).toBe(false);
+    expect(isMediumCreateConfidence({ action: 'create', confidence: 0.80 })).toBe(true);
+    expect(isMediumCreateConfidence({ action: 'create', confidence: 0.90 })).toBe(true);
+    expect(isHighCreateConfidence({ action: 'create', confidence: 0.91 })).toBe(true);
   });
 });

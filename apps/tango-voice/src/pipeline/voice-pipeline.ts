@@ -124,6 +124,37 @@ export interface EffectiveRouteThresholds {
   blocked: boolean;
 }
 
+/**
+ * Determines whether a create action should be blocked based on the same
+ * gate logic that applies to route actions (callsign priority, short-input bias).
+ */
+export function shouldBlockCreateAction(
+  explicitAddress: ResolvedVoiceAddress | null,
+  transcript: string,
+  routeResult: RouteClassifierResult | null,
+  wordCount: number,
+): boolean {
+  if (!routeResult || routeResult.action !== 'create') return false;
+
+  const targetMentioned = routeResult.targetName
+    ? transcriptMentionsRouteTargetName(transcript, routeResult.targetName)
+    : false;
+
+  // Gate 1: Callsign priority — if user addressed an agent and didn't mention
+  // the creation target by name, block the create action
+  if (explicitAddress?.kind === 'agent' && !targetMentioned) {
+    return true;
+  }
+
+  // Gate 2: Short/ambiguous input — if input is short and doesn't mention
+  // any target, block create (it's almost certainly not intentional)
+  if (wordCount < 10 && !targetMentioned) {
+    return true;
+  }
+
+  return false;
+}
+
 export function computeEffectiveThresholds(
   explicitAddress: ResolvedVoiceAddress | null,
   transcript: string,
@@ -2598,6 +2629,12 @@ export class VoicePipeline {
         routeResult,
         routingWordCount,
       );
+      const createBlocked = shouldBlockCreateAction(
+        explicitAddress,
+        strippedForRouting,
+        routeResult,
+        routingWordCount,
+      );
       const targetMentionedInTranscript = routeResult?.targetMentionedInTranscript
         ?? transcriptMentionsRouteTargetName(strippedForRouting, routeResult?.targetName);
       const meetsHighConfidenceThreshold = Boolean(
@@ -2639,6 +2676,14 @@ export class VoicePipeline {
         }
       }
 
+      if (createBlocked && routeResult?.action === 'create') {
+        console.log(
+          `Route classifier: blocked create action "${routeResult.createTitle}" — ${
+            explicitAddress?.kind === 'agent' ? 'callsign priority' : 'short/ambiguous input'
+          } gate applied`,
+        );
+      }
+
       if (routeResult && allowAutoRoute && routeResult.target && this.router) {
         // High confidence: auto-route to the matched target
         const switchResult = await this.router.switchTo(routeResult.target);
@@ -2648,7 +2693,7 @@ export class VoicePipeline {
           // Brief spoken confirmation
           void this.speakResponse(`Routed to ${routeResult.targetName?.replace(/\s*\(in .*\)$/, '') ?? switchResult.displayName ?? 'target'}.`, { inbox: true });
         }
-      } else if (routeResult && isHighCreateConfidence(routeResult) && routeResult.createTitle && routeResult.target && this.router) {
+      } else if (routeResult && !createBlocked && isHighCreateConfidence(routeResult) && routeResult.createTitle && routeResult.target && this.router) {
         // High-confidence creation: auto-create thread/post
         const targetType = routeResult.targetType;
         let createResult;
@@ -2669,7 +2714,7 @@ export class VoicePipeline {
         }
         // On failure, fall through to normal dispatch
         console.warn(`Route classifier: creation failed: ${createResult.error}`);
-      } else if (routeResult && isMediumCreateConfidence(routeResult) && routeResult.createTitle && routeResult.target && routeResult.targetName) {
+      } else if (routeResult && !createBlocked && isMediumCreateConfidence(routeResult) && routeResult.createTitle && routeResult.target && routeResult.targetName) {
         // Medium-confidence creation: ask user to confirm
         const question = `Create ${routeResult.createTitle} in ${routeResult.targetName?.replace(/\s*\(.*\)$/, '') ?? 'channel'}?`;
         const currentChannel = this.router?.getActiveChannel() as any;
