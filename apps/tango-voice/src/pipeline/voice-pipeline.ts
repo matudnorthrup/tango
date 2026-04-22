@@ -1071,7 +1071,7 @@ export class VoicePipeline {
   private armIndicateCaptureTimeout(): void {
     if (!this.ctx.indicateCaptureActive) return;
     const configured = getVoiceSettings().indicateTimeoutMs;
-    const timeoutMs = Number.isFinite(configured) ? Math.max(3000, configured) : 20000;
+    const timeoutMs = Number.isFinite(configured) ? Math.max(3000, configured) : 45000;
     this.clearIndicateCaptureTimer();
     this.indicateCaptureTimer = setTimeout(() => {
       void this.onIndicateCaptureTimeout();
@@ -1110,7 +1110,7 @@ export class VoicePipeline {
     // Play a gentle earcon to remind them to say a close word.
     this.indicateCaptureNudgeCount += 1;
     console.log(`Indicate capture nudge #${this.indicateCaptureNudgeCount} (${captured.length} chars captured, waiting for close word)`);
-    void this.player.playEarcon('nudge');
+    void this.player.playEarcon('still-listening');
     // Re-arm timeout to nudge again if still no close word
     this.armIndicateCaptureTimeout();
   }
@@ -6822,11 +6822,11 @@ Use channel names (the part before the colon). Do not explain.`,
     this.ctx.idleNotifyInFlight = true;
 
     try {
-      // All idle notifications: nudge earcon only, no TTS, no grace window.
+      // All idle notifications: still-listening earcon only, no TTS, no grace window.
       // The user can say "[agent name], go ahead" to hear the queued response.
-      await this.player.playEarcon('nudge');
+      await this.player.playEarcon('still-listening');
       this.ctx.lastPlaybackCompletedAt = Date.now();
-      return this.typeSafeIdleDeliveryResult('delivered', 'nudge-chime');
+      return this.typeSafeIdleDeliveryResult('delivered', 'still-listening-chime');
     } finally {
       this.ctx.idleNotifyInFlight = false;
     }
