@@ -102,7 +102,7 @@ export async function executeNutritionLogItems(
 ): Promise<Record<string, unknown>> {
   const meal = input.meal.trim().toLowerCase();
   const date = normalizeLogDate(input.date);
-  const strict = input.strict !== false;
+  const strict = input.strict === true;
   const items = input.items
     .map((item) => ({
       name: typeof item.name === "string" ? item.name.trim() : "",
