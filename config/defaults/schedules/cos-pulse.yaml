@@ -4,7 +4,7 @@ description: >
   Chief-of-Staff monitoring pulse. Checks tmux PM sessions, worktree slots,
   and bot health every 2 minutes. Posts to Victor's channel on state changes.
   Silent when nothing has changed.
-enabled: true
+enabled: false  # Disabled — Victor handles monitoring via persistent session crons and posts to Discord via webhook. No need to burn haiku tokens polling state.
 runtime: v2
 
 schedule:
