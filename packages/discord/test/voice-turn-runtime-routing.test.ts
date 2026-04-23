@@ -99,6 +99,42 @@ describe("dispatchVoiceTurnByRuntime", () => {
     expect(executeLegacyTurn).not.toHaveBeenCalled();
   });
 
+  it("passes sendOptions context through to TangoRouter", async () => {
+    const routeMessage = vi.fn(async () => ({
+      response: {
+        text: "Routed reply",
+        durationMs: 42,
+      },
+      agentId: "malibu",
+      conversationKey: "voice:session-1:malibu",
+    }));
+
+    await dispatchVoiceTurnByRuntime({
+      transcript: "hello from voice",
+      agentId: "malibu",
+      channelId: "channel-1",
+      v2AgentConfig: createV2AgentConfig(),
+      tangoRouter: {
+        routeMessage,
+      },
+      executeLegacyTurn: async () => "legacy",
+      mapRouterResult: () => "v2",
+      sendOptions: {
+        context: "Use spoken language only.",
+      },
+    });
+
+    expect(routeMessage).toHaveBeenCalledWith({
+      message: "hello from voice",
+      channelId: "channel-1",
+      agentId: "malibu",
+      sendOptions: {
+        timeout: VOICE_V2_ROUTER_TIMEOUT_MS,
+        context: "Use spoken language only.",
+      },
+    });
+  });
+
   it("uses the legacy executor when v2 is disabled", async () => {
     const executeLegacyTurn = vi.fn(async () => "legacy reply");
     const routeMessage = vi.fn();
