@@ -155,6 +155,14 @@ const CONVERSATIONAL_FOLLOW_UP_SYSTEM_PROMPT = [
   "If the user is correcting the prior answer, acknowledge the correction and answer the revised request.",
   "If the user is asking for next steps or implementation guidance, give the concrete steps instead of re-running the previous workflow.",
 ].join(" ");
+export const VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT = [
+  "The user is speaking to you via voice, and your response will be read aloud by text-to-speech.",
+  "Keep your response concise and conversational — use plain spoken language, not written formatting.",
+  "Never use markdown formatting: no tables, no bold/italic, no headers, no code blocks, no bullet lists.",
+  "If there are many items (transactions, logs, entries), summarize the top 3-5 and offer to continue rather than listing everything.",
+  "Break complex information into short, digestible sentences.",
+  "Avoid reading out IDs, URLs, or long reference numbers — paraphrase or omit them.",
+].join(" ");
 const CONVERSATIONAL_FOLLOW_UP_RETRY_SYSTEM_PROMPT = [
   "Do not emit worker-dispatch tags, tool markup, or internal progress narration.",
   "Answer the user directly in plain text right now.",

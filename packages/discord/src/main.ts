@@ -146,7 +146,8 @@ import {
   createDiscordVoiceTurnExecutor,
   type DiscordTurnExecutionContext,
   type DiscordTurnExecutionResult,
-  type WorkerDispatchTelemetry
+  type WorkerDispatchTelemetry,
+  VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT
 } from "./turn-executor.js";
 import { selectScheduledTurnResponseText } from "./scheduled-turn-response.js";
 import { buildActiveTaskPersistencePlan } from "./active-task-state.js";
@@ -2985,6 +2986,10 @@ function composeSystemPrompt(
   return appendTopicContextToSystemPrompt(projectScopedPrompt, topicTitle);
 }
 
+function appendSystemPrompt(base: string | undefined, extra: string): string {
+  return [base?.trim(), extra.trim()].filter(Boolean).join("\n\n");
+}
+
 function getConversationKey(sessionId: string, agentId: string, threadChannelId?: string | null): string {
   if (threadChannelId) {
     return `${sessionId}:${agentId}:${threadChannelId}`;
@@ -3846,6 +3851,9 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     conversationKey,
     v2AgentConfig,
     tangoRouter: voiceTangoRouter,
+    sendOptions: {
+      context: VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
+    },
     executeLegacyTurn: async (): Promise<VoiceTurnResult> => {
       const providerSelection = resolveProviderNamesForTurn({
         sessionId: turnInput.sessionId,
@@ -3857,6 +3865,10 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
         responseMode,
         topicRecord?.title ?? null,
         providerSelection.project?.displayName ?? null,
+      );
+      const voiceSystemPrompt = appendSystemPrompt(
+        systemPrompt,
+        VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
       );
       const providerTools = resolveOrchestratorProviderTools(targetAgent);
 
@@ -3903,7 +3915,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
           overrideProviderName: providerSelection.overrideProviderName,
           model: providerSelection.model,
           reasoningEffort: providerSelection.reasoningEffort,
-          systemPrompt,
+          systemPrompt: voiceSystemPrompt,
           tools: providerTools,
           warmStartPrompt,
           excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,

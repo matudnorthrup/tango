@@ -75,6 +75,7 @@ export async function dispatchVoiceTurnByRuntime<T>(input: {
   executeLegacyTurn: () => Promise<T>;
   mapRouterResult: (routeResult: RouteResult) => Promise<T> | T;
   onRouterError?: (error: unknown) => Promise<T> | T;
+  sendOptions?: { context?: string };
   timeoutMs?: number;
 }): Promise<T> {
   if (!input.v2AgentConfig || !isV2RuntimeEnabled(input.v2AgentConfig)) {
@@ -96,6 +97,7 @@ export async function dispatchVoiceTurnByRuntime<T>(input: {
       agentId: input.agentId,
       sendOptions: {
         timeout: input.timeoutMs ?? VOICE_V2_ROUTER_TIMEOUT_MS,
+        ...input.sendOptions,
       },
     });
     return await input.mapRouterResult(routeResult);
