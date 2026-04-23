@@ -70,27 +70,21 @@ the stakeholder, post it to Discord.
 
 ### How to post to Discord from the persistent session
 
-Use the bot's MCP server at port 9100:
+Use the Discord webhook to post as Victor (with correct name and avatar):
 
 ```bash
-curl -s -X POST http://127.0.0.1:9100/mcp \
+curl -s -X POST "https://discord.com/api/webhooks/1480581855450497277/NVexqEkID-InS5oNe62kdPcFWZeSOpn8U6Gk4fu9Ut1TZIQKpj2mtC4XzU7K_X0gRwaJ" \
   -H "Content-Type: application/json" \
   -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "discord_manage",
-      "arguments": {
-        "operation": "send_message",
-        "channel_id": "1480579160056397958",
-        "content": "Your message here"
-      }
-    }
+    "content": "Your message here",
+    "username": "Victor",
+    "avatar_url": "https://cdn.discordapp.com/avatars/1480581855450497277/cb5e0df0a5857352c71e9fd660f29a23.webp"
   }'
 ```
 
-Channel ID `1480579160056397958` is Victor's Discord channel.
+This posts as Victor with his avatar. Do NOT use `discord_manage send_message`
+for stakeholder-facing messages — that posts as "Tango" (the bot user) without
+Victor's identity.
 
 ### When to post to Discord
 
