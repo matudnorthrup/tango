@@ -60,7 +60,7 @@ provider:
 delivery:
   channel_id: "100000000000000004"
   agent_id: victor
-  mode: message
+  mode: none  # State tracking only — Victor posts to Discord proactively when needed
 
 policy:
   max_consecutive_failures: 10
