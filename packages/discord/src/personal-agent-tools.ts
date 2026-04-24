@@ -543,14 +543,6 @@ export function createFinanceTools(overrides?: PersonalToolPaths): AgentTool[] {
 
         const response = await fetch(url, fetchOptions);
         const text = await response.text();
-        const maxResponseChars = 15_000;
-
-        if (text.length > maxResponseChars) {
-          return {
-            result: text.slice(0, maxResponseChars),
-            warning: `Response truncated from ${text.length} to ${maxResponseChars} characters. Use narrower date ranges or filters to reduce results.`,
-          };
-        }
 
         if (!response.ok) {
           return { error: `HTTP ${response.status}: ${text}` };
