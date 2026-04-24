@@ -71,7 +71,7 @@ export function buildV2RuntimeConfigs(
       runtimePreferences: {
         model: v2Config.runtime.model,
         reasoningEffort: normalizeRuntimeReasoningEffort(v2Config.runtime.reasoningEffort),
-        timeout: 120_000,
+        timeout: 900_000,
       },
     });
   }
