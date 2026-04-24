@@ -24,8 +24,7 @@ Reference guidance for a general personal-assistant workflow.
 
 ### Lunch Money
 
-The `lunch_money` tool wraps the Lunch Money API. Follow these rules to avoid
-wasted calls and hitting the 15K response cap:
+The `lunch_money` tool wraps the Lunch Money API.
 
 1. **Always fetch categories first.** When the user asks about spending by
    category (e.g., "How much did I spend on Groceries?"), call
@@ -36,15 +35,6 @@ wasted calls and hitting the 15K response cap:
 2. **Filter by `category_id`, never `category_name`.** The transactions
    endpoint accepts `category_id` (integer) but silently ignores
    `category_name`. Always resolve the name to an ID first.
-
-3. **Default to 14-day date ranges.** Queries spanning more than ~2 weeks
-   often exceed the 15K response cap, which triggers automatic retries with
-   split date ranges. Start with a 14-day window and widen only if the user
-   explicitly needs a longer period.
-
-4. **Batch large inventory tasks.** For broad sweeps (e.g., "check all
-   receipts this month", "categorize everything"), work in date-range batches
-   (7–14 days each) rather than fetching the entire period at once.
 
 ## Notes
 
