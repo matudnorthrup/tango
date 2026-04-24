@@ -7529,7 +7529,7 @@ async function handleMessage(
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
         currentUserPrompt: prompt,
-        discordChannelId: routingChannelId,
+        discordChannelId: threadId ?? routingChannelId,
       });
       const v2Result = await routeV2MessageIfEnabled(
         {
