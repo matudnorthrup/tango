@@ -248,7 +248,10 @@ function isReadOnlySql(value: unknown): boolean {
   if (!normalized) {
     return true;
   }
-  return /^(select|with|pragma|explain)\b/i.test(normalized);
+  if (/^with\b/i.test(normalized)) {
+    return !/\b(?:insert|update|delete)\b/i.test(normalized);
+  }
+  return /^(select|pragma|explain)\b/i.test(normalized);
 }
 
 function inferRequestedAccessLevel(
@@ -471,10 +474,12 @@ if (isHttpMode) {
 
         case "tools/call": {
           const params = message.params as { name: string; arguments?: Record<string, unknown> };
+          const argsStr = JSON.stringify(params.arguments ?? {});
           debug(
             `HTTP tools/call: ${params.name} (worker=${workerIdHeader || "none"} ` +
             `readOnly=${readOnlyStep ? "yes" : "no"} ` +
-            `allowedTools=${allowedToolIds ? [...allowedToolIds].join(",") || "(none)" : "all"})`,
+            `allowedTools=${allowedToolIds ? [...allowedToolIds].join(",") || "(none)" : "all"}) ` +
+            `args=${argsStr.length > 200 ? argsStr.slice(0, 200) + "…" : argsStr}`,
           );
           const toolResult = await executeToolCall(
             params.name,
