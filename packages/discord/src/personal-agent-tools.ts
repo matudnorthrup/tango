@@ -11,10 +11,12 @@
  *   - imessage: iMessage read/send via imsg CLI
  */
 
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import type { AgentTool } from "@tango/core";
+import yaml from "js-yaml";
 import { getBrowserManager } from "./browser-manager.js";
 import { getSecret } from "./op-secret.js";
 import {
@@ -112,7 +114,6 @@ async function runRequiredCommand(
 
 export interface PersonalToolPaths {
   gogCommand?: string;
-  obsidianCliCommand?: string;
   healthScript?: string;
   imsgCommand?: string;
 }
@@ -121,7 +122,6 @@ function resolvePaths(overrides?: PersonalToolPaths) {
   const home = os.homedir();
   return {
     gogCommand: overrides?.gogCommand ?? "/opt/homebrew/bin/gog",
-    obsidianCliCommand: overrides?.obsidianCliCommand ?? "/opt/homebrew/bin/obsidian-cli",
     healthScript:
       overrides?.healthScript
       ?? process.env.TANGO_HEALTH_QUERY_SCRIPT?.trim()
@@ -306,8 +306,196 @@ export function createCalendarTools(overrides?: PersonalToolPaths): AgentTool[] 
 // Obsidian tools
 // ---------------------------------------------------------------------------
 
+const OBSIDIAN_SEARCH_MAX_MATCHES = 50;
+const OBSIDIAN_SEARCH_TIMEOUT_MS = 30_000;
+const OBSIDIAN_VALUE_FLAGS = new Set(["--vault", "--key", "--value"]);
+const OBSIDIAN_BOOLEAN_FLAGS = new Set(["--append", "--overwrite", "--edit", "--print", "--delete"]);
+
+type ObsidianParsedCommand = {
+  command: string;
+  flags: Map<string, string | boolean>;
+  positionals: string[];
+};
+
+type ObsidianFrontmatter = {
+  body: string;
+  data: Record<string, unknown>;
+};
+
+const OBSIDIAN_FRONTMATTER_YAML_OPTIONS = {
+  schema: yaml.JSON_SCHEMA,
+  lineWidth: -1,
+  noRefs: true,
+} as const;
+
+function resolveObsidianVaultRoot(_vaultName?: string): string {
+  return path.join(os.homedir(), "Documents", "main");
+}
+
+function ensureVaultRelativePath(vaultRoot: string, candidate: string, options?: {
+  allowRoot?: boolean;
+  ensureMarkdownExtension?: boolean;
+}): string {
+  const trimmed = candidate.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Path argument is required");
+  }
+
+  const relativePath = options?.ensureMarkdownExtension && !trimmed.endsWith(".md")
+    ? `${trimmed}.md`
+    : trimmed;
+  const resolvedPath = path.resolve(vaultRoot, relativePath);
+  const relativeFromVault = path.relative(vaultRoot, resolvedPath);
+  const escapesVault = relativeFromVault === ".."
+    || relativeFromVault.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relativeFromVault);
+
+  if (escapesVault || (!options?.allowRoot && relativeFromVault.length === 0)) {
+    throw new Error(`Path must stay inside the Obsidian vault: ${candidate}`);
+  }
+
+  return resolvedPath;
+}
+
+function parseObsidianCommandArgs(args: string[]): ObsidianParsedCommand {
+  if (args.length === 0) {
+    throw new Error("Obsidian command is required");
+  }
+
+  const flags = new Map<string, string | boolean>();
+  const positionals: string[] = [];
+
+  for (let index = 1; index < args.length; index++) {
+    const token = args[index]!;
+    if (OBSIDIAN_BOOLEAN_FLAGS.has(token)) {
+      flags.set(token, true);
+      continue;
+    }
+    if (OBSIDIAN_VALUE_FLAGS.has(token)) {
+      const value = args[index + 1];
+      if (value == null) {
+        throw new Error(`Missing value for ${token}`);
+      }
+      flags.set(token, value);
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--")) {
+      throw new Error(`Unsupported obsidian flag: ${token}`);
+    }
+    positionals.push(token);
+  }
+
+  return {
+    command: args[0]!,
+    flags,
+    positionals,
+  };
+}
+
+function parseNoteFrontmatter(content: string): ObsidianFrontmatter {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u);
+  if (!match) {
+    return { body: content, data: {} };
+  }
+
+  const loaded = yaml.load(match[1] ?? "", { schema: yaml.JSON_SCHEMA });
+  if (loaded == null) {
+    return { body: content.slice(match[0].length), data: {} };
+  }
+  if (typeof loaded !== "object" || Array.isArray(loaded)) {
+    throw new Error("Obsidian frontmatter must be a YAML object");
+  }
+
+  return {
+    body: content.slice(match[0].length),
+    data: { ...(loaded as Record<string, unknown>) },
+  };
+}
+
+function serializeNoteFrontmatter(frontmatter: ObsidianFrontmatter): string {
+  if (Object.keys(frontmatter.data).length === 0) {
+    return frontmatter.body;
+  }
+
+  const yamlText = yaml.dump(frontmatter.data, OBSIDIAN_FRONTMATTER_YAML_OPTIONS).trimEnd();
+  return frontmatter.body.length > 0
+    ? `---\n${yamlText}\n---\n${frontmatter.body}`
+    : `---\n${yamlText}\n---\n`;
+}
+
+function formatToolResult(value: string): { result: string } {
+  return { result: value };
+}
+
+function formatToolError(error: unknown): { result: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  return { result: `Error: ${message}` };
+}
+
+function requirePositionalArguments(positionals: string[], expectedCount: number, usage: string): void {
+  if (positionals.length !== expectedCount) {
+    throw new Error(usage);
+  }
+}
+
+async function searchObsidianVaultContent(vaultRoot: string, term: string): Promise<string[]> {
+  const normalizedTerm = term.toLocaleLowerCase();
+  const deadline = Date.now() + OBSIDIAN_SEARCH_TIMEOUT_MS;
+  const matches: string[] = [];
+
+  const assertWithinDeadline = () => {
+    if (Date.now() > deadline) {
+      throw new Error(`search-content timed out after ${OBSIDIAN_SEARCH_TIMEOUT_MS}ms`);
+    }
+  };
+
+  const walkDirectory = async (directoryPath: string): Promise<void> => {
+    assertWithinDeadline();
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      if (matches.length >= OBSIDIAN_SEARCH_MAX_MATCHES) {
+        return;
+      }
+
+      assertWithinDeadline();
+      const fullPath = path.join(directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith(".") || entry.name === ".obsidian" || entry.name === ".trash") {
+          continue;
+        }
+        await walkDirectory(fullPath);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const fileContent = await fs.readFile(fullPath, "utf8");
+      const relativePath = path.relative(vaultRoot, fullPath).split(path.sep).join("/");
+      const lines = fileContent.split(/\r?\n/u);
+      for (let lineNumber = 0; lineNumber < lines.length; lineNumber++) {
+        if (matches.length >= OBSIDIAN_SEARCH_MAX_MATCHES) {
+          return;
+        }
+
+        const line = lines[lineNumber]!;
+        if (line.toLocaleLowerCase().includes(normalizedTerm)) {
+          matches.push(`${relativePath}:${lineNumber + 1}: ${line}`);
+        }
+      }
+    }
+  };
+
+  await walkDirectory(vaultRoot);
+  return matches;
+}
+
 export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] {
-  const paths = resolvePaths(overrides);
+  void overrides;
 
   return [
     {
@@ -363,13 +551,174 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
       handler: async (input) => {
         const cmdStr = String(input.command).trim();
         const args = parseShellArgs(cmdStr);
+        try {
+          const parsed = parseObsidianCommandArgs(args);
+          const vaultRoot = resolveObsidianVaultRoot(
+            typeof parsed.flags.get("--vault") === "string"
+              ? String(parsed.flags.get("--vault"))
+              : undefined,
+          );
 
-        if (input.content != null) {
-          args.push("--content", String(input.content));
+          switch (parsed.command) {
+            case "print": {
+              requirePositionalArguments(
+                parsed.positionals,
+                1,
+                "Usage: print '<note name>' --vault main",
+              );
+              const notePath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
+                ensureMarkdownExtension: true,
+              });
+              const content = await fs.readFile(notePath, "utf8");
+              return formatToolResult(content);
+            }
+
+            case "search-content": {
+              requirePositionalArguments(
+                parsed.positionals,
+                1,
+                "Usage: search-content '<term>' --vault main",
+              );
+              const matches = await searchObsidianVaultContent(vaultRoot, parsed.positionals[0]!);
+              return formatToolResult(matches.join("\n"));
+            }
+
+            case "create": {
+              requirePositionalArguments(
+                parsed.positionals,
+                1,
+                "Usage: create '<note name>' --vault main [--append] [--overwrite]",
+              );
+              const notePath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
+                ensureMarkdownExtension: true,
+              });
+              const shouldAppend = parsed.flags.get("--append") === true;
+              const shouldOverwrite = parsed.flags.get("--overwrite") === true;
+              const content = input.content == null ? "" : String(input.content);
+              await fs.mkdir(path.dirname(notePath), { recursive: true });
+
+              let exists = true;
+              try {
+                await fs.access(notePath);
+              } catch {
+                exists = false;
+              }
+
+              if (shouldAppend) {
+                await fs.appendFile(notePath, content, "utf8");
+                return formatToolResult(`Appended ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`);
+              }
+
+              if (exists && !shouldOverwrite) {
+                throw new Error(`Note already exists: ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`);
+              }
+
+              await fs.writeFile(notePath, content, "utf8");
+              return formatToolResult(
+                `${exists ? "Overwrote" : "Created"} ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`,
+              );
+            }
+
+            case "frontmatter": {
+              requirePositionalArguments(
+                parsed.positionals,
+                1,
+                "Usage: frontmatter '<note name>' --vault main --edit --key '<key>' --value '<value>'",
+              );
+              const notePath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
+                ensureMarkdownExtension: true,
+              });
+              const content = await fs.readFile(notePath, "utf8");
+              const frontmatter = parseNoteFrontmatter(content);
+              const key = typeof parsed.flags.get("--key") === "string" ? String(parsed.flags.get("--key")) : undefined;
+
+              if (parsed.flags.get("--print") === true) {
+                const rendered = Object.keys(frontmatter.data).length === 0
+                  ? ""
+                  : yaml.dump(frontmatter.data, OBSIDIAN_FRONTMATTER_YAML_OPTIONS).trimEnd();
+                return formatToolResult(rendered);
+              }
+
+              if (parsed.flags.get("--delete") === true) {
+                if (!key) {
+                  throw new Error("frontmatter --delete requires --key");
+                }
+                delete frontmatter.data[key];
+                await fs.writeFile(notePath, serializeNoteFrontmatter(frontmatter), "utf8");
+                return formatToolResult(`Deleted frontmatter key '${key}'`);
+              }
+
+              if (parsed.flags.get("--edit") === true) {
+                const value = typeof parsed.flags.get("--value") === "string"
+                  ? String(parsed.flags.get("--value"))
+                  : undefined;
+                if (!key || value == null) {
+                  throw new Error("frontmatter --edit requires --key and --value");
+                }
+                frontmatter.data[key] = value;
+                await fs.writeFile(notePath, serializeNoteFrontmatter(frontmatter), "utf8");
+                return formatToolResult(`Updated frontmatter key '${key}'`);
+              }
+
+              throw new Error("frontmatter requires one of --print, --edit, or --delete");
+            }
+
+            case "move": {
+              requirePositionalArguments(
+                parsed.positionals,
+                2,
+                "Usage: move '<source>' '<dest>' --vault main",
+              );
+              const sourcePath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
+                ensureMarkdownExtension: true,
+              });
+              const destPath = ensureVaultRelativePath(vaultRoot, parsed.positionals[1]!, {
+                ensureMarkdownExtension: true,
+              });
+              await fs.mkdir(path.dirname(destPath), { recursive: true });
+              await fs.rename(sourcePath, destPath);
+              return formatToolResult(
+                `Moved ${path.relative(vaultRoot, sourcePath).split(path.sep).join("/")} -> ${path.relative(vaultRoot, destPath).split(path.sep).join("/")}`,
+              );
+            }
+
+            case "list": {
+              requirePositionalArguments(
+                parsed.positionals,
+                1,
+                "Usage: list '<folder>' --vault main",
+              );
+              const folderPath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
+                allowRoot: true,
+              });
+              const entries = await fs.readdir(folderPath, { withFileTypes: true });
+              entries.sort((left, right) => left.name.localeCompare(right.name));
+              return formatToolResult(
+                entries
+                  .map((entry) => entry.isDirectory() ? `${entry.name}/` : entry.name)
+                  .join("\n"),
+              );
+            }
+
+            case "delete": {
+              requirePositionalArguments(
+                parsed.positionals,
+                1,
+                "Usage: delete '<note name>' --vault main",
+              );
+              const notePath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
+                ensureMarkdownExtension: true,
+              });
+              await fs.unlink(notePath);
+              return formatToolResult(`Deleted ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`);
+            }
+
+            default:
+              throw new Error(`Unsupported obsidian command: ${parsed.command}`);
+          }
+        } catch (error) {
+          return formatToolError(error);
         }
-
-        const stdout = await runCommand(paths.obsidianCliCommand, args, 30_000);
-        return { result: stdout };
       },
     },
   ];
