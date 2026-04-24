@@ -20,6 +20,10 @@ export interface FeatureFlaggedRouteRequest {
   channelId: string;
   threadId?: string;
   agentId: string;
+  sendOptions?: {
+    context?: string;
+    timeout?: number;
+  };
 }
 
 export interface FeatureFlaggedRouteResult {
@@ -148,7 +152,13 @@ export async function routeV2MessageIfEnabled(
     return null;
   }
 
-  return await input.tangoRouter.routeMessage(params);
+  return await input.tangoRouter.routeMessage({
+    message: params.message,
+    channelId: params.channelId,
+    ...(params.threadId ? { threadId: params.threadId } : {}),
+    agentId: params.agentId,
+    sendOptions: params.sendOptions,
+  });
 }
 
 export async function shutdownV2Runtime(input: {
