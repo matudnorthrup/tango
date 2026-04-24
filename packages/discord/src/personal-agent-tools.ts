@@ -515,7 +515,7 @@ export function createFinanceTools(overrides?: PersonalToolPaths): AgentTool[] {
             const endDate = currentLocalIsoDate();
             const [yearText = "0", monthText = "1", dayText = "1"] = endDate.split("-");
             const startDateValue = new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
-            startDateValue.setDate(startDateValue.getDate() - 30);
+            startDateValue.setDate(startDateValue.getDate() - 14);
             const startDate = [
               String(startDateValue.getFullYear()),
               String(startDateValue.getMonth() + 1).padStart(2, "0"),
@@ -543,12 +543,12 @@ export function createFinanceTools(overrides?: PersonalToolPaths): AgentTool[] {
 
         const response = await fetch(url, fetchOptions);
         const text = await response.text();
-        const maxResponseChars = 50_000;
+        const maxResponseChars = 15_000;
 
         if (text.length > maxResponseChars) {
           return {
             result: text.slice(0, maxResponseChars),
-            warning: `Response truncated from ${text.length} to 50000 characters. Use more specific date ranges or filters to get smaller results.`,
+            warning: `Response truncated from ${text.length} to ${maxResponseChars} characters. Use narrower date ranges or filters to reduce results.`,
           };
         }
 
