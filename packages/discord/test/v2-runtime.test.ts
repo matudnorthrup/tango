@@ -96,6 +96,10 @@ describe("routeV2MessageIfEnabled", () => {
         channelId: "channel-1",
         threadId: "thread-1",
         agentId: "malibu",
+        sendOptions: {
+          context: "warm-start context",
+          timeout: 45_000,
+        },
       },
       {
         v2EnabledAgents: new Set(["malibu"]),
@@ -113,6 +117,10 @@ describe("routeV2MessageIfEnabled", () => {
       channelId: "channel-1",
       threadId: "thread-1",
       agentId: "malibu",
+      sendOptions: {
+        context: "warm-start context",
+        timeout: 45_000,
+      },
     });
   });
 
