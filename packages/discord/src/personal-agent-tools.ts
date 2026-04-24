@@ -500,7 +500,36 @@ export function createFinanceTools(overrides?: PersonalToolPaths): AgentTool[] {
       handler: async (input) => {
         const method = String(input.method ?? "GET").toUpperCase();
         const endpoint = String(input.endpoint);
-        const url = `https://dev.lunchmoney.app/v1${endpoint.startsWith("/") ? endpoint : "/" + endpoint}`;
+        const url = new URL(`https://dev.lunchmoney.app/v1${endpoint.startsWith("/") ? endpoint : "/" + endpoint}`);
+
+        const isTransactionsCollectionRequest =
+          method === "GET" &&
+          url.pathname.startsWith("/v1/transactions") &&
+          !/^\/v1\/transactions\/\d+(?:\/|$)/.test(url.pathname);
+
+        if (isTransactionsCollectionRequest) {
+          const hasStartDate = url.searchParams.has("start_date");
+          const hasEndDate = url.searchParams.has("end_date");
+
+          if (!hasStartDate || !hasEndDate) {
+            const endDate = currentLocalIsoDate();
+            const [yearText = "0", monthText = "1", dayText = "1"] = endDate.split("-");
+            const startDateValue = new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
+            startDateValue.setDate(startDateValue.getDate() - 30);
+            const startDate = [
+              String(startDateValue.getFullYear()),
+              String(startDateValue.getMonth() + 1).padStart(2, "0"),
+              String(startDateValue.getDate()).padStart(2, "0"),
+            ].join("-");
+
+            if (!hasStartDate) {
+              url.searchParams.set("start_date", startDate);
+            }
+            if (!hasEndDate) {
+              url.searchParams.set("end_date", endDate);
+            }
+          }
+        }
 
         const headers: Record<string, string> = {
           Authorization: `Bearer ${await getApiKey()}`,
@@ -514,6 +543,14 @@ export function createFinanceTools(overrides?: PersonalToolPaths): AgentTool[] {
 
         const response = await fetch(url, fetchOptions);
         const text = await response.text();
+        const maxResponseChars = 50_000;
+
+        if (text.length > maxResponseChars) {
+          return {
+            result: text.slice(0, maxResponseChars),
+            warning: `Response truncated from ${text.length} to 50000 characters. Use more specific date ranges or filters to get smaller results.`,
+          };
+        }
 
         if (!response.ok) {
           return { error: `HTTP ${response.status}: ${text}` };
