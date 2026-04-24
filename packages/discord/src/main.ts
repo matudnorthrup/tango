@@ -3843,6 +3843,20 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     }
   }
 
+  const voiceWarmStartPrompt =
+    v2AgentConfig && isV2RuntimeEnabled(v2AgentConfig)
+      ? await buildWarmStartContextPrompt({
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          currentUserPrompt: turnInput.transcript,
+          discordChannelId: voiceRouterChannelId,
+        })
+      : undefined;
+  const voiceContext = [
+    voiceWarmStartPrompt,
+    VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
+  ].filter(Boolean).join("\n\n");
+
   return dispatchVoiceTurnByRuntime({
     transcript: turnInput.transcript,
     agentId: targetAgent.id,
@@ -3852,7 +3866,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     v2AgentConfig,
     tangoRouter: voiceTangoRouter,
     sendOptions: {
-      context: VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
+      context: voiceContext || undefined,
     },
     executeLegacyTurn: async (): Promise<VoiceTurnResult> => {
       const providerSelection = resolveProviderNamesForTurn({
@@ -7511,12 +7525,19 @@ async function handleMessage(
     }
 
     try {
+      const warmStartPrompt = await buildWarmStartContextPrompt({
+        sessionId: promptRoute.sessionId,
+        agentId: targetAgent.id,
+        currentUserPrompt: prompt,
+        discordChannelId: routingChannelId,
+      });
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
           channelId: routingChannelId,
           ...(threadId ? { threadId } : {}),
           agentId: targetAgent.id,
+          sendOptions: warmStartPrompt ? { context: warmStartPrompt } : undefined,
         },
         {
           v2EnabledAgents,
