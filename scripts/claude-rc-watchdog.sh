@@ -1,0 +1,159 @@
+#!/bin/bash
+# claude-rc-watchdog.sh — Keeps /remote-control connected for ALL Claude Code sessions
+#
+# Scans all tmux panes for running `claude` processes. For each one, checks if
+# remote-control is connected. If disconnected, sends `/remote-control` to
+# reconnect it when the session is idle.
+#
+# Usage:
+#   scripts/claude-rc-watchdog.sh          # foreground
+#   scripts/claude-rc-watchdog.sh --daemon # background (log only)
+#
+# Prerequisites:
+#   - `claude remote-control` server must be running (tango:remote-control window)
+#   - Claude Code sessions must be in tmux
+#
+# Log: ~/.tango/watchdog/rc-watchdog.log
+
+set -euo pipefail
+
+CHECK_INTERVAL="${RC_WATCHDOG_INTERVAL:-60}"
+STATE_DIR="$HOME/.tango/watchdog"
+LOG_FILE="$STATE_DIR/rc-watchdog.log"
+
+mkdir -p "$STATE_DIR"
+
+log() {
+  local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+  echo "$msg" >> "$LOG_FILE"
+  if [[ "${DAEMON:-}" != "1" ]]; then echo "$msg"; fi
+}
+
+# Find claude CLI PID that is a descendant of a given pane PID.
+find_claude_pid() {
+  local pane_pid="$1"
+  local pid
+  # Direct child
+  pid=$(ps -ax -o pid=,ppid=,comm= | awk -v pp="$pane_pid" '$2 == pp && $3 == "claude" {print $1; exit}')
+  if [[ -n "$pid" ]]; then echo "$pid"; return; fi
+  # Grandchild (shell → node → claude)
+  local child
+  for child in $(ps -ax -o pid=,ppid= | awk -v pp="$pane_pid" '$2 == pp {print $1}'); do
+    pid=$(ps -ax -o pid=,ppid=,comm= | awk -v pp="$child" '$2 == pp && $3 == "claude" {print $1; exit}')
+    if [[ -n "$pid" ]]; then echo "$pid"; return; fi
+  done
+}
+
+# Check if a pane's Claude Code session has remote-control active.
+# Looks for the "/remote-control is active" or "Remote Control" indicator
+# in recent pane output. Returns 0 if connected, 1 if not.
+rc_looks_connected() {
+  local target="$1"
+  local pane_text
+  pane_text=$(tmux capture-pane -t "$target" -p -S -30 2>/dev/null || true)
+
+  # If we see "Remote Control reconnecting" in the last few lines, it's trying but struggling
+  if echo "$pane_text" | tail -5 | grep -qi "Remote Control reconnecting"; then
+    return 1
+  fi
+
+  # If we see the idle prompt (❯) with no recent remote-control mention, check
+  # if /remote-control was ever activated in visible output
+  if echo "$pane_text" | grep -q "/remote-control is active"; then
+    return 0
+  fi
+
+  # If the session just started and shows the bridge URL, it's connected
+  if echo "$pane_text" | grep -q "claude.ai/code"; then
+    return 0
+  fi
+
+  # Can't tell — assume disconnected if Claude is running but no RC indicators
+  return 1
+}
+
+# Check if pane looks idle (at the Claude Code prompt, not mid-response)
+pane_is_idle() {
+  local target="$1"
+  local pane_text
+
+  pane_text=$(tmux capture-pane -t "$target" -p -S -5 2>/dev/null || true)
+
+  # Claude Code shows "bypass permissions" or "shift+tab to cycle" or "esc to interrupt"
+  # at the bottom when idle at the prompt. Mid-response shows spinners/progress.
+  if echo "$pane_text" | tail -3 | grep -qE "bypass permissions|shift\+tab to cycle|esc to interrupt"; then
+    return 0
+  fi
+
+  # Also check for the shell prompt (Claude exited)
+  if echo "$pane_text" | tail -2 | grep -qE '^\$|^%|devinnorthrup@'; then
+    return 0
+  fi
+
+  return 1
+}
+
+# Send /remote-control to a Claude Code session
+send_rc_reconnect() {
+  local target="$1"
+  tmux send-keys -t "$target" "/remote-control" C-m
+  log "RECONNECT $target — sent /remote-control"
+}
+
+scan_and_reconnect() {
+  while IFS= read -r line; do
+    local session_name window_index pane_pid pane_index
+    session_name=$(echo "$line" | cut -d'|' -f1)
+    window_index=$(echo "$line" | cut -d'|' -f2)
+    pane_pid=$(echo "$line" | cut -d'|' -f3)
+    pane_index=$(echo "$line" | cut -d'|' -f4)
+
+    # Skip tango service windows (discord, voice, etc.)
+    if [[ "$session_name" == "tango" ]]; then continue; fi
+
+    local claude_pid
+    claude_pid=$(find_claude_pid "$pane_pid")
+    if [[ -z "$claude_pid" ]]; then continue; fi
+
+    # Use window index (not name) to avoid tmux parsing issues with names like "2.1.75"
+    local target="${session_name}:${window_index}.${pane_index}"
+
+    # Check if remote-control is connected
+    if rc_looks_connected "$target"; then
+      continue
+    fi
+
+    # Only reconnect if the session is idle
+    if ! pane_is_idle "$target"; then
+      log "SKIP   $target — disconnected but busy, will retry next cycle"
+      continue
+    fi
+
+    send_rc_reconnect "$target"
+    sleep 3  # Give it time to connect before checking the next session
+
+  done < <(tmux list-panes -a -F '#{session_name}|#{window_index}|#{pane_pid}|#{pane_index}' 2>/dev/null)
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+if [[ "${1:-}" == "--daemon" ]]; then
+  DAEMON=1
+fi
+
+log "=========================================="
+log "Claude RC Watchdog started (interval=${CHECK_INTERVAL}s)"
+log "=========================================="
+
+# Prevent idle sleep
+if [[ "${CAFFEINATED:-}" != "1" ]] && command -v caffeinate &>/dev/null; then
+  export CAFFEINATED=1
+  exec caffeinate -i "$0" "$@"
+fi
+
+while true; do
+  scan_and_reconnect
+  sleep "$CHECK_INTERVAL"
+done
