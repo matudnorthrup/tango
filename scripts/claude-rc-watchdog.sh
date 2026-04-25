@@ -18,10 +18,13 @@
 set -euo pipefail
 
 CHECK_INTERVAL="${RC_WATCHDOG_INTERVAL:-60}"
+RC_COOLDOWN="${RC_WATCHDOG_COOLDOWN:-300}"  # Don't retry same session for 5 min after a reconnect attempt
 STATE_DIR="$HOME/.tango/watchdog"
 LOG_FILE="$STATE_DIR/rc-watchdog.log"
+RC_STATE_FILE="$STATE_DIR/rc-attempts.txt"
 
 mkdir -p "$STATE_DIR"
+touch "$RC_STATE_FILE"
 
 log() {
   local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -66,10 +69,19 @@ rc_looks_connected() {
     return 0
   fi
 
-  # "Remote Control reconnecting" means it's trying but disconnected
-  # (check this AFTER the positive indicators since both can appear)
+  # "Remote Control failed" means it tried and can't connect — don't retry
+  if echo "$pane_text" | grep -q "Remote Control failed"; then
+    return 0  # Treat as "handled" so we don't spam
+  fi
+
+  # "Remote Control connecting" means it's mid-attempt — leave it alone
+  if echo "$pane_text" | grep -q "Remote Control connecting"; then
+    return 0
+  fi
+
+  # "Remote Control reconnecting" means it's auto-retrying
   if echo "$pane_text" | grep -qi "Remote Control reconnecting"; then
-    return 1
+    return 0
   fi
 
   # No indicators at all — assume disconnected
@@ -141,7 +153,23 @@ scan_and_reconnect() {
       continue
     fi
 
+    # Check cooldown — don't retry if we recently attempted this session
+    local last_attempt
+    last_attempt=$(grep "^${target}=" "$RC_STATE_FILE" 2>/dev/null | tail -1 | cut -d= -f2)
+    if [[ -n "$last_attempt" ]]; then
+      local now_ts cooldown_elapsed
+      now_ts=$(date +%s)
+      cooldown_elapsed=$(( now_ts - last_attempt ))
+      if [[ "$cooldown_elapsed" -lt "$RC_COOLDOWN" ]]; then
+        continue  # Still in cooldown
+      fi
+    fi
+
     send_rc_reconnect "$target"
+    # Record attempt timestamp
+    grep -v "^${target}=" "$RC_STATE_FILE" > "$RC_STATE_FILE.tmp" 2>/dev/null || true
+    echo "${target}=$(date +%s)" >> "$RC_STATE_FILE.tmp"
+    mv "$RC_STATE_FILE.tmp" "$RC_STATE_FILE"
     sleep 5  # Give it time to connect before checking the next session
 
   done < <(tmux list-panes -a -F '#{session_name}|#{window_index}|#{pane_pid}|#{pane_index}' 2>/dev/null)
