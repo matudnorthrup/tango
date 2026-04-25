@@ -82,7 +82,7 @@ wait_for_main_discord_exit() {
 
 start_main_discord() {
   local main_repo_dir=""
-  local node_bin="${TANGO_NODE_BIN:-/opt/homebrew/opt/node@22/bin/node}"
+  local node_bin="${TANGO_NODE_BIN:-/Users/devinnorthrup/.nvm/versions/node/v24.14.0/bin/node}"
   local run_cmd=""
 
   main_repo_dir="$(resolve_tango_repo_dir)"
