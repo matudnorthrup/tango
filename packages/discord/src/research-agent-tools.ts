@@ -494,16 +494,11 @@ export function createPrintingTools(overrides?: ResearchToolPaths): AgentTool[] 
 // ---------------------------------------------------------------------------
 
 export function createTravelTools(): AgentTool[] {
-  const legacyLocationFile = path.join(resolveLegacyDataDir(), "location", "latest.json");
   const profileLocationFile = path.join(resolveTangoProfileDataDir(), "location", "latest.json");
   const configuredLocationFile = process.env.TANGO_LOCATION_FILE?.trim();
   const locationFile = configuredLocationFile && configuredLocationFile.length > 0
     ? resolveConfiguredPath(configuredLocationFile)
-    : fs.existsSync(profileLocationFile)
-      ? profileLocationFile
-      : fs.existsSync(legacyLocationFile)
-        ? legacyLocationFile
-        : profileLocationFile;
+    : profileLocationFile;
   const dieselScript = path.join(process.cwd(), "scripts/find-diesel.js");
 
   return [

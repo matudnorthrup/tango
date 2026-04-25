@@ -15,23 +15,23 @@
  *   OWNTRACKS_AUTH_TOKEN  — Auth password (required)
  *   OWNTRACKS_PORT        — Listen port (default: 3456)
  *   TANGO_LOCATION_DIR    — Directory for latest.json + history.jsonl
- *                           (default: <repo-root>/data/location)
+ *                           (default: ~/.tango/profiles/default/data/location)
  */
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const PORT = parseInt(process.env.OWNTRACKS_PORT || '3456', 10);
 const AUTH_TOKEN = process.env.OWNTRACKS_AUTH_TOKEN || '';
 const DATA_DIR = process.env.TANGO_LOCATION_DIR
-  || path.join(__dirname, '../../data/location');
+  || path.join(os.homedir(), '.tango/profiles/default/data/location');
 const LATEST_FILE = path.join(DATA_DIR, 'latest.json');
 const HISTORY_FILE = path.join(DATA_DIR, 'history.jsonl');
 
 if (!AUTH_TOKEN) {
-  console.error('OWNTRACKS_AUTH_TOKEN is not set. Refusing to start without auth.');
-  process.exit(1);
+  console.warn('[owntracks] OWNTRACKS_AUTH_TOKEN is not set — running without authentication.');
 }
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -66,7 +66,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (!checkAuth(req)) {
+  if (AUTH_TOKEN && !checkAuth(req)) {
     res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="OwnTracks"' });
     res.end('Unauthorized');
     return;
