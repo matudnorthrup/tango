@@ -45,30 +45,34 @@ find_claude_pid() {
 }
 
 # Check if a pane's Claude Code session has remote-control active.
-# Looks for the "/remote-control is active" or "Remote Control" indicator
-# in recent pane output. Returns 0 if connected, 1 if not.
+# Returns 0 if connected, 1 if not.
 rc_looks_connected() {
   local target="$1"
   local pane_text
   pane_text=$(tmux capture-pane -t "$target" -p -S -30 2>/dev/null || true)
 
-  # If we see "Remote Control reconnecting" in the last few lines, it's trying but struggling
-  if echo "$pane_text" | tail -5 | grep -qi "Remote Control reconnecting"; then
-    return 1
+  # "Remote Control active" appears in the status bar when connected
+  if echo "$pane_text" | grep -q "Remote Control active"; then
+    return 0
   fi
 
-  # If we see the idle prompt (❯) with no recent remote-control mention, check
-  # if /remote-control was ever activated in visible output
+  # "/remote-control is active" appears right after connecting
   if echo "$pane_text" | grep -q "/remote-control is active"; then
     return 0
   fi
 
-  # If the session just started and shows the bridge URL, it's connected
+  # Bridge URL means it just connected
   if echo "$pane_text" | grep -q "claude.ai/code"; then
     return 0
   fi
 
-  # Can't tell — assume disconnected if Claude is running but no RC indicators
+  # "Remote Control reconnecting" means it's trying but disconnected
+  # (check this AFTER the positive indicators since both can appear)
+  if echo "$pane_text" | grep -qi "Remote Control reconnecting"; then
+    return 1
+  fi
+
+  # No indicators at all — assume disconnected
   return 1
 }
 
@@ -129,8 +133,16 @@ scan_and_reconnect() {
       continue
     fi
 
+    # Extra safety: check if user has pending input (pasted text waiting for submit)
+    local pane_check
+    pane_check=$(tmux capture-pane -t "$target" -p -S -3 2>/dev/null || true)
+    if echo "$pane_check" | grep -qE '\[Pasted text \+[0-9]+ lines\]'; then
+      log "SKIP   $target — has pending pasted text, will retry next cycle"
+      continue
+    fi
+
     send_rc_reconnect "$target"
-    sleep 3  # Give it time to connect before checking the next session
+    sleep 5  # Give it time to connect before checking the next session
 
   done < <(tmux list-panes -a -F '#{session_name}|#{window_index}|#{pane_pid}|#{pane_index}' 2>/dev/null)
 }
