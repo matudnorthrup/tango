@@ -7471,7 +7471,7 @@ async function handleMessage(
       };
 
       const requestId = await sendToVictorInbox(bridgeMessage);
-      const bridgeResponse = await waitForVictorResponse(requestId, 300_000);
+      const bridgeResponse = await waitForVictorResponse(requestId, 120_000);
 
       const replyDelivery = await sendPresentedReply(message.channel, bridgeResponse.text, targetAgent);
       ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
