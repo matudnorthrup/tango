@@ -8,7 +8,7 @@ REPO_DIR="$(resolve_tango_repo_dir)"
 SESSION_NAME="$(resolve_tango_tmux_session_name)"
 WINDOW_NAME="${TANGO_VOICE_WINDOW:-voice}"
 TARGET="$(resolve_tmux_service_target "$WINDOW_NAME")"
-NODE_BIN="${TANGO_NODE_BIN:-/opt/homebrew/opt/node@22/bin/node}"
+NODE_BIN="${TANGO_NODE_BIN:-/Users/devinnorthrup/.nvm/versions/node/v24.14.0/bin/node}"
 APP_DIR="$REPO_DIR/apps/tango-voice"
 
 if [ ! -x "$NODE_BIN" ]; then

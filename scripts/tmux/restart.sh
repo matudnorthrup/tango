@@ -7,7 +7,7 @@ REPO_DIR="$(resolve_tango_repo_dir)"
 
 SESSION_NAME="$(resolve_tango_tmux_session_name)"
 WINDOW_NAME="${TANGO_DISCORD_WINDOW:-discord}"
-NODE_BIN="${TANGO_NODE_BIN:-/opt/homebrew/opt/node@22/bin/node}"
+NODE_BIN="${TANGO_NODE_BIN:-/Users/devinnorthrup/.nvm/versions/node/v24.14.0/bin/node}"
 
 if [ ! -x "$NODE_BIN" ]; then
   NODE_BIN="$(command -v node || true)"

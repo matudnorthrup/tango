@@ -24,7 +24,7 @@ source "$SCRIPT_DIR/tmux/session.sh"
 REPO_DIR="$(resolve_tango_repo_dir)"
 VOICE_APP_DIR="$REPO_DIR/apps/tango-voice"
 SESSION="$(resolve_tango_tmux_session_name)"
-NODE_BIN="${TANGO_NODE_BIN:-/opt/homebrew/opt/node@22/bin/node}"
+NODE_BIN="${TANGO_NODE_BIN:-/Users/devinnorthrup/.nvm/versions/node/v24.14.0/bin/node}"
 
 if [ ! -x "$NODE_BIN" ]; then
   NODE_BIN="$(command -v node || true)"

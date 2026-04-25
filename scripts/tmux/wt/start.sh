@@ -32,7 +32,7 @@ WINDOW_WIDTH=120
 WINDOW_HEIGHT=5
 
 resolve_node_bin() {
-  local node_bin="${TANGO_NODE_BIN:-/opt/homebrew/opt/node@22/bin/node}"
+  local node_bin="${TANGO_NODE_BIN:-/Users/devinnorthrup/.nvm/versions/node/v24.14.0/bin/node}"
 
   if [ ! -x "$node_bin" ]; then
     node_bin="$(command -v node || true)"
