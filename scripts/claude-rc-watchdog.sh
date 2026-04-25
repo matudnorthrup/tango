@@ -15,7 +15,8 @@
 #
 # Log: ~/.tango/watchdog/rc-watchdog.log
 
-set -euo pipefail
+set -uo pipefail
+# No set -e — a watchdog must never crash on transient errors
 
 CHECK_INTERVAL="${RC_WATCHDOG_INTERVAL:-60}"
 RC_COOLDOWN="${RC_WATCHDOG_COOLDOWN:-300}"  # Don't retry same session for 5 min after a reconnect attempt
@@ -93,15 +94,20 @@ pane_is_idle() {
   local target="$1"
   local pane_text
 
-  pane_text=$(tmux capture-pane -t "$target" -p -S -5 2>/dev/null || true)
+  # Use a wide capture width to avoid truncation issues on narrow panes
+  pane_text=$(tmux capture-pane -t "$target" -p -S -5 -J 2>/dev/null || true)
 
-  # Claude Code shows "bypass permissions" or "shift+tab to cycle" or "esc to interrupt"
-  # at the bottom when idle at the prompt. Mid-response shows spinners/progress.
-  if echo "$pane_text" | tail -3 | grep -qE "bypass permissions|shift\+tab to cycle|esc to interrupt"; then
+  # Claude Code status bar indicators (present when idle at prompt)
+  if echo "$pane_text" | grep -qE "bypass permissions|shift\+tab to cycle|esc to interrupt"; then
     return 0
   fi
 
-  # Also check for the shell prompt (Claude exited)
+  # The ⏵⏵ prefix is unique to Claude Code's mode indicator
+  if echo "$pane_text" | grep -q "⏵⏵"; then
+    return 0
+  fi
+
+  # Shell prompt (Claude exited normally)
   if echo "$pane_text" | tail -2 | grep -qE '^\$|^%|devinnorthrup@'; then
     return 0
   fi
