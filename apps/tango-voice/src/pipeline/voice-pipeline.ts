@@ -1120,7 +1120,11 @@ export class VoicePipeline {
     // Play a gentle earcon to remind them to say a close word.
     this.indicateCaptureNudgeCount += 1;
     console.log(`Indicate capture nudge #${this.indicateCaptureNudgeCount} (${captured.length} chars captured, waiting for close word)`);
-    void this.player.playEarcon('still-listening');
+    if (this.player.isPlayingAnyEarcon()) {
+      console.log('Skipping still-listening earcon — another earcon already playing');
+    } else {
+      void this.player.playEarcon('still-listening');
+    }
     // Re-arm timeout to nudge again if still no close word
     this.armIndicateCaptureTimeout();
   }
@@ -6834,6 +6838,11 @@ Use channel names (the part before the colon). Do not explain.`,
     try {
       // All idle notifications: nudge earcon only, no TTS, no grace window.
       // The user can say "[agent name], go ahead" to hear the queued response.
+      // Skip if another earcon (e.g. still-listening) is already playing — user already has an audio cue.
+      if (this.player.isPlayingAnyEarcon()) {
+        console.log('Skipping nudge earcon — another earcon already playing');
+        return this.typeSafeIdleDeliveryResult('delivered', 'nudge-skipped-earcon-active');
+      }
       await this.player.playEarcon('nudge');
       this.ctx.lastPlaybackCompletedAt = Date.now();
       return this.typeSafeIdleDeliveryResult('delivered', 'nudge-chime');
