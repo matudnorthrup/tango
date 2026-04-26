@@ -117,20 +117,33 @@ export function extractNamedWakeWord(
   if (direct) return direct;
 
   const segments = trimmed.split(/(?<=[.!?\n])\s+/);
-  if (segments.length <= 1) return null;
+  if (segments.length > 1) {
+    for (let i = 0; i < segments.length; i += 1) {
+      const segment = segments[i]?.replace(/^[.!?\s]+/, "").trim();
+      if (!segment) continue;
 
-  for (let i = 0; i < segments.length; i += 1) {
-    const segment = segments[i]?.replace(/^[.!?\s]+/, "").trim();
-    if (!segment) continue;
+      const match = matchWakeNameAtStart(segment, wakeNames);
+      if (!match) continue;
 
-    const match = matchWakeNameAtStart(segment, wakeNames);
-    if (!match) continue;
+      const remaining = segments.slice(i + 1).join(" ");
+      return {
+        matchedName: match.matchedName,
+        transcript: `${match.transcript}${remaining ? ` ${remaining}` : ""}`.trim()
+      };
+    }
+  }
 
-    const remaining = segments.slice(i + 1).join(" ");
-    return {
-      matchedName: match.matchedName,
-      transcript: `${match.transcript}${remaining ? ` ${remaining}` : ""}`.trim()
-    };
+  // Fallback: scan for greeting+name pattern mid-transcript (handles Whisper preamble)
+  for (const wakeName of wakeNames) {
+    const escaped = escapeRegex(wakeName);
+    const greetingPattern = new RegExp(`(?:hey|hello),?\\s+${escaped}\\b`, "i");
+    const greetingMatch = trimmed.match(greetingPattern);
+    if (greetingMatch && greetingMatch.index !== undefined) {
+      return {
+        matchedName: wakeName,
+        transcript: trimmed.slice(greetingMatch.index),
+      };
+    }
   }
 
   return null;

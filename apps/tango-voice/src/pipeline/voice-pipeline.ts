@@ -367,6 +367,11 @@ export class VoicePipeline {
     if (greetingPrefix.test(lower)) {
       return address;
     }
+    // Also check the address transcript (preamble-stripped) for mid-transcript wake matches
+    const addressLower = address.transcript?.trim().toLowerCase();
+    if (addressLower && greetingPrefix.test(addressLower)) {
+      return address;
+    }
 
     // Comma or colon after name — "Watson, do this" / "Malibu: check this"
     const nameIdx = lower.indexOf(nameLower);
