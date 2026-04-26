@@ -245,6 +245,10 @@ export class DiscordAudioPlayer {
     return this.waitingLoop;
   }
 
+  isPlayingAnyEarcon(): boolean {
+    return this.isPlaying() && this.activeEarconName !== null;
+  }
+
   isPlayingEarcon(name: EarconName): boolean {
     if (!this.isPlaying()) return false;
     return this.activeEarconName === name;
