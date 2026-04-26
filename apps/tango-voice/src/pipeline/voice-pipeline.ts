@@ -175,9 +175,14 @@ export function computeEffectiveThresholds(
   }
 
   if (explicitAddress?.kind === 'agent') {
-    highThreshold = Math.max(highThreshold, CALLSIGN_ROUTE_HIGH_THRESHOLD);
-    mediumThreshold = Math.max(mediumThreshold, CALLSIGN_ROUTE_MEDIUM_THRESHOLD);
-    if (routeResult?.targetName && !transcriptMentionsRouteTargetName(transcript, routeResult.targetName)) {
+    const targetMentioned = routeResult?.targetName
+      ? transcriptMentionsRouteTargetName(transcript, routeResult.targetName)
+      : false;
+    if (!targetMentioned) {
+      highThreshold = Math.max(highThreshold, CALLSIGN_ROUTE_HIGH_THRESHOLD);
+      mediumThreshold = Math.max(mediumThreshold, CALLSIGN_ROUTE_MEDIUM_THRESHOLD);
+    }
+    if (routeResult?.targetName && !targetMentioned) {
       blocked = true;
     }
   }
