@@ -219,7 +219,7 @@ describe('VoicePipeline agent routing', () => {
       });
     });
 
-    it('keeps the stricter callsign thresholds without blocking when the target is explicitly named', () => {
+    it('does not elevate thresholds when callsign is present and the target is explicitly named', () => {
       expect(computeEffectiveThresholds(
         agentAddress,
         'watson, check the lunch money thread',
@@ -232,8 +232,8 @@ describe('VoicePipeline agent routing', () => {
         },
         6,
       )).toEqual({
-        highThreshold: 0.95,
-        mediumThreshold: 0.9,
+        highThreshold: 0.85,
+        mediumThreshold: 0.6,
         blocked: false,
       });
     });
