@@ -133,6 +133,9 @@ scan_and_reconnect() {
     # Skip tango service windows (discord, voice, etc.)
     if [[ "$session_name" == "tango" ]]; then continue; fi
 
+    # Skip PM and dev agent sessions — they're automated and don't need remote control
+    if [[ "$session_name" == TANGO-PM-* || "$session_name" == dev-wt-* ]]; then continue; fi
+
     local claude_pid
     claude_pid=$(find_claude_pid "$pane_pid")
     if [[ -z "$claude_pid" ]]; then continue; fi
