@@ -47,6 +47,38 @@ describe("address routing helpers", () => {
       "add that to my list"
     );
   });
+
+  describe("extractNamedWakeWord mid-transcript greeting detection", () => {
+    it("detects wake word after comma-separated preamble", () => {
+      const result = extractNamedWakeWord("testing, hello, Juliet.", "Juliet");
+      expect(result).not.toBeNull();
+      expect(result!.matchedName).toBe("Juliet");
+      expect(result!.transcript).toBe("hello, Juliet.");
+    });
+
+    it("detects wake word after multiple preamble clauses", () => {
+      const result = extractNamedWakeWord("okay so, um, hello Watson, how are you?", "Watson");
+      expect(result).not.toBeNull();
+      expect(result!.matchedName).toBe("Watson");
+    });
+
+    it("still matches a bare name at the transcript start", () => {
+      const result = extractNamedWakeWord("Juliet says hello to everyone", "Juliet");
+      expect(result).not.toBeNull();
+    });
+
+    it("does not match name mentioned as subject mid-transcript", () => {
+      const result = extractNamedWakeWord("I told Juliet about it", "Juliet");
+      expect(result).toBeNull();
+    });
+
+    it("handles hey prefix mid-transcript", () => {
+      const result = extractNamedWakeWord("blah blah, hey Malibu, check this", "Malibu");
+      expect(result).not.toBeNull();
+      expect(result!.matchedName).toBe("Malibu");
+      expect(result!.transcript).toBe("hey Malibu, check this");
+    });
+  });
 });
 
 describe("VoiceTargetDirectory", () => {
