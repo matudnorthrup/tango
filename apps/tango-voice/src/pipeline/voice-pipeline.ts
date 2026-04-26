@@ -6832,11 +6832,11 @@ Use channel names (the part before the colon). Do not explain.`,
     this.ctx.idleNotifyInFlight = true;
 
     try {
-      // All idle notifications: still-listening earcon only, no TTS, no grace window.
+      // All idle notifications: nudge earcon only, no TTS, no grace window.
       // The user can say "[agent name], go ahead" to hear the queued response.
-      await this.player.playEarcon('still-listening');
+      await this.player.playEarcon('nudge');
       this.ctx.lastPlaybackCompletedAt = Date.now();
-      return this.typeSafeIdleDeliveryResult('delivered', 'still-listening-chime');
+      return this.typeSafeIdleDeliveryResult('delivered', 'nudge-chime');
     } finally {
       this.ctx.idleNotifyInFlight = false;
     }

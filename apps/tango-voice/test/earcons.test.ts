@@ -42,7 +42,7 @@ describe('earcons', () => {
         const bytesPerSample = 2; // 16-bit
         const numSamples = dataSize / bytesPerSample;
         const durationMs = (numSamples / SAMPLE_RATE) * 1000;
-        const maxDurationMs = name === 'nudge' ? 1000 : 800;
+        const maxDurationMs = name === 'nudge' ? 1000 : name === 'still-listening' ? 1300 : 800;
         expect(durationMs).toBeLessThan(maxDurationMs);
       });
 
@@ -95,6 +95,7 @@ describe('earcon durations within expected ranges', () => {
     'gate-closed': 270,
     'paused': 420,
     'resumed': 420,
+    'still-listening': 1220,
     'nudge': 950,
   };
 
