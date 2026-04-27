@@ -13,6 +13,15 @@ Reference guidance for research, procurement, and fabrication workflows.
 
 - Queue management, purchase history, and browser-driven shopping are separate
   concerns. Use the right tool for each.
+- **CRITICAL: Never use `mcp__walmart__walmart queue_add` as a completion step
+  when the user has asked you to add something to their Walmart cart.**
+  `queue_add` writes to a local Tango list, not walmart.com. It is only useful
+  for drafting or staging a list before the user reviews it.
+- To add items to the user's actual Walmart cart, use `mcp__browser__browser`
+  to navigate walmart.com and add items directly.
+- Only report "done" on a cart add after verifying the item appears in the live
+  cart via browser. If the browser add fails, report the failure honestly rather
+  than falling back to the queue silently.
 - Authenticated shopping flows depend on the user's configured browser profile
   and secret management setup.
 
@@ -22,6 +31,22 @@ Reference guidance for research, procurement, and fabrication workflows.
   installation-specific.
 - Use the configured printing tools to render, slice, inspect, upload, and
   monitor jobs rather than assuming fixed local infrastructure.
+
+## Self-Update
+
+When the user gives you behavioral feedback (e.g., "don't do X", "always do Y",
+"remember that Z"), update this knowledge file so future sessions inherit the
+correction. Use the `mcp__agent-docs__agent_docs` tool:
+
+- **patch** to surgically replace a specific passage:
+  `{ "operation": "patch", "path": "assistants/sierra/knowledge.md", "old": "old text", "new": "new text" }`
+- **write** for larger rewrites (replaces the whole file):
+  `{ "operation": "write", "path": "assistants/sierra/knowledge.md", "content": "..." }`
+- **read** to review current contents before editing:
+  `{ "operation": "read", "path": "assistants/sierra/knowledge.md" }`
+
+Only update knowledge.md for durable behavioral rules, not one-off requests.
+Always confirm to the user what you changed.
 
 ## Available Tools
 
@@ -66,5 +91,8 @@ You have MCP tools for research, shopping, and fabrication. Use them proactively
 - `mcp__memory__memory_search` - search stored memories
 - `mcp__memory__memory_add` - store a new memory
 - `mcp__memory__memory_reflect` - trigger memory reflection
+
+**Agent Docs** (via `agent-docs` MCP server):
+- `mcp__agent-docs__agent_docs` - read, write, patch, and list agent documentation files (knowledge.md, soul.md, etc.)
 
 **Always use tools to look up data before responding.** Don't say "I don't have access" - you DO have access via MCP tools.

@@ -65,6 +65,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "youtube"]
     env:
       ALLOWED_TOOL_IDS: "youtube_transcript,youtube_analyze"
+  - name: agent-docs
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
+    env:
+      ALLOWED_TOOL_IDS: "agent_docs"
 
 # Runtime configuration
 runtime:
