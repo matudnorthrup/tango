@@ -1,0 +1,94 @@
+id: daily-brief
+display_name: Daily Brief
+description: >
+  Morning aggregator that reads all domain job logs from the past 24 hours,
+  collects flagged items, fetches calendar events, writes a consolidated
+  brief to the daily note in Obsidian, and posts a single Discord ping.
+enabled: true
+
+schedule:
+  cron: "15 5 * * *"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: agent
+  worker_id: personal-assistant
+  intent_ids:
+    - planning.morning_review
+  task: |
+    Daily Brief aggregator run.
+
+    Gather overnight job results and produce one consolidated morning brief.
+
+    1. **Read domain job logs** from the past 24 hours. Check each of these
+       Obsidian log files using direct filesystem I/O (NOT obsidian-cli):
+       - ~/Documents/main/Records/Jobs/Finance/YYYY-MM.md
+       - ~/Documents/main/Records/Jobs/Email/YYYY-MM.md
+       - ~/Documents/main/Records/Jobs/Planning/YYYY-MM.md
+       Parse each file for entries (## headers with timestamps) from the
+       last 24 hours. Also check the previous month's file if we're in the
+       first day of a new month.
+
+    2. **Extract flagged items.** For each entry that has a **Flagged:**
+       section, collect the flagged items with the job name as context.
+
+    3. **Fetch calendar events.** Get today's calendar events from both
+       accounts (use --all for non-primary calendars). Include the first
+       5 events.
+
+    4. **Write brief to daily note.** Write a "## Morning Brief" section
+       to the top of today's daily note at
+       ~/Documents/main/Planning/Daily/YYYY-MM-DD.md using direct
+       filesystem I/O. Create the file if it doesn't exist. Format:
+
+       ## Morning Brief — Day Mon DD
+
+       **Today:** N meetings | weather summary if available
+
+       ### Flagged (N)
+       - **Job Name:** flagged item description
+       (or "No flags -- clean night." if none)
+
+       ### Overnight Jobs
+       - Job Name -- status summary
+       (for each job that ran in the last 24h)
+
+       ### Calendar
+       - HH:MMam -- Event Name
+       (for each calendar event today)
+
+    5. **Post Discord ping.** Return a brief message for the personal
+       channel:
+       - If flagged items exist:
+         "Morning brief ready. N flagged item(s) need attention.
+         Check today's daily note for full summary."
+       - If no flagged items:
+         "Morning brief ready. No flags -- clean night."
+  timeout_seconds: 300
+
+provider:
+  model: sonnet
+
+delivery:
+  channel_id: "100000000000000025"
+  agent_id: watson
+
+completion:
+  workflow_id: daily-brief
+  scope: daily
+
+policy:
+  max_consecutive_failures: 3
+  alert_channel_id: "100000000000000010"
+  concurrency_group: watson-tasks
+  priority: 10
+  backoff:
+    enabled: true
+    initial_seconds: 120
+    max_seconds: 3600
+
+tags:
+  - watson
+  - planning
+  - daily
+  - brief
