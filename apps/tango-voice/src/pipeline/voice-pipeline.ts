@@ -194,6 +194,7 @@ export class VoicePipeline {
   private static readonly MAX_LOCAL_HISTORY = 20;
   private static readonly READY_GRACE_MS = 5_000;
   private static readonly FOLLOWUP_PROMPT_GRACE_MS = 15_000;
+  private static readonly REPLY_CONTEXT_DURATION_MS = 45_000;
   // Absorb Discord/VAD timing jitter at the ready->speak handoff.
   private static readonly READY_HANDOFF_TOLERANCE_MS = 600;
   // Rejected-audio reprompts are useful for brief misses, but noisy long chunks
@@ -433,6 +434,52 @@ export class VoicePipeline {
 
   private clearFocusedAgent(): void {
     this.setFocusedAgent(null);
+  }
+
+  private setReplyContext(
+    agentId: string | null,
+    sessionKey: string | null,
+    channelName: string | null,
+    durationMs: number = 45_000,
+  ): void {
+    if (!agentId) return;
+    this.ctx.replyContextAgentId = agentId;
+    this.ctx.replyContextSessionKey = sessionKey;
+    this.ctx.replyContextChannelName = channelName;
+    this.ctx.replyContextUntil = Date.now() + durationMs;
+    console.log(`Reply context set: agent=${agentId}, channel=${channelName ?? 'null'}, expires in ${durationMs}ms`);
+  }
+
+  private clearReplyContext(): void {
+    this.ctx.replyContextAgentId = null;
+    this.ctx.replyContextSessionKey = null;
+    this.ctx.replyContextChannelName = null;
+    this.ctx.replyContextUntil = 0;
+  }
+
+  private hasActiveReplyContext(): boolean {
+    return this.ctx.replyContextAgentId != null && Date.now() < this.ctx.replyContextUntil;
+  }
+
+  private resolveChannelNameFromSessionKey(sessionKey: string | null): string | null {
+    if (!sessionKey || !this.router) return null;
+
+    const allChannels = this.router.getAllChannelSessionKeys() as Array<
+      { name: string; displayName: string; sessionKey: string } | string
+    >;
+    const match = allChannels.find((channel) => (
+      typeof channel === 'string'
+        ? channel === sessionKey
+        : channel.sessionKey === sessionKey
+    ));
+    if (typeof match === 'string') {
+      return match.match(/:channel:(.+)$/)?.[1] ?? null;
+    }
+    if (match) return match.name ?? null;
+
+    return this.router.getActiveSessionKey() === sessionKey
+      ? this.router.getActiveChannel().name
+      : null;
   }
 
   private getRouteChannelKey(channelName: string): string | null {
@@ -1120,7 +1167,7 @@ export class VoicePipeline {
     // Play a gentle earcon to remind them to say a close word.
     this.indicateCaptureNudgeCount += 1;
     console.log(`Indicate capture nudge #${this.indicateCaptureNudgeCount} (${captured.length} chars captured, waiting for close word)`);
-    if (this.player.isPlayingAnyEarcon()) {
+    if (this.player.isPlayingAnyEarcon?.()) {
       console.log('Skipping still-listening earcon — another earcon already playing');
     } else {
       void this.player.playEarcon('still-listening');
@@ -2554,6 +2601,38 @@ export class VoicePipeline {
         console.log(`Follow-up prompt: preserving active channel "${this.router?.getActiveChannel().name ?? 'current'}"`);
       }
 
+      let replyContextApplied = false;
+      if (!preserveCurrentChannelForFollowup && this.hasActiveReplyContext()) {
+        const replyAgentId = this.ctx.replyContextAgentId!;
+        const replyChannelName = this.ctx.replyContextChannelName;
+        const addressedDifferentAgent = explicitAddress?.kind === 'agent'
+          && explicitAddress.agent.id !== replyAgentId;
+
+        if (addressedDifferentAgent) {
+          console.log(`Reply context overridden: user addressed ${explicitAddress!.agent.id}, reply context was ${replyAgentId}`);
+          this.clearReplyContext();
+        } else {
+          if (replyChannelName && this.router) {
+            const currentChannel = this.router.getActiveChannel().name;
+            if (currentChannel !== replyChannelName) {
+              const switchResult = await this.router.switchTo(replyChannelName);
+              if (switchResult.success) {
+                console.log(`Reply context: auto-switched to "${replyChannelName}" (agent=${replyAgentId})`);
+              }
+            }
+          }
+
+          const replyAgent = this.voiceTargets.getAgent(replyAgentId);
+          if (replyAgent) {
+            this.setFocusedAgent(replyAgent);
+            console.log(`Reply context: focused agent set to ${replyAgent.displayName ?? replyAgentId}`);
+          }
+
+          replyContextApplied = true;
+          this.clearReplyContext();
+        }
+      }
+
       // Run route classifier in parallel with command classifier.
       // The route result is only used when the command classifier returns "prompt"
       // (i.e., no command detected). Running in parallel adds zero latency.
@@ -2562,7 +2641,7 @@ export class VoicePipeline {
         : transcript.trim();
       const routingWordCount = countRoutingWords(strippedForRouting);
       const routeClassifierPromise: Promise<RouteClassifierResult | null> =
-        !preserveCurrentChannelForFollowup && this.router && this.topicManager && this.projectManager
+        !preserveCurrentChannelForFollowup && !replyContextApplied && this.router && this.topicManager && this.projectManager
           ? inferRouteTarget(
               strippedForRouting,
               this.router,
@@ -2787,7 +2866,7 @@ export class VoicePipeline {
 
       // Fall back to agent's default channel if route classifier didn't override.
       // This is the existing behavior: addressing an agent auto-switches to their channel.
-      if (!preserveCurrentChannelForFollowup && !routeApplied && explicitAddress?.kind === 'agent' && explicitAddress.agent.defaultChannelId && this.router) {
+      if (!preserveCurrentChannelForFollowup && !replyContextApplied && !routeApplied && explicitAddress?.kind === 'agent' && explicitAddress.agent.defaultChannelId && this.router) {
         const agentChannelId = explicitAddress.agent.defaultChannelId;
         const currentChannel = this.router.getActiveChannel();
         const currentDef = currentChannel as any;
@@ -6385,6 +6464,16 @@ Use channel names (the part before the colon). Do not explain.`,
       this.ctx.lastSpokenWasSummary = spokenText !== fullText;
       this.ctx.lastSpokenIsChannelMessage = !!options?.isChannelMessage;
       this.ctx.lastSpokenSpeakerAgentId = options?.speakerAgentId ?? null;
+      if (options?.isChannelMessage && options?.speakerAgentId) {
+        const activeChannelName = this.router?.getActiveChannel().name ?? null;
+        const activeSessionKey = this.router?.getActiveSessionKey() ?? null;
+        this.setReplyContext(
+          options.speakerAgentId,
+          activeSessionKey,
+          activeChannelName,
+          VoicePipeline.REPLY_CONTEXT_DURATION_MS,
+        );
+      }
     }
     const wasSummarized = spokenText !== fullText;
     console.log(`[speakResponse] fullLen=${fullText.length} spokenLen=${spokenText.length} summarized=${wasSummarized} allowSummary=${!!options?.allowSummary} forceFull=${!!options?.forceFull} text="${spokenText.slice(0, 120)}${spokenText.length > 120 ? '...' : ''}"`);
@@ -6839,11 +6928,18 @@ Use channel names (the part before the colon). Do not explain.`,
       // All idle notifications: nudge earcon only, no TTS, no grace window.
       // The user can say "[agent name], go ahead" to hear the queued response.
       // Skip if another earcon (e.g. still-listening) is already playing — user already has an audio cue.
-      if (this.player.isPlayingAnyEarcon()) {
+      if (this.player.isPlayingAnyEarcon?.()) {
         console.log('Skipping nudge earcon — another earcon already playing');
         return this.typeSafeIdleDeliveryResult('delivered', 'nudge-skipped-earcon-active');
       }
       await this.player.playEarcon('nudge');
+      const notifyChannelName = this.resolveChannelNameFromSessionKey(item.sessionKey);
+      this.setReplyContext(
+        item.speakerAgentId,
+        item.sessionKey,
+        notifyChannelName,
+        VoicePipeline.REPLY_CONTEXT_DURATION_MS,
+      );
       this.ctx.lastPlaybackCompletedAt = Date.now();
       return this.typeSafeIdleDeliveryResult('delivered', 'nudge-chime');
     } finally {
@@ -6896,6 +6992,16 @@ Use channel names (the part before the colon). Do not explain.`,
     if (!item) return;
 
     await this.readQueuedReadyItem(item, options);
+    if (item.speakerAgentId) {
+      const activeChannelName = this.router?.getActiveChannel().name ?? null;
+      const activeSessionKey = this.router?.getActiveSessionKey() ?? null;
+      this.setReplyContext(
+        item.speakerAgentId,
+        activeSessionKey,
+        activeChannelName,
+        VoicePipeline.REPLY_CONTEXT_DURATION_MS,
+      );
+    }
   }
 
   private findLocalReadyItem(agent?: string): QueuedResponse | null {
