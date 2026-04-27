@@ -10,6 +10,11 @@ mcp_servers:
   - name: memory
     command: node
     args: ["packages/atlas-memory/dist/index.js"]
+  - name: google
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "google"]
+    env:
+      ALLOWED_TOOL_IDS: "gog_email,gog_calendar,gog_docs,gog_docs_update_tab"
   - name: exa
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "exa"]
