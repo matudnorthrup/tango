@@ -37,7 +37,7 @@ memory:
 voice:
   call_signs:
     - Juliet
-  kokoro_voice: af_heart
+  kokoro_voice: af_bella
   default_channel_id: "1495415367118618766"
 
 # Discord routing

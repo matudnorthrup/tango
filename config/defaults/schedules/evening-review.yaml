@@ -4,6 +4,7 @@ description: >
   Run the evening review if the user hasn't already done it manually.
   Summarizes the day's accomplishments and plans for tomorrow.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "30 20 * * *"

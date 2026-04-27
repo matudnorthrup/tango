@@ -6,7 +6,7 @@ import {
 import type { VoiceTurnResult } from "@tango/voice";
 import type { RouteResult, TangoRouter } from "./tango-router.js";
 
-export const VOICE_V2_ROUTER_TIMEOUT_MS = 30_000;
+export const VOICE_V2_ROUTER_TIMEOUT_MS = 900_000;
 export const VOICE_V2_TTS_ERROR_MESSAGE = "Sorry, I'm having trouble. Try again.";
 
 function extractProviderSessionId(response: RuntimeResponse): string | undefined {

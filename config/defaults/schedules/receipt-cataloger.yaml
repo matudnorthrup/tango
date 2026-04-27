@@ -5,6 +5,7 @@ description: >
   transactions for missing receipt notes, look up matching orders/receipts,
   and create or update Obsidian receipt files.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "0 2 * * *"

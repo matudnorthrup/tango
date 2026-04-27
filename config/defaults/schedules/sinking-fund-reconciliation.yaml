@@ -4,6 +4,7 @@ description: >
   Weekly Sunday sinking fund reconciliation for Watson with month-to-date
   spending, outstanding reimbursements, balances, and contribution status.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "0 7 * * 0"

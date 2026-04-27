@@ -14,7 +14,7 @@ All active work is tracked in **Linear** (Seaside HQ workspace). See memory file
 
 - Create a project from the **General Project** template for every new initiative
 - Update issue status as work progresses (Todo → In Progress → Done)
-- Update project status to reflect the current milestone (Discovery → Implementation → Validation → Ship)
+- Update project status to reflect the current milestone (Discovery → Implementation → Deploy → Validation → Ship)
 - Link PRs and docs in project descriptions
 - When completing work, update Linear BEFORE reporting to stakeholder
 

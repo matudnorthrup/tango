@@ -14,7 +14,7 @@ import type {
   SendOptions,
 } from "./agent-runtime.js";
 
-const DEFAULT_SEND_TIMEOUT_MS = 120_000;
+const DEFAULT_SEND_TIMEOUT_MS = 900_000;
 const TEARDOWN_GRACE_PERIOD_MS = 5_000;
 const FORCE_KILL_GRACE_PERIOD_MS = 2_000;
 
@@ -294,6 +294,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
 
     const args = [
       "--print",
+      "--dangerously-skip-permissions",
       "--output-format",
       "json",
       "--append-system-prompt",

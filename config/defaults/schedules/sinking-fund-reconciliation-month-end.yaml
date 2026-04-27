@@ -4,6 +4,7 @@ description: >
   Month-end pre-close sinking fund reconciliation so the books can be cleared
   before the new month starts.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "0 7 28,29 * *"
