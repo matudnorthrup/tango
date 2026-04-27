@@ -60,6 +60,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "slack"]
     env:
       ALLOWED_TOOL_IDS: "slack"
+  - name: agent-docs
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
+    env:
+      ALLOWED_TOOL_IDS: "agent_docs"
 
 # Runtime configuration
 runtime:
