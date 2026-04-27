@@ -33,11 +33,27 @@ execution:
        handle splits, and flag ambiguous vendors for review.
     5. Apply categories via the Lunch Money API (PUT with category_id
        and status: "cleared").
-    6. Return a concise summary for the finance thread:
+    6. Return a concise summary:
        "Categorized N transactions tonight — here's what I did.
        Reply to correct anything."
        Then list each transaction: payee, amount, applied category.
        If any were ambiguous or need review, list those separately.
+    7. **Obsidian Job Log:** After completing the categorization, append a
+       structured log entry to the domain log file at
+       ~/Documents/main/Records/Jobs/Finance/YYYY-MM.md (using the current
+       year-month). Create the file and parent directories if they don't exist.
+       Use direct filesystem I/O (NOT obsidian-cli). The entry format:
+
+       ## YYYY-MM-DD HH:MM — Nightly Transaction Categorizer
+
+       **Status:** Done — N transactions categorized
+       **Summary:** brief summary of what was categorized
+
+       If any items were flagged or ambiguous, add:
+       **Flagged:**
+       - item description
+
+       Otherwise add: No flagged items.
 
     Rate limit: wait 0.3s between Lunch Money API calls.
   timeout_seconds: 420
@@ -46,8 +62,7 @@ provider:
   model: sonnet
 
 delivery:
-  channel_id: "100000000000000013"
-  agent_id: watson
+  mode: none
 
 policy:
   max_consecutive_failures: 3
