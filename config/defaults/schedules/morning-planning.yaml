@@ -35,14 +35,30 @@ execution:
     - Update the daily note with the plan
 
     Present a concise summary of what was planned.
+
+    Final step — Obsidian Job Log: After completing the planning, append a
+    structured log entry to the domain log file at
+    ~/Documents/main/Records/Jobs/Planning/YYYY-MM.md (using the current
+    year-month). Create the file and parent directories if they don't exist.
+    Use direct filesystem I/O (NOT obsidian-cli). The entry format:
+
+    ## YYYY-MM-DD HH:MM — Morning Planning
+
+    **Status:** Done — plan ready
+    **Summary:** brief summary of what was planned (key tasks, time blocks)
+
+    If anything needs user attention, add:
+    **Flagged:**
+    - item description
+
+    Otherwise add: No flagged items.
   timeout_seconds: 300
 
 provider:
   model: sonnet
 
 delivery:
-  channel_id: "100000000000000025"
-  agent_id: watson
+  mode: none
 
 completion:
   workflow_id: morning-planning
