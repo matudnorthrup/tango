@@ -32,6 +32,10 @@ export interface TransientContext {
   followupPromptGraceUntil: number;
   followupPromptChannelName: string | null;
   inboxConversationAgentId: string | null;
+  replyContextAgentId: string | null;
+  replyContextSessionKey: string | null;
+  replyContextChannelName: string | null;
+  replyContextUntil: number;
 
   // Cooldowns / flags
   rejectRepromptInFlight: boolean;
@@ -76,6 +80,10 @@ export function createTransientContext(): TransientContext {
     followupPromptGraceUntil: 0,
     followupPromptChannelName: null,
     inboxConversationAgentId: null,
+    replyContextAgentId: null,
+    replyContextSessionKey: null,
+    replyContextChannelName: null,
+    replyContextUntil: 0,
     rejectRepromptInFlight: false,
     rejectRepromptCooldownUntil: 0,
     ignoreProcessingUtterancesUntil: 0,
@@ -116,6 +124,10 @@ export function resetTransientContext(ctx: TransientContext): void {
   ctx.followupPromptGraceUntil = 0;
   ctx.followupPromptChannelName = null;
   ctx.inboxConversationAgentId = null;
+  ctx.replyContextAgentId = null;
+  ctx.replyContextSessionKey = null;
+  ctx.replyContextChannelName = null;
+  ctx.replyContextUntil = 0;
   ctx.rejectRepromptInFlight = false;
   ctx.rejectRepromptCooldownUntil = 0;
   ctx.ignoreProcessingUtterancesUntil = 0;
