@@ -25,6 +25,11 @@ mcp_servers:
     # Note: read-only for Malibu (enforced at MCP server level)
     command: node
     args: ["packages/discord/dist/mcp-proxy.js", "obsidian"]
+  - name: agent-docs
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
+    env:
+      ALLOWED_TOOL_IDS: "agent_docs"
 
 # Runtime configuration
 runtime:
