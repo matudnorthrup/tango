@@ -5,6 +5,7 @@ description: >
   is in. Runs at 4 PM daily. Agent reads channels, filters for signal,
   and produces a concise narrative digest.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "0 16 * * *"

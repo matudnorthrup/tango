@@ -12,19 +12,25 @@ mcp_servers:
     args: ["packages/atlas-memory/dist/index.js"]
   - name: wellness
     command: node
-    args: ["packages/discord/dist/mcp-wellness-server.js", "--stdio"]
+    args: ["packages/core/dist/mcp-proxy.js", "wellness"]
+    env:
+      ALLOWED_TOOL_IDS: "health_query,workout_sql,nutrition_log_items,recipe_list,recipe_read,recipe_write,system_clock,health_morning"
   - name: fatsecret
-    # External MCP — uses existing proxy
     command: node
-    args: ["packages/discord/dist/mcp-proxy.js", "fatsecret"]
+    args: ["packages/core/dist/mcp-proxy.js", "fatsecret"]
+    env:
+      ALLOWED_TOOL_IDS: "fatsecret_api"
   - name: atlas
-    # Existing Atlas nutrition SQL tool
     command: node
-    args: ["packages/discord/dist/mcp-proxy.js", "atlas"]
+    args: ["packages/core/dist/mcp-proxy.js", "atlas"]
+    env:
+      ALLOWED_TOOL_IDS: "atlas_sql"
   - name: obsidian
     # Note: read-only for Malibu (enforced at MCP server level)
     command: node
-    args: ["packages/discord/dist/mcp-proxy.js", "obsidian"]
+    args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
+    env:
+      ALLOWED_TOOL_IDS: "obsidian"
   - name: agent-docs
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
@@ -34,7 +40,7 @@ mcp_servers:
 # Runtime configuration
 runtime:
   mode: persistent
-  provider: legacy
+  provider: claude-code-v2
   fallback: codex
   model: claude-sonnet-4-6
   reasoning_effort: medium

@@ -89,6 +89,7 @@
   },
   "dependencies": {
     "@mapbox/polyline": "^1.2.1",
+    "better-sqlite3": "^12.9.0",
     "geolib": "^3.3.4"
   }
 }

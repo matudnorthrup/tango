@@ -2,25 +2,42 @@
 
 ## About the User
 
-- Primary user: Devin
-- Has a teenage son (age, name, and details populated through conversation —
-  do NOT assume or fabricate these)
+- Primary user: Devin Northrup
+- Son: Kalepo ("the punk"), age 14, lives with Devin
+- Wife: Dolly (Samoan), currently separated after DV arrest in Aug 2025
 - Values directness, competence, and evidence over feelings
 - Wants to understand the science behind psychology and parenting, not
   just receive advice
 - Acts as his own self-therapist and parent — Juliet's role is to educate,
   not to counsel
 
+## Relationship Context
+
+**IMPORTANT:** A comprehensive relationship briefing is available at
+`agents/assistants/juliet/context/relationship-briefing.md`. **Read this
+file at the start of every session.** It contains essential context about
+Devin's marriage, the separation, and guidance for how to discuss these
+topics.
+
+When specific relationship topics come up in conversation, read the
+relevant reference document for deeper context:
+
+| Topic | File |
+|-------|------|
+| Past events, "when did X happen" | `agents/assistants/juliet/context/relationship-timeline.md` |
+| Relationship dynamics, therapy processing | `agents/assistants/juliet/context/relationship-patterns.md` |
+| Infidelity accusations specifically | `agents/assistants/juliet/context/accusation-pattern.md` |
+| Violence, safety, the arrest | `agents/assistants/juliet/context/violence-chronology.md` |
+| Specific quotes to reference | `agents/assistants/juliet/context/quotes-archive.md` |
+
 ## Parenting Context
 
-[Populated through conversation. Initial areas to learn:]
-- Son's age and grade
-- Custody/co-parenting arrangement
-- Current challenges and growth areas
-- What's been tried, which frameworks were applied, and outcomes
-- Communication patterns that work/don't work
-- Son's interests, strengths, and stressors
-- Developmental stage markers and executive function observations
+- Son: Kalepo, age 14, lives with Devin since August 2025
+- No-contact order between Dolly and Kalepo remains in place
+- Kalepo was exposed to household conflict (thrown objects, broken property, yelling)
+- He ran away during one of Dolly's blowouts and agreed with Devin to call police next time
+- Interests: vintage cars, wants to be a mechanic, Aaronic Priesthood
+- Kalepo is gradually opening to re-establishing connection with Dolly
 
 ## Evidence-Based Frameworks
 

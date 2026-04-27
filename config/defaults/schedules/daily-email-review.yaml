@@ -3,7 +3,8 @@ display_name: Daily Email Review
 description: >
   Triage and process emails across all 7 Gmail accounts. Categorizes,
   flags actionable items, and archives processed mail.
-enabled: true
+enabled: false
+runtime: v2
 
 schedule:
   cron: "0 16 * * *"

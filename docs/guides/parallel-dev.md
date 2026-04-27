@@ -185,6 +185,10 @@ scripts/dev/release-worktree.sh 1
 | `TANGO_BOT_LOCK_PATH` | `~/.tango/slots/bot.lock.d` | Override lock directory (for testing) |
 | `TANGO_BOT_HISTORY_PATH` | `~/.tango/slots/history.log` | Override history log path (for testing) |
 
+## Caveats
+
+- **Test harness concurrency**: `scripts/dev/test-message.sh` creates a new Discord client per invocation. Do not run multiple instances concurrently against the same bot token — Discord gateway rate-limits parallel logins, causing timeouts. Serialize test harness calls or use separate bot tokens.
+
 ## Architecture notes
 
 - **Profile isolation**: `TANGO_PROFILE=wt-{N}` triggers `hasExplicitProfileRuntimeSelection()` in `packages/core/src/runtime-paths.ts`, routing all DB/cache/config/log resolution to `~/.tango/profiles/wt-{N}/`

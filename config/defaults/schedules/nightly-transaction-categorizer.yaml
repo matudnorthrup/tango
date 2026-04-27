@@ -4,6 +4,7 @@ description: >
   Fetch uncategorized Lunch Money transactions from the last 48 hours,
   apply categorization rules, and post a summary. Exit silently if none.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "0 23 * * *"
@@ -28,7 +29,7 @@ execution:
     2. If the follow-up fetch unexpectedly returns zero transactions,
        return EXACTLY the text "__NO_OUTPUT__" and nothing else.
     3. Read the categorization rules from
-       ~/.tango/profiles/default/notes/finance/Lunch Money Rules.md
+       ~/Documents/main/References/Finance/Lunch Money Rules.md
     4. Follow the transaction_categorization skill to apply rules,
        handle splits, and flag ambiguous vendors for review.
     5. Apply categories via the Lunch Money API (PUT with category_id

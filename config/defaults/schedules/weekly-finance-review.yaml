@@ -4,6 +4,7 @@ description: >
   Sunday morning review of month-to-date spending vs budgets, sinking
   fund transfers, and fixed cost anomalies.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "0 7 * * 0"

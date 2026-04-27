@@ -5,6 +5,7 @@ description: >
   share-news, share-learning, claudes-office, devins-agents, openclaw)
   into a daily briefing on what the team is discussing around AI.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "5 15 * * *"

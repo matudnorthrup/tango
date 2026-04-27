@@ -4,6 +4,7 @@ description: >
   Scan all email accounts for subscription/marketing emails and recommend
   unsubscribes for new senders not previously reviewed.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "0 10 * * 0"

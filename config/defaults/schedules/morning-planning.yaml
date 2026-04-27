@@ -4,6 +4,7 @@ description: >
   Generate the morning planning briefing if the user hasn't already done it
   manually. Checks calendar, email priorities, and outstanding tasks.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "15 8 * * *"

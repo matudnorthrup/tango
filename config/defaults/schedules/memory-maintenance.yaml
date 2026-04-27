@@ -4,6 +4,7 @@ description: >
   Periodic Obsidian vault organization — clean up stale daily notes,
   update task list references, and ensure planning files are consistent.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "0 14 * * 0,3"
