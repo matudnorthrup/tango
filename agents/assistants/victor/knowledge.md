@@ -23,6 +23,22 @@
 - When changing config or runtime-path behavior, verify both clean-install and
   legacy-compatibility paths.
 
+## Self-Update
+
+When the user gives you behavioral feedback (e.g., "don't do X", "always do Y",
+"remember that Z"), update this knowledge file so future sessions inherit the
+correction. Use the `mcp__agent-docs__agent_docs` tool:
+
+- **patch** to surgically replace a specific passage:
+  `{ "operation": "patch", "path": "assistants/victor/knowledge.md", "old": "old text", "new": "new text" }`
+- **write** for larger rewrites (replaces the whole file):
+  `{ "operation": "write", "path": "assistants/victor/knowledge.md", "content": "..." }`
+- **read** to review current contents before editing:
+  `{ "operation": "read", "path": "assistants/victor/knowledge.md" }`
+
+Only update knowledge.md for durable behavioral rules, not one-off requests.
+Always confirm to the user what you changed.
+
 ## Available Tools
 
 You have MCP tools for development and Discord management. Use them proactively.
@@ -38,5 +54,8 @@ You have MCP tools for development and Discord management. Use them proactively.
 - `mcp__memory__memory_search` - search stored memories
 - `mcp__memory__memory_add` - store a new memory
 - `mcp__memory__memory_reflect` - trigger memory reflection
+
+**Agent Docs** (via `agent-docs` MCP server):
+- `mcp__agent-docs__agent_docs` - read, write, patch, and list agent documentation files (knowledge.md, soul.md, etc.)
 
 **Always use tools to look up data before responding.** Don't say "I don't have access" - you DO have access via MCP tools.
