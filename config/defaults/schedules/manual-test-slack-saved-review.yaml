@@ -1,0 +1,60 @@
+id: manual-test-slack-saved-review
+display_name: "[Manual Test] Slack Saved Items Review"
+description: Manual trigger for testing the Slack saved items review job
+enabled: false
+runtime: v2
+
+schedule:
+  cron: "0 0 1 1 *"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: agent
+  worker_id: research-assistant
+  intent_ids:
+    - productivity.slack_saved_review
+  deterministic_agent_id: watson
+  task: |
+    Review Devin's Slack bookmarks from the last 24 hours.
+
+    1. Use the slack tool with action "bookmarked_messages" to find all messages
+       Devin reacted to with :bookmark: in the last 24 hours.
+
+    2. For each bookmarked message:
+       - Resolve the user ID to a display name using slack action "user_info"
+       - Write a one-line summary of what the message is about
+       - Include the permalink
+
+    3. Write to Obsidian daily note at Planning/Daily/YYYY-MM-DD.md:
+       - Determine today's date in America/Los_Angeles timezone
+       - Add a "## Slack Saved Items" section
+       - For each item, add a task line: - [ ] [Summary](permalink) — #channel-name
+       - Use direct filesystem I/O (NOT obsidian-cli)
+       - If the file doesn't exist yet, create it with minimal frontmatter
+       - If the section already exists, replace it
+
+    4. Append to domain log at Records/Jobs/Slack/YYYY-MM.md:
+       - Follow the standard domain job log format
+       - Create the file/directory if it doesn't exist
+
+    5. If no bookmarked messages found, still write the domain log entry
+       but skip the daily note section.
+
+    Important: The daily note path is ~/Documents/main/Planning/Daily/YYYY-MM-DD.md
+    The domain log path is ~/Documents/main/Records/Jobs/Slack/YYYY-MM.md
+  timeout_seconds: 180
+
+provider:
+  model: sonnet
+
+delivery:
+  mode: none
+
+completion:
+  workflow_id: manual-test-slack-saved-review
+  scope: daily
+
+tags:
+  - watson
+  - slack
+  - manual-test
