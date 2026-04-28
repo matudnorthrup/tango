@@ -65,6 +65,10 @@ export function createSlackTools(): AgentTool[] {
         "    Params: channel_id (required), thread_ts (required)",
         "    Returns: array of reply messages",
         "",
+        "  bookmarked_messages — Find messages a user reacted to with a specific emoji.",
+        "    Params: emoji (default 'bookmark'), user_id (default Devin's ID), hours (default 24)",
+        "    Returns: array of { channel_id, channel_name, text, user, ts, permalink }",
+        "",
         "Tips:",
         "- Call list_channels first to discover what's available.",
         "- For digests, fetch channel_history for each channel, then synthesize.",
@@ -77,7 +81,7 @@ export function createSlackTools(): AgentTool[] {
         properties: {
           action: {
             type: "string",
-            enum: ["list_channels", "channel_history", "user_info", "thread_replies"],
+            enum: ["list_channels", "channel_history", "user_info", "thread_replies", "bookmarked_messages"],
             description: "The Slack operation to perform",
           },
           channel_id: {
@@ -86,7 +90,11 @@ export function createSlackTools(): AgentTool[] {
           },
           user_id: {
             type: "string",
-            description: "User ID (for user_info)",
+            description: "User ID (for user_info, bookmarked_messages)",
+          },
+          emoji: {
+            type: "string",
+            description: "Emoji name to search for (default 'bookmark', for bookmarked_messages)",
           },
           thread_ts: {
             type: "string",
@@ -189,8 +197,70 @@ export function createSlackTools(): AgentTool[] {
             };
           }
 
+          case "bookmarked_messages": {
+            const emoji = String(input.emoji || "bookmark");
+            const userId = String(input.user_id || "U02SLAKMMT6");
+            const hours = Number(input.hours) || 24;
+            const oldest = String((Date.now() - hours * 3600_000) / 1000);
+
+            const chBody = await slackApi("users.conversations", {
+              types: "public_channel,private_channel",
+              limit: "200",
+            });
+            const channels = (chBody.channels as Array<Record<string, unknown>>) ?? [];
+
+            const results: Array<Record<string, unknown>> = [];
+
+            for (const ch of channels) {
+              const histBody = await slackApi("conversations.history", {
+                channel: String(ch.id),
+                oldest,
+                limit: "200",
+              });
+              const messages = (histBody.messages as Array<Record<string, unknown>>) ?? [];
+
+              for (const msg of messages) {
+                const reactions = (msg.reactions as Array<Record<string, unknown>>) ?? [];
+                const match = reactions.find(
+                  (reaction) =>
+                    String(reaction.name) === emoji
+                    && ((reaction.users as string[]) ?? []).includes(userId),
+                );
+
+                if (!match) continue;
+
+                let permalink = "";
+                try {
+                  const linkBody = await slackApi("chat.getPermalink", {
+                    channel: String(ch.id),
+                    message_ts: String(msg.ts),
+                  });
+                  permalink = String(linkBody.permalink || "");
+                } catch {
+                  // Permalinks are best-effort only.
+                }
+
+                results.push({
+                  channel_id: ch.id,
+                  channel_name: ch.name,
+                  text: msg.text,
+                  user: msg.user,
+                  ts: msg.ts,
+                  permalink,
+                });
+              }
+            }
+
+            return {
+              emoji,
+              user_id: userId,
+              count: results.length,
+              items: results,
+            };
+          }
+
           default:
-            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, or thread_replies.` };
+            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, thread_replies, or bookmarked_messages.` };
         }
       },
     },
