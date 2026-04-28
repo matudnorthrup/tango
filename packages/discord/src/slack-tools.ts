@@ -6,6 +6,7 @@
  * workflow logic in the handler.
  *
  * Auth: Bot token fetched from 1Password (Watson vault, "Watson Slack Bot Token").
+ * `saved_items` uses a Slack user token only for `stars.list`.
  */
 
 import type { AgentTool } from "@tango/core";
@@ -23,11 +24,21 @@ async function getSlackToken(): Promise<string> {
   return cachedToken;
 }
 
-async function slackApi(
+let cachedUserToken: string | null = null;
+async function getSlackUserToken(): Promise<string> {
+  if (!cachedUserToken) {
+    const token = await getSecret("Watson", "Watson Slack User Token");
+    if (!token) throw new Error("Slack user token not found in 1Password (Watson vault, item 'Watson Slack User Token')");
+    cachedUserToken = token;
+  }
+  return cachedUserToken;
+}
+
+async function slackApiWithToken(
+  token: string,
   method: string,
   params: Record<string, string> = {},
 ): Promise<Record<string, unknown>> {
-  const token = await getSlackToken();
   const url = new URL(`${SLACK_API}/${method}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
@@ -41,12 +52,20 @@ async function slackApi(
   return body;
 }
 
+async function slackApi(
+  method: string,
+  params: Record<string, string> = {},
+): Promise<Record<string, unknown>> {
+  const token = await getSlackToken();
+  return slackApiWithToken(token, method, params);
+}
+
 export function createSlackTools(): AgentTool[] {
   return [
     {
       name: "slack",
       description: [
-        "Read-only Slack Web API access for the Watson bot.",
+        "Read-only Slack Web API access for Watson, including native saved items.",
         "",
         "Actions:",
         "",
@@ -65,9 +84,9 @@ export function createSlackTools(): AgentTool[] {
         "    Params: channel_id (required), thread_ts (required)",
         "    Returns: array of reply messages",
         "",
-        "  bookmarked_messages — Find messages a user reacted to with a specific emoji.",
-        "    Params: emoji (default 'bookmark'), user_id (default Devin's ID), hours (default 24)",
-        "    Returns: array of { channel_id, channel_name, text, user, ts, permalink }",
+        "  saved_items — List Slack saved messages via the native stars.list API.",
+        "    Params: limit (default 100)",
+        "    Returns: { count, items: [{ type, channel_id, text, user, ts, permalink, date_create }] }",
         "",
         "Tips:",
         "- Call list_channels first to discover what's available.",
@@ -81,7 +100,7 @@ export function createSlackTools(): AgentTool[] {
         properties: {
           action: {
             type: "string",
-            enum: ["list_channels", "channel_history", "user_info", "thread_replies", "bookmarked_messages"],
+            enum: ["list_channels", "channel_history", "user_info", "thread_replies", "saved_items"],
             description: "The Slack operation to perform",
           },
           channel_id: {
@@ -90,11 +109,7 @@ export function createSlackTools(): AgentTool[] {
           },
           user_id: {
             type: "string",
-            description: "User ID (for user_info, bookmarked_messages)",
-          },
-          emoji: {
-            type: "string",
-            description: "Emoji name to search for (default 'bookmark', for bookmarked_messages)",
+            description: "User ID (for user_info)",
           },
           thread_ts: {
             type: "string",
@@ -102,11 +117,11 @@ export function createSlackTools(): AgentTool[] {
           },
           hours: {
             type: "number",
-            description: "How many hours of history to fetch (default 24)",
+            description: "How many hours of history to fetch (default 24, for channel_history)",
           },
           limit: {
             type: "number",
-            description: "Max messages to return (default 200)",
+            description: "Max items to return (default 200 for channel_history, 100 for saved_items)",
           },
         },
         required: ["action"],
@@ -197,70 +212,55 @@ export function createSlackTools(): AgentTool[] {
             };
           }
 
-          case "bookmarked_messages": {
-            const emoji = String(input.emoji || "bookmark");
-            const userId = String(input.user_id || "U02SLAKMMT6");
-            const hours = Number(input.hours) || 24;
-            const oldest = String((Date.now() - hours * 3600_000) / 1000);
-
-            const chBody = await slackApi("users.conversations", {
-              types: "public_channel,private_channel",
-              limit: "200",
+          case "saved_items": {
+            const limit = Number(input.limit) || 100;
+            const userToken = await getSlackUserToken();
+            const body = await slackApiWithToken(userToken, "stars.list", {
+              count: String(limit),
             });
-            const channels = (chBody.channels as Array<Record<string, unknown>>) ?? [];
+            const items = (body.items as Array<Record<string, unknown>>) ?? [];
 
-            const results: Array<Record<string, unknown>> = [];
+            const messageItems: Array<Record<string, unknown>> = [];
 
-            for (const ch of channels) {
-              const histBody = await slackApi("conversations.history", {
-                channel: String(ch.id),
-                oldest,
-                limit: "200",
-              });
-              const messages = (histBody.messages as Array<Record<string, unknown>>) ?? [];
+            for (const item of items) {
+              if (String(item.type) !== "message") continue;
 
-              for (const msg of messages) {
-                const reactions = (msg.reactions as Array<Record<string, unknown>>) ?? [];
-                const match = reactions.find(
-                  (reaction) =>
-                    String(reaction.name) === emoji
-                    && ((reaction.users as string[]) ?? []).includes(userId),
-                );
+              const channelId = String(item.channel || "");
+              const message = item.message as Record<string, unknown> | undefined;
+              const ts = String(message?.ts || "");
 
-                if (!match) continue;
+              if (!channelId || !message || !ts) continue;
 
-                let permalink = "";
-                try {
-                  const linkBody = await slackApi("chat.getPermalink", {
-                    channel: String(ch.id),
-                    message_ts: String(msg.ts),
-                  });
-                  permalink = String(linkBody.permalink || "");
-                } catch {
-                  // Permalinks are best-effort only.
-                }
-
-                results.push({
-                  channel_id: ch.id,
-                  channel_name: ch.name,
-                  text: msg.text,
-                  user: msg.user,
-                  ts: msg.ts,
-                  permalink,
+              let permalink = "";
+              try {
+                const linkBody = await slackApi("chat.getPermalink", {
+                  channel: channelId,
+                  message_ts: ts,
                 });
+                permalink = String(linkBody.permalink || "");
+              } catch {
+                // Permalinks are best-effort only.
               }
+
+              messageItems.push({
+                type: "message",
+                channel_id: channelId,
+                text: message.text,
+                user: message.user,
+                ts,
+                permalink,
+                date_create: item.date_create,
+              });
             }
 
             return {
-              emoji,
-              user_id: userId,
-              count: results.length,
-              items: results,
+              count: messageItems.length,
+              items: messageItems,
             };
           }
 
           default:
-            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, thread_replies, or bookmarked_messages.` };
+            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, thread_replies, or saved_items.` };
         }
       },
     },

@@ -1,6 +1,6 @@
 id: manual-test-slack-saved-review
 display_name: "[Manual Test] Slack Saved Items Review"
-description: Manual trigger for testing the Slack saved items review job
+description: Manual trigger for testing the Slack saved items review workflow
 enabled: false
 runtime: v2
 
@@ -15,12 +15,11 @@ execution:
     - productivity.slack_saved_review
   deterministic_agent_id: watson
   task: |
-    Review Devin's Slack bookmarks from the last 24 hours.
+    Review Devin's Slack saved items.
 
-    1. Use the slack tool with action "bookmarked_messages" to find all messages
-       Devin reacted to with :bookmark: in the last 24 hours.
+    1. Use the slack tool with action "saved_items" to get all saved messages.
 
-    2. For each bookmarked message:
+    2. For each saved message:
        - Resolve the user ID to a display name using slack action "user_info"
        - Write a one-line summary of what the message is about
        - Include the permalink
@@ -34,11 +33,14 @@ execution:
        - If the section already exists, replace it
 
     4. Append to domain log at Records/Jobs/Slack/YYYY-MM.md:
-       - Follow the standard domain job log format
+       - Follow the standard domain job log format:
+         ## YYYY-MM-DD HH:MM — Slack Saved Items Review
+         **Status:** Done — N items found
+         **Summary:** Saved messages from #channel1 (count), #channel2 (count)
        - Create the file/directory if it doesn't exist
 
-    5. If no bookmarked messages found, still write the domain log entry
-       but skip the daily note section.
+    5. If no saved items found, still write the domain log entry
+       (Status: Done — 0 items found) but skip the daily note section.
 
     Important: The daily note path is ~/Documents/main/Planning/Daily/YYYY-MM-DD.md
     The domain log path is ~/Documents/main/Records/Jobs/Slack/YYYY-MM.md

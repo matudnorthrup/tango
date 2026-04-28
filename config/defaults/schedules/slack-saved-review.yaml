@@ -1,8 +1,8 @@
 id: slack-saved-review
 display_name: Slack Saved Items Review
 description: >
-  Scan Slack channels for messages Devin bookmarked (reacted with :bookmark:),
-  summarize each, and write them as tasks in the Obsidian daily note.
+  Review Slack saved items, summarize each, and write them as tasks in the
+  Obsidian daily note.
   Also logs to Records/Jobs/Slack/ for daily brief aggregation.
 enabled: true
 runtime: v2
@@ -18,12 +18,11 @@ execution:
     - productivity.slack_saved_review
   deterministic_agent_id: watson
   task: |
-    Review Devin's Slack bookmarks from the last 24 hours.
+    Review Devin's Slack saved items.
 
-    1. Use the slack tool with action "bookmarked_messages" to find all messages
-       Devin reacted to with :bookmark: in the last 24 hours.
+    1. Use the slack tool with action "saved_items" to get all saved messages.
 
-    2. For each bookmarked message:
+    2. For each saved message:
        - Resolve the user ID to a display name using slack action "user_info"
        - Write a one-line summary of what the message is about
        - Include the permalink
@@ -40,10 +39,10 @@ execution:
        - Follow the standard domain job log format:
          ## YYYY-MM-DD HH:MM — Slack Saved Items Review
          **Status:** Done — N items found
-         **Summary:** Bookmarked messages from #channel1 (count), #channel2 (count)
+         **Summary:** Saved messages from #channel1 (count), #channel2 (count)
        - Create the file/directory if it doesn't exist
 
-    5. If no bookmarked messages found, still write the domain log entry
+    5. If no saved items found, still write the domain log entry
        (Status: Done — 0 items found) but skip the daily note section.
 
     Important: The daily note path is ~/Documents/main/Planning/Daily/YYYY-MM-DD.md
