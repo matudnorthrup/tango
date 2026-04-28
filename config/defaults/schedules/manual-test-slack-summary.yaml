@@ -3,6 +3,7 @@ display_name: Manual Test Slack Channel Summary
 description: >
   Manual deterministic validation clone of the daily Slack digest.
 enabled: false
+runtime: v2
 
 schedule:
   cron: "0 16 * * *"

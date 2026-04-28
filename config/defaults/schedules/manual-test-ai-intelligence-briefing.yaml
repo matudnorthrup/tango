@@ -3,6 +3,7 @@ display_name: Manual Test AI Intelligence Briefing
 description: >
   Manual deterministic validation clone of the AI-focused Slack digest.
 enabled: false
+runtime: v2
 
 schedule:
   cron: "5 15 * * *"

@@ -5,6 +5,7 @@ description: >
   collects flagged items, fetches calendar events, writes a consolidated
   brief to the daily note in Obsidian, and posts a single Discord ping.
 enabled: true
+runtime: v2
 
 schedule:
   cron: "15 5 * * *"

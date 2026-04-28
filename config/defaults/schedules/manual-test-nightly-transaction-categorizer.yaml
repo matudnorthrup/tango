@@ -3,6 +3,7 @@ display_name: Manual Test Nightly Transaction Categorizer
 description: >
   Manual deterministic validation clone of the nightly Lunch Money categorizer.
 enabled: false
+runtime: v2
 
 schedule:
   cron: "0 23 * * *"
