@@ -1232,6 +1232,15 @@ export class VoicePipeline {
     return words.length >= 7;
   }
 
+  private isIndicateCaptureEmpty(): boolean {
+    return this.ctx.indicateCaptureSegments
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0)
+      .join(' ')
+      .trim()
+      .length === 0;
+  }
+
   private flushIndicateCapture(reason: string): string {
     const transcript = this.ctx.indicateCaptureSegments
       .map((segment) => segment.trim())
@@ -1255,6 +1264,7 @@ export class VoicePipeline {
     const stripped = hasWakeWord ? this.stripLeadingWakePhrase(transcript) : transcript.trim();
     const standaloneCodeWake = this.isStandaloneCodeWakePhrase(stripped);
     const normalizedStripped = this.normalizeClosePhrase(stripped);
+    const bareCommand = !hasWakeWord ? this.matchBareQueueCommand(stripped) : null;
     // Also check the full transcript for close phrases, because wake word
     // stripping can destroy multi-word close phrases that start with a
     // wake word (e.g. if a close phrase begins with an agent name).
@@ -1317,6 +1327,25 @@ export class VoicePipeline {
       return { action: 'finalize', transcript: finalized, closeType: 'conversational' };
     }
 
+    // Allow high-confidence bare playback commands to interrupt active indicate
+    // capture without wake word. Keep this list narrow to avoid dictation
+    // phrases being misread as navigation commands. read-ready only interrupts
+    // when nothing has been dictated yet; otherwise "go ahead" should retain
+    // its normal conversational-close meaning and finalize the capture.
+    if (bareCommand && (
+      bareCommand.type === 'read-last-message'
+      || bareCommand.type === 'hear-full-message'
+      || (bareCommand.type === 'read-ready' && this.isIndicateCaptureEmpty())
+    )) {
+      this.clearIndicateCapture(`bare-command:${bareCommand.type}`);
+      console.log(`Indicate capture interrupted by bare command: ${bareCommand.type}`);
+      return {
+        action: 'command',
+        command: bareCommand,
+        commandTranscript: stripped,
+      };
+    }
+
     const closeOnlyUtterance = this.extractCloseOnlyUtterance(stripped);
     if (closeOnlyUtterance) {
       const finalized = this.flushIndicateCapture(`cluster-${closeOnlyUtterance.type}-close`);
@@ -1344,22 +1373,6 @@ export class VoicePipeline {
           action: 'command',
           command: wakeCommand,
           commandTranscript: transcript,
-        };
-      }
-    }
-
-    // Allow high-confidence bare playback commands to interrupt active indicate
-    // capture without wake word. Keep this list narrow to avoid dictation
-    // phrases being misread as navigation commands.
-    if (!hasWakeWord) {
-      const bareCommand = this.matchBareQueueCommand(stripped);
-      if (bareCommand && (bareCommand.type === 'read-last-message' || bareCommand.type === 'hear-full-message')) {
-        this.clearIndicateCapture(`bare-command:${bareCommand.type}`);
-        console.log(`Indicate capture interrupted by bare command: ${bareCommand.type}`);
-        return {
-          action: 'command',
-          command: bareCommand,
-          commandTranscript: stripped,
         };
       }
     }

@@ -615,6 +615,38 @@ describe('Layer 3: Queue Mode Flow', () => {
     pipeline.stop();
   });
 
+  it('3.6b2 — empty indicate capture wake-check lets bare "go ahead" read a ready response', async () => {
+    const { pipeline, qs } = makePipeline('queue');
+    voiceSettings.endpointingMode = 'indicate';
+    const item = qs.enqueue({
+      channel: 'walmart',
+      displayName: 'Watson',
+      sessionKey: 'agent:main:discord:channel:walmart',
+      userMessage: 'queued prompt',
+      speakerAgentId: 'watson',
+    });
+    qs.markReady(item.id, 'Ready summary.', 'Ready response text.');
+    playerCalls.length = 0;
+    earconHistory.length = 0;
+
+    await simulateUtterance(pipeline, 'user1', 'Watson');
+
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
+    expect((pipeline as any).ctx.indicateCaptureSegments).toEqual([]);
+
+    await simulateUtterance(pipeline, 'user1', 'go ahead');
+
+    expect(qs.enqueue).toHaveBeenCalledTimes(1);
+    expect(qs.markHeard).toHaveBeenCalledWith(item.id);
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
+    expect((pipeline as any).ctx.indicateCaptureSegments).toEqual([]);
+    expect(playerCalls).toContain('playStream');
+    expect(earconHistory).toContain('ready');
+    expect(getState(pipeline)).toBe('IDLE');
+
+    pipeline.stop();
+  });
+
   it('3.6c — agent-targeted read-ready consumes a matching local response', async () => {
     const { pipeline, qs } = makePipeline('queue');
     const item = qs.enqueue({
