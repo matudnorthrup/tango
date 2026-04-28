@@ -602,6 +602,7 @@ const ALLOWED_TOOL_IDS_BY_INTENT: Record<string, string[]> = {
   "planning.morning_review": PLANNING_MORNING_REVIEW_ALLOWED_TOOL_IDS,
   "printing.job_prepare_or_start": PRINTING_JOB_PREP_ALLOWED_TOOL_IDS,
   "printing.printer_status": ["printer_command"],
+  "productivity.slack_saved_review": ["slack", "file_ops"],
   "recipe.read": RECIPE_READ_ALLOWED_TOOL_IDS,
   "recipe.update": RECIPE_UPDATE_ALLOWED_TOOL_IDS,
   "research.deep_research": RESEARCH_WEB_ALLOWED_TOOL_IDS,
