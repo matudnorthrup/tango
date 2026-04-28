@@ -3,6 +3,7 @@ display_name: Manual Test Receipt Cataloger
 description: >
   Manual deterministic validation clone of the receipt cataloger.
 enabled: false
+runtime: v2
 
 schedule:
   cron: "0 2 * * *"

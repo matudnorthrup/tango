@@ -3,6 +3,7 @@ display_name: Manual Test Weekly Finance Review
 description: >
   Manual deterministic validation clone of the weekly finance review.
 enabled: false
+runtime: v2
 
 schedule:
   cron: "0 7 * * 1"

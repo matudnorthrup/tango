@@ -3,6 +3,7 @@ display_name: Manual Test Daily Email Review
 description: >
   Manual deterministic validation clone of the daily email review.
 enabled: false
+runtime: v2
 
 schedule:
   cron: "0 16 * * *"
