@@ -944,7 +944,7 @@ export class VoicePipeline {
    * deliberate close from ordinary dictation. One-word legacy aliases like
    * "over" are still supported, but only as explicit wake-prefixed closes.
    */
-  private static readonly BARE_SAFE_CONVERSATIONAL_CLOSES = ['charlie tango'];
+  private static readonly BARE_SAFE_CONVERSATIONAL_CLOSES = ['tango out'];
   private static readonly MAX_TAIL_CONVERSATIONAL_CLOSE_CONTENT_WORDS = 16;
 
   private isStandaloneConversationalClose(text: string): boolean {
@@ -1391,7 +1391,7 @@ export class VoicePipeline {
     }
 
     // Bare multi-word conversational close during active capture:
-    // "go ahead", "i'm done", "charlie tango", etc.
+    // "go ahead", "i'm done", "tango out", etc.
     if (!hasWakeWord && this.isStandaloneConversationalClose(stripped)) {
       const finalized = this.flushIndicateCapture('bare-conversational-close');
       if (!finalized) {
