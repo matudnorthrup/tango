@@ -6,6 +6,10 @@ description: >
 enabled: true
 runtime: v2
 
+obsidian_log:
+  domain: Finance
+  job_name: Nightly Transaction Categorizer
+
 schedule:
   cron: "0 23 * * *"
   timezone: America/Los_Angeles
@@ -39,22 +43,6 @@ execution:
        Reply to correct anything."
        Then list each transaction: payee, amount, applied category.
        If any were ambiguous or need review, list those separately.
-    7. **Obsidian Job Log:** After completing the categorization, append a
-       structured log entry to the domain log file at
-       ~/Documents/main/Records/Jobs/Finance/YYYY-MM.md (using the current
-       year-month). Create the file and parent directories if they don't exist.
-       Use direct filesystem I/O (NOT obsidian-cli). The entry format:
-
-       ## YYYY-MM-DD HH:MM — Nightly Transaction Categorizer
-
-       **Status:** Done — N transactions categorized
-       **Summary:** brief summary of what was categorized
-
-       If any items were flagged or ambiguous, add:
-       **Flagged:**
-       - item description
-
-       Otherwise add: No flagged items.
 
     Rate limit: wait 0.3s between Lunch Money API calls.
   timeout_seconds: 420

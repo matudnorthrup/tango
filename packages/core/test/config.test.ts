@@ -465,6 +465,9 @@ describe("loadScheduleConfigs", () => {
         "description: Run inbox maintenance.",
         "enabled: true",
         "runtime: v2",
+        "obsidian_log:",
+        "  domain: Email",
+        "  job_name: Daily Email Review",
         "schedule:",
         "  cron: \"0 16 * * *\"",
         "execution:",
@@ -482,6 +485,10 @@ describe("loadScheduleConfigs", () => {
     expect(schedules[0]).toMatchObject({
       id: "daily-email-review",
       runtime: "v2",
+      obsidianLog: {
+        domain: "Email",
+        jobName: "Daily Email Review",
+      },
       execution: {
         mode: "agent",
         workerId: "personal-assistant",

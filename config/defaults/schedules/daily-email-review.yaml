@@ -6,6 +6,10 @@ description: >
 enabled: false
 runtime: v2
 
+obsidian_log:
+  domain: Email
+  job_name: Daily Email Review
+
 schedule:
   cron: "0 16 * * *"
   timezone: America/Los_Angeles
@@ -34,23 +38,6 @@ execution:
 
     Phase 4: Present a summary with counts: actionable flagged, drafts
     created, notifications/newsletters archived, total inbox reduction.
-
-    Phase 5 — Obsidian Job Log: After completing the review, append a
-    structured log entry to the domain log file at
-    ~/Documents/main/Records/Jobs/Email/YYYY-MM.md (using the current
-    year-month). Create the file and parent directories if they don't exist.
-    Use direct filesystem I/O (NOT obsidian-cli). The entry format:
-
-    ## YYYY-MM-DD HH:MM — Daily Email Review
-
-    **Status:** Done — N emails processed
-    **Summary:** brief summary (actionable flagged, archived, etc.)
-
-    If any items need user attention, add:
-    **Flagged:**
-    - item description
-
-    Otherwise add: No flagged items.
   timeout_seconds: 420
 
 provider:
