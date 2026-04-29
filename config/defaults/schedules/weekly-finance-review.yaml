@@ -6,6 +6,10 @@ description: >
 enabled: true
 runtime: v2
 
+obsidian_log:
+  domain: Finance
+  job_name: Weekly Finance Review
+
 schedule:
   cron: "0 7 * * 0"
   timezone: America/Los_Angeles
@@ -46,22 +50,6 @@ execution:
        - Fixed cost anomalies (or "none")
     7. If everything looks clean, still return a brief all-clear with
        the budget summary table.
-    8. **Obsidian Job Log:** After completing the review, append a
-       structured log entry to the domain log file at
-       ~/Documents/main/Records/Jobs/Finance/YYYY-MM.md (using the current
-       year-month). Create the file and parent directories if they don't exist.
-       Use direct filesystem I/O (NOT obsidian-cli). The entry format:
-
-       ## YYYY-MM-DD HH:MM — Weekly Finance Review
-
-       **Status:** Done — budget review complete
-       **Summary:** brief summary (budget status, any warnings)
-
-       If any categories are flagged (over 80% budget, anomalies), add:
-       **Flagged:**
-       - item description
-
-       Otherwise add: No flagged items.
 
     Rate limit: wait 0.3s between Lunch Money API calls.
   timeout_seconds: 300

@@ -1,7 +1,26 @@
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { executeSchedule } from "../src/scheduler/executor.js";
 import { getPreCheckHandler, registerPreCheckHandler } from "../src/scheduler/handlers.js";
 import type { ScheduleConfig } from "../src/scheduler/types.js";
+
+const tempDirs: string[] = [];
+const originalHome = process.env.HOME;
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
+  }
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function createAgentSchedule(overrides?: Partial<ScheduleConfig>): ScheduleConfig {
   return {
@@ -21,6 +40,12 @@ function createAgentSchedule(overrides?: Partial<ScheduleConfig>): ScheduleConfi
     },
     ...overrides,
   };
+}
+
+function createTempHome(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-scheduler-home-"));
+  tempDirs.push(dir);
+  return dir;
 }
 
 describe("executeSchedule", () => {
@@ -166,5 +191,80 @@ describe("executeSchedule", () => {
     expect(executeScheduledTurn).toHaveBeenCalledOnce();
     expect(executeScheduledTurn.mock.calls[0]?.[0].task).toContain("Found 2 unreviewed transactions");
     expect(executeWorker).not.toHaveBeenCalled();
+  });
+
+  it("writes an Obsidian job log after a successful agent run when configured", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T12:34:00Z"));
+    process.env.HOME = createTempHome();
+
+    const executeWorker = vi.fn(async () => ({
+      text: "Planned focus blocks for inbox zero and budget review.",
+      durationMs: 12,
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        id: "morning-planning",
+        obsidianLog: {
+          domain: "Planning",
+          jobName: "Morning Planning",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeWorker,
+        db: {} as never,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+
+    const logPath = path.join(
+      process.env.HOME!,
+      "Documents",
+      "main",
+      "Records",
+      "Jobs",
+      "Planning",
+      "2026-04.md",
+    );
+    const logText = fs.readFileSync(logPath, "utf8");
+
+    expect(logText).toContain("## 2026-04-29");
+    expect(logText).toContain("Morning Planning");
+    expect(logText).toContain("**Status:** Done");
+    expect(logText).toContain("**Summary:** Planned focus blocks for inbox zero and budget review.");
+  });
+
+  it("keeps successful runs green when Obsidian log writing fails", async () => {
+    process.env.HOME = createTempHome();
+
+    const executeWorker = vi.fn(async () => ({ text: "legacy worker run", durationMs: 12 }));
+    vi.spyOn(fs, "appendFileSync").mockImplementation(() => {
+      throw new Error("disk full");
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        obsidianLog: {
+          domain: "Email",
+          jobName: "Daily Email Review",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeWorker,
+        db: {} as never,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.summary).toBe("legacy worker run");
+    expect(consoleError).toHaveBeenCalledWith(
+      "[scheduler] obsidian-log error for daily-email-review:",
+      expect.any(Error),
+    );
   });
 });

@@ -7,6 +7,10 @@ description: >
 enabled: true
 runtime: v2
 
+obsidian_log:
+  domain: Slack
+  job_name: Slack Saved Items Review
+
 schedule:
   cron: "45 4 * * *"
   timezone: America/Los_Angeles
@@ -20,7 +24,8 @@ execution:
   task: |
     Review Devin's Slack saved items.
 
-    1. Use the slack tool with action "saved_items" to get all saved messages.
+    1. Use the slack tool with action "saved_items" and since_hours 48
+       to get recently saved messages.
 
     2. For each saved message:
        - Resolve the user ID to a display name using slack action "user_info"
@@ -35,18 +40,14 @@ execution:
        - If the file doesn't exist yet, create it with minimal frontmatter
        - If the section already exists, replace it
 
-    4. Append to domain log at Records/Jobs/Slack/YYYY-MM.md:
-       - Follow the standard domain job log format:
-         ## YYYY-MM-DD HH:MM — Slack Saved Items Review
-         **Status:** Done — N items found
-         **Summary:** Saved messages from #channel1 (count), #channel2 (count)
-       - Create the file/directory if it doesn't exist
+    4. If no saved items are found, skip the daily note section.
 
-    5. If no saved items found, still write the domain log entry
-       (Status: Done — 0 items found) but skip the daily note section.
+    5. For each processed item, call the slack tool with action
+       "remove_star", channel_id set to the item's channel_id, and
+       timestamp set to the item's ts. This prevents items from
+       repeating in the next daily run.
 
     Important: The daily note path is ~/Documents/main/Planning/Daily/YYYY-MM-DD.md
-    The domain log path is ~/Documents/main/Records/Jobs/Slack/YYYY-MM.md
   timeout_seconds: 180
 
 provider:

@@ -110,6 +110,13 @@ export interface ScheduleCompletionConfig {
   markOnSuccess?: boolean;
 }
 
+export interface ObsidianLogConfig {
+  /** Domain subdirectory under Records/Jobs/ (e.g., "Finance", "Planning") */
+  domain: string;
+  /** Job display name for the log entry header (e.g., "Nightly Transaction Categorizer") */
+  jobName: string;
+}
+
 export interface ScheduleConfig {
   id: string;
   displayName?: string;
@@ -124,6 +131,7 @@ export interface ScheduleConfig {
   policy?: SchedulePolicyConfig;
   completion?: ScheduleCompletionConfig;
   tags?: string[];
+  obsidianLog?: ObsidianLogConfig;
 }
 
 // ============================================================
