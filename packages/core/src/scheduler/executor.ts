@@ -7,6 +7,9 @@
  * - agent: always spawns agent worker
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type {
   ScheduleConfig,
   WorkerExecuteFn,
@@ -34,6 +37,52 @@ export interface ExecutorDeps {
   executeScheduledTurn?: ScheduledTurnExecuteFn;
   executeV2Turn?: V2ScheduledTurnExecuteFn;
   db: import("node:sqlite").DatabaseSync;
+}
+
+function writeObsidianLog(config: ScheduleConfig, summary: string): void {
+  if (!config.obsidianLog) return;
+
+  const { domain, jobName } = config.obsidianLog;
+  const now = new Date();
+
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+
+  const jobsDir = path.join(
+    os.homedir(),
+    "Documents",
+    "main",
+    "Records",
+    "Jobs",
+    domain,
+  );
+  const filePath = path.join(jobsDir, `${yyyy}-${mm}.md`);
+
+  fs.mkdirSync(jobsDir, { recursive: true });
+
+  const truncatedSummary = summary.length > 500
+    ? `${summary.slice(0, 497)}...`
+    : summary;
+
+  const entry = [
+    "",
+    `## ${yyyy}-${mm}-${dd} ${hh}:${min} — ${jobName}`,
+    "",
+    "**Status:** Done",
+    `**Summary:** ${truncatedSummary}`,
+    "",
+    "No flagged items.",
+    "",
+  ].join("\n");
+
+  fs.appendFileSync(filePath, entry, "utf8");
+
+  console.error(
+    `[scheduler] obsidian-log written: ${domain}/${yyyy}-${mm}.md for ${config.id}`,
+  );
 }
 
 export async function executeSchedule(
@@ -222,6 +271,13 @@ async function runAgentWorker(
     );
     const trimmedText = v2Result.text.trim();
     const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
+    if (summary) {
+      try {
+        writeObsidianLog(config, summary);
+      } catch (err) {
+        console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
+      }
+    }
 
     return {
       status: "ok",
@@ -256,6 +312,13 @@ async function runAgentWorker(
     );
     const trimmedText = result.text.trim();
     const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
+    if (summary) {
+      try {
+        writeObsidianLog(config, summary);
+      } catch (err) {
+        console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
+      }
+    }
 
     return {
       status: "ok",
@@ -275,6 +338,13 @@ async function runAgentWorker(
   // summary in logs.
   const trimmedText = result.text.trim();
   const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
+  if (summary) {
+    try {
+      writeObsidianLog(config, summary);
+    } catch (err) {
+      console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
+    }
+  }
 
   return {
     status: "ok",

@@ -1,12 +1,12 @@
 /**
- * Slack Tools — Universal read-only Slack Web API tool.
+ * Slack Tools — Universal Slack Web API tool.
  *
  * Provides a single `slack` tool that wraps the Slack Web API, letting agents
  * list channels, read history, resolve users, and search — without embedding
  * workflow logic in the handler.
  *
  * Auth: Bot token fetched from 1Password (Watson vault, "Watson Slack Bot Token").
- * `saved_items` uses a Slack user token only for `stars.list`.
+ * `saved_items` and `remove_star` use a Slack user token for the native stars API.
  */
 
 import type { AgentTool } from "@tango/core";
@@ -65,7 +65,7 @@ export function createSlackTools(): AgentTool[] {
     {
       name: "slack",
       description: [
-        "Read-only Slack Web API access for Watson, including native saved items.",
+        "Slack Web API access for Watson, including native saved items.",
         "",
         "Actions:",
         "",
@@ -85,8 +85,12 @@ export function createSlackTools(): AgentTool[] {
         "    Returns: array of reply messages",
         "",
         "  saved_items — List Slack saved messages via the native stars.list API.",
-        "    Params: limit (default 100)",
+        "    Params: limit (default 100), since_hours (default 48)",
         "    Returns: { count, items: [{ type, channel_id, text, user, ts, permalink, date_create }] }",
+        "",
+        "  remove_star — Remove a star from a message (unsave it).",
+        "    Params: channel_id (required), timestamp (required)",
+        "    Returns: { ok: true }",
         "",
         "Tips:",
         "- Call list_channels first to discover what's available.",
@@ -100,12 +104,12 @@ export function createSlackTools(): AgentTool[] {
         properties: {
           action: {
             type: "string",
-            enum: ["list_channels", "channel_history", "user_info", "thread_replies", "saved_items"],
+            enum: ["list_channels", "channel_history", "user_info", "thread_replies", "saved_items", "remove_star"],
             description: "The Slack operation to perform",
           },
           channel_id: {
             type: "string",
-            description: "Channel ID (for channel_history, thread_replies)",
+            description: "Channel ID (for channel_history, thread_replies, remove_star)",
           },
           user_id: {
             type: "string",
@@ -115,6 +119,10 @@ export function createSlackTools(): AgentTool[] {
             type: "string",
             description: "Thread timestamp (for thread_replies)",
           },
+          timestamp: {
+            type: "string",
+            description: "Message timestamp (for remove_star)",
+          },
           hours: {
             type: "number",
             description: "How many hours of history to fetch (default 24, for channel_history)",
@@ -122,6 +130,10 @@ export function createSlackTools(): AgentTool[] {
           limit: {
             type: "number",
             description: "Max items to return (default 200 for channel_history, 100 for saved_items)",
+          },
+          since_hours: {
+            type: "number",
+            description: "For saved_items: only include items saved within this many hours (default 48)",
           },
         },
         required: ["action"],
@@ -214,15 +226,21 @@ export function createSlackTools(): AgentTool[] {
 
           case "saved_items": {
             const limit = Number(input.limit) || 100;
+            const sinceHours = Number(input.since_hours) || 48;
             const userToken = await getSlackUserToken();
             const body = await slackApiWithToken(userToken, "stars.list", {
               count: String(limit),
             });
             const items = (body.items as Array<Record<string, unknown>>) ?? [];
+            const cutoffEpoch = Math.floor(Date.now() / 1000) - (sinceHours * 3600);
+            const recentItems = items.filter((item) => {
+              const dateCreate = Number(item.date_create);
+              return !Number.isNaN(dateCreate) && dateCreate >= cutoffEpoch;
+            });
 
             const messageItems: Array<Record<string, unknown>> = [];
 
-            for (const item of items) {
+            for (const item of recentItems) {
               if (String(item.type) !== "message") continue;
 
               const channelId = String(item.channel || "");
@@ -259,8 +277,22 @@ export function createSlackTools(): AgentTool[] {
             };
           }
 
+          case "remove_star": {
+            const channelId = String(input.channel_id || "");
+            const timestamp = String(input.timestamp || "");
+            if (!channelId || !timestamp) {
+              return { error: "remove_star requires channel_id and timestamp" };
+            }
+            const userToken = await getSlackUserToken();
+            await slackApiWithToken(userToken, "stars.remove", {
+              channel: channelId,
+              timestamp,
+            });
+            return { ok: true };
+          }
+
           default:
-            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, thread_replies, or saved_items.` };
+            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, thread_replies, saved_items, or remove_star.` };
         }
       },
     },
