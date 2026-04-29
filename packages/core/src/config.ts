@@ -695,6 +695,11 @@ const scheduleCompletionSchema = z.object({
   mark_on_success: z.boolean().optional()
 }).optional();
 
+const obsidianLogSchema = z.object({
+  domain: z.string().min(1),
+  job_name: z.string().min(1),
+}).optional();
+
 const scheduleSchema = z.object({
   id: z.string().min(1),
   display_name: z.string().min(1).optional(),
@@ -707,7 +712,8 @@ const scheduleSchema = z.object({
   delivery: scheduleDeliverySchema,
   policy: schedulePolicySchema,
   completion: scheduleCompletionSchema,
-  tags: z.array(z.string().min(1)).optional()
+  tags: z.array(z.string().min(1)).optional(),
+  obsidian_log: obsidianLogSchema,
 });
 
 export function loadScheduleConfigs(configDir: string): ScheduleConfig[] {
@@ -778,6 +784,12 @@ export function loadScheduleConfigs(configDir: string): ScheduleConfig[] {
           }
         : undefined,
       tags: parsed.tags,
+      obsidianLog: parsed.obsidian_log
+        ? {
+            domain: parsed.obsidian_log.domain,
+            jobName: parsed.obsidian_log.job_name,
+          }
+        : undefined,
     } satisfies ScheduleConfig),
   });
 }
