@@ -1,0 +1,29 @@
+id: charlie
+type: quick
+display_name: Charlie
+avatar_url: https://cdn.discordapp.com/attachments/1481033494531407903/1499485746753568878/Gemini_Generated_Image_87yxn887yxn887yx.png
+provider:
+  default: claude-oauth
+  reasoning_effort: low
+  fallback:
+    - claude-oauth-secondary
+    - codex
+default_project: personal
+voice:
+  call_signs:
+    - Charlie
+  kokoro_voice: af_aoede
+  default_channel_id: "1499163931636138135"
+  smoke_test_channel_id: "1499163946643493025"
+response_mode: concise
+tools:
+  mode: allowlist
+  allowlist:
+    - WebSearch
+    - WebFetch
+orchestration:
+  worker_ids: []
+  write_confirmation: never
+deterministic_routing:
+  enabled: false
+prompt_file: ../../../agents/assistants/charlie/soul.md
