@@ -84,8 +84,8 @@ export function createSlackTools(): AgentTool[] {
         "    Params: channel_id (required), thread_ts (required)",
         "    Returns: array of reply messages",
         "",
-        "  saved_items — List Slack saved messages via the native stars.list API.",
-        "    Params: limit (default 100), since_hours (default 48)",
+        "  saved_items — List all Slack saved messages via stars.list API.",
+        "    Params: limit (default 100)",
         "    Returns: { count, items: [{ type, channel_id, text, user, ts, permalink, date_create }] }",
         "",
         "  remove_star — Remove a star from a message (unsave it).",
@@ -133,7 +133,7 @@ export function createSlackTools(): AgentTool[] {
           },
           since_hours: {
             type: "number",
-            description: "For saved_items: only include items saved within this many hours (default 48)",
+            description: "Deprecated — no longer used. All saved items are returned regardless of age.",
           },
         },
         required: ["action"],
@@ -226,21 +226,15 @@ export function createSlackTools(): AgentTool[] {
 
           case "saved_items": {
             const limit = Number(input.limit) || 100;
-            const sinceHours = Number(input.since_hours) || 48;
             const userToken = await getSlackUserToken();
             const body = await slackApiWithToken(userToken, "stars.list", {
               count: String(limit),
             });
             const items = (body.items as Array<Record<string, unknown>>) ?? [];
-            const cutoffEpoch = Math.floor(Date.now() / 1000) - (sinceHours * 3600);
-            const recentItems = items.filter((item) => {
-              const dateCreate = Number(item.date_create);
-              return !Number.isNaN(dateCreate) && dateCreate >= cutoffEpoch;
-            });
 
             const messageItems: Array<Record<string, unknown>> = [];
 
-            for (const item of recentItems) {
+            for (const item of items) {
               if (String(item.type) !== "message") continue;
 
               const channelId = String(item.channel || "");
