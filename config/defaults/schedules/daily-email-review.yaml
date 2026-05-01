@@ -1,7 +1,7 @@
 id: daily-email-review
 display_name: Daily Email Review
 description: >
-  Triage and process emails across all 7 Gmail accounts. Categorizes,
+  Triage and process emails across all accessible Gmail accounts. Categorizes,
   flags actionable items, and archives processed mail.
 enabled: false
 runtime: v2
@@ -11,7 +11,7 @@ obsidian_log:
   job_name: Daily Email Review
 
 schedule:
-  cron: "0 16 * * *"
+  cron: "30 4 * * *"
   timezone: America/Los_Angeles
 
 execution:
@@ -19,25 +19,35 @@ execution:
   worker_id: personal-assistant
   intent_ids:
     - email.inbox_maintenance
+  deterministic_agent_id: watson
   task: |
-    Run the daily email review. Follow the email_review skill guidance.
+    Run the daily email review.
+
+    **First:** Read the triage rules at
+    ~/Documents/main/References/Email Triage Rules.md
+    These rules define what to ignore, delegate, and flag. Apply them
+    before making triage decisions.
 
     Since this is a scheduled run (not interactive), handle phases
     autonomously:
 
-    Phase 1: Scan all 7 accounts. Categorize inbox mail into
-    newsletters/promotions, notifications, and actionable.
+    Phase 1: Scan all accessible accounts. Categorize inbox mail into
+    newsletters/promotions, notifications, and actionable. Apply the
+    triage rules — auto-archive "Ignore" items, mark "Delegate" items
+    as not Devin's responsibility.
 
-    Phase 2: For actionable emails, summarize each thread. Skip ones
-    that clearly don't need a response. For important ones that need
-    the user's input, note them but don't draft replies — just flag them.
+    Phase 2: For actionable emails (not ignored or delegated), summarize
+    each thread. Skip ones that clearly don't need a response. For
+    important ones that need the user's input, flag them.
 
     Phase 3: Review notifications and newsletters. Flag anything that
-    needs attention (renewals, billing, security alerts). Archive the
-    rest in bulk.
+    needs attention per the rules. Archive the rest in bulk.
 
-    Phase 4: Present a summary with counts: actionable flagged, drafts
-    created, notifications/newsletters archived, total inbox reduction.
+    Phase 4: Present a summary with sections:
+    - **Flagged** (actionable items Devin needs to handle)
+    - **Delegated** (noted but not Devin's job — brief mention only)
+    - **Archived** (counts of newsletters, notifications removed)
+    - Total inbox reduction
   timeout_seconds: 420
 
 provider:

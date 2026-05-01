@@ -14,6 +14,10 @@ Reference guidance for a general personal-assistant workflow.
 - Use the connected email tools for search, thread review, drafting, and
   archive actions.
 - Summaries should separate actionable threads from informational or bulk mail.
+- **Triage rules** live at `References/Email Triage Rules.md` in Obsidian.
+  Read this file before triaging email. It defines what to ignore, delegate,
+  and flag. When Devin says to ignore a sender or reclassify an email type,
+  update this file using the Obsidian tool so future runs apply the new rule.
 
 ## Finance
 

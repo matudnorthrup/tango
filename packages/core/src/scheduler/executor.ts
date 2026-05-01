@@ -200,6 +200,13 @@ async function executeConditionalAgent(
   );
 
   if (preCheckResult.action === "skip") {
+    if (config.obsidianLog) {
+      try {
+        writeObsidianLog(config, `Skipped — ${preCheckResult.reason ?? "pre-check returned skip"}`);
+      } catch (err) {
+        console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
+      }
+    }
     return {
       status: "skipped",
       durationMs: Date.now() - startTime,
@@ -271,9 +278,9 @@ async function runAgentWorker(
     );
     const trimmedText = v2Result.text.trim();
     const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
-    if (summary) {
+    if (config.obsidianLog) {
       try {
-        writeObsidianLog(config, summary);
+        writeObsidianLog(config, summary ?? "Completed — no output");
       } catch (err) {
         console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
       }
@@ -312,9 +319,9 @@ async function runAgentWorker(
     );
     const trimmedText = result.text.trim();
     const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
-    if (summary) {
+    if (config.obsidianLog) {
       try {
-        writeObsidianLog(config, summary);
+        writeObsidianLog(config, summary ?? "Completed — no output");
       } catch (err) {
         console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
       }
@@ -338,9 +345,9 @@ async function runAgentWorker(
   // summary in logs.
   const trimmedText = result.text.trim();
   const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
-  if (summary) {
+  if (config.obsidianLog) {
     try {
-      writeObsidianLog(config, summary);
+      writeObsidianLog(config, summary ?? "Completed — no output");
     } catch (err) {
       console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
     }

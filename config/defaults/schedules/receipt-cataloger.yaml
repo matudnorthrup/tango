@@ -7,6 +7,10 @@ description: >
 enabled: true
 runtime: v2
 
+obsidian_log:
+  domain: Finance
+  job_name: Receipt Cataloger
+
 schedule:
   cron: "0 2 * * *"
   timezone: America/Los_Angeles
@@ -80,8 +84,7 @@ provider:
   model: sonnet
 
 delivery:
-  channel_id: "100000000000000013"
-  agent_id: watson
+  mode: none
 
 policy:
   max_consecutive_failures: 3

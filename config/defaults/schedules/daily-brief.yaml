@@ -8,7 +8,7 @@ enabled: true
 runtime: v2
 
 schedule:
-  cron: "15 5 * * *"
+  cron: "0 5 * * *"
   timezone: America/Los_Angeles
 
 execution:
@@ -16,6 +16,7 @@ execution:
   worker_id: personal-assistant
   intent_ids:
     - planning.morning_review
+  deterministic_agent_id: watson
   task: |
     Daily Brief aggregator run.
 
@@ -25,6 +26,7 @@ execution:
        Obsidian log files using direct filesystem I/O (NOT obsidian-cli):
        - ~/Documents/main/Records/Jobs/Finance/YYYY-MM.md
        - ~/Documents/main/Records/Jobs/Email/YYYY-MM.md
+       - ~/Documents/main/Records/Jobs/Slack/YYYY-MM.md
        - ~/Documents/main/Records/Jobs/Planning/YYYY-MM.md
        Parse each file for entries (## headers with timestamps) from the
        last 24 hours. Also check the previous month's file if we're in the
@@ -32,37 +34,51 @@ execution:
 
     2. **Extract flagged items.** For each entry that has a **Flagged:**
        section, collect the flagged items with the job name as context.
+       Also extract any actionable items (marked with 🔴 or "Act on these")
+       from the Email domain log.
 
     3. **Fetch calendar events.** Get today's calendar events from both
        accounts (use --all for non-primary calendars). Include the first
        5 events.
 
-    4. **Write brief to daily note.** Write a "## Morning Brief" section
-       to the top of today's daily note at
-       ~/Documents/main/Planning/Daily/YYYY-MM-DD.md using direct
-       filesystem I/O. Create the file if it doesn't exist. Format:
+    4. **Write brief to its own file.** Write the brief to:
+       ~/Documents/main/Records/Briefs/YYYY-MM-DD.md
+       using direct filesystem I/O (NOT obsidian-cli).
 
-       ## Morning Brief — Day Mon DD
+       Use this exact format:
 
-       **Today:** N meetings | weather summary if available
+       ---
+       date: YYYY-MM-DD
+       type: morning-brief
+       ---
 
-       ### Flagged (N)
+       # Morning Brief — Day Mon DD
+
+       **Today:** N calendar events
+
+       ## Flagged (N)
        - **Job Name:** flagged item description
        (or "No flags -- clean night." if none)
 
-       ### Overnight Jobs
+       ## Slack Saved Items
+       - [ ] [Summary](permalink) — #channel-name
+       (pull task lines from Records/Jobs/Slack/ entries with **Items:** sections;
+        omit this section entirely if no Slack items were found)
+
+       ## Overnight Jobs
        - Job Name -- status summary
        (for each job that ran in the last 24h)
 
-       ### Calendar
+       ## Calendar
        - HH:MMam -- Event Name
        (for each calendar event today)
 
-    5. **Post Discord ping.** Return a brief message for the personal
-       channel:
+       Do NOT write to the daily note (Planning/Daily/). The morning
+       planning job handles the daily note separately.
+
+    5. **Return Discord ping.** Return a brief message:
        - If flagged items exist:
-         "Morning brief ready. N flagged item(s) need attention.
-         Check today's daily note for full summary."
+         "Morning brief ready. N flagged item(s) need attention."
        - If no flagged items:
          "Morning brief ready. No flags -- clean night."
   timeout_seconds: 300

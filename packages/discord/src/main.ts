@@ -934,7 +934,7 @@ registerPreCheckHandler("watson-unreviewed-transactions", async () => {
   const endDate = formatDateInTimeZone(new Date(), timeZone);
   const startDate = formatDateInTimeZone(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), timeZone);
   const response = await fetch(
-    `https://dev.lunchmoney.app/v1/transactions?status=unreviewed&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`,
+    `https://dev.lunchmoney.app/v1/transactions?status=uncleared&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`,
     {
       method: "GET",
       headers: {
@@ -950,12 +950,12 @@ registerPreCheckHandler("watson-unreviewed-transactions", async () => {
   const parsed = JSON.parse(text) as { transactions?: Array<Record<string, unknown>> };
   const transactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
   const unreviewedCount = transactions.filter(
-    (transaction) => String(transaction.status ?? "") === "unreviewed",
+    (transaction) => String(transaction.status ?? "") === "uncleared",
   ).length;
   if (unreviewedCount === 0) {
     return {
       action: "skip" as const,
-      reason: "No uncategorized transactions in the last 48 hours.",
+      reason: "No uncleared transactions in the last 48 hours.",
     };
   }
   return {

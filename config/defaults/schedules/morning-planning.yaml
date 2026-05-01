@@ -11,7 +11,7 @@ obsidian_log:
   job_name: Morning Planning
 
 schedule:
-  cron: "15 8 * * *"
+  cron: "15 5 * * *"
   timezone: America/Los_Angeles
 
 execution:
@@ -19,27 +19,52 @@ execution:
   worker_id: personal-assistant
   intent_ids:
     - planning.morning_review
+  deterministic_agent_id: watson
   task: |
-    Run the morning planning session. Follow the daily_planning skill
-    guidance for Morning Planning phases.
+    Run the morning planning session.
 
-    Phase 0: Gather today's and yesterday's daily notes from Obsidian
-    (Planning/Daily/YYYY-MM-DD.md), today's calendar events from both
-    accounts (use --all for non-primary calendars), and the current week
-    plan. Calculate available hours.
+    **Step 1: Create today's daily note from template.**
+    Check if ~/Documents/main/Planning/Daily/YYYY-MM-DD.md exists.
+    If it does NOT exist, create it from the template at
+    ~/Documents/main/_Schema/Templates/Daily Notes Template.md.
+    Substitute these tokens in the template:
+    - {{date:YYYY-MM-DD}} → today's date (e.g. 2026-04-30)
+    - {{date:YYYY [Week] w [Plan]}} → e.g. "2026 Week 18 Plan"
+    - {{date:YYYY [Q]Q [Plan]}} → e.g. "2026 Q2 Plan"
 
-    Phase 1-4: Walk through data completion, framing, planning, and
-    confirm/create as described in the skill. Create calendar blocks for
-    agreed tasks, update the daily note.
+    The frontmatter MUST include:
+    - brief: "[[Records/Briefs/YYYY-MM-DD]]"
+    - All other fields from the template exactly as specified
 
-    Since this is a backstop (not interactive), skip the conversational
-    wait-for-response steps. Instead, make reasonable decisions:
-    - Carry over incomplete tasks from yesterday
-    - Schedule around existing calendar events
-    - Create time blocks for the top priority tasks
-    - Update the daily note with the plan
+    If the daily note already exists, verify the frontmatter has the
+    `brief:` field. Add it if missing.
 
-    Present a concise summary of what was planned.
+    **Step 2: Read today's brief and yesterday's note.**
+    - Read ~/Documents/main/Records/Briefs/YYYY-MM-DD.md for today's
+      brief (flagged items, calendar, overnight job summaries)
+    - Read yesterday's daily note for carryover tasks (unchecked items)
+    - Get today's calendar events from both accounts (--all for
+      non-primary calendars)
+
+    **Step 3: Fill in the daily note.**
+    Update ~/Documents/main/Planning/Daily/YYYY-MM-DD.md:
+    - "## Today's Priorities" — top 3-5 tasks based on brief flags,
+      carryovers, and calendar. Include dates in format: task—YYYY-MM-DD
+    - "## Stretch (if capacity)" — lower priority items
+    - "## Routines" — keep exactly as template:
+      - [ ] Slack saved items (Morning)
+      - [ ] Check/Update Linear (Afternoon)
+      - [ ] Discord and Reddit (Afternoon)
+    - Add "## Time Blocks" section with schedule for the day, working
+      around existing calendar events
+    - If the brief has flagged/urgent items, note them in priorities
+      with action recommendation
+
+    Do NOT modify the frontmatter fields other than adding `brief:` if
+    missing. Do NOT add a Morning Brief section to the daily note — that
+    content lives in Records/Briefs/.
+
+    **Step 4: Return a concise summary** of what was planned.
   timeout_seconds: 300
 
 provider:
