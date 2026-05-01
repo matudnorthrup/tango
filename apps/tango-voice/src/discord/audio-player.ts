@@ -169,7 +169,11 @@ export class DiscordAudioPlayer {
     const onIdle = () => {
       this.player.removeListener(AudioPlayerStatus.Idle, onIdle);
       if (this.waitingLoop) {
-        this.playNextWaitingTone();
+        setTimeout(() => {
+          if (this.waitingLoop) {
+            this.playNextWaitingTone();
+          }
+        }, 30_000);
       }
     };
     this.player.on(AudioPlayerStatus.Idle, onIdle);
