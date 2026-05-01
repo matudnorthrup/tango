@@ -25,7 +25,7 @@ execution:
     1. Read the subscriptions tracking note from Obsidian at
        Records/Finance/Email Subscriptions.md for previously reviewed
        senders.
-    2. Scan all 7 email accounts for emails containing "unsubscribe"
+    2. Scan all accessible email accounts for emails containing "unsubscribe"
        in the past 7 days.
     3. Identify NEW senders not already categorized in the tracking note.
     4. For each new sender, recommend KEEP (transactional, important

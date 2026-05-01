@@ -1,9 +1,8 @@
 id: slack-saved-review
 display_name: Slack Saved Items Review
 description: >
-  Review Slack saved items, summarize each, and write them as tasks in the
-  Obsidian daily note.
-  Also logs to Records/Jobs/Slack/ for daily brief aggregation.
+  Review Slack saved items, summarize each, and write them to the domain log
+  at Records/Jobs/Slack/ for daily brief aggregation.
 enabled: true
 runtime: v2
 
@@ -24,30 +23,37 @@ execution:
   task: |
     Review Devin's Slack saved items.
 
-    1. Use the slack tool with action "saved_items" and since_hours 48
-       to get recently saved messages.
+    1. Use the slack tool with action "saved_items" to get all saved
+       messages.
 
     2. For each saved message:
        - Resolve the user ID to a display name using slack action "user_info"
        - Write a one-line summary of what the message is about
        - Include the permalink
 
-    3. Write to Obsidian daily note at Planning/Daily/YYYY-MM-DD.md:
-       - Determine today's date in America/Los_Angeles timezone
-       - Add a "## Slack Saved Items" section
-       - For each item, add a task line: - [ ] [Summary](permalink) — #channel-name
-       - Use direct filesystem I/O (NOT obsidian-cli)
-       - If the file doesn't exist yet, create it with minimal frontmatter
-       - If the section already exists, replace it
+    3. Write to the domain log at ~/Documents/main/Records/Jobs/Slack/YYYY-MM.md
+       using direct filesystem I/O (NOT obsidian-cli).
+       - Determine today's date and time in America/Los_Angeles timezone
+       - Append a new entry with this format:
 
-    4. If no saved items are found, skip the daily note section.
+         ## YYYY-MM-DD HH:MM — Slack Saved Items Review
+         **Status:** Done — N items found
+         **Items:**
+         - [ ] [Summary of item](permalink) — #channel-name
+         - [ ] [Summary of item](permalink) — #channel-name
 
-    5. For each processed item, call the slack tool with action
+       - If no saved items are found, write:
+
+         ## YYYY-MM-DD HH:MM — Slack Saved Items Review
+         **Status:** Done — 0 items found
+
+    4. For each processed item, call the slack tool with action
        "remove_star", channel_id set to the item's channel_id, and
        timestamp set to the item's ts. This prevents items from
        repeating in the next daily run.
 
-    Important: The daily note path is ~/Documents/main/Planning/Daily/YYYY-MM-DD.md
+    Do NOT write to the daily note (Planning/Daily/). The daily-brief
+    aggregator will pull Slack items from this domain log.
   timeout_seconds: 180
 
 provider:
@@ -63,6 +69,7 @@ completion:
 policy:
   max_consecutive_failures: 3
   alert_channel_id: "100000000000000010"
+  concurrency_group: watson-tasks
   backoff:
     enabled: true
     initial_seconds: 300
@@ -72,4 +79,3 @@ tags:
   - watson
   - slack
   - daily
-  - obsidian

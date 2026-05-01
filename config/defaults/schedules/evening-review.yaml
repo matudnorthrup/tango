@@ -3,7 +3,7 @@ display_name: Evening Review Backstop
 description: >
   Run the evening review if the user hasn't already done it manually.
   Summarizes the day's accomplishments and plans for tomorrow.
-enabled: true
+enabled: false  # disabled 2026-04-13 per user request — re-enable when planning flow is hardened
 runtime: v2
 
 schedule:

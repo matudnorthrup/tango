@@ -25,11 +25,13 @@ execution:
     Nightly transaction categorization run.
 
     The scheduler pre-check already confirmed the current date and found
-    {{unreviewedCount}} unreviewed Lunch Money transactions between
+    {{unreviewedCount}} uncleared Lunch Money transactions between
     {{startDate}} and {{endDate}}.
 
-    1. Fetch the uncategorized (status=unreviewed) Lunch Money
-       transactions for exactly that date window.
+    1. Fetch the uncleared (status=uncleared) Lunch Money transactions
+       for exactly that date window. These may already have categories
+       auto-applied by Lunch Money rules — you need to review and
+       correct them using Watson's rules.
     2. If the follow-up fetch unexpectedly returns zero transactions,
        return EXACTLY the text "__NO_OUTPUT__" and nothing else.
     3. Read the categorization rules from
