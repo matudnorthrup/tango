@@ -20,3 +20,7 @@ data/*.bak*
 data/walmart-queue.json
 docs/projects/imessage-analysis/
 packages/atlas-memory/tsconfig.tsbuildinfo
+
+# Agent personal context (lives in profile layer, not repo)
+agents/assistants/*/context/
+agents/assistants/*/context
