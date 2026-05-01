@@ -1,0 +1,29 @@
+id: juliet
+type: mental-health
+display_name: Juliet
+avatar_url: https://cdn.discordapp.com/attachments/1481033494531407903/1499485747890229399/Gemini_Generated_Image_bvxs5wbvxs5wbvxs.png
+provider:
+  default: claude-oauth
+  reasoning_effort: high
+  fallback:
+    - claude-oauth-secondary
+    - codex
+default_project: mental-health
+voice:
+  call_signs:
+    - Juliet
+  default_channel_id: "1495415367118618766"
+  smoke_test_channel_id: "1495415369043673189"
+response_mode: explain
+tools:
+  mode: allowlist
+  allowlist:
+    - memory_search
+    - memory_add
+    - memory_reflect
+orchestration:
+  worker_ids: []
+  write_confirmation: never
+deterministic_routing:
+  enabled: false
+prompt_file: ../../../agents/assistants/juliet/soul.md
