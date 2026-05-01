@@ -29,9 +29,13 @@ interface LocalUserSession {
 }
 
 export class AudioReceiver {
+  static readonly DECODER_ERROR_THRESHOLD = 5;
+
   private connection: VoiceConnection;
   private onUtterance: UtteranceHandler;
   private onRejectedAudio: RejectedAudioHandler | null;
+  private onDecoderCorruption: (() => void) | undefined;
+  private consecutiveDecoderErrors = 0;
   private listening = false;
   private activeSubscriptions = new Set<string>();
   private localSessions = new Map<string, LocalUserSession>();
@@ -47,10 +51,12 @@ export class AudioReceiver {
     connection: VoiceConnection,
     onUtterance: UtteranceHandler,
     onRejectedAudio?: RejectedAudioHandler,
+    onDecoderCorruption: (() => void) | undefined = undefined,
   ) {
     this.connection = connection;
     this.onUtterance = onUtterance;
     this.onRejectedAudio = onRejectedAudio ?? null;
+    this.onDecoderCorruption = onDecoderCorruption;
   }
 
   start(): void {
@@ -127,6 +133,7 @@ export class AudioReceiver {
     opusStream.pipe(decoder);
 
     decoder.on('data', (chunk: Buffer) => {
+      this.consecutiveDecoderErrors = 0;
       chunks.push(chunk);
     });
 
@@ -152,7 +159,7 @@ export class AudioReceiver {
     });
 
     decoder.on('error', (err: Error) => {
-      console.error(`Decoder error for ${userId}:`, err.message);
+      this.handleDecoderError(`Decoder error for ${userId}`, err);
     });
 
     opusStream.on('error', (err: Error) => {
@@ -198,6 +205,7 @@ export class AudioReceiver {
 
     decoder.on('data', (chunk: Buffer) => {
       if (session.closing) return;
+      this.consecutiveDecoderErrors = 0;
       session.sawAudio = true;
       this.resetLocalIdleTimer(session);
       this.enqueueLocalChunk(session, chunk);
@@ -208,7 +216,7 @@ export class AudioReceiver {
     });
 
     decoder.on('error', (err: Error) => {
-      console.error(`Local decoder error for ${userId}:`, err.message);
+      if (this.handleDecoderError(`Local decoder error for ${userId}`, err)) return;
       this.closeLocalSession(userId, 'decoder-error');
     });
 
@@ -224,6 +232,21 @@ export class AudioReceiver {
     opusStream.on('close', () => {
       this.closeLocalSession(userId, 'opus-close');
     });
+  }
+
+  private handleDecoderError(label: string, err: Error): boolean {
+    console.error(`${label}:`, err.message);
+    if (!this.listening) return true;
+
+    this.consecutiveDecoderErrors += 1;
+    if (this.consecutiveDecoderErrors <= AudioReceiver.DECODER_ERROR_THRESHOLD) {
+      return false;
+    }
+
+    console.warn('Decoder error threshold exceeded — stopping receiver');
+    this.stop();
+    this.onDecoderCorruption?.();
+    return true;
   }
 
   private createLocalVadProcessor(userId: string): Promise<LocalVadProcessor | null> {

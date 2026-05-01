@@ -1486,6 +1486,7 @@ export class VoicePipeline {
     options?: {
       topicManager?: VoiceTopicManager;
       projectManager?: VoiceProjectManager;
+      onDecoderCorruption?: () => void;
     },
   ) {
     this.voiceTargets = getDefaultVoiceTargetDirectory();
@@ -1531,6 +1532,7 @@ export class VoicePipeline {
       connection,
       (userId, wavBuffer, durationMs) => this.handleUtterance(userId, wavBuffer, durationMs),
       (userId, durationMs) => this.handleRejectedAudio(userId, durationMs),
+      options?.onDecoderCorruption,
     );
     this.resetStallWatchdog();
   }
