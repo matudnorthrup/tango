@@ -891,7 +891,20 @@ export class VoicePipeline {
     const normalized = this.normalizeClosePhrase(strippedWakeCommand);
     if (!normalized) return false;
     const closePhrases = this.getIndicateClosePhrases();
-    return closePhrases.includes(normalized);
+    if (closePhrases.includes(normalized)) return true;
+
+    // Support trailing agent name: "go ahead watson" after wake strip
+    const agents = this.voiceTargets.listAgents();
+    for (const agent of agents) {
+      for (const callSign of agent.callSigns) {
+        const normalizedName = this.normalizeClosePhrase(callSign);
+        if (normalizedName && normalized.endsWith(` ${normalizedName}`)) {
+          const withoutName = normalized.slice(0, -(normalizedName.length + 1));
+          if (closePhrases.includes(withoutName)) return true;
+        }
+      }
+    }
+    return false;
   }
 
   private getIndicateDismissPhrases(): string[] {
@@ -949,7 +962,21 @@ export class VoicePipeline {
 
   private isStandaloneConversationalClose(text: string): boolean {
     const normalized = this.normalizeClosePhrase(text);
-    return this.getStandaloneConversationalClosePhrases().includes(normalized);
+    if (this.getStandaloneConversationalClosePhrases().includes(normalized)) return true;
+
+    // Support trailing agent name: "go ahead watson", "i'm done malibu"
+    // Strip a trailing known agent call sign and re-check.
+    const agents = this.voiceTargets.listAgents();
+    for (const agent of agents) {
+      for (const callSign of agent.callSigns) {
+        const normalizedName = this.normalizeClosePhrase(callSign);
+        if (normalizedName && normalized.endsWith(` ${normalizedName}`)) {
+          const withoutName = normalized.slice(0, -(normalizedName.length + 1));
+          if (this.getStandaloneConversationalClosePhrases().includes(withoutName)) return true;
+        }
+      }
+    }
+    return false;
   }
 
   private formatRouteConfirmationQuestion(targetName: string): string {
@@ -1276,7 +1303,7 @@ export class VoicePipeline {
     if (hasWakeWord && this.isCancelIntent(stripped)) {
       this.clearIndicateCapture('cancel-intent');
       await this.speakResponse('Cancelled.', { inbox: true });
-      await this.playReadyEarcon();
+      await this.player.playEarcon('cancelled');
       return { action: 'cancel' };
     }
 
