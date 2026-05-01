@@ -15,3 +15,8 @@ data/tango.db
 data/tango.db-shm
 data/tango.db-wal
 .mcp.json
+.claude/
+data/*.bak*
+data/walmart-queue.json
+docs/projects/imessage-analysis/
+packages/atlas-memory/tsconfig.tsbuildinfo
