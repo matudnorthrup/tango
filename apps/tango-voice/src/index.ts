@@ -318,7 +318,21 @@ async function handleJoin(guildId: string, message?: any): Promise<void> {
       router.destroy();
     }
 
-    pipeline = new VoicePipeline(connection, logChannel);
+    pipeline = new VoicePipeline(connection, logChannel, {
+      onDecoderCorruption: () => {
+        void (async () => {
+          console.log('Decoder corruption detected, auto-rejoining voice channel...');
+          handleLeave();
+          await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
+          try {
+            await handleJoin(guildId);
+            console.log('Auto-rejoin succeeded');
+          } catch (rejoinErr: any) {
+            console.error(`Auto-rejoin failed: ${rejoinErr.message}`);
+          }
+        })();
+      },
+    });
     router = new ChannelRouter(guild);
     void router.refreshAliasCache().catch((err: any) => {
       console.warn(`Alias cache refresh failed: ${err.message}`);
