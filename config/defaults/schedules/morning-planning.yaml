@@ -55,8 +55,6 @@ execution:
       - [ ] Slack saved items (Morning)
       - [ ] Check/Update Linear (Afternoon)
       - [ ] Discord and Reddit (Afternoon)
-    - Add "## Time Blocks" section with schedule for the day, working
-      around existing calendar events
     - If the brief has flagged/urgent items, note them in priorities
       with action recommendation
 
