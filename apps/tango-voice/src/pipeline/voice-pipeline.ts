@@ -277,6 +277,13 @@ export class VoicePipeline {
   private gateCloseCueTimer: NodeJS.Timeout | null = null;
   private gateCloseCueRetryStartedAt = 0;
   private indicateCaptureTimer: NodeJS.Timeout | null = null;
+  private indicateProbeInFlight = false;
+  private indicateProbeResult: {
+    wavBuffer: Buffer;
+    transcript: string;
+    isDirective: boolean;
+  } | null = null;
+  private indicateProbeEarconPlayed = false;
   private deferredWaitRetryTimer: NodeJS.Timeout | null = null;
   private idleNotifyTimer: NodeJS.Timeout | null = null;
   private idleNotifyQueue: QueuedIdleNotification[] = [];
@@ -1670,6 +1677,34 @@ export class VoicePipeline {
     this.ctx.indicateCaptureSegments = [];
     this.ctx.indicateCaptureStartedAt = 0;
     this.ctx.indicateCaptureLastSegmentAt = 0;
+    this.indicateProbeResult = null;
+    this.indicateProbeEarconPlayed = false;
+  }
+
+  /**
+   * Probes a buffered utterance for a close word by transcribing it
+   * concurrently with the in-progress transcription.  When the probe
+   * finds a close word, the listening earcon fires immediately instead
+   * of waiting for the previous segment's transcription to finish.
+   * The probe result is cached so the replay skips re-transcription.
+   */
+  private async startIndicateCloseWordProbe(wavBuffer: Buffer): Promise<void> {
+    this.indicateProbeInFlight = true;
+    try {
+      const text = (await transcribe(wavBuffer))?.trim();
+      if (!text || !this.ctx.indicateCaptureActive) return;
+      const isDirective = this.isIndicateDirectiveTranscript(text);
+      this.indicateProbeResult = { wavBuffer, transcript: text, isDirective };
+      if (isDirective && !this.indicateProbeEarconPlayed) {
+        this.indicateProbeEarconPlayed = true;
+        void this.playFastCue('listening');
+        console.log(`Indicate probe: close word detected early — "${text}"`);
+      }
+    } catch (err: any) {
+      console.warn(`Indicate close word probe failed: ${err?.message ?? err}`);
+    } finally {
+      this.indicateProbeInFlight = false;
+    }
   }
 
   private transitionAndResetWatchdog(event: PipelineEvent): TransitionEffect[] {
@@ -2063,6 +2098,17 @@ export class VoicePipeline {
         console.log('Discarding utterance captured during active TTS playback (PROCESSING)');
         return;
       }
+      // During indicate capture, probe for close word concurrently while
+      // buffering.  The probe transcribes in parallel so the close word
+      // earcon can fire before the current transcription finishes.
+      if (this.ctx.indicateCaptureActive && this.stateMachine.getStateType() === 'TRANSCRIBING' && !this.indicateProbeInFlight) {
+        console.log('Indicate capture: buffering utterance + starting close word probe');
+        const effects = this.transitionAndResetWatchdog({ type: 'UTTERANCE_RECEIVED' });
+        this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs);
+        void this.startIndicateCloseWordProbe(wavBuffer);
+        await this.applyEffects(effects);
+        return;
+      }
       console.log('Already processing — buffering utterance');
       const effects = this.transitionAndResetWatchdog({ type: 'UTTERANCE_RECEIVED' });
       this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs);
@@ -2107,8 +2153,19 @@ export class VoicePipeline {
       }
 
       // Step 1: Speech-to-text
+      // Check for a cached indicate probe result (concurrent close word probe)
+      const probe = this.indicateProbeResult;
+      const probeHit = probe && probe.wavBuffer === wavBuffer;
+      let probeEarconPlayed = false;
+      if (probeHit) {
+        probeEarconPlayed = this.indicateProbeEarconPlayed;
+        this.indicateProbeResult = null;
+        this.indicateProbeEarconPlayed = false;
+        console.log(`Using indicate probe cache (directive=${probe.isDirective})`);
+      }
+
       const settings = getVoiceSettings();
-      let transcript = await transcribe(
+      let transcript = probeHit ? probe.transcript : await transcribe(
         wavBuffer,
         this.shouldUseStreamingTranscription()
           ? {
@@ -2174,6 +2231,11 @@ export class VoicePipeline {
           }
           : undefined,
       );
+      // If the probe finished while we were transcribing, pick up its earcon flag
+      if (!probeEarconPlayed && this.indicateProbeEarconPlayed) {
+        probeEarconPlayed = true;
+        this.indicateProbeEarconPlayed = false;
+      }
       if (!transcript || transcript.trim().length === 0) {
         if (partialWakeCommandDetected && partialWakeCommandTranscript) {
           transcript = partialWakeCommandTranscript;
@@ -2564,7 +2626,7 @@ export class VoicePipeline {
 
       // Valid interaction confirmed — play listening earcon and wait for it to finish
       this.clearGraceTimer();
-      if (!playedListeningEarly && !suppressListeningCue) {
+      if (!playedListeningEarly && !suppressListeningCue && !probeEarconPlayed) {
         await this.playFastCue('listening');
       }
       if (graceFromPromptAtCapture || Date.now() < this.ctx.promptGraceUntil) {
