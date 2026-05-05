@@ -34,8 +34,8 @@ const conversations = new Map<string, Message[]>();
 
 const MODEL_ALIASES: Record<string, string> = {
   haiku: 'claude-haiku-4-5-20251001',
-  sonnet: 'claude-sonnet-4-20250514',
-  opus: 'claude-opus-4-20250514',
+  sonnet: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-6',
 };
 
 function resolveModelId(shortName: string): string {
