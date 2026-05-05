@@ -92,6 +92,9 @@ export function createSlackTools(): AgentTool[] {
         "    Params: channel_id (required), timestamp (required)",
         "    Returns: { ok: true }",
         "",
+        "  my_user_id — Get the authenticated user's Slack user ID.",
+        "    Returns: { user_id, user }",
+        "",
         "Tips:",
         "- Call list_channels first to discover what's available.",
         "- For digests, fetch channel_history for each channel, then synthesize.",
@@ -104,7 +107,7 @@ export function createSlackTools(): AgentTool[] {
         properties: {
           action: {
             type: "string",
-            enum: ["list_channels", "channel_history", "user_info", "thread_replies", "saved_items", "remove_star"],
+            enum: ["list_channels", "channel_history", "user_info", "thread_replies", "saved_items", "remove_star", "my_user_id"],
             description: "The Slack operation to perform",
           },
           channel_id: {
@@ -285,8 +288,14 @@ export function createSlackTools(): AgentTool[] {
             return { ok: true };
           }
 
+          case "my_user_id": {
+            const userToken = await getSlackUserToken();
+            const body = await slackApiWithToken(userToken, "auth.test", {});
+            return { user_id: body.user_id, user: body.user };
+          }
+
           default:
-            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, thread_replies, saved_items, or remove_star.` };
+            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, thread_replies, saved_items, remove_star, or my_user_id.` };
         }
       },
     },
