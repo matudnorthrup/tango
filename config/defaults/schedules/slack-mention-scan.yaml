@@ -98,7 +98,7 @@ delivery:
 
 completion:
   workflow_id: slack-mention-scan
-  scope: recurring
+  scope: daily
 
 policy:
   max_consecutive_failures: 3
