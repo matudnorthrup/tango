@@ -3849,7 +3849,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
           sessionId: turnInput.sessionId,
           agentId: targetAgent.id,
           currentUserPrompt: turnInput.transcript,
-          discordChannelId: voiceRouterChannelId,
+          discordChannelId: voiceRouterThreadId ?? voiceRouterChannelId,
         })
       : undefined;
   const voiceContext = [
