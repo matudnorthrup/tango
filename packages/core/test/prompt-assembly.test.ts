@@ -104,7 +104,9 @@ describe("assembleAgentPrompt", () => {
     expect(prompt).toContain("base knowledge");
     expect(prompt).toContain("profile persona");
     expect(prompt).toContain("profile knowledge");
-    expect(prompt).not.toContain("profile worker overlay");
-    expect(prompt.indexOf("profile persona")).toBeGreaterThan(prompt.indexOf("base knowledge"));
+    expect(prompt).toContain("profile worker overlay");
+    expect(prompt.indexOf("profile knowledge")).toBeGreaterThan(prompt.indexOf("base knowledge"));
+    expect(prompt.indexOf("profile persona")).toBeGreaterThan(prompt.indexOf("profile knowledge"));
+    expect(prompt.indexOf("profile worker overlay")).toBeGreaterThan(prompt.indexOf("profile persona"));
   });
 });

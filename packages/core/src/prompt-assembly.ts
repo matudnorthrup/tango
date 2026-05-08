@@ -133,12 +133,7 @@ export function traceAgentPrompt(
   }
 
   if (options.overlayDir) {
-    appendOptionalSections({
-      dir: options.overlayDir,
-      filenames: ["soul.md", "persona.md", "knowledge.md"],
-      sections,
-      kind: "overlay",
-    });
+    appendOverlayDir(options.overlayDir, sections);
   }
 
   if (sections.length === 0) {
@@ -163,18 +158,26 @@ export function traceAgentPrompt(
   };
 }
 
-function appendOptionalSections(input: {
-  dir: string;
-  filenames: string[];
-  sections: PromptSectionTrace[];
-  kind: "overlay";
-}): void {
-  for (const filename of input.filenames) {
+function appendOverlayDir(
+  dir: string,
+  sections: PromptSectionTrace[],
+): void {
+  let filenames: string[];
+  try {
+    filenames = fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+  } catch {
+    return;
+  }
+
+  for (const filename of filenames) {
     appendFileSection({
-      filePath: path.join(input.dir, filename),
-      kind: input.kind,
+      filePath: path.join(dir, filename),
+      kind: "overlay",
       label: filename,
-      sections: input.sections,
+      sections,
     });
   }
 }
