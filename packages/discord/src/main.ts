@@ -4879,7 +4879,7 @@ const imessageListener = imessageEnabled
       onMessage: async (message) => {
         enqueueChannelWork(message.channelKey, "tango-imessage", async () => {
           await handleIMessageMessage(imessageListener!, message);
-        }, maxProviderTimeoutMs);
+        });
       }
     })
   : null;
@@ -8373,7 +8373,6 @@ client.once("clientReady", async () => {
     `[tango-discord] provider-reasoning-efforts=claude:${env.CLAUDE_EFFORT},claude-secondary:${claudeSecondaryEffort},claude-harness:${claudeHarnessEffort},codex:${env.CODEX_REASONING_EFFORT}`
   );
   console.log(`[tango-discord] provider-retry-limit=${providerRetryLimit}`);
-  console.log(`[tango-discord] channel-work-timeout-ms=${maxProviderTimeoutMs}`);
   console.log(`[tango-discord] worker-dispatch-timeout-ms=${workerDispatchTimeoutMs}`);
   console.log(`[tango-discord] memory-compaction-trigger-turns=${memoryCompactionTriggerTurns}`);
   console.log(`[tango-discord] memory-compaction-retain-recent-turns=${memoryCompactionRetainRecentTurns}`);
@@ -8648,17 +8647,11 @@ function enqueueChannelWork(
   channelKey: string,
   logPrefix: string,
   work: () => Promise<void>,
-  timeoutMs: number = 300_000
 ): void {
   const queuedWork = channelQueues.get(channelKey) ?? Promise.resolve();
   const nextWork = queuedWork
     .then(async () => {
-      await Promise.race([
-        work(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Channel work timed out after ${timeoutMs}ms`)), timeoutMs)
-        ),
-      ]);
+      await work();
     })
     .catch((error) => {
       console.error(`[${logPrefix}] unhandled channel work error`, error);
@@ -8727,7 +8720,7 @@ client.on("messageCreate", async (message) => {
         console.error(`[tango-discord] failed to send error reply:`, replyError instanceof Error ? replyError.message : replyError);
       }
     }
-  }, maxProviderTimeoutMs);
+  });
 });
 
 // Voice inbox: advance watermark when user reacts to any message in a monitored channel
