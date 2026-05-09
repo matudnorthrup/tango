@@ -118,6 +118,8 @@ async function waitForChildClose(
   });
 }
 
+const SYSTEM_PROMPT_WARN_BYTES = 512 * 1024; // warn if prompt exceeds 512KB
+
 export class ClaudeCodeAdapter implements AgentRuntime {
   public readonly id = randomUUID();
   public readonly type = "claude-code" as const;
@@ -126,7 +128,6 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   private stateValue: RuntimeState = "closed";
   private child?: ChildProcessWithoutNullStreams;
   private sessionId?: string;
-  private systemPromptPath?: string;
   private mcpConfigPath?: string;
 
   constructor(private readonly command = "claude") {}
@@ -259,9 +260,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       }
     }
 
-    await removeFileIfPresent(this.systemPromptPath);
     await removeFileIfPresent(this.mcpConfigPath);
-    this.systemPromptPath = undefined;
     this.mcpConfigPath = undefined;
     this.sessionId = undefined;
     this.stateValue = "closed";
@@ -288,8 +287,17 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   }
 
   private buildArgs(): string[] {
-    if (!this.config || !this.systemPromptPath || !this.mcpConfigPath) {
+    if (!this.config || !this.mcpConfigPath) {
       throw new Error("ClaudeCodeAdapter is missing required runtime files.");
+    }
+
+    const systemPrompt = this.config.systemPrompt;
+    const promptBytes = Buffer.byteLength(systemPrompt, "utf8");
+    if (promptBytes > SYSTEM_PROMPT_WARN_BYTES) {
+      console.warn(
+        `[ClaudeCodeAdapter] System prompt is ${promptBytes} bytes (${(promptBytes / 1024).toFixed(0)}KB). ` +
+        `Prompts exceeding OS ARG_MAX (~1MB on macOS) may be silently truncated.`,
+      );
     }
 
     const args = [
@@ -298,7 +306,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       "--output-format",
       "json",
       "--append-system-prompt",
-      this.systemPromptPath,
+      systemPrompt,
       "--mcp-config",
       this.mcpConfigPath,
     ];
@@ -323,11 +331,6 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   private async ensureTempFiles(): Promise<void> {
     if (!this.config) {
       throw new Error("ClaudeCodeAdapter has not been initialized.");
-    }
-
-    if (!this.systemPromptPath) {
-      this.systemPromptPath = path.join(os.tmpdir(), `tango-claude-system-${randomUUID()}.txt`);
-      await fs.promises.writeFile(this.systemPromptPath, this.config.systemPrompt, "utf8");
     }
 
     if (!this.mcpConfigPath) {
