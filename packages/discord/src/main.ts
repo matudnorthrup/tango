@@ -6,6 +6,7 @@ import {
   Partials,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  MessageReferenceType,
   MessageType,
   type Message,
   type RESTPostAPIApplicationCommandsJSONBody
@@ -2810,6 +2811,70 @@ function parseLeadingCommands(messageContent: string): {
   };
 }
 
+/**
+ * Extract forwarded message text from Discord message snapshots.
+ * Forwarded messages have empty content — the original text lives in messageSnapshots.
+ */
+function extractForwardedContent(message: Message): string | null {
+  if (message.reference?.type !== MessageReferenceType.Forward) return null;
+  const snapshots = (message as unknown as { messageSnapshots?: Map<string, Message> }).messageSnapshots;
+  if (!snapshots || typeof snapshots.values !== "function") return null;
+  const parts: string[] = [];
+  for (const snapshot of snapshots.values()) {
+    if (snapshot.content?.trim()) {
+      parts.push(snapshot.content.trim());
+    }
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+/**
+ * Download text content from .txt file attachments (e.g. Discord's auto-converted long pastes).
+ * Returns the inlined text, or null if no text attachments exist.
+ */
+async function downloadTextAttachments(message: Message): Promise<string | null> {
+  const textAttachments = [...message.attachments.values()].filter(
+    (a) => a.name?.endsWith(".txt") && a.size < 100_000
+  );
+  if (textAttachments.length === 0) return null;
+
+  const results: string[] = [];
+  for (const attachment of textAttachments) {
+    try {
+      const response = await fetch(attachment.url);
+      if (!response.ok) continue;
+      const text = await response.text();
+      if (text.trim()) results.push(text.trim());
+    } catch (err) {
+      console.warn(`[tango-discord] failed to download text attachment ${attachment.name}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  return results.length > 0 ? results.join("\n\n") : null;
+}
+
+/**
+ * Resolve the effective text content of a Discord message, handling:
+ * 1. Forwarded messages (content in messageSnapshots)
+ * 2. Long pastes auto-converted to message.txt attachments
+ * Falls back to message.content if neither edge case applies.
+ */
+async function resolveEffectiveContent(message: Message): Promise<string> {
+  // Forwarded messages: content is in snapshots, not message.content
+  const forwarded = extractForwardedContent(message);
+  if (forwarded) {
+    const prefix = message.content.trim();
+    return prefix ? `${prefix}\n\n[Forwarded message]\n${forwarded}` : `[Forwarded message]\n${forwarded}`;
+  }
+
+  // Long paste → message.txt: Discord converts long text into a .txt attachment
+  if (!message.content.trim() && message.attachments.size > 0) {
+    const inlinedText = await downloadTextAttachments(message);
+    if (inlinedText) return inlinedText;
+  }
+
+  return message.content;
+}
+
 function buildPrompt(text: string, message: Message): string {
   const normalized = text.trim();
   if (normalized.length > 0) return normalized;
@@ -4814,7 +4879,7 @@ const imessageListener = imessageEnabled
       onMessage: async (message) => {
         enqueueChannelWork(message.channelKey, "tango-imessage", async () => {
           await handleIMessageMessage(imessageListener!, message);
-        });
+        }, maxProviderTimeoutMs);
       }
     })
   : null;
@@ -7257,7 +7322,13 @@ async function handleMessage(
 
   upsertSessionForRoute(route);
 
-  const commandParse = parseLeadingCommands(message.content);
+  const effectiveContent = await resolveEffectiveContent(message);
+  if (effectiveContent !== message.content) {
+    console.log(
+      `[tango-discord] resolved edge-case content: originalLen=${message.content.length} effectiveLen=${effectiveContent.length} forwarded=${message.reference?.type === MessageReferenceType.Forward} txtAttachments=${[...message.attachments.values()].filter(a => a.name?.endsWith(".txt")).length}`
+    );
+  }
+  const commandParse = parseLeadingCommands(effectiveContent);
   const naturalRoute =
     commandParse.agentOverride === null
       ? parseNaturalTextRoute({
@@ -7390,7 +7461,7 @@ async function handleMessage(
     discordChannelId: message.channelId,
     discordUserId: message.author.id,
     discordUsername: message.author.username,
-    content: message.content,
+    content: effectiveContent,
     metadata: {
       channelKey,
       routedAgentId: route.agentId,
@@ -8302,6 +8373,7 @@ client.once("clientReady", async () => {
     `[tango-discord] provider-reasoning-efforts=claude:${env.CLAUDE_EFFORT},claude-secondary:${claudeSecondaryEffort},claude-harness:${claudeHarnessEffort},codex:${env.CODEX_REASONING_EFFORT}`
   );
   console.log(`[tango-discord] provider-retry-limit=${providerRetryLimit}`);
+  console.log(`[tango-discord] channel-work-timeout-ms=${maxProviderTimeoutMs}`);
   console.log(`[tango-discord] worker-dispatch-timeout-ms=${workerDispatchTimeoutMs}`);
   console.log(`[tango-discord] memory-compaction-trigger-turns=${memoryCompactionTriggerTurns}`);
   console.log(`[tango-discord] memory-compaction-retain-recent-turns=${memoryCompactionRetainRecentTurns}`);
@@ -8655,7 +8727,7 @@ client.on("messageCreate", async (message) => {
         console.error(`[tango-discord] failed to send error reply:`, replyError instanceof Error ? replyError.message : replyError);
       }
     }
-  });
+  }, maxProviderTimeoutMs);
 });
 
 // Voice inbox: advance watermark when user reacts to any message in a monitored channel
