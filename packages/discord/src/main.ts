@@ -3752,7 +3752,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
         if (typingChannel && typingChannel.isTextBased()) {
           const tc = typingChannel as { sendTyping?: () => Promise<void> };
           if (typeof tc.sendTyping === "function") {
-            await tc.sendTyping();
+            await tc.sendTyping().catch(() => {/* typing indicator is best-effort */});
             voiceTypingInterval = setInterval(() => {
               tc.sendTyping?.().catch(() => {/* ignore */});
             }, 8_000);
@@ -7452,7 +7452,7 @@ async function handleMessage(
     const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
     let typingInterval: ReturnType<typeof setInterval> | undefined;
     if (typeof maybeTypingChannel.sendTyping === "function") {
-      await maybeTypingChannel.sendTyping();
+      await maybeTypingChannel.sendTyping().catch(() => {/* typing indicator is best-effort */});
       typingInterval = setInterval(() => {
         maybeTypingChannel.sendTyping?.().catch(() => {});
       }, 8_000);
@@ -7518,7 +7518,7 @@ async function handleMessage(
     const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
     let typingInterval: ReturnType<typeof setInterval> | undefined;
     if (typeof maybeTypingChannel.sendTyping === "function") {
-      await maybeTypingChannel.sendTyping();
+      await maybeTypingChannel.sendTyping().catch(() => {/* typing indicator is best-effort */});
       typingInterval = setInterval(() => {
         maybeTypingChannel.sendTyping?.().catch(() => {/* ignore */});
       }, 8_000);
@@ -7698,7 +7698,7 @@ async function handleMessage(
   const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
   let typingInterval: ReturnType<typeof setInterval> | undefined;
   if (typeof maybeTypingChannel.sendTyping === "function") {
-    await maybeTypingChannel.sendTyping();
+    await maybeTypingChannel.sendTyping().catch(() => {/* typing indicator is best-effort */});
     typingInterval = setInterval(() => {
       maybeTypingChannel.sendTyping?.().catch(() => {/* ignore */});
     }, 8_000);
