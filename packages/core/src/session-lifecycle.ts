@@ -129,6 +129,15 @@ function extractContextUsageFraction(
     return undefined;
   }
 
+  // Try computing from Claude CLI modelUsage (the actual schema).
+  // modelUsage is keyed by model name, each entry has inputTokens,
+  // outputTokens, cacheReadInputTokens, cacheCreationInputTokens, contextWindow.
+  const fraction = computeFractionFromModelUsage(metadata);
+  if (fraction !== undefined) {
+    return fraction;
+  }
+
+  // Fallback: search recursively for a pre-computed fraction field.
   const keys = new Set([
     "contextUsage",
     "contextUsageFraction",
@@ -177,6 +186,70 @@ function extractContextUsageFraction(
   };
 
   return visit(metadata);
+}
+
+function computeFractionFromModelUsage(
+  metadata: Record<string, unknown>,
+): number | undefined {
+  // Search for modelUsage anywhere in the metadata tree (it lives in raw/providerMetadata).
+  const modelUsage = findModelUsage(metadata);
+  if (!modelUsage) {
+    return undefined;
+  }
+
+  // modelUsage is keyed by model name; use the first (typically only) entry.
+  const entries = Object.values(modelUsage);
+  const entry = entries.length > 0 ? asRecord(entries[0]) : undefined;
+  if (!entry) {
+    return undefined;
+  }
+
+  const contextWindow = typeof entry.contextWindow === "number" ? entry.contextWindow : 0;
+  if (contextWindow <= 0) {
+    return undefined;
+  }
+
+  const inputTokens = typeof entry.inputTokens === "number" ? entry.inputTokens : 0;
+  const outputTokens = typeof entry.outputTokens === "number" ? entry.outputTokens : 0;
+  const cacheRead = typeof entry.cacheReadInputTokens === "number" ? entry.cacheReadInputTokens : 0;
+  const cacheCreation = typeof entry.cacheCreationInputTokens === "number" ? entry.cacheCreationInputTokens : 0;
+
+  const totalTokens = inputTokens + outputTokens + cacheRead + cacheCreation;
+  if (totalTokens <= 0) {
+    return undefined;
+  }
+
+  return totalTokens / contextWindow;
+}
+
+function findModelUsage(
+  value: unknown,
+  seen = new Set<object>(),
+): Record<string, unknown> | undefined {
+  const record = asRecord(value);
+  if (!record || seen.has(record)) {
+    return undefined;
+  }
+  seen.add(record);
+
+  if (record.modelUsage) {
+    const mu = asRecord(record.modelUsage);
+    if (mu) return mu;
+  }
+
+  for (const child of Object.values(record)) {
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        const found = findModelUsage(item, seen);
+        if (found) return found;
+      }
+    } else {
+      const found = findModelUsage(child, seen);
+      if (found) return found;
+    }
+  }
+
+  return undefined;
 }
 
 function toConversationSession(session: InternalConversationSession): ConversationSession {

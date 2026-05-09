@@ -423,7 +423,91 @@ describe("SessionLifecycleManager", () => {
     expect(pool.closeCalls).toHaveLength(0);
   });
 
-  it("hard resets automatically when context usage crosses the threshold", async () => {
+  it("hard resets when modelUsage context fraction crosses the threshold", async () => {
+    const pool = new MockRuntimePool();
+    const runtime1 = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    // Simulate real Claude CLI output: modelUsage nested inside raw/providerMetadata
+    runtime1.queueResponse(createResponse("First reply", {
+      sessionId: "session-1",
+      metadata: {
+        raw: {
+          modelUsage: {
+            "claude-sonnet-4-20250514": {
+              inputTokens: 150000,
+              outputTokens: 20000,
+              cacheReadInputTokens: 650000,
+              cacheCreationInputTokens: 0,
+              contextWindow: 1000000,
+            },
+          },
+        },
+      },
+    }));
+    const runtime2 = pool.enqueueRuntime(new MockRuntime("runtime-2"));
+
+    let buildCount = 0;
+    const builder = vi.fn(async () => {
+      buildCount += 1;
+      return {
+        pinnedFacts: `Pinned fact ${buildCount}`,
+        recentMessages: `Recent summary ${buildCount}`,
+        relevantMemories: `Memory hit ${buildCount}`,
+      };
+    });
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      {
+        contextResetThreshold: 0.80,
+      },
+      builder,
+    );
+
+    const response = await manager.sendMessage("conversation-1", createConfig(), "hello");
+    const session = manager.getSession("conversation-1");
+
+    // 820000 / 1000000 = 0.82, above 0.80 threshold
+    expect(response.text).toBe("First reply");
+    expect(pool.closeCalls).toEqual(["conversation-1"]);
+    expect(pool.getOrCreateCalls).toHaveLength(2);
+    expect(session?.messageCount).toBe(0);
+  });
+
+  it("does not reset when modelUsage context fraction is below the threshold", async () => {
+    const pool = new MockRuntimePool();
+    const runtime1 = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime1.queueResponse(createResponse("First reply", {
+      sessionId: "session-1",
+      metadata: {
+        raw: {
+          modelUsage: {
+            "claude-sonnet-4-20250514": {
+              inputTokens: 5000,
+              outputTokens: 1000,
+              cacheReadInputTokens: 8000,
+              cacheCreationInputTokens: 0,
+              contextWindow: 200000,
+            },
+          },
+        },
+      },
+    }));
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      { contextResetThreshold: 0.80 },
+    );
+
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+    const session = manager.getSession("conversation-1");
+
+    // 14000 / 200000 = 0.07, well below threshold
+    expect(pool.closeCalls).toHaveLength(0);
+    expect(session?.messageCount).toBe(1);
+    expect(session?.state).toBe("idle");
+  });
+
+  it("hard resets automatically when context usage crosses the threshold (legacy keys)", async () => {
     const pool = new MockRuntimePool();
     const runtime1 = pool.enqueueRuntime(new MockRuntime("runtime-1"));
     runtime1.queueResponse(createResponse("First reply", {
