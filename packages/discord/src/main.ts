@@ -176,6 +176,7 @@ import { resolveVoiceWatermarkTarget } from "./voice-watermarks.js";
 import { IMessageListener, type IMessageInboundMessage } from "./imessage-listener.js";
 import { parseNaturalTextRoute, type NaturalTextSystemCommand } from "./natural-routing.js";
 import { resolveTargetAgent } from "./target-agent.js";
+import { processAttachments, cleanupAttachments } from "./attachment-processor.js";
 import { createWellnessDispatcher } from "./wellness-dispatcher.js";
 import {
   buildPromptWithReferent,
@@ -7488,8 +7489,9 @@ async function handleMessage(
   }
 
   const responseMode = resolveResponseMode(targetAgent, commandParse.responseModeOverride);
+  const attachmentResult = await processAttachments(message.attachments, promptRoute.sessionId);
   const prompt = buildPromptWithReferent(
-    buildPrompt(naturalRoute?.promptText ?? commandParse.promptText, message),
+    buildPrompt(naturalRoute?.promptText ?? commandParse.promptText, message) + attachmentResult.promptSuffix,
     messageReferent
   );
   const systemPrompt = composeSystemPrompt(
@@ -7570,6 +7572,7 @@ async function handleMessage(
       console.log(
         `[tango-discord] victor-bridge reply session=${promptRoute.sessionId} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks}`,
       );
+      cleanupAttachments(attachmentResult.tempDir);
       return;
     } catch (error) {
       console.error(
@@ -7714,6 +7717,7 @@ async function handleMessage(
       return;
     } finally {
       if (typingInterval) clearInterval(typingInterval);
+      cleanupAttachments(attachmentResult.tempDir);
     }
   }
 
@@ -8097,8 +8101,10 @@ async function handleMessage(
       `[tango-discord] reply session=${promptRoute.sessionId} agent=${targetAgent.id} provider=${providerName} mode=${responseMode} attempts=${attemptCount} failover=${usedFailover ? "yes" : "no"} warmStart=${warmStartUsed ? "yes" : "no"} ms=${latencyMs} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks} deliveryFailed=${deliveryFailed ? "yes" : "no"}${workerDispatchLogSummary}${synthesisRetriedSuffix}${executionTraceSummary ? ` ${executionTraceSummary}` : ""}`
     );
     if (typingInterval) clearInterval(typingInterval);
+    cleanupAttachments(attachmentResult.tempDir);
   } catch (error) {
     if (typingInterval) clearInterval(typingInterval);
+    cleanupAttachments(attachmentResult.tempDir);
     const failoverError = error instanceof ProviderFailoverError ? error : null;
     const failures = failoverError?.failures ?? [];
     const attemptedRequests = failoverError?.attemptedRequests ?? [];
