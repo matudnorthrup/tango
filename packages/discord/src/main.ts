@@ -8713,8 +8713,10 @@ client.on("messageCreate", async (message) => {
     console.warn(`[voice-inbox] watermark advance failed on messageCreate: ${error instanceof Error ? error.message : error}`);
   }
 
-  const channelKey = toChannelKey(message);
-  enqueueChannelWork(channelKey, "tango-discord", async () => {
+  // Use message.channelId (thread ID for threads) as queue key so forum threads
+  // process concurrently. handleMessage computes its own routing channelKey internally.
+  const queueKey = `discord:${message.channelId}`;
+  enqueueChannelWork(queueKey, "tango-discord", async () => {
     try {
       await handleMessage(message);
     } catch (error) {
