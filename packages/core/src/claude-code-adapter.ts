@@ -28,9 +28,11 @@ interface SpawnExecutionResult {
 function cloneServerConfig(server: McpServerConfig): McpServerConfig {
   return {
     name: server.name,
-    command: server.command,
+    ...(server.command ? { command: server.command } : {}),
     ...(server.args ? { args: [...server.args] } : {}),
     ...(server.env ? { env: { ...server.env } } : {}),
+    ...(server.url ? { url: server.url } : {}),
+    ...(server.headers ? { headers: { ...server.headers } } : {}),
   };
 }
 
@@ -46,28 +48,46 @@ function cloneRuntimeConfig(config: AgentRuntimeConfig): AgentRuntimeConfig {
   };
 }
 
-function normalizeMcpServers(servers: McpServerConfig[]): Record<string, {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-}> {
-  const entries = servers
-    .map((server) => ({
-      name: server.name.trim(),
-      command: server.command.trim(),
-      args: server.args ? [...server.args] : undefined,
-      env: server.env ? { ...server.env } : undefined,
-    }))
-    .filter((server) => server.name.length > 0 && server.command.length > 0);
+function resolveEnvVars(value: string): string {
+  return value.replace(/\$\{(\w+)\}/g, (_, name) => process.env[name] ?? "");
+}
 
-  return Object.fromEntries(entries.map((server) => [
-    server.name,
-    {
-      command: server.command,
-      ...(server.args ? { args: server.args } : {}),
-      ...(server.env ? { env: server.env } : {}),
-    },
-  ]));
+function normalizeMcpServers(servers: McpServerConfig[]): Record<string, Record<string, unknown>> {
+  const entries = servers
+    .map((server) => {
+      const name = server.name.trim();
+      if (name.length === 0) return null;
+
+      // URL-based remote server
+      if (server.url) {
+        const url = server.url.trim();
+        if (url.length === 0) return null;
+        return {
+          name,
+          config: {
+            url,
+            ...(server.headers ? { headers: Object.fromEntries(
+              Object.entries(server.headers).map(([k, v]) => [k, resolveEnvVars(v)]),
+            ) } : {}),
+          },
+        };
+      }
+
+      // Command-based local server
+      const command = server.command?.trim();
+      if (!command || command.length === 0) return null;
+      return {
+        name,
+        config: {
+          command,
+          ...(server.args ? { args: [...server.args] } : {}),
+          ...(server.env ? { env: { ...server.env } } : {}),
+        },
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  return Object.fromEntries(entries.map((entry) => [entry.name, entry.config]));
 }
 
 function parseClaudeJsonOutput(stdout: string) {
