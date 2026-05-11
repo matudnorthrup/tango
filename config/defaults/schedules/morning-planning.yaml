@@ -58,6 +58,13 @@ execution:
     - If the brief has flagged/urgent items, note them in priorities
       with action recommendation
 
+    **Filtering rules — do NOT surface these as priorities:**
+    - Domain renewals: these are handled through other monitoring channels
+    - GitHub PAT expiration alerts: only flag if the token belongs to Devin
+      personally (not service accounts or shared org tokens)
+    - Linear login alerts: these are informational, not actionable
+    - "Check email log" reminders: email review is handled separately
+
     Do NOT modify the frontmatter fields other than adding `brief:` if
     missing. Do NOT add a Morning Brief section to the daily note — that
     content lives in Records/Briefs/.
