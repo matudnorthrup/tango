@@ -15,9 +15,11 @@ export interface V2AgentConfig {
   systemPromptFile: string;
   mcpServers: Array<{
     name: string;
-    command: string;
+    command?: string;
     args?: string[];
     env?: Record<string, string>;
+    url?: string;
+    headers?: Record<string, string>;
   }>;
   runtime: {
     mode: V2RuntimeMode;
@@ -54,12 +56,19 @@ const rawV2AgentConfigSchema = z.object({
   type: z.string().min(1),
   system_prompt_file: z.string().min(1),
   mcp_servers: z.array(
-    z.object({
-      name: z.string().min(1),
-      command: z.string().min(1),
-      args: z.array(z.string()).optional(),
-      env: z.record(z.string()).optional(),
-    }),
+    z.union([
+      z.object({
+        name: z.string().min(1),
+        command: z.string().min(1),
+        args: z.array(z.string()).optional(),
+        env: z.record(z.string()).optional(),
+      }),
+      z.object({
+        name: z.string().min(1),
+        url: z.string().url(),
+        headers: z.record(z.string()).optional(),
+      }),
+    ]),
   ).min(1),
   runtime: z.object({
     mode: z.enum(["persistent", "fresh"]),
@@ -99,9 +108,11 @@ export function loadV2AgentConfig(configPath: string): V2AgentConfig {
     systemPromptFile: parsed.system_prompt_file,
     mcpServers: parsed.mcp_servers.map((server) => ({
       name: server.name,
-      command: server.command,
-      args: server.args,
-      env: server.env,
+      ...("command" in server ? { command: server.command } : {}),
+      ...("args" in server ? { args: server.args } : {}),
+      ...("env" in server ? { env: server.env } : {}),
+      ...("url" in server ? { url: server.url } : {}),
+      ...("headers" in server ? { headers: server.headers } : {}),
     })),
     runtime: {
       mode: parsed.runtime.mode,

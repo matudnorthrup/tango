@@ -24,9 +24,13 @@ export interface AgentRuntimeConfig {
 
 export interface McpServerConfig {
   name: string;
-  command: string;
+  // Local process-based server
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  // Remote URL-based server
+  url?: string;
+  headers?: Record<string, string>;
 }
 
 export interface SendOptions {
