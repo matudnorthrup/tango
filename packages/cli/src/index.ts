@@ -9,6 +9,7 @@ import {
   emptyToolTelemetry,
   extractToolTelemetry,
   loadAgentConfigs,
+  loadUnifiedAgentConfigs,
   loadSessionConfigs,
   loadWorkerConfigs,
   resolveProviderCandidates,
@@ -66,7 +67,7 @@ function withContext<T>(fn: (ctx: CliContext) => T): T {
   const configDir = resolveConfigDir();
   const dbPath = resolveDatabasePath();
   const sessionConfigs = loadSessionConfigs(configDir);
-  const agentRegistry = new AgentRegistry(loadAgentConfigs(configDir));
+  const agentRegistry = new AgentRegistry(loadUnifiedAgentConfigs(configDir));
   const storage = new TangoStorage(dbPath);
 
   try {
@@ -80,7 +81,7 @@ async function withContextAsync<T>(fn: (ctx: CliContext) => Promise<T>): Promise
   const configDir = resolveConfigDir();
   const dbPath = resolveDatabasePath();
   const sessionConfigs = loadSessionConfigs(configDir);
-  const agentRegistry = new AgentRegistry(loadAgentConfigs(configDir));
+  const agentRegistry = new AgentRegistry(loadUnifiedAgentConfigs(configDir));
   const storage = new TangoStorage(dbPath);
 
   try {
@@ -670,7 +671,7 @@ promptCommand
     let promptFile: string | undefined;
 
     if (normalizedKind === "agent") {
-      const agent = loadAgentConfigs(configDir).find((entry) => entry.id === id);
+      const agent = loadUnifiedAgentConfigs(configDir).find((entry) => entry.id === id);
       if (!agent) {
         console.error(`Agent '${id}' not found.`);
         process.exitCode = 1;

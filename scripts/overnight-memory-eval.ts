@@ -15,7 +15,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
-  loadAgentConfigs,
+  loadUnifiedAgentConfigs,
   resolveConfigDir,
   resolveDatabasePath,
   resolveTangoDataPath,
@@ -60,7 +60,7 @@ function resolveSmokeChannel(agentId: string): string {
     return explicit;
   }
 
-  const agent = loadAgentConfigs(resolveConfigDir()).find((candidate) => candidate.id === agentId);
+  const agent = loadUnifiedAgentConfigs(resolveConfigDir()).find((candidate) => candidate.id === agentId);
   const configuredChannel =
     agent?.voice?.smokeTestChannelId?.trim()
     || agent?.voice?.defaultChannelId?.trim()

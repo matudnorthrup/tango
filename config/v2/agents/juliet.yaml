@@ -33,14 +33,41 @@ memory:
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
-# Voice configuration (unchanged from legacy)
+# Voice configuration
 voice:
   call_signs:
     - Juliet
   kokoro_voice: af_bella
   default_channel_id: "1495415367118618766"
+  smoke_test_channel_id: "1495415369043673189"
 
 # Discord routing
 discord:
   default_channel_id: "1495415367118618766"
   smoke_test_channel_id: "1495415369043673189"
+
+# Legacy registry fields
+avatar_url: https://cdn.discordapp.com/attachments/1481033494531407903/1499485747890229399/Gemini_Generated_Image_bvxs5wbvxs5wbvxs.png
+default_project: mental-health
+response_mode: explain
+
+provider:
+  default: claude-oauth
+  reasoning_effort: high
+  fallback:
+    - claude-oauth-secondary
+    - codex
+
+tools:
+  mode: allowlist
+  allowlist:
+    - memory_search
+    - memory_add
+    - memory_reflect
+
+orchestration:
+  worker_ids: []
+  write_confirmation: never
+
+deterministic_routing:
+  enabled: false

@@ -69,7 +69,37 @@ voice:
     - Foxtrot
   kokoro_voice: am_echo
   default_channel_id: "1503463044112580798"
+  smoke_test_channel_id: "1503463067034587216"
 
 discord:
   default_channel_id: "1503463044112580798"
   smoke_test_channel_id: "1503463067034587216"
+
+# Legacy registry fields
+default_project: finance
+response_mode: concise
+
+provider:
+  default: claude-oauth
+  reasoning_effort: medium
+  fallback:
+    - claude-oauth-secondary
+    - codex
+
+tools:
+  mode: off
+
+orchestration:
+  worker_ids:
+    - personal-assistant
+  write_confirmation: on-ambiguity
+
+deterministic_routing:
+  enabled: true
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex

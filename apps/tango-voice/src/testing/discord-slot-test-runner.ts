@@ -8,7 +8,7 @@ import {
   resolveExplicitHarnessTarget,
   runHarnessTurn,
 } from "./discord-test-harness-lib.js";
-import { loadAgentConfigs, resolveConfigDir } from "@tango/core";
+import { loadUnifiedAgentConfigs, resolveConfigDir } from "@tango/core";
 
 interface SlotTestCase {
   name: string;
@@ -49,7 +49,7 @@ function requireSlot(): string {
 }
 
 function loadSmokeParentChannelId(agentId: string): string {
-  const config = loadAgentConfigs(resolveConfigDir()).find((candidate) => candidate.id === agentId);
+  const config = loadUnifiedAgentConfigs(resolveConfigDir()).find((candidate) => candidate.id === agentId);
   const channelId = config?.voice?.smokeTestChannelId?.trim() || "";
   if (!/^\d+$/.test(channelId)) {
     throw new Error(`Agent '${agentId}' does not have a configured smoke-test parent channel.`);

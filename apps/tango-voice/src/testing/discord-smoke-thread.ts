@@ -1,8 +1,8 @@
 import { Client, GatewayIntentBits, type TextChannel, type ThreadChannel } from "discord.js";
-import { loadAgentConfigs, resolveConfigDir } from "@tango/core";
+import { loadUnifiedAgentConfigs, resolveConfigDir } from "@tango/core";
 
 function readAgentVoiceSmokeTestChannel(agentId: string): string | null {
-  const agent = loadAgentConfigs(resolveConfigDir()).find((candidate) => candidate.id === agentId);
+  const agent = loadUnifiedAgentConfigs(resolveConfigDir()).find((candidate) => candidate.id === agentId);
   const value =
     agent?.voice?.smokeTestChannelId?.trim()
     || agent?.voice?.defaultChannelId?.trim()

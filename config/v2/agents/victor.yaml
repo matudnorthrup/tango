@@ -39,14 +39,45 @@ memory:
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
-# Voice configuration (unchanged from legacy)
+# Voice configuration
 voice:
   call_signs:
     - Victor
   kokoro_voice: am_liam
   default_channel_id: "100000000000000004"
+  smoke_test_channel_id: "100000000000001004"
 
 # Discord routing
 discord:
   default_channel_id: "100000000000000004"
   smoke_test_channel_id: "100000000000001004"
+
+# Legacy registry fields
+default_project: personal
+response_mode: concise
+
+provider:
+  default: claude-oauth
+  reasoning_effort: max
+  fallback:
+    - claude-oauth-secondary
+    - codex
+
+tools:
+  mode: default
+  permission_mode: bypass
+
+orchestration:
+  worker_ids:
+    - dev-assistant
+  write_confirmation: on-ambiguity
+
+deterministic_routing:
+  enabled: true
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex

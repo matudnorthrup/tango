@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
-  loadAgentConfigs,
   loadProjectConfigs,
   loadIntentContractConfigs,
   loadToolContractConfigs,
@@ -9,6 +8,7 @@ import {
   loadWorkerConfigs,
   resolveConfigDir,
 } from "./config.js";
+import { loadUnifiedAgentConfigs } from "./v2-legacy-bridge.js";
 import type {
   AgentConfig,
   IntentContractConfig,
@@ -378,7 +378,7 @@ export class CapabilityRegistry {
 export function loadCapabilityRegistry(explicitConfigDir?: string): CapabilityRegistry {
   const configDir = resolveConfigDir(explicitConfigDir);
   return new CapabilityRegistry({
-    agents: loadAgentConfigs(configDir),
+    agents: loadUnifiedAgentConfigs(configDir),
     projects: loadProjectConfigs(configDir),
     workers: loadWorkerConfigs(configDir),
     toolContracts: loadToolContractConfigs(configDir),

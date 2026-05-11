@@ -1,5 +1,5 @@
 import {
-  loadAgentConfigs,
+  loadUnifiedAgentConfigs,
   resolveConfigDir,
   type AgentConfig,
 } from "@tango/core";
@@ -69,7 +69,7 @@ export function loadVoiceAddressAgents(
   configDir?: string,
 ): VoiceAddressAgent[] {
   const resolvedConfigDir = resolveConfigDir(configDir);
-  return loadAgentConfigs(resolvedConfigDir)
+  return loadUnifiedAgentConfigs(resolvedConfigDir)
     .map((agent) => toVoiceAddressAgent(agent))
     .filter((agent): agent is VoiceAddressAgent => agent !== null);
 }

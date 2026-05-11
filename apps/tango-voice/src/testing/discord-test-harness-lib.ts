@@ -12,7 +12,7 @@ import {
   type ThreadChannel,
   type Webhook,
 } from "discord.js";
-import { TangoStorage, loadAgentConfigs, resolveConfigDir, resolveDatabasePath } from "@tango/core";
+import { TangoStorage, loadUnifiedAgentConfigs, resolveConfigDir, resolveDatabasePath } from "@tango/core";
 import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
 dotenv.config({ quiet: true });
@@ -176,7 +176,7 @@ function deleteCachedWebhookRecord(channelId: string): void {
 }
 
 function loadAgentConfig(agentId: string): { id: string; voice?: { smokeTestChannelId?: string; defaultChannelId?: string } } {
-  const config = loadAgentConfigs(resolveConfigDir()).find((candidate) => candidate.id === agentId);
+  const config = loadUnifiedAgentConfigs(resolveConfigDir()).find((candidate) => candidate.id === agentId);
   if (!config) {
     throw new Error(`Unknown agent '${agentId}'.`);
   }

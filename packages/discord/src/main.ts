@@ -66,6 +66,7 @@ import {
   type SessionConfig,
   type WorkerConfig,
   loadAgentConfigs,
+  loadUnifiedAgentConfigs,
   loadMemoryEvalConfig,
   loadIntentContractConfigs,
   loadProjectConfigs,
@@ -570,7 +571,7 @@ const defaultAccessPolicy = buildDefaultAccessPolicy({
 });
 const sessionManager = new SessionManager(sessionConfigs);
 const sessionConfigById = new Map(sessionConfigs.map((session) => [session.id, session]));
-const agentConfigs = loadAgentConfigs(configDir);
+const agentConfigs = loadUnifiedAgentConfigs(configDir);
 const projectConfigs = loadProjectConfigs(configDir);
 const workerConfigs = loadWorkerConfigs(configDir);
 const toolContractConfigs = loadToolContractConfigs(configDir);
