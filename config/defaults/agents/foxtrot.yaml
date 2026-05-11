@@ -1,0 +1,33 @@
+id: foxtrot
+type: finance
+display_name: Foxtrot
+provider:
+  default: claude-oauth
+  reasoning_effort: medium
+  fallback:
+    - claude-oauth-secondary
+    - codex
+default_project: finance
+voice:
+  call_signs:
+    - Foxtrot
+  kokoro_voice: am_echo
+  default_channel_id: "1503463044112580798"
+  smoke_test_channel_id: "1503463067034587216"
+response_mode: concise
+tools:
+  mode: off
+orchestration:
+  worker_ids:
+    - personal-assistant
+  write_confirmation: on-ambiguity
+deterministic_routing:
+  enabled: true
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex
+prompt_file: ../../../agents/assistants/foxtrot/soul.md
