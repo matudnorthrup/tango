@@ -18,7 +18,8 @@ schedule:
 execution:
   mode: conditional-agent
   pre_check:
-    handler: watson-receipt-catalog-candidates
+    handler: foxtrot-receipt-catalog-candidates
+  deterministic_agent_id: foxtrot
   worker_id: personal-assistant
   intent_ids:
     - finance.receipt_catalog
@@ -89,7 +90,7 @@ delivery:
 policy:
   max_consecutive_failures: 3
   alert_channel_id: "100000000000000010"
-  concurrency_group: watson-tasks
+  concurrency_group: ledger-tasks
   priority: 2
   backoff:
     enabled: true
@@ -97,6 +98,6 @@ policy:
     max_seconds: 7200
 
 tags:
-  - watson
+  - foxtrot
   - finance
   - daily

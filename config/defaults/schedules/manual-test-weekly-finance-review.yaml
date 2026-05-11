@@ -11,6 +11,7 @@ schedule:
 
 execution:
   mode: agent
+  deterministic_agent_id: foxtrot
   worker_id: personal-assistant
   intent_ids:
     - finance.budget_review
@@ -54,7 +55,7 @@ provider:
 
 delivery:
   channel_id: "100000000000001001"
-  agent_id: watson
+  agent_id: foxtrot
 
 completion:
   workflow_id: manual-test-weekly-finance-review
@@ -63,7 +64,7 @@ completion:
 policy:
   max_consecutive_failures: 3
   alert_channel_id: "100000000000000010"
-  concurrency_group: watson-test-tasks
+  concurrency_group: ledger-test-tasks
   priority: 5
   backoff:
     enabled: true
@@ -71,6 +72,6 @@ policy:
     max_seconds: 3600
 
 tags:
-  - watson
+  - foxtrot
   - finance
   - manual-test

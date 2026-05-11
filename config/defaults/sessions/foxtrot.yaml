@@ -1,0 +1,5 @@
+id: foxtrot
+type: agent
+agent: foxtrot
+channels:
+  - discord:1503463044112580798

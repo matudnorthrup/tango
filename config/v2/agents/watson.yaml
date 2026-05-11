@@ -20,21 +20,6 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
     env:
       ALLOWED_TOOL_IDS: "obsidian"
-  - name: lunch-money
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "lunch-money"]
-    env:
-      ALLOWED_TOOL_IDS: "lunch_money"
-  - name: receipt-registry
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "receipt-registry"]
-    env:
-      ALLOWED_TOOL_IDS: "receipt_registry"
-  - name: ramp
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "ramp"]
-    env:
-      ALLOWED_TOOL_IDS: "ramp_reimbursement"
   - name: browser
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "browser"]

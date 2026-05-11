@@ -13,7 +13,8 @@ schedule:
 execution:
   mode: conditional-agent
   pre_check:
-    handler: watson-sinking-fund-reconciliation-context
+    handler: foxtrot-sinking-fund-reconciliation-context
+  deterministic_agent_id: foxtrot
   worker_id: personal-assistant
   intent_ids:
     - finance.sinking_fund_reconciliation
@@ -42,8 +43,8 @@ provider:
   model: sonnet
 
 delivery:
-  channel_id: "100000000000000013"
-  agent_id: watson
+  channel_id: "1503463044112580798"
+  agent_id: foxtrot
 
 completion:
   workflow_id: sinking-fund-reconciliation-weekly
@@ -52,7 +53,7 @@ completion:
 policy:
   max_consecutive_failures: 3
   alert_channel_id: "100000000000000010"
-  concurrency_group: watson-tasks
+  concurrency_group: ledger-tasks
   priority: 5
   backoff:
     enabled: true
@@ -60,7 +61,7 @@ policy:
     max_seconds: 3600
 
 tags:
-  - watson
+  - foxtrot
   - finance
   - weekly
   - sinking-fund

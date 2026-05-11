@@ -12,7 +12,8 @@ schedule:
 execution:
   mode: conditional-agent
   pre_check:
-    handler: watson-receipt-catalog-candidates
+    handler: foxtrot-receipt-catalog-candidates
+  deterministic_agent_id: foxtrot
   worker_id: personal-assistant
   intent_ids:
     - finance.receipt_catalog
@@ -79,7 +80,7 @@ provider:
 
 delivery:
   channel_id: "100000000000001001"
-  agent_id: watson
+  agent_id: foxtrot
 
 completion:
   workflow_id: manual-test-receipt-cataloger
@@ -88,7 +89,7 @@ completion:
 policy:
   max_consecutive_failures: 3
   alert_channel_id: "100000000000000010"
-  concurrency_group: watson-test-tasks
+  concurrency_group: ledger-test-tasks
   priority: 2
   backoff:
     enabled: true
@@ -96,6 +97,6 @@ policy:
     max_seconds: 7200
 
 tags:
-  - watson
+  - foxtrot
   - finance
   - manual-test

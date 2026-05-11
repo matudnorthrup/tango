@@ -931,7 +931,7 @@ function formatDateInTimeZone(date: Date, timeZone: string): string {
   }).format(date);
 }
 
-registerPreCheckHandler("watson-unreviewed-transactions", async () => {
+registerPreCheckHandler("foxtrot-unreviewed-transactions", async () => {
   const timeZone = "America/Los_Angeles";
   const endDate = formatDateInTimeZone(new Date(), timeZone);
   const startDate = formatDateInTimeZone(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), timeZone);
@@ -970,7 +970,7 @@ registerPreCheckHandler("watson-unreviewed-transactions", async () => {
   };
 });
 
-registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
+registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
   const timeZone = "America/Los_Angeles";
   const endDate = formatDateInTimeZone(new Date(), timeZone);
   const startDate = formatDateInTimeZone(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), timeZone);
@@ -1033,7 +1033,7 @@ registerPreCheckHandler("watson-receipt-catalog-candidates", async () => {
   };
 });
 
-registerPreCheckHandler("watson-sinking-fund-reconciliation-context", async (ctx) => {
+registerPreCheckHandler("foxtrot-sinking-fund-reconciliation-context", async (ctx) => {
   const timeZone = "America/Los_Angeles";
   const runDate = formatDateInTimeZone(new Date(), timeZone);
   const cadence =

@@ -11,9 +11,9 @@
 
 ## personal-assistant
 
-Tools: `gog_email`, `gog_calendar`, `gog_docs`, `obsidian`, `health_morning`, `lunch_money`, `receipt_registry`, `agent_docs`, `browser`, `linear`, `imessage`, `onepassword`, `memory_search`, `memory_add`, `memory_reflect`, `latitude_run`, `slack`
+Tools: `gog_email`, `gog_calendar`, `gog_docs`, `obsidian`, `health_morning`, `agent_docs`, `browser`, `linear`, `imessage`, `onepassword`, `memory_search`, `memory_add`, `memory_reflect`, `latitude_run`, `slack`
 
-Dispatch when you need to: fetch/search email, check/create calendar events, read/write shared documents or notes, query health metrics, access finance data, inspect or update receipt reimbursement tracking, update agent documentation, query or update project-management records, use the browser for receipt/order lookups and other authenticated web tasks, read/search/send messages, retrieve secrets from 1Password, search/add/reflect on memories, or read/send Slack messages.
+Dispatch when you need to: fetch/search email, check/create calendar events, read/write shared documents or notes, query health metrics, update agent documentation, query or update project-management records, use the browser for authenticated web tasks, read/search/send messages, retrieve secrets from 1Password, search/add/reflect on memories, or read/send Slack messages.
 
 Tool-call example:
 `dispatch_worker(worker_id="personal-assistant", task="Search the configured inboxes for unread email from the last 24 hours. Return subjects, senders, and thread IDs.")`

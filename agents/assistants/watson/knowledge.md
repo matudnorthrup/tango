@@ -19,27 +19,6 @@ Reference guidance for a general personal-assistant workflow.
   and flag. When Devin says to ignore a sender or reclassify an email type,
   update this file using the Obsidian tool so future runs apply the new rule.
 
-## Finance
-
-- Use the configured finance system as the source of truth.
-- For transaction updates, verify the exact write shape required by the tool.
-- When rules or categories are user-specific, read the configured rules note
-  or profile-owned knowledge before acting.
-
-### Lunch Money
-
-The `lunch_money` tool wraps the Lunch Money API.
-
-1. **Always fetch categories first.** When the user asks about spending by
-   category (e.g., "How much did I spend on Groceries?"), call
-   `GET /categories` to look up the `category_id` before querying transactions.
-   `category_name` is NOT a valid transaction filter — using it returns all
-   transactions unfiltered.
-
-2. **Filter by `category_id`, never `category_name`.** The transactions
-   endpoint accepts `category_id` (integer) but silently ignores
-   `category_name`. Always resolve the name to an ID first.
-
 ## Notes
 
 - The note vault, templates, and organization rules are installation-specific.
@@ -76,11 +55,6 @@ You have MCP tools for managing personal tasks. Use them proactively.
 - `mcp__google__gog_calendar` - read and manage Google Calendar events
 - `mcp__google__gog_docs` - read Google Docs
 - `mcp__google__gog_docs_update_tab` - update Google Docs tabs
-
-**Finance** (via `lunch-money` and related servers):
-- `mcp__lunch-money__lunch_money` - query and categorize transactions in Lunch Money
-- `mcp__receipt-registry__receipt_registry` - log and query receipt records
-- `mcp__ramp__ramp_reimbursement` - submit and manage Ramp reimbursements
 
 **Notes** (via `obsidian` MCP server):
 - `mcp__obsidian__obsidian` - read and write Obsidian vault notes

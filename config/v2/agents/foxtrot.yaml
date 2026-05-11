@@ -1,0 +1,75 @@
+id: foxtrot
+display_name: Foxtrot
+type: finance
+
+system_prompt_file: agents/assistants/foxtrot/soul.md
+
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+  - name: lunch-money
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "lunch-money"]
+    env:
+      ALLOWED_TOOL_IDS: "lunch_money"
+  - name: receipt-registry
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "receipt-registry"]
+    env:
+      ALLOWED_TOOL_IDS: "receipt_registry"
+  - name: ramp
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "ramp"]
+    env:
+      ALLOWED_TOOL_IDS: "ramp_reimbursement"
+  - name: browser
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "browser"]
+    env:
+      ALLOWED_TOOL_IDS: "browser"
+  - name: obsidian
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
+    env:
+      ALLOWED_TOOL_IDS: "obsidian"
+  - name: onepassword
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "onepassword"]
+    env:
+      ALLOWED_TOOL_IDS: "onepassword"
+  - name: google
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "google"]
+    env:
+      ALLOWED_TOOL_IDS: "gog_email"
+  - name: agent-docs
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
+    env:
+      ALLOWED_TOOL_IDS: "agent_docs"
+
+runtime:
+  mode: persistent
+  provider: claude-code-v2
+  fallback: codex
+  model: claude-sonnet-4-6
+  reasoning_effort: medium
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+
+memory:
+  post_turn_extraction: enabled
+  extraction_model: claude-haiku-4-5
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+voice:
+  call_signs:
+    - Foxtrot
+  kokoro_voice: am_echo
+  default_channel_id: "1503463044112580798"
+
+discord:
+  default_channel_id: "1503463044112580798"
+  smoke_test_channel_id: "1503463067034587216"
