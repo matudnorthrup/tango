@@ -72,8 +72,13 @@ You have MCP tools for managing personal tasks. Use them proactively.
 - `mcp__imessage__imessage` - read and send iMessages
 - `mcp__slack__slack` - read and post Slack messages
 
-**Location** (via `latitude` MCP server):
-- `mcp__latitude__latitude_run` - location and routing queries
+**Latitude Remote** (via `latitude` MCP server):
+- `mcp__latitude__run` - Latitude's remote MCP server providing access to Notion, Slack, Postgres, GitHub, Datadog, Grafana, Heroku, Sentry, Outline, and Athena. Call as `run(category, tool, params)`. Examples:
+  - Search Notion: `run("notion", "search", {"query": "Brand Strategy"})`
+  - Read Notion page: `run("notion", "get-page-markdown", {"page_id": "..."})`
+  - Search Slack: `run("slack", "search-messages", {"query": "..."})`
+  - Query Postgres: `run("postgres", "query", {"sql": "SELECT ..."})`
+  - See `agents/tools/latitude-remote.md` for full category/tool reference
 
 **Memory** (via `memory` MCP server):
 - `mcp__memory__memory_search` - search stored memories
