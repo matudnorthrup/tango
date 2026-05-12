@@ -51,8 +51,8 @@ mcp_servers:
     env:
       ALLOWED_TOOL_IDS: "agent_docs"
   - name: latitude
-    command: npx
-    args: ["-y", "mcp-remote", "https://mcp.preview.aidungeon.com/oauth/mcp"]
+    command: mcp-remote
+    args: ["https://mcp.preview.aidungeon.com/oauth/mcp"]
 
 # Runtime configuration
 runtime:
