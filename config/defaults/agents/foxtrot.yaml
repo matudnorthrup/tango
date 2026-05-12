@@ -1,6 +1,7 @@
 id: foxtrot
 type: finance
 display_name: Foxtrot
+avatar_url: https://cdn.discordapp.com/attachments/1503463067034587216/1503746001574297641/foxtrot.png
 provider:
   default: claude-oauth
   reasoning_effort: medium
