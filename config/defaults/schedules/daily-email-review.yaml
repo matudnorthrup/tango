@@ -3,7 +3,7 @@ display_name: Daily Email Review
 description: >
   Triage and process emails across all accessible Gmail accounts. Categorizes,
   flags actionable items, and archives processed mail.
-enabled: false
+enabled: true
 runtime: v2
 
 obsidian_log:
