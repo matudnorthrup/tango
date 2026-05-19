@@ -13,6 +13,7 @@ import type { VoiceTurnExecutor, VoiceTurnInput, VoiceTurnResult } from "@tango/
 import {
   generateWithFailover,
   type ProviderContinuityMap,
+  type ProviderFailoverOptions,
   type ProviderFailoverFailure
 } from "./provider-failover.js";
 import {
@@ -283,6 +284,62 @@ function stripWorkerDispatchTags(text: string): string {
 function appendSystemPrompt(base: string | undefined, extra: string): string {
   const parts = [base?.trim(), extra.trim()].filter((value) => Boolean(value && value.length > 0));
   return parts.join("\n\n");
+}
+
+function sanitizePromptMetadataValue(value: string): string {
+  return value.replace(/[\r\n]+/gu, " ").trim();
+}
+
+function resolveTurnMetadataTimeZone(): string {
+  return (
+    process.env.TANGO_TIME_ZONE?.trim() ||
+    process.env.TZ?.trim() ||
+    "America/Los_Angeles"
+  );
+}
+
+function formatLocalTurnTimestamp(timestamp: string, timeZone: string): string | null {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+      timeZone,
+    }).format(date);
+  } catch {
+    return null;
+  }
+}
+
+function buildCurrentTurnMetadataPrompt(turn: VoiceTurnInput): string | undefined {
+  const timestamp = turn.messageTimestamp ? sanitizePromptMetadataValue(turn.messageTimestamp) : "";
+  const source = turn.messageTimestampSource
+    ? sanitizePromptMetadataValue(turn.messageTimestampSource)
+    : "";
+
+  if (!timestamp && !source) return undefined;
+
+  const lines = ["Current user message metadata:"];
+  if (timestamp) {
+    lines.push(`- timestamp_utc: ${timestamp}`);
+    const timeZone = resolveTurnMetadataTimeZone();
+    const localTimestamp = formatLocalTurnTimestamp(timestamp, timeZone);
+    if (localTimestamp) {
+      lines.push(`- timestamp_local: ${localTimestamp} (${timeZone})`);
+    }
+  }
+  if (source) {
+    lines.push(`- timestamp_source: ${source}`);
+  }
+
+  return lines.join("\n");
 }
 
 const RECENT_INTENT_REUSE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -1309,6 +1366,14 @@ export async function executeDiscordTurn(
       ? [warmStartPrompt?.trim(), activeTaskPromptContext.trim()].filter(Boolean).join("\n\n")
       : warmStartPrompt;
   const warmStartContextChars = effectiveWarmStartPrompt?.length ?? 0;
+  const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt(input.turn);
+  const providerFailoverOptions: ProviderFailoverOptions = {
+    warmStartPrompt: effectiveWarmStartPrompt,
+    currentTurnMetadataPrompt,
+  };
+  const currentTurnMetadataOptions: ProviderFailoverOptions = {
+    currentTurnMetadataPrompt,
+  };
   let conversationalTurnBypass = detectConversationalTurnBypass({
     userMessage: input.turn.transcript,
     activeTaskResolution,
@@ -1449,7 +1514,7 @@ export async function executeDiscordTurn(
               },
               dependencies.providerRetryLimit,
               {},
-              { warmStartPrompt: effectiveWarmStartPrompt },
+              providerFailoverOptions,
             );
 
             if (shouldPersistProviderContinuity && clarificationFailoverResult.retryResult.response.providerSessionId) {
@@ -1581,7 +1646,7 @@ export async function executeDiscordTurn(
               },
               dependencies.providerRetryLimit,
               {},
-              { warmStartPrompt: effectiveWarmStartPrompt },
+              providerFailoverOptions,
             );
             const guardedNarrationText = guardDeterministicNarrationText(
               narrationFailoverResult.retryResult.response.text,
@@ -1768,7 +1833,7 @@ export async function executeDiscordTurn(
     },
     dependencies.providerRetryLimit,
     continuityByProvider,
-    { warmStartPrompt: effectiveWarmStartPrompt }
+    providerFailoverOptions
   );
 
   const initialRequestPrompt = failoverResult1.requestPrompt;
@@ -1804,7 +1869,7 @@ export async function executeDiscordTurn(
       },
       dependencies.providerRetryLimit,
       {},
-      { warmStartPrompt: effectiveWarmStartPrompt }
+      providerFailoverOptions
     );
 
     phase1ProviderName = directRetryResult.providerName;
@@ -1843,7 +1908,7 @@ export async function executeDiscordTurn(
           },
           dependencies.providerRetryLimit,
           {},
-          { warmStartPrompt: effectiveWarmStartPrompt }
+          providerFailoverOptions
         );
 
         phase1ProviderName = escapeRetryResult.providerName;
@@ -1893,7 +1958,7 @@ export async function executeDiscordTurn(
       },
       dependencies.providerRetryLimit,
       {},
-      { warmStartPrompt: effectiveWarmStartPrompt }
+      providerFailoverOptions
     );
 
     phase1ProviderName = contextRetryResult.providerName;
@@ -1928,7 +1993,7 @@ export async function executeDiscordTurn(
       },
       dependencies.providerRetryLimit,
       {},
-      { warmStartPrompt: effectiveWarmStartPrompt }
+      providerFailoverOptions
     );
 
     phase1ProviderName = guardedFailoverResult.providerName;
@@ -2067,7 +2132,7 @@ export async function executeDiscordTurn(
       },
       dependencies.providerRetryLimit,
       {},
-      {}
+      currentTurnMetadataOptions
     );
 
     let response2 = failoverResult2.retryResult.response;
@@ -2096,7 +2161,7 @@ export async function executeDiscordTurn(
         },
         dependencies.providerRetryLimit,
         {},
-        {}
+        currentTurnMetadataOptions
       );
 
       failoverResult2 = retryResult;

@@ -495,6 +495,45 @@ describe("createDiscordVoiceTurnExecutor", () => {
     ]);
   });
 
+  it("injects current turn timestamp metadata into the provider prompt", async () => {
+    const provider = new ScriptedProvider((_callNumber, request) => ({
+      text: request.prompt,
+    }));
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+      },
+      () => ({
+        conversationKey: "tango-default:watson",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+      })
+    );
+
+    const result = await executor.executeTurn({
+      sessionId: "tango-default",
+      agentId: "watson",
+      transcript: "Log this in my journal.",
+      channelId: "channel-1",
+      discordUserId: "user-1",
+      messageTimestamp: "2026-05-19T19:25:11.000Z",
+      messageTimestampSource: "discord-sent",
+    });
+
+    expect(result.warmStartUsed).toBe(false);
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]?.prompt).toContain("Current user message metadata:");
+    expect(provider.calls[0]?.prompt).toContain("timestamp_utc: 2026-05-19T19:25:11.000Z");
+    expect(provider.calls[0]?.prompt).toContain("timestamp_source: discord-sent");
+    expect(provider.calls[0]?.prompt).toContain("Current user message:\nLog this in my journal.");
+  });
+
   it("forwards resolved model and reasoning effort into provider requests", async () => {
     const provider = new ScriptedProvider(() => ({
       text: "done",

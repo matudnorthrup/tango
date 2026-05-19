@@ -5215,6 +5215,7 @@ Use channel names (the part before the colon). Do not explain.`,
     const systemPrompt = target.systemPrompt;
     const requestedTranscript = target.dispatchTranscript?.trim() || transcript;
     const requestedSessionId = target.sessionId?.trim() || sessionKey;
+    const messageTimestamp = new Date().toISOString();
     const useTangoTurnBridge = shouldUseTangoVoiceBridge();
     const channelId = this.extractChannelIdFromSessionKey(sessionKey);
 
@@ -5252,6 +5253,8 @@ Use channel names (the part before the colon). Do not explain.`,
             voiceChannelId: config.discordVoiceChannelId,
             channelId,
             discordUserId: userId,
+            messageTimestamp,
+            messageTimestampSource: 'voice-finalized',
           });
 
           safeResponse = this.sanitizeAssistantOutput(

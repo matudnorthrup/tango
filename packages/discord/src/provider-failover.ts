@@ -52,6 +52,7 @@ export class ProviderFailoverError extends Error {
 
 export interface ProviderFailoverOptions {
   warmStartPrompt?: string;
+  currentTurnMetadataPrompt?: string;
 }
 
 export type ProviderContinuityMap = Record<string, string>;
@@ -175,6 +176,7 @@ export async function generateWithFailover(
   const failures: ProviderFailoverFailure[] = [];
   const attemptedRequests: ProviderRequestAttempt[] = [];
   const warmStartPrompt = options.warmStartPrompt?.trim();
+  const currentTurnMetadataPrompt = options.currentTurnMetadataPrompt?.trim();
 
   for (const [index, candidate] of providerChain.entries()) {
     const providerSessionId = persistedSessionsByProvider[candidate.providerName];
@@ -184,8 +186,12 @@ export async function generateWithFailover(
       warmStartPrompt.length > 0 &&
       !providerSessionId;
 
-    const candidatePrompt = shouldWarmStart
-      ? `${warmStartPrompt}\n\nCurrent user message:\n${request.prompt}`
+    const contextParts = [
+      shouldWarmStart ? warmStartPrompt : undefined,
+      currentTurnMetadataPrompt,
+    ].filter((part): part is string => Boolean(part && part.length > 0));
+    const candidatePrompt = contextParts.length > 0
+      ? `${contextParts.join("\n\n")}\n\nCurrent user message:\n${request.prompt}`
       : request.prompt;
     const attemptedRequest: ProviderRequestAttempt = {
       providerName: candidate.providerName,

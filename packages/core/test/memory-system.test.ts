@@ -90,6 +90,7 @@ describe("memory-system", () => {
 
     expect(result.usedFullHistory).toBe(true);
     expect(result.prompt).toContain("recent_messages:");
+    expect(result.prompt).toContain("[user at 2026-03-10T10:00:00.000Z]");
     expect(result.prompt).toContain("Summary and retrieval zones were skipped");
     expect(result.trace.note).toContain("Summary and retrieval zones were skipped");
     expect(result.trace.pinnedFacts).toHaveLength(0);

@@ -155,6 +155,7 @@ describe("renderContextPacket", () => {
     expect(rendered).toContain("Context handoff packet");
     expect(rendered).toContain("compacted_summary");
     expect(rendered).toContain("recent_turns");
+    expect(rendered).toContain("[user at 2026-03-05 00:00:00]");
     expect(rendered).toContain("where are we now");
   });
 

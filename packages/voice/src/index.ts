@@ -15,6 +15,12 @@ export * from "./scenario-runner.js";
 export * from "./system-routing.js";
 export * from "./topic-context.js";
 
+export type VoiceTurnMessageTimestampSource =
+  | "discord-sent"
+  | "voice-captured"
+  | "voice-finalized"
+  | "db-write";
+
 export interface VoiceTurnInput {
   sessionId: string;
   agentId: string;
@@ -24,6 +30,8 @@ export interface VoiceTurnInput {
   voiceChannelId?: string;
   channelId?: string;
   discordUserId?: string;
+  messageTimestamp?: string;
+  messageTimestampSource?: VoiceTurnMessageTimestampSource;
 }
 
 export interface VoiceTurnResult {
@@ -154,6 +162,8 @@ interface TurnRequestBody {
   voiceChannelId?: unknown;
   channelId?: unknown;
   discordUserId?: unknown;
+  messageTimestamp?: unknown;
+  messageTimestampSource?: unknown;
 }
 
 interface CompletionRequestBody {
@@ -178,6 +188,20 @@ function trimString(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function parseMessageTimestampSource(value: unknown): VoiceTurnMessageTimestampSource | undefined {
+  const source = trimString(value);
+  if (!source) return undefined;
+  if (
+    source === "discord-sent" ||
+    source === "voice-captured" ||
+    source === "voice-finalized" ||
+    source === "db-write"
+  ) {
+    return source;
+  }
+  throw new VoiceInputValidationError("Invalid field 'messageTimestampSource'.");
+}
+
 export function parseVoiceTurnInput(
   payload: unknown,
   defaults: { sessionId?: string; agentId?: string }
@@ -195,6 +219,8 @@ export function parseVoiceTurnInput(
   const voiceChannelId = trimString(body.voiceChannelId);
   const channelId = trimString(body.channelId);
   const discordUserId = trimString(body.discordUserId);
+  const messageTimestamp = trimString(body.messageTimestamp);
+  const messageTimestampSource = parseMessageTimestampSource(body.messageTimestampSource);
 
   if (!sessionId) {
     throw new VoiceInputValidationError("Missing required field 'sessionId'.");
@@ -214,7 +240,9 @@ export function parseVoiceTurnInput(
     guildId,
     voiceChannelId,
     channelId,
-    discordUserId
+    discordUserId,
+    messageTimestamp,
+    messageTimestampSource
   };
 }
 

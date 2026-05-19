@@ -1053,9 +1053,9 @@ function memorySourceBonus(source: StoredMemoryRecord["source"]): number {
   }
 }
 
-function formatMessageLine(message: Pick<StoredMessageRecord, "direction" | "content">): string {
+function formatMessageLine(message: Pick<StoredMessageRecord, "direction" | "content" | "createdAt">): string {
   const speaker = message.direction === "inbound" ? "user" : "assistant";
-  return `- [${speaker}] ${truncateText(message.content, 360)}`;
+  return `- [${speaker} at ${message.createdAt}] ${truncateText(message.content, 360)}`;
 }
 
 function normalizeWhitespace(text: string): string {

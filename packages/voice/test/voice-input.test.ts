@@ -16,7 +16,9 @@ describe("parseVoiceTurnInput", () => {
         guildId: "guild-1",
         voiceChannelId: "voice-channel-1",
         channelId: "call-main",
-        discordUserId: "caller-1"
+        discordUserId: "caller-1",
+        messageTimestamp: "2026-05-19T19:25:11.000Z",
+        messageTimestampSource: "voice-finalized"
       },
       {}
     );
@@ -29,7 +31,9 @@ describe("parseVoiceTurnInput", () => {
       guildId: "guild-1",
       voiceChannelId: "voice-channel-1",
       channelId: "call-main",
-      discordUserId: "caller-1"
+      discordUserId: "caller-1",
+      messageTimestamp: "2026-05-19T19:25:11.000Z",
+      messageTimestampSource: "voice-finalized"
     });
   });
 
@@ -68,6 +72,17 @@ describe("parseVoiceTurnInput", () => {
         {}
       )
     ).toThrow(/transcript/u);
+    expect(() =>
+      parseVoiceTurnInput(
+        {
+          sessionId: "voice-main",
+          agentId: "watson",
+          transcript: "hello",
+          messageTimestampSource: "wall-clock"
+        },
+        {}
+      )
+    ).toThrow(/messageTimestampSource/u);
   });
 });
 
