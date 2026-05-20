@@ -390,6 +390,91 @@ describe("TangoStorage", () => {
     storage.close();
   });
 
+  it("upserts, lists, touches, and expires active context items by scope", () => {
+    const { storage } = createStorage();
+
+    const globalItem = storage.upsertActiveContextItem({
+      key: "standing-note",
+      kind: "note",
+      summary: "Applies anywhere for this user.",
+      scope: { userId: "user:owner" },
+    });
+    const scopedItem = storage.upsertActiveContextItem({
+      key: "current-plan",
+      kind: "plan",
+      title: "Current plan",
+      summary: "Finish the generic active-context slice.",
+      keyFacts: ["Render before retrieved memories."],
+      sourceRefs: ["linear:TANGO-123"],
+      scope: {
+        userId: "user:owner",
+        agentId: "watson",
+        channelId: "discord:default",
+        topicId: "topic:memory",
+        projectId: "project:tango",
+      },
+      metadata: { owner: "codex" },
+    });
+    storage.upsertActiveContextItem({
+      key: "other-channel",
+      kind: "task",
+      summary: "Should not match this channel.",
+      scope: { userId: "user:owner", channelId: "discord:other" },
+    });
+
+    const items = storage.listActiveContextItems({
+      scope: {
+        userId: "user:owner",
+        agentId: "watson",
+        channelId: "discord:default",
+        topicId: "topic:memory",
+        projectId: "project:tango",
+      },
+      limit: 10,
+    });
+    expect(items.map((item) => item.id).sort((a, b) => a - b)).toEqual([globalItem.id, scopedItem.id]);
+    expect(items.find((item) => item.id === scopedItem.id)).toMatchObject({
+      key: "current-plan",
+      kind: "plan",
+      title: "Current plan",
+      keyFacts: ["Render before retrieved memories."],
+      sourceRefs: ["linear:TANGO-123"],
+      metadata: { owner: "codex" },
+    });
+
+    const updated = storage.upsertActiveContextItem({
+      key: "current-plan",
+      kind: "decision",
+      summary: "Active context is first-class warm-start state.",
+      scope: {
+        userId: "user:owner",
+        agentId: "watson",
+        channelId: "discord:default",
+        topicId: "topic:memory",
+        projectId: "project:tango",
+      },
+    });
+    expect(updated.id).toBe(scopedItem.id);
+    expect(updated.kind).toBe("decision");
+
+    storage.touchActiveContextItems([scopedItem.id]);
+    expect(storage.listActiveContextItems({ scope: { userId: "user:owner" }, limit: 10 })
+      .find((item) => item.id === scopedItem.id)?.accessCount).toBe(1);
+
+    storage.upsertActiveContextItem({
+      key: "expired",
+      kind: "other",
+      summary: "Already expired.",
+      scope: { userId: "user:owner" },
+      expiresAt: "2026-03-10 08:00:00",
+    });
+    expect(storage.expireActiveContextItems("2026-03-10 09:00:00")).toBe(1);
+    expect(storage.listActiveContextItems({ scope: { userId: "user:owner" }, now: "2026-03-10 09:00:00" })
+      .some((item) => item.key === "expired")).toBe(false);
+
+    storage.close();
+  });
+
   it("tracks obsidian index entries and can replace file-scoped memories", () => {
     const { storage } = createStorage();
 
