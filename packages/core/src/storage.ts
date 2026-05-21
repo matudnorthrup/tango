@@ -531,6 +531,58 @@ export interface ProjectFocusRecord {
   updatedAt: string;
 }
 
+export type ActiveContextKind = "note" | "plan" | "task" | "artifact" | "decision" | "entity" | "other";
+
+export interface ActiveContextScope {
+  userId?: string | null;
+  agentId?: string | null;
+  channelId?: string | null;
+  topicId?: string | null;
+  projectId?: string | null;
+}
+
+export interface ActiveContextItemRecord {
+  id: number;
+  key: string;
+  userId: string | null;
+  agentId: string | null;
+  channelId: string | null;
+  topicId: string | null;
+  projectId: string | null;
+  kind: ActiveContextKind;
+  title: string | null;
+  summary: string;
+  keyFacts: string[];
+  sourceRefs: string[];
+  createdAt: string;
+  updatedAt: string;
+  lastAccessedAt: string;
+  accessCount: number;
+  expiresAt: string | null;
+  archivedAt: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ActiveContextItemUpsertInput {
+  key: string;
+  scope?: ActiveContextScope;
+  kind: ActiveContextKind;
+  title?: string | null;
+  summary: string;
+  keyFacts?: string[];
+  sourceRefs?: string[];
+  expiresAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ListActiveContextItemsOptions {
+  scope?: ActiveContextScope;
+  includeExpired?: boolean;
+  includeArchived?: boolean;
+  now?: string | Date;
+  limit?: number;
+}
+
 export interface StoredMemoryRecord {
   id: number;
   sessionId: string | null;
@@ -1481,6 +1533,41 @@ const MIGRATIONS: Migration[] = [
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:personal-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'gog_docs_update_tab');
     `,
+  },
+  {
+    version: 31,
+    sql: `
+      CREATE TABLE IF NOT EXISTS active_context_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope_key TEXT NOT NULL,
+        context_key TEXT NOT NULL,
+        user_id TEXT,
+        agent_id TEXT,
+        channel_id TEXT,
+        topic_id TEXT,
+        project_id TEXT,
+        kind TEXT NOT NULL CHECK(kind IN ('note', 'plan', 'task', 'artifact', 'decision', 'entity', 'other')),
+        title TEXT,
+        summary TEXT NOT NULL,
+        key_facts_json TEXT,
+        source_refs_json TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_accessed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        access_count INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT,
+        archived_at TEXT,
+        UNIQUE(scope_key, context_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_active_context_scope
+        ON active_context_items(user_id, agent_id, channel_id, topic_id, project_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_active_context_expires
+        ON active_context_items(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_active_context_archived
+        ON active_context_items(archived_at, updated_at);
+    `,
   }
 ];
 
@@ -1500,6 +1587,9 @@ export class TangoStorage {
     }
     if (this.getUserVersion() >= 24) {
       this.expireStaleActiveTasks();
+    }
+    if (this.getUserVersion() >= 31) {
+      this.expireActiveContextItems();
     }
   }
 
@@ -1758,6 +1848,206 @@ export class TangoStorage {
       .run(sessionId, agentId);
 
     return toSafeNumber(result.changes) > 0;
+  }
+
+  upsertActiveContextItem(input: ActiveContextItemUpsertInput): ActiveContextItemRecord {
+    const scope = input.scope ?? {};
+    const scopeKey = buildActiveContextScopeKey(scope);
+    const normalizedKey = input.key.trim();
+    if (normalizedKey.length === 0) {
+      throw new Error("Active context key is required");
+    }
+
+    const summary = input.summary.trim();
+    if (summary.length === 0) {
+      throw new Error("Active context summary is required");
+    }
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO active_context_items (
+            scope_key,
+            context_key,
+            user_id,
+            agent_id,
+            channel_id,
+            topic_id,
+            project_id,
+            kind,
+            title,
+            summary,
+            key_facts_json,
+            source_refs_json,
+            metadata_json,
+            expires_at,
+            archived_at,
+            updated_at,
+            last_accessed_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))
+          ON CONFLICT(scope_key, context_key) DO UPDATE SET
+            kind = excluded.kind,
+            title = excluded.title,
+            summary = excluded.summary,
+            key_facts_json = excluded.key_facts_json,
+            source_refs_json = excluded.source_refs_json,
+            metadata_json = excluded.metadata_json,
+            expires_at = excluded.expires_at,
+            archived_at = NULL,
+            updated_at = datetime('now')
+        `
+      )
+      .run(
+        scopeKey,
+        normalizedKey,
+        scope.userId ?? null,
+        scope.agentId ?? null,
+        scope.channelId ?? null,
+        scope.topicId ?? null,
+        scope.projectId ?? null,
+        input.kind,
+        input.title?.trim() || null,
+        summary,
+        JSON.stringify(normalizeStringList(input.keyFacts)),
+        JSON.stringify(normalizeStringList(input.sourceRefs)),
+        toJsonOrNull(input.metadata),
+        input.expiresAt ?? null
+      );
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            context_key AS key,
+            user_id AS userId,
+            agent_id AS agentId,
+            channel_id AS channelId,
+            topic_id AS topicId,
+            project_id AS projectId,
+            kind,
+            title,
+            summary,
+            key_facts_json AS keyFactsJson,
+            source_refs_json AS sourceRefsJson,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            last_accessed_at AS lastAccessedAt,
+            access_count AS accessCount,
+            expires_at AS expiresAt,
+            archived_at AS archivedAt,
+            metadata_json AS metadataJson
+          FROM active_context_items
+          WHERE scope_key = ? AND context_key = ?
+        `
+      )
+      .get(scopeKey, normalizedKey) as ActiveContextItemRow | undefined;
+
+    if (!row) {
+      throw new Error("Failed to read upserted active context item");
+    }
+    return toActiveContextItemRecord(row);
+  }
+
+  listActiveContextItems(options: ListActiveContextItemsOptions = {}): ActiveContextItemRecord[] {
+    const conditions: string[] = [];
+    const values: Array<string | number | null> = [];
+    const scope = options.scope ?? {};
+
+    addNullableScopeCondition(conditions, values, "user_id", scope.userId);
+    addNullableScopeCondition(conditions, values, "agent_id", scope.agentId);
+    addNullableScopeCondition(conditions, values, "channel_id", scope.channelId);
+    addNullableScopeCondition(conditions, values, "topic_id", scope.topicId);
+    addNullableScopeCondition(conditions, values, "project_id", scope.projectId);
+
+    if (options.includeArchived !== true) {
+      conditions.push("archived_at IS NULL");
+    }
+
+    if (options.includeExpired !== true) {
+      const now = normalizeSqliteTimestamp(options.now ?? new Date());
+      conditions.push("(expires_at IS NULL OR expires_at > ?)");
+      values.push(now);
+    }
+
+    const limit = Number.isFinite(options.limit) ? Math.max(options.limit ?? 50, 1) : 50;
+    values.push(limit);
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            context_key AS key,
+            user_id AS userId,
+            agent_id AS agentId,
+            channel_id AS channelId,
+            topic_id AS topicId,
+            project_id AS projectId,
+            kind,
+            title,
+            summary,
+            key_facts_json AS keyFactsJson,
+            source_refs_json AS sourceRefsJson,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            last_accessed_at AS lastAccessedAt,
+            access_count AS accessCount,
+            expires_at AS expiresAt,
+            archived_at AS archivedAt,
+            metadata_json AS metadataJson
+          FROM active_context_items
+          ${whereClause}
+          ORDER BY updated_at DESC, id DESC
+          LIMIT ?
+        `
+      )
+      .all(...values) as ActiveContextItemRow[];
+
+    return rows.map((row) => toActiveContextItemRecord(row));
+  }
+
+  touchActiveContextItems(itemIds: number[]): void {
+    const ids = [...new Set(itemIds.filter((value) => Number.isInteger(value) && value > 0))];
+    if (ids.length === 0) return;
+
+    const statement = this.db.prepare(
+      `
+        UPDATE active_context_items
+        SET
+          last_accessed_at = datetime('now'),
+          access_count = access_count + 1
+        WHERE id = ?
+      `
+    );
+
+    this.db.exec("BEGIN IMMEDIATE;");
+    try {
+      for (const itemId of ids) {
+        statement.run(itemId);
+      }
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+
+  expireActiveContextItems(now: string | Date = new Date()): number {
+    const result = this.db
+      .prepare(
+        `
+          UPDATE active_context_items
+          SET archived_at = COALESCE(archived_at, datetime('now'))
+          WHERE archived_at IS NULL
+            AND expires_at IS NOT NULL
+            AND expires_at <= ?
+        `
+      )
+      .run(normalizeSqliteTimestamp(now));
+
+    return toSafeNumber(result.changes);
   }
 
   insertMemory(input: MemoryInsertInput): number {
@@ -5386,6 +5676,49 @@ type VoiceTurnReceiptRow = Omit<VoiceTurnReceiptRecord, "metadata" | "providerUs
   warmStartUsed: number | null;
 };
 
+type ActiveContextItemRow = Omit<ActiveContextItemRecord, "keyFacts" | "sourceRefs" | "metadata"> & {
+  keyFactsJson: string | null;
+  sourceRefsJson: string | null;
+  metadataJson: string | null;
+};
+
+function buildActiveContextScopeKey(scope: ActiveContextScope): string {
+  return JSON.stringify({
+    userId: scope.userId ?? null,
+    agentId: scope.agentId ?? null,
+    channelId: scope.channelId ?? null,
+    topicId: scope.topicId ?? null,
+    projectId: scope.projectId ?? null,
+  });
+}
+
+function addNullableScopeCondition(
+  conditions: string[],
+  values: Array<string | number | null>,
+  column: string,
+  value: string | null | undefined
+): void {
+  if (value === undefined) return;
+  if (value === null) {
+    conditions.push(`${column} IS NULL`);
+    return;
+  }
+  conditions.push(`(${column} IS NULL OR ${column} = ?)`);
+  values.push(value);
+}
+
+function normalizeStringList(values: string[] | undefined): string[] {
+  if (!values) return [];
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+}
+
+function normalizeSqliteTimestamp(value: string | Date): string {
+  if (value instanceof Date) {
+    return toSqliteDateTime(value);
+  }
+  return value;
+}
+
 function safeJsonParse(input: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(input);
@@ -5413,6 +5746,30 @@ function parseJsonArray(input: string | null): string[] {
     return [];
   }
   return parsed.filter((value): value is string => typeof value === "string");
+}
+
+function toActiveContextItemRecord(row: ActiveContextItemRow): ActiveContextItemRecord {
+  return {
+    id: row.id,
+    key: row.key,
+    userId: row.userId,
+    agentId: row.agentId,
+    channelId: row.channelId,
+    topicId: row.topicId,
+    projectId: row.projectId,
+    kind: row.kind,
+    title: row.title,
+    summary: row.summary,
+    keyFacts: parseJsonArray(row.keyFactsJson),
+    sourceRefs: parseJsonArray(row.sourceRefsJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    lastAccessedAt: row.lastAccessedAt,
+    accessCount: row.accessCount,
+    expiresAt: row.expiresAt,
+    archivedAt: row.archivedAt,
+    metadata: row.metadataJson ? safeJsonParse(row.metadataJson) : null,
+  };
 }
 
 function mapActiveTaskRow(

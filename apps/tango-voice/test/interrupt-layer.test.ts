@@ -22,6 +22,14 @@ describe('InterruptLayer', () => {
       type: 'interrupt:cancel',
       transcript: 'cancel',
     });
+    expect(layer.classifyTranscript('Hey Tango, cancelled')).toEqual({
+      type: 'interrupt:cancel',
+      transcript: 'Hey Tango, cancelled',
+    });
+    expect(layer.classifyTranscript('canceled')).toEqual({
+      type: 'interrupt:cancel',
+      transcript: 'canceled',
+    });
   });
 
   it('maps inbox commands to system interrupts', () => {

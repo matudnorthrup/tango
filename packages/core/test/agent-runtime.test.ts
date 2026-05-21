@@ -108,7 +108,7 @@ describe("ClaudeCodeAdapter", () => {
     expect(adapter.active).toBe(true);
   });
 
-  it("spawns claude with temp system prompt and MCP config files", async () => {
+  it("spawns claude with system prompt and temp MCP config file", async () => {
     const child = new MockChildProcess();
     spawnMock.mockImplementation(() => {
       queueMicrotask(() => {
@@ -152,11 +152,10 @@ describe("ClaudeCodeAdapter", () => {
       "1024",
     ]));
 
-    const systemPromptPath = getFlagValue(args, "--append-system-prompt");
+    const systemPrompt = getFlagValue(args, "--append-system-prompt");
     const mcpConfigPath = getFlagValue(args, "--mcp-config");
-    expect(systemPromptPath).toBeDefined();
+    expect(systemPrompt).toBe("You are the runtime.");
     expect(mcpConfigPath).toBeDefined();
-    expect(fs.readFileSync(systemPromptPath!, "utf8")).toBe("You are the runtime.");
     expect(JSON.parse(fs.readFileSync(mcpConfigPath!, "utf8"))).toEqual({
       mcpServers: {
         memory: {
@@ -170,7 +169,6 @@ describe("ClaudeCodeAdapter", () => {
     });
 
     await adapter.teardown();
-    expect(fs.existsSync(systemPromptPath!)).toBe(false);
     expect(fs.existsSync(mcpConfigPath!)).toBe(false);
   });
 

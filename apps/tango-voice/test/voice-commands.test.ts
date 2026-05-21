@@ -396,6 +396,11 @@ describe('parseVoiceCommand — inbox next', () => {
     const result = parseVoiceCommand('Hey Watson, cancel', BOT);
     expect(result).toEqual({ type: 'pause' });
   });
+
+  it('parses cancel past-tense variants as pause/interrupt commands', () => {
+    expect(parseVoiceCommand('Hey Watson, cancelled', BOT)).toEqual({ type: 'pause' });
+    expect(parseVoiceCommand('Hey Watson, canceled', BOT)).toEqual({ type: 'pause' });
+  });
 });
 
 describe('parseVoiceCommand — inbox clear', () => {
@@ -633,6 +638,11 @@ describe('matchQueueChoice', () => {
     expect(matchQueueChoice('cancel')).toBe('cancel');
   });
 
+  it('returns "cancel" for cancel past-tense variants', () => {
+    expect(matchQueueChoice('cancelled')).toBe('cancel');
+    expect(matchQueueChoice('canceled')).toBe('cancel');
+  });
+
   it('returns "cancel" for "nevermind"', () => {
     expect(matchQueueChoice('nevermind')).toBe('cancel');
   });
@@ -764,6 +774,11 @@ describe('matchSwitchChoice', () => {
 
   it('returns "cancel" for "cancel"', () => {
     expect(matchSwitchChoice('cancel')).toBe('cancel');
+  });
+
+  it('returns "cancel" for cancel past-tense variants', () => {
+    expect(matchSwitchChoice('cancelled')).toBe('cancel');
+    expect(matchSwitchChoice('canceled')).toBe('cancel');
   });
 
   it('returns "cancel" for "nevermind"', () => {
@@ -1202,6 +1217,11 @@ describe('matchYesNo', () => {
   // Cancel variants
   it('returns "cancel" for "cancel"', () => {
     expect(matchYesNo('cancel')).toBe('cancel');
+  });
+
+  it('returns "cancel" for cancel past-tense variants', () => {
+    expect(matchYesNo('cancelled')).toBe('cancel');
+    expect(matchYesNo('canceled')).toBe('cancel');
   });
 
   it('returns "cancel" for "nevermind"', () => {

@@ -78,6 +78,17 @@ export interface ChannelOption {
   displayName: string;
 }
 
+const CANCEL_WORD_PATTERN = 'cancel(?:led|ed)?';
+const BASIC_CANCEL_CHOICE_PATTERN = `${CANCEL_WORD_PATTERN}|nevermind|never\\s*mind|forget\\s*it`;
+const BASIC_CANCEL_CHOICE_RE = new RegExp(`^(?:${BASIC_CANCEL_CHOICE_PATTERN}|nothing)$`);
+const BASIC_CANCEL_INTENT_RE = new RegExp(`\\b(?:${BASIC_CANCEL_CHOICE_PATTERN})\\b`);
+const QUEUE_CANCEL_CHOICE_RE = new RegExp(
+  `^(?:${BASIC_CANCEL_CHOICE_PATTERN}|discard|nothing|ignore|ignore\\s+that)$`,
+);
+const QUEUE_CANCEL_INTENT_RE = new RegExp(
+  `\\b(?:${BASIC_CANCEL_CHOICE_PATTERN}|discard|nothing|ignore)\\b`,
+);
+
 type WakeNamesInput = string | string[];
 
 export function parseVoiceCommand(transcript: string, botName: WakeNamesInput): VoiceCommand | null {
@@ -328,8 +339,8 @@ export function parseVoiceCommand(transcript: string, botName: WakeNamesInput): 
     return { type: 'silent-wait' };
   }
 
-  // "pause", "stop", "cancel", "be quiet", "skip", "skip this", etc.
-  if (/^(?:pause|stop(?:\s+talking)?|cancel(?:\s+(?:it|that|this))?|never\s*mind|nevermind|forget\s*it|be\s+quiet|shut\s+up|shush|hush|quiet|silence|enough|skip(?:\s+(?:it|this(?:\s+(?:one|message|part))?|that))?)$/.test(rest)) {
+  // "pause", "stop", "cancel", "cancelled", "be quiet", "skip", "skip this", etc.
+  if (/^(?:pause|stop(?:\s+talking)?|cancel(?:led|ed)?(?:\s+(?:it|that|this))?|never\s*mind|nevermind|forget\s*it|be\s+quiet|shut\s+up|shush|hush|quiet|silence|enough|skip(?:\s+(?:it|this(?:\s+(?:one|message|part))?|that))?)$/.test(rest)) {
     return { type: 'pause' };
   }
 
@@ -372,8 +383,8 @@ export function matchSwitchChoice(transcript: string): 'read' | 'prompt' | 'canc
   const input = transcript.trim().toLowerCase().replace(/[.!?,]+$/, '');
 
   // Match "cancel" first — discard
-  if (/^(?:cancel|nevermind|never\s*mind|forget\s*it|nothing)$/.test(input)) return 'cancel';
-  if (/\b(?:cancel|nevermind|never\s*mind|forget\s*it)\b/.test(input)) return 'cancel';
+  if (BASIC_CANCEL_CHOICE_RE.test(input)) return 'cancel';
+  if (BASIC_CANCEL_INTENT_RE.test(input)) return 'cancel';
 
   // Match "prompt" and variants
   if (/^(?:prompt|skip|no|nope|pass|just prompt|new prompt|skip it|new message)$/.test(input)) return 'prompt';
@@ -392,8 +403,8 @@ export function matchSwitchChoice(transcript: string): 'read' | 'prompt' | 'canc
 export function matchYesNo(transcript: string): 'yes' | 'no' | 'cancel' | null {
   const input = transcript.trim().toLowerCase().replace(/[.!?,]+$/, '');
 
-  if (/^(?:cancel|nevermind|never\s*mind|forget\s*it|nothing)$/.test(input)) return 'cancel';
-  if (/\b(?:cancel|nevermind|never\s*mind|forget\s*it)\b/.test(input)) return 'cancel';
+  if (BASIC_CANCEL_CHOICE_RE.test(input)) return 'cancel';
+  if (BASIC_CANCEL_INTENT_RE.test(input)) return 'cancel';
 
   if (/^(?:yes|yeah|yep|sure|go ahead|do it|correct|affirmative|that's right|right)$/.test(input)) return 'yes';
   if (/\b(?:yes|yeah|yep|sure)\b/.test(input)) return 'yes';
@@ -427,8 +438,8 @@ export function matchQueueChoice(transcript: string): 'queue' | 'wait' | 'silent
   if (/\b(?:no|nope)\b/.test(input)) return 'wait';
 
   // Match "cancel" — discard the utterance entirely
-  if (/^(?:cancel|nevermind|never\s*mind|forget\s*it|discard|nothing|ignore|ignore\s+that)$/.test(input)) return 'cancel';
-  if (/\b(?:cancel|nevermind|never\s*mind|forget\s*it|discard|nothing|ignore)\b/.test(input)) return 'cancel';
+  if (QUEUE_CANCEL_CHOICE_RE.test(input)) return 'cancel';
+  if (QUEUE_CANCEL_INTENT_RE.test(input)) return 'cancel';
 
   return null;
 }
