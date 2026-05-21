@@ -161,7 +161,7 @@ describe("buildV2RuntimeConfigs", () => {
       runtimePreferences: {
         model: "claude-sonnet-4-6",
         reasoningEffort: "max",
-        timeout: 120_000,
+        timeout: 900_000,
       },
     });
   });

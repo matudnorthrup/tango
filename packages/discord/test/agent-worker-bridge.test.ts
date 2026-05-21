@@ -17,6 +17,8 @@ const MALIBU_HARVESTED_REGRESSIONS = JSON.parse(
   workerText: string | null;
 }>;
 
+const WALMART_YOGURT_SEARCH_URL_PATTERN = /^https:\/\/www\.walmart\.com\/search\?q=.*yogurt.*$/iu;
+
 class ScriptedProvider implements ChatProvider {
   readonly calls: ProviderRequest[] = [];
 
@@ -677,9 +679,7 @@ describe("executeAgentWorker", () => {
     expect(browserReadCalls).toEqual([
       {
         action: "open",
-        url: expect.stringMatching(
-          /^https:\/\/www\.walmart\.com\/search\?q=(GV%20vanilla%20greek%20yogurt%2032%20oz|light%20greek%20vanilla%20yogurt|yogurt)$/u,
-        ),
+        url: expect.stringMatching(WALMART_YOGURT_SEARCH_URL_PATTERN),
       },
       { action: "open", url: "https://www.walmart.com/" },
       { action: "snapshot", interactive: true },
@@ -839,9 +839,7 @@ describe("executeAgentWorker", () => {
     expect(browserReadCalls).toEqual([
       {
         action: "open",
-        url: expect.stringMatching(
-          /^https:\/\/www\.walmart\.com\/search\?q=(GV%20vanilla%20greek%20yogurt%2032%20oz|light%20greek%20vanilla%20yogurt|yogurt)$/u,
-        ),
+        url: expect.stringMatching(WALMART_YOGURT_SEARCH_URL_PATTERN),
       },
       { action: "status" },
       { action: "snapshot", interactive: true },

@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe("slack tool", () => {
-  it("filters saved items by date_create before expanding messages", async () => {
+  it("returns saved items regardless of date_create", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-29T12:00:00Z"));
 
@@ -58,7 +58,7 @@ describe("slack tool", () => {
     });
 
     expect(result).toMatchObject({
-      count: 1,
+      count: 2,
       items: [
         {
           channel_id: "C123",
@@ -66,9 +66,15 @@ describe("slack tool", () => {
           user: "U123",
           ts: "1714391940.000200",
         },
+        {
+          channel_id: "C999",
+          text: "old item",
+          user: "U999",
+          ts: "1714132800.000200",
+        },
       ],
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("removes stars with the Slack user token", async () => {
