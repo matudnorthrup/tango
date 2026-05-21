@@ -3333,7 +3333,7 @@ export class VoicePipeline {
       .replace(/[.!?,]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    return /\b(?:cancel|nevermind|never mind|forget it|stop)\b/.test(normalized);
+    return /\b(?:cancel(?:led|ed)?|nevermind|never mind|forget it|stop)\b/.test(normalized);
   }
 
   private async handleDirectSwitch(channelName: string): Promise<void> {
