@@ -269,6 +269,18 @@ function isResumableRuntime(runtime: AgentRuntime): runtime is ResumableRuntime 
     || typeof (runtime as ResumableRuntime).getSessionId === "function";
 }
 
+function omitContextForResumedRuntime(
+  options: SendOptions | undefined,
+  hasProviderSession: boolean,
+): SendOptions | undefined {
+  if (!hasProviderSession || !options?.context?.trim()) {
+    return options;
+  }
+
+  const { context: _context, ...rest } = options;
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
 export class SessionLifecycleManager {
   private readonly sessions = new Map<string, InternalConversationSession>();
   private readonly resolvedConfig: SessionLifecycleConfig;
@@ -338,7 +350,11 @@ export class SessionLifecycleManager {
 
     let response: RuntimeResponse;
     try {
-      response = await runtime.send(message, options);
+      const effectiveOptions = omitContextForResumedRuntime(
+        options,
+        Boolean(this.getRuntimeSessionId(runtime)?.trim()),
+      );
+      response = await runtime.send(message, effectiveOptions);
     } catch (error) {
       session.state = "error";
       throw error;

@@ -224,6 +224,39 @@ describe("SessionLifecycleManager", () => {
     expect(manager.getSession("conversation-1")?.messageCount).toBe(2);
   });
 
+  it("omits per-turn context once a runtime has a provider session", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(createResponse("First reply", { sessionId: "session-1" }));
+    runtime.queueResponse(createResponse("Second reply", { sessionId: "session-1" }));
+
+    const manager = new SessionLifecycleManager(pool as unknown as RuntimePool);
+
+    await manager.sendMessage(
+      "conversation-1",
+      createConfig(),
+      "hello",
+      { context: "Warm-start context A", timeout: 1_000 },
+    );
+    await manager.sendMessage(
+      "conversation-1",
+      createConfig(),
+      "again",
+      { context: "Warm-start context B", timeout: 2_000 },
+    );
+
+    expect(runtime.send).toHaveBeenNthCalledWith(
+      1,
+      "hello",
+      { context: "Warm-start context A", timeout: 1_000 },
+    );
+    expect(runtime.send).toHaveBeenNthCalledWith(
+      2,
+      "again",
+      { timeout: 2_000 },
+    );
+  });
+
   it("updates lastMessageAt on each send", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-21T10:00:00.000Z"));
@@ -306,9 +339,15 @@ describe("SessionLifecycleManager", () => {
     const runtime2 = pool.enqueueRuntime(new MockRuntime("runtime-2"));
     runtime2.queueResponse(createResponse("Resumed reply", { sessionId: "session-1" }));
 
-    await manager.sendMessage("conversation-1", createConfig(), "welcome back");
+    await manager.sendMessage(
+      "conversation-1",
+      createConfig(),
+      "welcome back",
+      { context: "Should not compound into resumed session", timeout: 5_000 },
+    );
 
     expect(runtime2.resumeSession).toHaveBeenCalledWith("session-1");
+    expect(runtime2.send).toHaveBeenCalledWith("welcome back", { timeout: 5_000 });
     expect(builder).toHaveBeenCalledTimes(1);
     expect(manager.getSession("conversation-1")).toMatchObject({
       state: "idle",
@@ -360,6 +399,42 @@ describe("SessionLifecycleManager", () => {
     });
     expect(session?.sessionId).toBeUndefined();
     expect(session?.createdAt.getTime()).toBeGreaterThan(beforeReset!.getTime());
+  });
+
+  it("passes context again after a hard reset creates a fresh runtime", async () => {
+    const pool = new MockRuntimePool();
+    const runtime1 = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime1.queueResponse(createResponse("First reply", { sessionId: "session-1" }));
+
+    const builder = vi.fn(async () => ({
+      pinnedFacts: "Pinned fact A",
+      recentMessages: "Recent summary A",
+      relevantMemories: "Memory hit A",
+    }));
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      undefined,
+      builder,
+    );
+
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+
+    const runtime2 = pool.enqueueRuntime(new MockRuntime("runtime-2"));
+    runtime2.queueResponse(createResponse("Fresh reply", { sessionId: "session-2" }));
+    await manager.resetSession("conversation-1", createConfig());
+    await manager.sendMessage(
+      "conversation-1",
+      createConfig(),
+      "after reset",
+      { context: "Fresh warm-start context" },
+    );
+
+    expect(runtime2.resumeSession).not.toHaveBeenCalled();
+    expect(runtime2.send).toHaveBeenCalledWith(
+      "after reset",
+      { context: "Fresh warm-start context" },
+    );
   });
 
   it("getAllSessions returns tracked sessions", async () => {
