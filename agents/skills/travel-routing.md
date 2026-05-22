@@ -10,6 +10,14 @@ Workflow guidance for travel, navigation, and road trip tasks.
 - `open_meteo_weather` skill — Weather at any coordinates. Wind comes back in km/h, convert to mph.
 - `exa_search` / `exa_answer` — Rest areas, businesses, scenic stops, road conditions.
 
+## Diesel evidence rules
+
+- A station's price is verified only when `find_diesel` returns that exact station with that price.
+- Diesel availability from web search is not the same as a live diesel price.
+- Do not call a station cheapest, closest, live-priced, or confirmed unless the tool output supports that exact claim.
+- If a preferred brand is not returned by `find_diesel`, say its price is not verified and cite the nearest verified diesel price separately.
+- For partial evidence, say: "Verified: ... Not verified: ... Recommendation: ..."
+
 ## Vehicle
 
 This workflow assumes the user's primary road-trip vehicle is a diesel truck. Even if they say "gas" casually, interpret it as diesel unless they specify otherwise. Tank ~26 gallons. Big tires (35"+) reduce fuel economy ~10-15% from factory specs. Mountain/headwind driving: use low end of MPG range. Always maintain 50+ mile cushion beyond the next fuel stop. When the user reports "miles to empty" from the dash, use THAT for range calculations.
