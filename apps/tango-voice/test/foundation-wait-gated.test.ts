@@ -12,6 +12,7 @@ let transcribeImpl: (buf: Buffer, options?: any) => Promise<string>;
 
 vi.mock('../src/services/whisper.js', () => ({
   transcribe: vi.fn(async (buf: Buffer, options?: any) => transcribeImpl(buf, options)),
+  transcribeCommandTail: vi.fn(async () => null),
 }));
 
 let getResponseImpl: (user: string, msg: string) => Promise<{ response: string }>;
@@ -107,6 +108,9 @@ let voiceSettings = {
   sttStreamingMinChunkMs: 450,
   sttStreamingOverlapMs: 180,
   sttStreamingMaxChunks: 8,
+  sttCommandTailProbeEnabled: true,
+  sttCommandTailMs: 2200,
+  sttCommandTailMinDurationMs: 1200,
 };
 
 vi.mock('../src/services/voice-settings.js', () => ({
@@ -127,6 +131,9 @@ vi.mock('../src/services/tango-voice.js', () => ({
 }));
 
 import { VoicePipeline } from '../src/pipeline/voice-pipeline.js';
+import { transcribeCommandTail } from '../src/services/whisper.js';
+
+const transcribeCommandTailMock = vi.mocked(transcribeCommandTail);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -174,10 +181,14 @@ describe('Layer 1: Foundation — Single Channel, Wait Mode, Gated', () => {
       sttStreamingMinChunkMs: 450,
       sttStreamingOverlapMs: 180,
       sttStreamingMaxChunks: 8,
+      sttCommandTailProbeEnabled: true,
+      sttCommandTailMs: 2200,
+      sttCommandTailMinDurationMs: 1200,
     };
 
     // Default: STT returns empty, LLM returns simple response, TTS returns buffer
     transcribeImpl = async () => '';
+    transcribeCommandTailMock.mockResolvedValue(null);
     getResponseImpl = async () => ({ response: 'Test response.' });
     ttsStreamImpl = async () => Buffer.from('tts-audio');
   });
@@ -786,6 +797,51 @@ describe('Layer 1: Foundation — Single Channel, Wait Mode, Gated', () => {
 
     expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
     expect(prompts).toEqual(['capture this update']);
+
+    pipeline.stop();
+  });
+
+  it('1.3l2 — command tail probe cues a close phrase before full STT returns', async () => {
+    const pipeline = makePipeline();
+    voiceSettings.endpointingMode = 'indicate';
+    voiceSettings.sttCommandTailProbeEnabled = true;
+    voiceSettings.sttCommandTailMinDurationMs = 1000;
+
+    const prompts: string[] = [];
+    getResponseImpl = async (_user, msg) => {
+      prompts.push(msg);
+      return { response: 'Combined response.' };
+    };
+
+    await simulateUtterance(pipeline, 'user1', 'Tango, voice status');
+    await simulateUtterance(pipeline, 'user1', 'capture this update');
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
+
+    let resolveFullStt!: (value: string) => void;
+    const fullStt = new Promise<string>((resolve) => {
+      resolveFullStt = resolve;
+    });
+    transcribeImpl = async () => fullStt;
+    transcribeCommandTailMock.mockResolvedValueOnce({
+      text: 'thank you',
+      durationMs: 900,
+      elapsedMs: 35,
+      usedTail: false,
+    });
+
+    const receiver = (pipeline as any).receiver;
+    const pending = receiver.simulateUtterance('user1', Buffer.from('fake-audio'), 2500);
+    await new Promise((r) => setTimeout(r, 260));
+
+    expect(earconHistory).toContain('listening');
+    expect(prompts).toEqual([]);
+
+    resolveFullStt('thank you');
+    await pending;
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(prompts).toEqual(['capture this update']);
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
 
     pipeline.stop();
   });

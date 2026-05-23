@@ -20,6 +20,18 @@ export interface StreamingPartialEvent {
   elapsedMs: number;
 }
 
+export interface CommandTailTranscribeOptions {
+  tailMs?: number;
+  signal?: AbortSignal;
+}
+
+export interface CommandTailTranscribeResult {
+  text: string;
+  durationMs: number;
+  elapsedMs: number;
+  usedTail: boolean;
+}
+
 interface ParsedPcmWav {
   sampleRate: number;
   channels: number;
@@ -106,8 +118,16 @@ function getPartialsUrl(): string {
   return config.whisperPartialsUrl || config.whisperUrl;
 }
 
+function getCommandUrl(): string {
+  return config.sttCommandUrl || getPartialsUrl();
+}
+
 async function transcribeLocalPartials(wavBuffer: Buffer, signal?: AbortSignal): Promise<string> {
   return transcribeLocalAt(getPartialsUrl(), wavBuffer, signal);
+}
+
+async function transcribeLocalCommand(wavBuffer: Buffer, signal?: AbortSignal): Promise<string> {
+  return transcribeLocalAt(getCommandUrl(), wavBuffer, signal);
 }
 
 async function transcribeOpenAI(wavBuffer: Buffer): Promise<string> {
@@ -205,6 +225,50 @@ function makeChunkSpecs(
 function buildChunkWav(wav: ParsedPcmWav, spec: StreamingChunkSpec): Buffer {
   const chunkPcm = wav.pcmData.subarray(spec.startByte, spec.endByte);
   return pcmToWav(chunkPcm, wav.sampleRate, wav.channels, wav.bitsPerSample);
+}
+
+function getWavDurationMs(wav: ParsedPcmWav): number {
+  return Math.max(
+    1,
+    Math.round((wav.pcmData.length / wav.blockAlign) / wav.sampleRate * 1000),
+  );
+}
+
+function buildTailWav(
+  wavBuffer: Buffer,
+  tailMs: number,
+): { wavBuffer: Buffer; durationMs: number; usedTail: boolean } | null {
+  const parsed = parsePcmWav(wavBuffer);
+  if (!parsed) return null;
+
+  const durationMs = getWavDurationMs(parsed);
+  const boundedTailMs = Math.max(1, tailMs);
+  if (durationMs <= boundedTailMs) {
+    return { wavBuffer, durationMs, usedTail: false };
+  }
+
+  const bytesPerMs = (parsed.sampleRate * parsed.blockAlign) / 1000;
+  const tailBytes = alignToBlock(Math.round(boundedTailMs * bytesPerMs), parsed.blockAlign);
+  const startByte = Math.max(0, parsed.pcmData.length - tailBytes);
+  const chunkPcm = parsed.pcmData.subarray(startByte);
+  const tailDurationMs = Math.max(
+    1,
+    Math.round((chunkPcm.length / parsed.blockAlign) / parsed.sampleRate * 1000),
+  );
+
+  return {
+    wavBuffer: pcmToWav(chunkPcm, parsed.sampleRate, parsed.channels, parsed.bitsPerSample),
+    durationMs: tailDurationMs,
+    usedTail: true,
+  };
+}
+
+export function createCommandTailChunkPlan(
+  wavBuffer: Buffer,
+  tailMs: number,
+): { durationMs: number; usedTail: boolean } | null {
+  const tail = buildTailWav(wavBuffer, tailMs);
+  return tail ? { durationMs: tail.durationMs, usedTail: tail.usedTail } : null;
 }
 
 export function createStreamingChunkPlan(
@@ -309,4 +373,24 @@ export async function transcribe(
   }
 
   return text;
+}
+
+export async function transcribeCommandTail(
+  wavBuffer: Buffer,
+  options: CommandTailTranscribeOptions = {},
+): Promise<CommandTailTranscribeResult | null> {
+  const commandUrl = getCommandUrl();
+  if (!commandUrl) return null;
+
+  const tail = buildTailWav(wavBuffer, Math.max(750, options.tailMs ?? 2200));
+  if (!tail) return null;
+
+  const startedAt = Date.now();
+  const text = (await transcribeLocalCommand(tail.wavBuffer, options.signal)).trim();
+  return {
+    text,
+    durationMs: tail.durationMs,
+    elapsedMs: Date.now() - startedAt,
+    usedTail: tail.usedTail,
+  };
 }
