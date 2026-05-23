@@ -27,12 +27,25 @@ function resolveV2PromptFile(
   return path.resolve(root, systemPromptFile);
 }
 
-function resolveV2AgentConfigDir(configDir: string): string {
-  const resolvedConfigDir = resolveConfiguredPath(configDir);
-  const configRoot = path.basename(resolvedConfigDir) === "defaults"
-    ? path.dirname(resolvedConfigDir)
-    : resolvedConfigDir;
-  return path.join(configRoot, "v2", "agents");
+function findV2AgentConfigDir(configDir: string): string | undefined {
+  let current = resolveConfiguredPath(configDir);
+
+  while (true) {
+    for (const candidate of [
+      path.join(current, "v2", "agents"),
+      path.join(current, "config", "v2", "agents"),
+    ]) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
 }
 
 function resolveV2Prompt(
@@ -150,7 +163,10 @@ export function loadUnifiedAgentConfigs(
   const legacyIds = new Set(legacyConfigs.map((c) => c.id));
 
   // Generate AgentConfig for v2-only agents (no legacy file)
-  const v2Configs = loadAllV2AgentConfigs(resolveV2AgentConfigDir(configDir));
+  const v2ConfigDir = findV2AgentConfigDir(configDir);
+  const v2Configs = v2ConfigDir
+    ? loadAllV2AgentConfigs(v2ConfigDir)
+    : new Map<string, V2AgentConfig>();
   const v2Only: AgentConfig[] = [];
   for (const v2Config of v2Configs.values()) {
     if (!legacyIds.has(v2Config.id)) {
