@@ -468,7 +468,7 @@ describe('Layer 3: Queue Mode Flow', () => {
     earconHistory.length = 0;
     playerCalls.length = 0;
 
-    await simulateUtterance(pipeline, 'user1', 'Hello Tango cancel');
+    await simulateUtterance(pipeline, 'user1', 'Hello Tango cancelled');
 
     expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
     expect(playerCalls).toContain('stopPlayback');

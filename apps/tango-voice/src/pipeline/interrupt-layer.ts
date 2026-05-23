@@ -123,7 +123,7 @@ const FOCUS_SWITCH_PATTERN =
   /^(?:switch|go|move)\s+to\s+focus$|^(?:bring|move)(?:\s+(?:it|that|this))?(?:\s+back)?\s+to\s+focus$|^focus(?:\s+mode)?$|^wait\s+here$/i;
 
 const CANCEL_PATTERN =
-  /^(?:cancel(?:\s+(?:it|that|this))?|stop(?:\s+talking)?|never\s*mind|nevermind|forget\s*it|be\s+quiet|silence|quiet)$/i;
+  /^(?:cancel(?:led|ed)?(?:\s+(?:it|that|this))?|stop(?:\s+talking)?|never\s*mind|nevermind|forget\s*it|be\s+quiet|silence|quiet)$/i;
 
 function mapSystemCommand(command: VoiceCommand | null): InterruptSystemCommand | null {
   if (!command) return null;

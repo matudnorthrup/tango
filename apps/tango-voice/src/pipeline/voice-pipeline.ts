@@ -3333,7 +3333,7 @@ export class VoicePipeline {
       .replace(/[.!?,]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    return /\b(?:cancel|nevermind|never mind|forget it|stop)\b/.test(normalized);
+    return /\b(?:cancel(?:led|ed)?|nevermind|never mind|forget it|stop)\b/.test(normalized);
   }
 
   private async handleDirectSwitch(channelName: string): Promise<void> {
@@ -5653,7 +5653,14 @@ Use channel names (the part before the colon). Do not explain.`,
       return;
     }
 
-    // Agent-targeted: find matching agent item in the current inbox flow or fetch fresh
+    const currentLocalReadyItem = this.findLocalReadyItem();
+    if (currentLocalReadyItem) {
+      console.log(`Read-ready addressed to ${agent}, but local ready item is from ${currentLocalReadyItem.displayName}; playing local ready item`);
+      await this.readQueuedReadyItem(currentLocalReadyItem, { bypassBusyCheck: true });
+      return;
+    }
+
+    // Agent-targeted inbox navigation is only valid inside an active inbox flow.
     const needle = agent.toLowerCase();
     const flowState = this.stateMachine.getInboxFlowState();
 
@@ -5679,40 +5686,7 @@ Use channel names (the part before the colon). Do not explain.`,
       }
     }
 
-    // No active flow or no match — fetch fresh agent inbox and look for the agent
-    if (this.inboxClient && this.router) {
-      try {
-        const agentInbox = await this.inboxClient.getAgentInbox();
-        const match = agentInbox.agents.find(
-          (a) => a.agentDisplayName.toLowerCase().includes(needle)
-            || a.agentId.toLowerCase().includes(needle),
-        );
-        if (match) {
-          const agentItems: InboxAgentItem[] = agentInbox.agents.map((inboxAgent) => this.mapInboxAgentItem(inboxAgent));
-
-          const targetIndex = agentItems.findIndex(
-            (a) => a.agentDisplayName.toLowerCase().includes(needle)
-              || a.agentId.toLowerCase().includes(needle),
-          );
-
-          this.ctx.inboxConversationAgentId = null;
-          this.transitionAndResetWatchdog({
-            type: 'ENTER_INBOX_FLOW',
-            items: agentItems,
-            returnChannel: this.router.getActiveChannel().name,
-          });
-          if (targetIndex > 0) {
-            this.transitionAndResetWatchdog({ type: 'INBOX_JUMP', index: targetIndex });
-          }
-          await this.handleInboxNext();
-          return;
-        }
-      } catch (error) {
-        console.warn(`[voice-inbox] agent-targeted read failed: ${error instanceof Error ? error.message : error}`);
-      }
-    }
-
-    await this.speakResponse(`Nothing from ${agent} in the inbox.`);
+    await this.speakResponse(`Nothing ready from ${agent}.`);
     await this.playReadyEarcon();
   }
 
@@ -6327,16 +6301,29 @@ Use channel names (the part before the colon). Do not explain.`,
     this.ctx.inboxConversationAgentId = agentId;
     this.clearLocalReadyItemsForInboxChannel(channel);
 
-    // Try to switch to the channel by name
+    // Prefer the Discord channel/thread ID so ad-hoc threads route replies to
+    // the actual thread instead of a best-effort display name match.
+    let switched = false;
     if (this.router) {
-      const result = await this.router.switchTo(channel.channelName);
-      if (result.success) {
-        await this.onChannelSwitch();
+      const targets = [
+        channel.channelId,
+        channel.channelName,
+      ].filter((target, index, all): target is string => (
+        typeof target === 'string' && target.trim().length > 0 && all.indexOf(target) === index
+      ));
+
+      for (const target of targets) {
+        const result = await this.router.switchTo(target);
+        if (result.success) {
+          await this.onChannelSwitch();
+          switched = true;
+          break;
+        }
       }
     }
 
     const channelLabel = getInboxChannelVoiceLabel(channel, channel.messages[0]?.agentDisplayName);
-    parts.push(`Switched to ${channelLabel}.`);
+    parts.push(switched ? `Switched to ${channelLabel}.` : `I couldn't switch to ${channelLabel}.`);
 
     // Group chunked messages and build readable text
     const grouped = this.groupChunkedMessages(channel.messages);

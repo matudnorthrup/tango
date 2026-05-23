@@ -141,6 +141,8 @@ describe('VoicePipeline dispatch failure handling', () => {
   it('detects cancel intent with repeated/newline variants', () => {
     const pipeline = new VoicePipeline({} as any);
     expect((pipeline as any).isCancelIntent('cancel')).toBe(true);
+    expect((pipeline as any).isCancelIntent('cancelled')).toBe(true);
+    expect((pipeline as any).isCancelIntent('canceled')).toBe(true);
     expect((pipeline as any).isCancelIntent('Cancel.\nCancel.')).toBe(true);
     expect((pipeline as any).isCancelIntent('please stop this')).toBe(true);
     expect((pipeline as any).isCancelIntent('carry on')).toBe(false);
