@@ -174,6 +174,65 @@ describe("executeNutritionLogItems", () => {
     });
   });
 
+  it("uses raw grams for Atlas servings whose unit is just grams", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Custom Protein Powder",
+        food_id: "9001",
+        serving_id: "9101",
+        serving_description: "g",
+        serving_size: "g",
+        grams_per_serving: 1,
+        calories: 4,
+        protein: 0.8,
+        carbs: 0.1,
+        fat: 0.05,
+        aliases: JSON.stringify(["custom protein powder"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return {
+          success: true,
+          food_entry_id: `${params.food_id}-entry`,
+        };
+      }
+      if (method === "food_entries_get") {
+        return {
+          other: [{ food_entry_id: "9001-entry" }],
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "custom protein powder", quantity: "42g" }],
+        meal: "other",
+        date: "2026-04-09",
+      },
+      {
+        atlasDbPath,
+        fatsecretCall,
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "confirmed",
+      totals: {
+        calories: 168,
+      },
+    });
+    expect(fatsecretCall.mock.calls[0]?.[1]).toMatchObject({
+      food_id: "9001",
+      serving_id: "9101",
+      number_of_units: 42,
+      meal: "other",
+      date: "2026-04-09",
+    });
+  });
+
   it("uses the FatSecret batch path when available", async () => {
     const atlasDbPath = createAtlasDb([
       {

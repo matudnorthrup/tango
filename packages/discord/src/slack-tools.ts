@@ -84,8 +84,8 @@ export function createSlackTools(): AgentTool[] {
         "    Params: channel_id (required), thread_ts (required)",
         "    Returns: array of reply messages",
         "",
-        "  saved_items — List all Slack saved messages via stars.list API.",
-        "    Params: limit (default 100)",
+        "  saved_items — List Slack saved messages via stars.list API.",
+        "    Params: limit (default 100), since_hours (optional age window)",
         "    Returns: { count, items: [{ type, channel_id, text, user, ts, permalink, date_create }] }",
         "",
         "  remove_star — Remove a star from a message (unsave it).",
@@ -229,6 +229,12 @@ export function createSlackTools(): AgentTool[] {
 
           case "saved_items": {
             const limit = Number(input.limit) || 100;
+            const sinceHours = typeof input.since_hours === "number" && Number.isFinite(input.since_hours)
+              ? input.since_hours
+              : null;
+            const cutoffEpoch = sinceHours && sinceHours > 0
+              ? Math.floor(Date.now() / 1000) - (sinceHours * 3600)
+              : null;
             const userToken = await getSlackUserToken();
             const body = await slackApiWithToken(userToken, "stars.list", {
               count: String(limit),
@@ -239,6 +245,10 @@ export function createSlackTools(): AgentTool[] {
 
             for (const item of items) {
               if (String(item.type) !== "message") continue;
+              const dateCreate = Number(item.date_create);
+              if (cutoffEpoch !== null && Number.isFinite(dateCreate) && dateCreate < cutoffEpoch) {
+                continue;
+              }
 
               const channelId = String(item.channel || "");
               const message = item.message as Record<string, unknown> | undefined;

@@ -76,6 +76,8 @@ const LOCATION_FILE = resolveProfileLocationFile();
 const CORRIDOR_WIDTH = 5000; // meters from route centerline
 const MAX_CORRIDOR_POINTS = 50;
 const TOP_N = 5;
+const HERE_FUEL_TYPE_DIESEL = '1';
+const GASBUDDY_FUEL_TYPE_DIESEL = 4;
 const GASBUDDY_GRAPHQL_URL = 'https://www.gasbuddy.com/graphql';
 const GASBUDDY_STATION_URL = 'https://www.gasbuddy.com/station/90477';
 const WAYPOINT_INTERVAL_MILES = 50;
@@ -247,7 +249,7 @@ async function queryGasBuddyNear(lat, lng, auth) {
     headers: { ...GASBUDDY_HEADERS, 'gbcsrf': auth.csrf, 'Cookie': auth.cookies },
     body: JSON.stringify({
       operationName: 'LocationBySearchTerm',
-      variables: { fuel: 4, maxAge: 0, lat, lng },
+      variables: { fuel: GASBUDDY_FUEL_TYPE_DIESEL, maxAge: 0, lat, lng },
       query: GASBUDDY_QUERY,
     }),
   });
@@ -277,13 +279,19 @@ async function queryGasBuddyAlongRoute(routeCoords) {
   const allStations = [];
   for (const s of stationMap.values()) {
     const dieselPrice = s.prices?.find(p => p.fuelProduct === 'diesel');
-    const price = dieselPrice?.credit?.price || dieselPrice?.cash?.price;
+    const priceSource = dieselPrice?.credit?.price ? dieselPrice.credit : dieselPrice?.cash;
+    const price = priceSource?.price;
     if (!price || price <= 0 || !s.latitude || !s.longitude) continue;
     const addr = s.address || {};
     allStations.push({
       name: s.name || 'Unknown Station',
       address: [addr.line1, addr.locality, addr.region, addr.postalCode].filter(Boolean).join(', '),
-      lat: s.latitude, lon: s.longitude, dieselPrice: price,
+      lat: s.latitude,
+      lon: s.longitude,
+      dieselPrice: price,
+      priceUpdatedAt: priceSource?.postedTime || null,
+      fuelType: 'diesel',
+      fuelTypeName: 'Diesel',
     });
   }
   return allStations;
@@ -297,7 +305,7 @@ async function queryHereFuelAlongRoute(routeCoords, apiKey, width) {
   const allStations = [];
   for (let i = 0; i < waypoints.length; i++) {
     const [lat, lon] = waypoints[i];
-    const url = `https://fuel.hereapi.com/v3/stations?in=circle:${lat},${lon};r=${width}&apiKey=${apiKey}`;
+    const url = `https://fuel.hereapi.com/v3/stations?in=circle:${lat},${lon};r=${width}&fuelType=${HERE_FUEL_TYPE_DIESEL}&apiKey=${apiKey}`;
     try {
       const res = await fetch(url);
       if (!res.ok) { if (pretty) process.stderr.write(`  ⚠ Waypoint ${i + 1}: HTTP ${res.status}\n`); continue; }
@@ -318,7 +326,16 @@ async function queryHereFuelAlongRoute(routeCoords, apiKey, width) {
 
 function getDieselPrice(station) {
   for (const p of (station.prices || [])) {
-    if (p.fuelType === '4' || p.fuelType === 4) return p.price ?? null;
+    if (String(p.fuelType) === HERE_FUEL_TYPE_DIESEL) {
+      return {
+        price: p.price ?? null,
+        modified: p.modified || null,
+        fuelType: String(p.fuelType),
+        fuelTypeName: 'Diesel',
+        unit: p.unit || null,
+        currency: p.currency || null,
+      };
+    }
   }
   return null;
 }
@@ -335,7 +352,7 @@ async function main() {
   if (nearMode) {
     if (source !== 'here') { console.error('❌ --near requires HERE API'); process.exit(1); }
     const nearRadius = corridorWidth > 5000 ? corridorWidth : 16000;
-    const url = `https://fuel.hereapi.com/v3/stations?in=circle:${dest.lat},${dest.lon};r=${nearRadius}&apiKey=${apiKey}`;
+    const url = `https://fuel.hereapi.com/v3/stations?in=circle:${dest.lat},${dest.lon};r=${nearRadius}&fuelType=${HERE_FUEL_TYPE_DIESEL}&apiKey=${apiKey}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HERE API error: ${res.status}`);
     const data = await res.json();
@@ -343,10 +360,25 @@ async function main() {
       .map(s => {
         const lat = s.position?.lat; const lon = s.position?.lng;
         if (!lat || !lon) return null;
-        const price = getDieselPrice(s);
+        const diesel = getDieselPrice(s);
+        const price = diesel?.price;
         if (!price || price <= 0) return null;
         const distM = geolib.getDistance({ lat: dest.lat, longitude: dest.lon }, { lat, longitude: lon });
-        return { name: s.name || s.brand || 'Unknown', address: s.address?.label || '', dieselPrice: Math.round(price * 1000) / 1000, detourMiles: Math.round(distM / 1609.34 * 10) / 10, score: price, lat, lon, googleMapsLink: mapsLink(lat, lon) };
+        return {
+          name: s.name || s.brand || 'Unknown',
+          address: s.address?.label || '',
+          dieselPrice: Math.round(price * 1000) / 1000,
+          priceUpdatedAt: diesel.modified,
+          fuelType: diesel.fuelType,
+          fuelTypeName: diesel.fuelTypeName,
+          unit: diesel.unit,
+          currency: diesel.currency,
+          detourMiles: Math.round(distM / 1609.34 * 10) / 10,
+          score: price,
+          lat,
+          lon,
+          googleMapsLink: mapsLink(lat, lon),
+        };
       })
       .filter(Boolean).sort((a, b) => a.dieselPrice - b.dieselPrice).slice(0, topN);
 
@@ -377,7 +409,7 @@ async function main() {
     if (pretty) process.stderr.write(`🔍 Found ${stations.length} diesel stations\n`);
     scored = stations.map(s => {
       const detourM = distanceFromRoute(s.lat, s.lon, route.coords);
-      return { name: s.name, address: s.address, dieselPrice: Math.round(s.dieselPrice * 1000) / 1000, detourMiles: Math.round(detourM / 1609.34 * 10) / 10, detourMeters: Math.round(detourM), score: Math.round(scoreStation(s.dieselPrice, detourM) * 1000) / 1000, lat: s.lat, lon: s.lon, googleMapsLink: mapsLink(s.lat, s.lon) };
+      return { name: s.name, address: s.address, dieselPrice: Math.round(s.dieselPrice * 1000) / 1000, priceUpdatedAt: s.priceUpdatedAt, fuelType: s.fuelType, fuelTypeName: s.fuelTypeName, detourMiles: Math.round(detourM / 1609.34 * 10) / 10, detourMeters: Math.round(detourM), score: Math.round(scoreStation(s.dieselPrice, detourM) * 1000) / 1000, lat: s.lat, lon: s.lon, googleMapsLink: mapsLink(s.lat, s.lon) };
     }).sort((a, b) => a.score - b.score).slice(0, topN);
   } else {
     const stations = await queryHereFuelAlongRoute(route.coords, apiKey, corridorWidth);
@@ -385,10 +417,26 @@ async function main() {
     scored = stations.map(s => {
       const lat = s.position?.lat; const lon = s.position?.lng;
       if (!lat || !lon) return null;
-      const price = getDieselPrice(s);
+      const diesel = getDieselPrice(s);
+      const price = diesel?.price;
       if (!price || price <= 0) return null;
       const detourM = distanceFromRoute(lat, lon, route.coords);
-      return { name: s.name || s.brand || 'Unknown', address: s.address?.label || '', dieselPrice: Math.round(price * 1000) / 1000, detourMiles: Math.round(detourM / 1609.34 * 10) / 10, detourMeters: Math.round(detourM), score: Math.round(scoreStation(price, detourM) * 1000) / 1000, lat, lon, googleMapsLink: mapsLink(lat, lon) };
+      return {
+        name: s.name || s.brand || 'Unknown',
+        address: s.address?.label || '',
+        dieselPrice: Math.round(price * 1000) / 1000,
+        priceUpdatedAt: diesel.modified,
+        fuelType: diesel.fuelType,
+        fuelTypeName: diesel.fuelTypeName,
+        unit: diesel.unit,
+        currency: diesel.currency,
+        detourMiles: Math.round(detourM / 1609.34 * 10) / 10,
+        detourMeters: Math.round(detourM),
+        score: Math.round(scoreStation(price, detourM) * 1000) / 1000,
+        lat,
+        lon,
+        googleMapsLink: mapsLink(lat, lon),
+      };
     }).filter(Boolean).sort((a, b) => a.score - b.score).slice(0, topN);
   }
 
