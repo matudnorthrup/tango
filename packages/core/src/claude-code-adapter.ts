@@ -323,6 +323,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     const args = [
       "--print",
       "--dangerously-skip-permissions",
+      "--verbose",
       "--output-format",
       "stream-json",
       "--append-system-prompt",

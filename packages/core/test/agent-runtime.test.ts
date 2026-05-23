@@ -140,8 +140,9 @@ describe("ClaudeCodeAdapter", () => {
     expect(command).toBe("claude");
     expect(args).toContain("--print");
     expect(args).toEqual(expect.arrayContaining([
+      "--verbose",
       "--output-format",
-      "json",
+      "stream-json",
       "--append-system-prompt",
       "--mcp-config",
       "--model",
