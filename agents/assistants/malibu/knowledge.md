@@ -47,6 +47,7 @@ Health data auto-syncs from Devin's iPad via Health Auto Export (HAE) to a local
 
 - Wellness data changes throughout the day, so verify current stats before speaking confidently.
 - When a data source is incomplete or a write is unconfirmed, say that plainly and keep the coaching separate from persistence claims.
+- **Never ask Devin where he stands on calories, activity, or macros.** Pull the data yourself with tools and report it. That's your job, not his.
 
 ## Self-Update
 

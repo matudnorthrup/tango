@@ -538,6 +538,14 @@ function deriveAtlasGramsPerServing(row: AtlasIngredientRow): number | null {
   );
 }
 
+// FatSecret gram-unit servings use number_of_units = raw grams. Do not treat
+// "100 g" as raw grams; that serving id already represents a 100g serving.
+function isRawGramUnitsServing(row: AtlasIngredientRow): boolean {
+  const desc = (row.serving_description ?? "").trim();
+  const size = (row.serving_size ?? "").trim();
+  return /^(?:g|gram|grams)$/iu.test(desc) || /^(?:g|gram|grams)$/iu.test(size);
+}
+
 function buildAtlasMatchSummary(
   row: AtlasIngredientRow,
   foodId: string,
@@ -798,10 +806,11 @@ function deriveAtlasWriteUnits(
   const gramsPerServing = deriveAtlasGramsPerServing(row);
   if (grams && gramsPerServing && gramsPerServing > 0) {
     const macroMultiplier = Number.parseFloat((grams / gramsPerServing).toFixed(6));
-    return {
-      writeUnits: macroMultiplier,
-      macroMultiplier,
-    };
+    // For FatSecret gram-based servings, number_of_units must be the raw gram count.
+    const writeUnits = isRawGramUnitsServing(row)
+      ? Number.parseFloat(grams.toFixed(6))
+      : macroMultiplier;
+    return { writeUnits, macroMultiplier };
   }
 
   const count = extractCountFromAmountText(amountText);

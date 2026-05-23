@@ -5,6 +5,7 @@ let quickCompletionImpl: (system: string, user: string) => Promise<string>;
 
 vi.mock('../src/services/whisper.js', () => ({
   transcribe: vi.fn(async (buf: Buffer) => transcribeImpl(buf)),
+  transcribeCommandTail: vi.fn(async () => null),
 }));
 
 vi.mock('../src/services/claude.js', () => ({
@@ -310,6 +311,53 @@ describe('Layer 6: Inbox Flow', () => {
 
     expect((pipeline as any).ctx.lastSpokenText).toContain('Malibu has 1 message');
     expect(getState(pipeline)).toBe('IDLE');
+    pipeline.stop();
+  });
+
+  it('prefers the current local ready response over an addressed agent inbox fallback', async () => {
+    const { pipeline, queueState, inboxClient } = makePipeline({
+      ok: true,
+      totalUnread: 1,
+      pendingCount: 0,
+      channels: [
+        {
+          channelId: 'church-speakers-thread',
+          channelName: 'Church Speakers',
+          displayName: 'Church Speakers',
+          unreadCount: 1,
+          messages: [
+            {
+              messageId: 'w1',
+              channelId: 'church-speakers-thread',
+              channelName: 'Church Speakers',
+              agentDisplayName: 'Watson',
+              agentId: 'watson',
+              content: 'Older Watson inbox item.',
+              timestamp: 123,
+              isChunked: false,
+              chunkGroupId: null,
+            },
+          ],
+        },
+      ],
+    });
+
+    const item = queueState.enqueue({
+      channel: 'malibu',
+      displayName: 'Malibu',
+      sessionKey: 'agent:main:discord:channel:malibu',
+      userMessage: 'health data',
+      speakerAgentId: 'malibu',
+    });
+    queueState.markReady(item.id, 'Ready summary.', 'Here is the current Malibu health response.');
+
+    await simulateUtterance(pipeline, 'Watson, go ahead');
+
+    expect((pipeline as any).ctx.lastSpokenText).toContain('Here is the current Malibu health response.');
+    expect((pipeline as any).ctx.lastSpokenText).not.toContain('Older Watson inbox item.');
+    expect(queueState.markHeard).toHaveBeenCalledWith(item.id);
+    expect(inboxClient.advanceWatermark).not.toHaveBeenCalled();
+    expect(inboxClient.getAgentInbox).not.toHaveBeenCalled();
     pipeline.stop();
   });
 
@@ -1064,7 +1112,7 @@ describe('Layer 6: Inbox Flow', () => {
 
     expect((pipeline as any).ctx.lastSpokenText).toContain('The basement return is the correct fix.');
     expect((pipeline as any).ctx.lastSpokenText).not.toContain('All three remaining pieces are plated');
-    expect(router.switchTo).toHaveBeenCalledWith('HVAC');
+    expect(router.switchTo).toHaveBeenCalledWith('sierra-hvac');
     expect(inboxClient.advanceWatermark).toHaveBeenCalledWith('sierra-hvac', 'sh1', 'voice-playback');
     pipeline.stop();
   });

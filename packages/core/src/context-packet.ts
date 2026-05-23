@@ -231,7 +231,7 @@ export function renderContextPacket(
   if (packet.turns.length > 0) {
     lines.push("recent_turns:");
     for (const turn of packet.turns) {
-      lines.push(`- [${turn.speaker}] ${turn.content}`);
+      lines.push(`- [${turn.speaker} at ${turn.createdAt}] ${turn.content}`);
     }
   }
 

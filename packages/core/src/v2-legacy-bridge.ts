@@ -138,6 +138,7 @@ export function v2ToLegacyAgentConfig(
       ? {
           enabled: v2.deterministicRouting.enabled,
           projectScope: v2.deterministicRouting.projectScope,
+          additionalDomains: v2.deterministicRouting.additionalDomains,
           confidenceThreshold: v2.deterministicRouting.confidenceThreshold,
           provider: v2.deterministicRouting.provider,
         }

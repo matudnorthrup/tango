@@ -30,9 +30,14 @@ escalation items.
 
 ## Persistent Session Pattern (VICTOR-COS)
 
+`VICTOR-COS` is an operator-visible console and emergency workbench, not your
+source of truth. Durable project state must live in Linear, Tango storage,
+project docs, branches, worktrees, and status records that can be recovered
+after a restart.
+
 For complex coordination tasks that take more than a few minutes (multi-PM
-coordination, complex investigation, debugging), spawn a persistent tmux
-session instead of handling inline:
+coordination, complex investigation, debugging), a persistent tmux session can
+be used for visibility and manual intervention:
 
 ```bash
 # Spawn persistent CoS session
@@ -48,6 +53,11 @@ scripts/send-tmux-message.sh VICTOR-COS /tmp/cos-task-{slug}.md
 - Multi-PM coordination, complex investigation, anything > 5 minutes → spawn VICTOR-COS session
 - Only one VICTOR-COS session at a time — check if it exists before spawning:
   `tmux has-session -t VICTOR-COS 2>/dev/null && echo "already running"`
+- Do not rely on tmux scrollback as the task record. Create/update durable
+  project state before doing work.
+- Do not edit Tango's live main worktree directly from `VICTOR-COS`. For code
+  changes, use the parallel dev workflow: spawn an isolated worktree, assign a
+  dev agent, monitor it, test, live-validate, then merge/deploy deliberately.
 
 **Checking persistent session status:**
 ```bash
@@ -59,8 +69,9 @@ tmux capture-pane -t VICTOR-COS -p -S -30  # last 30 lines of output
 tmux kill-session -t VICTOR-COS
 ```
 
-The CoS pulse scheduled job automatically monitors VICTOR-COS session status
-and includes it in state change reports.
+The CoS pulse scheduled job should monitor VICTOR-COS session status and
+include meaningful state changes in reports, but VICTOR-COS itself is not the
+durable runtime.
 
 ## Communicating with the Stakeholder
 
@@ -68,23 +79,20 @@ and includes it in state change reports.
 Discord channel — not tmux, not status files. If you have something to say to
 the stakeholder, post it to Discord.
 
-### How to post to Discord from the persistent session
+### How to communicate from the persistent session
 
-Use the Discord webhook to post as Victor (with correct name and avatar):
+Stakeholder-facing replies should go through Tango's normal presentation and
+session-write path whenever possible. Do not post through raw Discord webhooks:
+that bypasses session history, watermarks, delivery accounting, and normal
+agent presentation.
 
-```bash
-curl -s -X POST "https://discord.com/api/webhooks/1480581855450497277/NVexqEkID-InS5oNe62kdPcFWZeSOpn8U6Gk4fu9Ut1TZIQKpj2mtC4XzU7K_X0gRwaJ" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "Your message here",
-    "username": "Victor",
-    "avatar_url": "https://cdn.discordapp.com/avatars/1480581855450497277/cb5e0df0a5857352c71e9fd660f29a23.webp"
-  }'
-```
+If you are handling a bridge-delivered request, write the requested structured
+response to the exact outbox path in the prompt. The bot will present it.
 
-This posts as Victor with his avatar. Do NOT use `discord_manage send_message`
-for stakeholder-facing messages — that posts as "Tango" (the bot user) without
-Victor's identity.
+If you need to proactively notify the stakeholder, prefer creating/updating a
+durable work record and allowing the scheduled CoS pulse or normal Tango turn
+to present it. Only use direct Discord management as an emergency fallback, and
+make sure the durable task record is updated too.
 
 ### When to post to Discord
 

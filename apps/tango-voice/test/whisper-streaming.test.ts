@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { pcmToWav } from '../src/audio/wav-utils.js';
-import { createStreamingChunkPlan } from '../src/services/whisper.js';
+import { createCommandTailChunkPlan, createStreamingChunkPlan } from '../src/services/whisper.js';
 
 function makeMonoWav(durationMs: number, sampleRate = 16000): Buffer {
   const sampleCount = Math.max(1, Math.round((durationMs / 1000) * sampleRate));
@@ -43,5 +43,25 @@ describe('createStreamingChunkPlan', () => {
     });
 
     expect(plan.length).toBe(3);
+  });
+
+  it('builds a bounded command tail plan from the end of a longer wav', () => {
+    const wav = makeMonoWav(6000);
+    const plan = createCommandTailChunkPlan(wav, 1800);
+
+    expect(plan).toEqual({
+      durationMs: 1800,
+      usedTail: true,
+    });
+  });
+
+  it('uses the whole wav for short command tail probes', () => {
+    const wav = makeMonoWav(900);
+    const plan = createCommandTailChunkPlan(wav, 1800);
+
+    expect(plan).toEqual({
+      durationMs: 900,
+      usedTail: false,
+    });
   });
 });

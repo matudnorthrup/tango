@@ -41,6 +41,7 @@ vi.mock('../src/services/tts.js', () => ({
 
 vi.mock('../src/services/whisper.js', () => ({
   transcribe: vi.fn(async () => ''),
+  transcribeCommandTail: vi.fn(async () => null),
 }));
 
 vi.mock('../src/services/tango-voice.js', () => ({

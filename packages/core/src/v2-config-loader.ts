@@ -74,6 +74,7 @@ export interface V2AgentConfig {
   deterministicRouting?: {
     enabled?: boolean;
     projectScope?: string;
+    additionalDomains?: string[];
     confidenceThreshold?: number;
     provider?: {
       default: string;
@@ -162,6 +163,7 @@ const rawV2AgentConfigSchema = z.object({
   deterministic_routing: z.object({
     enabled: z.boolean().optional(),
     project_scope: z.string().min(1).optional(),
+    additional_domains: z.array(z.string().min(1)).optional(),
     confidence_threshold: z.number().min(0).max(1).optional(),
     provider: legacyProviderSchema.optional(),
   }).optional(),
@@ -247,6 +249,7 @@ export function loadV2AgentConfig(configPath: string): V2AgentConfig {
       ? {
           enabled: parsed.deterministic_routing.enabled,
           projectScope: parsed.deterministic_routing.project_scope,
+          additionalDomains: parsed.deterministic_routing.additional_domains,
           confidenceThreshold: parsed.deterministic_routing.confidence_threshold,
           provider: parsed.deterministic_routing.provider
             ? {
@@ -270,6 +273,9 @@ export function loadV2AgentConfig(configPath: string): V2AgentConfig {
 
 export function loadAllV2AgentConfigs(configDir = "config/v2/agents"): Map<string, V2AgentConfig> {
   const resolvedConfigDir = resolveConfiguredPath(configDir);
+  if (!fs.existsSync(resolvedConfigDir)) {
+    return new Map();
+  }
   const files = fs
     .readdirSync(resolvedConfigDir)
     .filter((file) => file.endsWith(".yaml"))

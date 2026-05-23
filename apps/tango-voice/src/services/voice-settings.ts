@@ -19,6 +19,9 @@ export interface VoiceSettingsValues {
   sttStreamingMinChunkMs: number;
   sttStreamingOverlapMs: number;
   sttStreamingMaxChunks: number;
+  sttCommandTailProbeEnabled: boolean;
+  sttCommandTailMs: number;
+  sttCommandTailMinDurationMs: number;
   vadPositiveSpeechThreshold: number;
   vadNegativeSpeechThreshold: number;
   vadFrameSamples: VadFrameSamples;
@@ -46,6 +49,9 @@ const settings: VoiceSettingsValues = {
   sttStreamingMinChunkMs: 450,
   sttStreamingOverlapMs: 180,
   sttStreamingMaxChunks: 8,
+  sttCommandTailProbeEnabled: true,
+  sttCommandTailMs: 2200,
+  sttCommandTailMinDurationMs: 1200,
   vadPositiveSpeechThreshold: 0.5,
   vadNegativeSpeechThreshold: 0.35,
   vadFrameSamples: 512,
@@ -69,6 +75,9 @@ export function initVoiceSettings(values: Partial<VoiceSettingsValues>): void {
   if (values.sttStreamingMinChunkMs !== undefined) settings.sttStreamingMinChunkMs = Math.max(200, values.sttStreamingMinChunkMs);
   if (values.sttStreamingOverlapMs !== undefined) settings.sttStreamingOverlapMs = Math.max(0, values.sttStreamingOverlapMs);
   if (values.sttStreamingMaxChunks !== undefined) settings.sttStreamingMaxChunks = Math.max(1, values.sttStreamingMaxChunks);
+  if (values.sttCommandTailProbeEnabled !== undefined) settings.sttCommandTailProbeEnabled = values.sttCommandTailProbeEnabled;
+  if (values.sttCommandTailMs !== undefined) settings.sttCommandTailMs = Math.max(750, values.sttCommandTailMs);
+  if (values.sttCommandTailMinDurationMs !== undefined) settings.sttCommandTailMinDurationMs = Math.max(500, values.sttCommandTailMinDurationMs);
   if (values.vadPositiveSpeechThreshold !== undefined) settings.vadPositiveSpeechThreshold = values.vadPositiveSpeechThreshold;
   if (values.vadNegativeSpeechThreshold !== undefined) settings.vadNegativeSpeechThreshold = values.vadNegativeSpeechThreshold;
   if (values.vadFrameSamples !== undefined) settings.vadFrameSamples = values.vadFrameSamples;
@@ -132,6 +141,18 @@ export function setSttStreamingOverlapMs(ms: number): void {
 
 export function setSttStreamingMaxChunks(maxChunks: number): void {
   settings.sttStreamingMaxChunks = Math.max(1, Math.floor(maxChunks));
+}
+
+export function setSttCommandTailProbeEnabled(enabled: boolean): void {
+  settings.sttCommandTailProbeEnabled = enabled;
+}
+
+export function setSttCommandTailMs(ms: number): void {
+  settings.sttCommandTailMs = Math.max(750, ms);
+}
+
+export function setSttCommandTailMinDurationMs(ms: number): void {
+  settings.sttCommandTailMinDurationMs = Math.max(500, ms);
 }
 
 export function setLocalVadThresholds(positive: number, negative: number): void {

@@ -66,8 +66,18 @@ Report back what was added, the location, and the estimated pickup time if visib
 - **Customization steps use unnamed DIVs** — always snapshot before clicking to see what refs correspond to which options.
 - **Take snapshots liberally** — Chipotle's UI changes state frequently. Snapshot after every significant action to stay oriented.
 
+## Pickup time selection
+
+The checkout page shows **5 quick time slots** (e.g., 4:50pm through 5:30pm) as radio-style options. These are not the only available times.
+
+- There is a **"More Times"** button/dropdown below the visible slots that expands to show times up to ~3 hours out (e.g., 5:40pm through 8:00pm).
+- The accessibility snapshot may NOT show this button or the expanded times — use `eval` or `screenshot` to confirm.
+- After selecting a time from "More Times", the selected slot appears in a `div` with class `option pickuptime selected`. Confirm via `eval` before submitting.
+- Do NOT assume Chipotle limits you to 40 minutes out — always check "More Times" first.
+
 ## Troubleshooting
 
 - **Click timeout on location**: The "Find a Chipotle" modal is blocking. Interact with the modal's search field instead.
 - **Can't find favorites**: Make sure you're signed in. Check for a profile/account icon or "Recent Orders" link.
 - **Page seems stuck**: Try a fresh navigation to `https://www.chipotle.com/order` and snapshot again.
+- **Pickup time appears limited**: Click "More Times" to expand the full time slot list before telling the user no later times are available.

@@ -30,12 +30,15 @@ interface LocalUserSession {
 
 export class AudioReceiver {
   static readonly DECODER_ERROR_THRESHOLD = 5;
+  static readonly DECODER_ERROR_WINDOW_MS = 30_000;
 
   private connection: VoiceConnection;
   private onUtterance: UtteranceHandler;
   private onRejectedAudio: RejectedAudioHandler | null;
   private onDecoderCorruption: (() => void) | undefined;
-  private consecutiveDecoderErrors = 0;
+  private receiverDecoderErrors: number[] = [];
+  private decoderErrorsByUser = new Map<string, number[]>();
+  private decoderRecoveryTriggered = false;
   private listening = false;
   private activeSubscriptions = new Set<string>();
   private localSessions = new Map<string, LocalUserSession>();
@@ -62,6 +65,9 @@ export class AudioReceiver {
   start(): void {
     if (this.listening) return;
     this.listening = true;
+    this.decoderRecoveryTriggered = false;
+    this.receiverDecoderErrors = [];
+    this.decoderErrorsByUser.clear();
     console.log('Audio receiver started, listening for speech...');
 
     this.connection.receiver.speaking.on('start', this.onSpeakingStart);
@@ -133,7 +139,6 @@ export class AudioReceiver {
     opusStream.pipe(decoder);
 
     decoder.on('data', (chunk: Buffer) => {
-      this.consecutiveDecoderErrors = 0;
       chunks.push(chunk);
     });
 
@@ -159,12 +164,12 @@ export class AudioReceiver {
     });
 
     decoder.on('error', (err: Error) => {
-      this.handleDecoderError(`Decoder error for ${userId}`, err);
+      this.handleDecoderError(userId, `Decoder error for ${userId}`, err);
     });
 
     opusStream.on('error', (err: Error) => {
       this.activeSubscriptions.delete(userId);
-      console.error(`Opus stream error for ${userId}:`, err.message);
+      this.handleDecoderError(userId, `Opus stream error for ${userId}`, err);
     });
   }
 
@@ -205,7 +210,6 @@ export class AudioReceiver {
 
     decoder.on('data', (chunk: Buffer) => {
       if (session.closing) return;
-      this.consecutiveDecoderErrors = 0;
       session.sawAudio = true;
       this.resetLocalIdleTimer(session);
       this.enqueueLocalChunk(session, chunk);
@@ -216,12 +220,12 @@ export class AudioReceiver {
     });
 
     decoder.on('error', (err: Error) => {
-      if (this.handleDecoderError(`Local decoder error for ${userId}`, err)) return;
+      if (this.handleDecoderError(userId, `Local decoder error for ${userId}`, err)) return;
       this.closeLocalSession(userId, 'decoder-error');
     });
 
     opusStream.on('error', (err: Error) => {
-      console.error(`Local opus stream error for ${userId}:`, err.message);
+      if (this.handleDecoderError(userId, `Local opus stream error for ${userId}`, err)) return;
       this.closeLocalSession(userId, 'opus-error');
     });
 
@@ -234,19 +238,56 @@ export class AudioReceiver {
     });
   }
 
-  private handleDecoderError(label: string, err: Error): boolean {
+  private handleDecoderError(userId: string, label: string, err: Error): boolean {
     console.error(`${label}:`, err.message);
-    if (!this.listening) return true;
+    if (!this.listening || this.decoderRecoveryTriggered) return true;
 
-    this.consecutiveDecoderErrors += 1;
-    if (this.consecutiveDecoderErrors <= AudioReceiver.DECODER_ERROR_THRESHOLD) {
+    const { receiverErrors, userErrors } = this.recordDecoderError(userId);
+    if (
+      receiverErrors < AudioReceiver.DECODER_ERROR_THRESHOLD
+      && userErrors < AudioReceiver.DECODER_ERROR_THRESHOLD
+    ) {
       return false;
     }
 
-    console.warn('Decoder error threshold exceeded — stopping receiver');
+    const windowSeconds = Math.round(AudioReceiver.DECODER_ERROR_WINDOW_MS / 1000);
+    const scope = userErrors >= AudioReceiver.DECODER_ERROR_THRESHOLD
+      ? `user ${userId}`
+      : 'receiver';
+    const count = Math.max(receiverErrors, userErrors);
+    console.warn(
+      `Decoder error threshold exceeded for ${scope}: ${count}/${AudioReceiver.DECODER_ERROR_THRESHOLD} in ${windowSeconds}s — stopping receiver`,
+    );
+    this.decoderRecoveryTriggered = true;
     this.stop();
     this.onDecoderCorruption?.();
     return true;
+  }
+
+  private recordDecoderError(userId: string): { receiverErrors: number; userErrors: number } {
+    const now = Date.now();
+    this.receiverDecoderErrors = this.pruneDecoderErrorWindow(this.receiverDecoderErrors, now);
+    this.receiverDecoderErrors.push(now);
+
+    const userWindow = this.pruneDecoderErrorWindow(
+      this.decoderErrorsByUser.get(userId) ?? [],
+      now,
+    );
+    userWindow.push(now);
+    this.decoderErrorsByUser.set(userId, userWindow);
+
+    return {
+      receiverErrors: this.receiverDecoderErrors.length,
+      userErrors: userWindow.length,
+    };
+  }
+
+  private pruneDecoderErrorWindow(timestamps: number[], now: number): number[] {
+    const cutoff = now - AudioReceiver.DECODER_ERROR_WINDOW_MS;
+    const firstFreshIndex = timestamps.findIndex((timestamp) => timestamp >= cutoff);
+    if (firstFreshIndex === -1) return [];
+    if (firstFreshIndex === 0) return timestamps;
+    return timestamps.slice(firstFreshIndex);
   }
 
   private createLocalVadProcessor(userId: string): Promise<LocalVadProcessor | null> {
