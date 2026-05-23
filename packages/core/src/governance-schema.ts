@@ -229,7 +229,8 @@ export const GOVERNANCE_SEED = `
     ('worker:recipe-librarian', 'worker', 'agent:malibu', 'Recipe Librarian'),
     ('worker:personal-assistant', 'worker', 'agent:watson', 'Personal Assistant'),
     ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
-    ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant');
+    ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
+    ('worker:note-librarian', 'worker', NULL, 'Note Librarian');
 
   -- Tools (from MCP server)
   INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
@@ -351,6 +352,13 @@ export const GOVERNANCE_SEED = `
   -- 1Password access — Sierra (research assistant) needs credentials for shopping sites
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:research-assistant', 'onepassword', 'read', 'credential retrieval for shopping and service logins');
+
+  -- note-librarian — shared file-backed Obsidian access
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:note-librarian', 'obsidian', 'write', 'shared Obsidian note access'),
+    ('worker:note-librarian', 'memory_search', 'read', 'memory lookup while resolving notes'),
+    ('worker:note-librarian', 'memory_add', 'write', 'memory capture for durable note context'),
+    ('worker:note-librarian', 'memory_reflect', 'write', 'memory reflection for durable note context');
 
   -- dev-assistant (Victor) — uses built-in Claude tools for dev work, MCP for Discord + tango management
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

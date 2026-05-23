@@ -37,8 +37,8 @@ function createConfirmedWriteReceipt(): ExecutionReceipt {
     intentId: "notes.note_update",
     mode: "write",
     kind: "worker",
-    targetId: "personal-assistant",
-    workerId: "personal-assistant",
+    targetId: "note-librarian",
+    workerId: "note-librarian",
     status: "completed",
     durationMs: 5,
     operations: [
@@ -81,8 +81,8 @@ function createUnconfirmedWriteReceipt(): ExecutionReceipt {
     intentId: "notes.note_update",
     mode: "write",
     kind: "worker",
-    targetId: "personal-assistant",
-    workerId: "personal-assistant",
+    targetId: "note-librarian",
+    workerId: "note-librarian",
     status: "completed",
     durationMs: 5,
     operations: [],
@@ -99,7 +99,7 @@ function createDeterministicRegistry(): CapabilityRegistry {
       type: "wellness",
       provider: { default: "codex" },
       orchestration: {
-        workerIds: ["nutrition-logger", "health-analyst", "workout-recorder"],
+        workerIds: ["nutrition-logger", "health-analyst", "workout-recorder", "note-librarian"],
       },
     },
     {
@@ -107,7 +107,7 @@ function createDeterministicRegistry(): CapabilityRegistry {
       type: "research",
       provider: { default: "codex" },
       orchestration: {
-        workerIds: ["research-assistant"],
+        workerIds: ["research-assistant", "note-librarian"],
       },
     },
     {
@@ -115,7 +115,7 @@ function createDeterministicRegistry(): CapabilityRegistry {
       type: "personal",
       provider: { default: "codex" },
       orchestration: {
-        workerIds: ["personal-assistant"],
+        workerIds: ["personal-assistant", "note-librarian"],
       },
     },
     {
@@ -123,14 +123,38 @@ function createDeterministicRegistry(): CapabilityRegistry {
       type: "developer",
       provider: { default: "codex" },
       orchestration: {
-        workerIds: ["dev-assistant"],
+        workerIds: ["dev-assistant", "note-librarian"],
+      },
+    },
+    {
+      id: "juliet",
+      type: "mental-health",
+      provider: { default: "codex" },
+      orchestration: {
+        workerIds: ["note-librarian"],
+      },
+    },
+    {
+      id: "charlie",
+      type: "quick",
+      provider: { default: "codex" },
+      orchestration: {
+        workerIds: ["note-librarian"],
+      },
+    },
+    {
+      id: "foxtrot",
+      type: "finance",
+      provider: { default: "codex" },
+      orchestration: {
+        workerIds: ["personal-assistant", "note-librarian"],
       },
     },
   ];
   const projects: ProjectConfig[] = [
     {
       id: "wellness",
-      workerIds: ["nutrition-logger", "health-analyst", "workout-recorder"],
+      workerIds: ["nutrition-logger", "health-analyst", "workout-recorder", "note-librarian"],
     },
   ];
   const workers: WorkerConfig[] = [
@@ -168,6 +192,11 @@ function createDeterministicRegistry(): CapabilityRegistry {
       id: "dev-assistant",
       type: "developer",
       ownerAgentId: "victor",
+      provider: { default: "codex" },
+    },
+    {
+      id: "note-librarian",
+      type: "librarian",
       provider: { default: "codex" },
     },
   ];
@@ -371,7 +400,7 @@ function createDeterministicRegistry(): CapabilityRegistry {
       displayName: "Read Note",
       description: "Read or summarize an existing Obsidian note.",
       mode: "read",
-      route: { kind: "worker", targetId: "personal-assistant" },
+      route: { kind: "worker", targetId: "note-librarian" },
       slots: [{ name: "note_query", required: true }],
       examples: ["Read the Obsidian note titled Large Desk OpenGrid and Underware Project"],
     },
@@ -381,7 +410,7 @@ function createDeterministicRegistry(): CapabilityRegistry {
       displayName: "Update Note",
       description: "Update or append to an existing Obsidian note.",
       mode: "write",
-      route: { kind: "worker", targetId: "personal-assistant" },
+      route: { kind: "worker", targetId: "note-librarian" },
       slots: [
         { name: "note_query", required: true },
         { name: "change_request", required: true },
@@ -2311,7 +2340,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
                 canRunInParallel: true,
                 routeHint: {
                   kind: "worker",
-                  targetId: "personal-assistant",
+                  targetId: "note-librarian",
                 },
               },
             ],
@@ -3012,7 +3041,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
         text: [
           "The read came back clean - I can see today's note clearly. Now let me push those updates through.",
           "",
-          "<worker-dispatch worker=\"personal-assistant\">",
+          "<worker-dispatch worker=\"note-librarian\">",
           "Update the daily note now.",
           "</worker-dispatch>",
         ].join("\n"),
@@ -3099,7 +3128,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
                 canRunInParallel: false,
                 routeHint: {
                   kind: "worker",
-                  targetId: "personal-assistant",
+                  targetId: "note-librarian",
                 },
               },
             ],
@@ -3446,6 +3475,113 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(provider.calls[1]?.tools).toEqual({ mode: "off" });
     expect(provider.calls).toHaveLength(2);
     expect(result.usedWorkerSynthesis).toBe(false);
+  });
+
+  it("includes configured additional domains for project-scoped deterministic agents", async () => {
+    const provider = new ScriptedProvider((callNumber) => {
+      if (callNumber === 1) {
+        return {
+          text: JSON.stringify({
+            intents: [
+              {
+                intentId: "notes.note_read",
+                confidence: 0.96,
+                entities: {
+                  note_query: "obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke",
+                },
+                rawEntities: ["obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke"],
+                missingSlots: [],
+                canRunInParallel: true,
+                routeHint: {
+                  kind: "worker",
+                  targetId: "note-librarian",
+                },
+              },
+            ],
+          }),
+          metadata: { model: "gpt-5.4" },
+        };
+      }
+
+      return {
+        text: "The smoke note contains OBSIDIAN-SMOKE-OK.",
+        metadata: { model: "gpt-5.4" },
+      };
+    });
+
+    const workerCalls: Array<{ workerId: string; task: string }> = [];
+    const deterministicRouting = {
+      enabled: true,
+      projectScope: "wellness",
+      additionalDomains: ["notes"],
+      confidenceThreshold: 0.8,
+      providerNames: ["codex"],
+      configuredProviderNames: ["codex"],
+      reasoningEffort: "low" as const,
+    };
+
+    const executor = createDiscordVoiceTurnExecutor(
+      {
+        providerRetryLimit: 0,
+        resolveProviderChain: (providerNames) =>
+          providerNames.map((providerName) => ({ providerName, provider })),
+        loadProviderContinuityMap: () => ({}),
+        savePersistedProviderSession: () => undefined,
+        buildWarmStartContextPrompt: () => undefined,
+        executeWorkerWithTask: async (workerId, task) => {
+          workerCalls.push({ workerId, task });
+          return {
+            operations: [
+              {
+                name: "obsidian",
+                toolNames: ["obsidian"],
+                input: {
+                  command: "print 'obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke'",
+                },
+                output: { found: true },
+                mode: "read",
+              },
+            ],
+            hasWriteOperations: false,
+            data: {
+              workerText: "The smoke note contains OBSIDIAN-SMOKE-OK.",
+            },
+          };
+        },
+      },
+      () => ({
+        conversationKey: "project:wellness:malibu",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        projectId: "wellness",
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      }),
+    );
+
+    const result = await executor.executeTurnDetailed(
+      {
+        sessionId: "project:wellness",
+        agentId: "malibu",
+        transcript: "Read obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke.",
+        channelId: "channel-1",
+        discordUserId: "user-1",
+      },
+      {
+        conversationKey: "project:wellness:malibu",
+        providerNames: ["codex"],
+        configuredProviderNames: ["codex"],
+        projectId: "wellness",
+        capabilityRegistry: createDeterministicRegistry(),
+        deterministicRouting,
+      },
+    );
+
+    expect(result.responseText).toContain("OBSIDIAN-SMOKE-OK");
+    expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
+    expect(workerCalls).toHaveLength(1);
+    expect(workerCalls[0]).toMatchObject({ workerId: "note-librarian" });
+    expect(workerCalls[0]?.task).toContain("notes.note_read");
   });
 
   it("routes Sierra mixed printer and live-location turns through the deterministic runtime", async () => {

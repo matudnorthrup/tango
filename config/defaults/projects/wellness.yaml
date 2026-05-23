@@ -15,6 +15,7 @@ worker_ids:
   - nutrition-logger
   - recipe-librarian
   - workout-recorder
+  - note-librarian
 tool_contract_ids:
   - healthdb.today_summary
   - healthdb.sleep_summary
@@ -31,6 +32,7 @@ tool_contract_ids:
   - obsidian.recipe_notes.read
   - obsidian.recipe_notes.write
   - obsidian.recipe_notes.validate_frontmatter
+  - obsidian
   - workouts.start_session
   - workouts.log_set
   - workouts.finish_session

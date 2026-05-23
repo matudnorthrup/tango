@@ -389,6 +389,8 @@ describe("loadAgentConfigs", () => {
         "deterministic_routing:",
         "  enabled: true",
         "  project_scope: wellness",
+        "  additional_domains:",
+        "    - notes",
         "  confidence_threshold: 0.82",
         "  provider:",
         "    default: claude-oauth",
@@ -403,6 +405,7 @@ describe("loadAgentConfigs", () => {
     expect(agents[0]?.deterministicRouting).toEqual({
       enabled: true,
       projectScope: "wellness",
+      additionalDomains: ["notes"],
       confidenceThreshold: 0.82,
       provider: {
         default: "claude-oauth",

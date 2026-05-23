@@ -1,0 +1,33 @@
+id: obsidian
+family: obsidian
+description: Read, search, create, update, move, and delete local Obsidian vault notes through the file-backed Obsidian tool.
+owner_worker: note-librarian
+mode: read_write
+status: implemented
+confirmation_required: true
+live_execution:
+  enabled: true
+  write_enabled: true
+integration:
+  system: obsidian
+  target: main vault
+input_fields:
+  - command
+  - content? (for create, append, and overwrite operations)
+output_fields:
+  - result
+legacy:
+  commands:
+    - print
+    - search-content
+    - create
+    - frontmatter
+    - move
+    - list
+    - delete
+  read_paths:
+    - ~/Documents/main
+  write_paths:
+    - ~/Documents/main
+  notes:
+    - Accepts note titles, vault-relative paths, and obsidian://open URLs with file/path query parameters.

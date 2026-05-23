@@ -1568,6 +1568,33 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_active_context_archived
         ON active_context_items(archived_at, updated_at);
     `,
+  },
+  {
+    version: 32,
+    sql: `
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      VALUES ('worker:note-librarian', 'worker', NULL, 'Note Librarian');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:note-librarian', 'obsidian', 'write', 'shared Obsidian note access'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:note-librarian')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'obsidian');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:note-librarian', 'memory_search', 'read', 'memory lookup while resolving notes'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:note-librarian')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_search');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:note-librarian', 'memory_add', 'write', 'memory capture for durable note context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:note-librarian')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_add');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:note-librarian', 'memory_reflect', 'write', 'memory reflection for durable note context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:note-librarian')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_reflect');
+    `,
   }
 ];
 
