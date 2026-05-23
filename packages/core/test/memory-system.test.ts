@@ -8,6 +8,7 @@ import {
   selectMemoriesToArchive,
 } from "../src/memory-system.js";
 import type {
+  ActiveContextItemRecord,
   PinnedFactRecord,
   SessionSummaryRecord,
   StoredMemoryRecord,
@@ -54,6 +55,32 @@ function memory(input: Partial<StoredMemoryRecord> & Pick<StoredMemoryRecord, "i
   };
 }
 
+function activeContextItem(
+  input: Partial<ActiveContextItemRecord> & Pick<ActiveContextItemRecord, "id" | "key" | "kind" | "summary">
+): ActiveContextItemRecord {
+  return {
+    id: input.id,
+    key: input.key,
+    userId: input.userId ?? "user:owner",
+    agentId: input.agentId ?? "watson",
+    channelId: input.channelId ?? "discord:default",
+    topicId: input.topicId ?? null,
+    projectId: input.projectId ?? null,
+    kind: input.kind,
+    title: input.title ?? null,
+    summary: input.summary,
+    keyFacts: input.keyFacts ?? [],
+    sourceRefs: input.sourceRefs ?? [],
+    createdAt: input.createdAt ?? "2026-03-10T09:00:00.000Z",
+    updatedAt: input.updatedAt ?? "2026-03-10T09:00:00.000Z",
+    lastAccessedAt: input.lastAccessedAt ?? "2026-03-10T09:00:00.000Z",
+    accessCount: input.accessCount ?? 0,
+    expiresAt: input.expiresAt ?? null,
+    archivedAt: input.archivedAt ?? null,
+    metadata: input.metadata ?? null,
+  };
+}
+
 describe("memory-system", () => {
   it("normalizes memory zone ratios", () => {
     const config = resolveSessionMemoryConfig({
@@ -89,6 +116,7 @@ describe("memory-system", () => {
     });
 
     expect(result.usedFullHistory).toBe(true);
+    expect(result.prompt).toContain("active_context:\n- none");
     expect(result.prompt).toContain("recent_messages:");
     expect(result.prompt).toContain("[user at 2026-03-10T10:00:00.000Z]");
     expect(result.prompt).toContain("Summary and retrieval zones were skipped");
@@ -97,6 +125,54 @@ describe("memory-system", () => {
     expect(result.trace.summaries).toHaveLength(0);
     expect(result.trace.memories).toHaveLength(0);
     expect(result.trace.recentMessages).toHaveLength(2);
+  });
+
+  it("includes active context when full-history bypass skips retrieval", () => {
+    const result = assembleSessionMemoryPrompt({
+      sessionId: "tango-default",
+      agentId: "watson",
+      currentUserPrompt: "What should we keep in mind?",
+      memoryConfig: {
+        maxContextTokens: 4000,
+      },
+      messages: [
+        message({ id: 1, direction: "inbound", content: "Quick check-in." }),
+      ],
+      summaries: [],
+      memories: [
+        memory({
+          id: 10,
+          source: "manual",
+          content: "This retrieved memory should not be needed in full-history mode.",
+        }),
+      ],
+      pinnedFacts: [],
+      activeContextItems: [
+        activeContextItem({
+          id: 99,
+          key: "current-work",
+          kind: "plan",
+          title: "Current working context",
+          summary: "Continue the generic active-context storage and warm-start implementation.",
+          keyFacts: ["Do not make the implementation travel-specific."],
+          sourceRefs: ["linear:TANGO-123"],
+        }),
+      ],
+    });
+
+    expect(result.usedFullHistory).toBe(true);
+    expect(result.prompt).toContain("active_context:");
+    expect(result.prompt).toContain("[plan] Current working context");
+    expect(result.prompt).toContain("Do not make the implementation travel-specific.");
+    expect(result.prompt).toContain("Summary and retrieval zones were skipped");
+    expect(result.prompt).not.toContain("retrieved_memories:");
+    expect(result.trace.activeContextItems).toMatchObject([
+      {
+        id: 99,
+        key: "current-work",
+        kind: "plan",
+      },
+    ]);
   });
 
   it("extracts a bounded recent conversation block from a rendered warm-start prompt", () => {

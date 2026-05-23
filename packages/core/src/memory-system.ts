@@ -2,6 +2,7 @@ import type { SessionMemoryConfig } from "./types.js";
 import { cosineSimilarity, deserializeEmbedding } from "./embeddings.js";
 import type { EmbeddingProvider } from "./embeddings.js";
 import type {
+  ActiveContextItemRecord,
   PinnedFactRecord,
   SessionSummaryRecord,
   StoredMemoryRecord,
@@ -99,6 +100,7 @@ export interface AssembleSessionMemoryPromptInput {
   summaries: SessionSummaryRecord[];
   memories: StoredMemoryRecord[];
   pinnedFacts: PinnedFactRecord[];
+  activeContextItems?: ActiveContextItemRecord[];
   excludeMessageIds?: number[];
   now?: Date;
 }
@@ -114,6 +116,7 @@ export interface SessionMemoryPrompt {
 export interface SessionMemoryPromptTrace {
   note?: string;
   pinnedFacts: PromptTracePinnedFact[];
+  activeContextItems: PromptTraceActiveContextItem[];
   summaries: PromptTraceSummary[];
   memories: PromptTraceMemory[];
   recentMessages: PromptTraceMessage[];
@@ -125,6 +128,16 @@ export interface PromptTracePinnedFact {
   scopeId: string | null;
   key: string;
   value: string;
+}
+
+export interface PromptTraceActiveContextItem {
+  id: number;
+  key: string;
+  kind: ActiveContextItemRecord["kind"];
+  title: string | null;
+  summary: string;
+  keyFacts: string[];
+  sourceRefs: string[];
 }
 
 export interface PromptTraceSummary {
@@ -456,6 +469,7 @@ export function assembleSessionMemoryPrompt(
 
   const pinnedSelection = selectPinnedFacts(input.pinnedFacts);
   const pinnedLines = pinnedSelection.lines;
+  const activeContextSelection = selectActiveContextItems(input.activeContextItems ?? [], now);
 
   const fullHistoryLines = recentMessages.map(formatMessageLine);
   const fullHistoryNote = "Recent history fits in budget. Summary and retrieval zones were skipped.";
@@ -463,6 +477,7 @@ export function assembleSessionMemoryPrompt(
     sessionId: input.sessionId,
     agentId: input.agentId,
     pinnedLines,
+    activeContextLines: activeContextSelection.lines,
     summaryBlocks: [],
     memoryLines: [],
     recentLines: fullHistoryLines,
@@ -478,6 +493,7 @@ export function assembleSessionMemoryPrompt(
       trace: {
         note: fullHistoryNote,
         pinnedFacts: pinnedSelection.facts.map(toPromptTracePinnedFact),
+        activeContextItems: activeContextSelection.items.map(toPromptTraceActiveContextItem),
         summaries: [],
         memories: [],
         recentMessages: recentMessages.map(toPromptTraceMessage),
@@ -510,6 +526,7 @@ export function assembleSessionMemoryPrompt(
     sessionId: input.sessionId,
     agentId: input.agentId,
     pinnedLines: boundedPinnedSelection.lines,
+    activeContextLines: activeContextSelection.lines,
     summaryBlocks: summarySelection.blocks,
     memoryLines: memorySelection.lines,
     recentLines: recentSelection.lines,
@@ -522,6 +539,7 @@ export function assembleSessionMemoryPrompt(
     usedFullHistory: false,
     trace: {
       pinnedFacts: boundedPinnedSelection.facts.map(toPromptTracePinnedFact),
+      activeContextItems: activeContextSelection.items.map(toPromptTraceActiveContextItem),
       summaries: summarySelection.summaries.map(toPromptTraceSummary),
       memories: memorySelection.memories.map(toPromptTraceMemory),
       recentMessages: recentSelection.messages.map(toPromptTraceMessage),
@@ -561,6 +579,23 @@ function selectSummaryBlocks(
   return {
     summaries: selectedSummaries.reverse(),
     blocks: selectedBlocks.reverse(),
+  };
+}
+
+function selectActiveContextItems(
+  items: ActiveContextItemRecord[],
+  now: Date
+): { items: ActiveContextItemRecord[]; lines: string[] } {
+  const nowMs = now.getTime();
+  const activeItems = items
+    .filter((item) => item.archivedAt === null)
+    .filter((item) => item.expiresAt === null || Date.parse(item.expiresAt) > nowMs)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || b.id - a.id)
+    .slice(0, 12);
+
+  return {
+    items: activeItems,
+    lines: activeItems.map(formatActiveContextLine),
   };
 }
 
@@ -779,6 +814,7 @@ function renderMemoryPrompt(input: {
   sessionId: string;
   agentId: string;
   pinnedLines: string[];
+  activeContextLines: string[];
   summaryBlocks: string[];
   memoryLines: string[];
   recentLines: string[];
@@ -797,6 +833,9 @@ function renderMemoryPrompt(input: {
     lines.push("pinned_state:");
     lines.push(...input.pinnedLines);
   }
+
+  lines.push("active_context:");
+  lines.push(...(input.activeContextLines.length > 0 ? input.activeContextLines : ["- none"]));
 
   if (input.summaryBlocks.length > 0) {
     lines.push("rolling_summary:");
@@ -840,6 +879,7 @@ export function extractRecentMessagesContext(
     index > startIndex &&
     (
       line.trim() === "pinned_state:" ||
+      line.trim() === "active_context:" ||
       line.trim() === "rolling_summary:" ||
       line.trim() === "retrieved_memories:" ||
       line.trim() === "recent_messages:" ||
@@ -916,6 +956,18 @@ function toPromptTracePinnedFact(fact: PinnedFactRecord): PromptTracePinnedFact 
     scopeId: fact.scopeId,
     key: fact.key,
     value: fact.value,
+  };
+}
+
+function toPromptTraceActiveContextItem(item: ActiveContextItemRecord): PromptTraceActiveContextItem {
+  return {
+    id: item.id,
+    key: item.key,
+    kind: item.kind,
+    title: item.title,
+    summary: item.summary,
+    keyFacts: item.keyFacts,
+    sourceRefs: item.sourceRefs,
   };
 }
 
@@ -1051,6 +1103,17 @@ function memorySourceBonus(source: StoredMemoryRecord["source"]): number {
     default:
       return 0.1;
   }
+}
+
+function formatActiveContextLine(item: ActiveContextItemRecord): string {
+  const title = item.title ? ` ${truncateText(item.title, 80)}:` : "";
+  const facts = item.keyFacts.length > 0
+    ? ` facts=${item.keyFacts.slice(0, 6).map((fact) => truncateText(fact, 120)).join("; ")}`
+    : "";
+  const refs = item.sourceRefs.length > 0
+    ? ` refs=${item.sourceRefs.slice(0, 4).map((ref) => truncateText(ref, 80)).join(", ")}`
+    : "";
+  return `- [${item.kind}]${title} ${truncateText(item.summary, 260)}${facts}${refs}`.trimEnd();
 }
 
 function formatMessageLine(message: Pick<StoredMessageRecord, "direction" | "content" | "createdAt">): string {

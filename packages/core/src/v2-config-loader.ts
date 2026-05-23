@@ -270,6 +270,9 @@ export function loadV2AgentConfig(configPath: string): V2AgentConfig {
 
 export function loadAllV2AgentConfigs(configDir = "config/v2/agents"): Map<string, V2AgentConfig> {
   const resolvedConfigDir = resolveConfiguredPath(configDir);
+  if (!fs.existsSync(resolvedConfigDir)) {
+    return new Map();
+  }
   const files = fs
     .readdirSync(resolvedConfigDir)
     .filter((file) => file.endsWith(".yaml"))

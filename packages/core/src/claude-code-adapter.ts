@@ -324,7 +324,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       "--print",
       "--dangerously-skip-permissions",
       "--output-format",
-      "json",
+      "stream-json",
       "--append-system-prompt",
       systemPrompt,
       "--mcp-config",
