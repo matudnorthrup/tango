@@ -10,6 +10,7 @@ let transcribeImpl: (buf: Buffer) => Promise<string>;
 
 vi.mock('../src/services/whisper.js', () => ({
   transcribe: vi.fn(async (buf: Buffer) => transcribeImpl(buf)),
+  transcribeCommandTail: vi.fn(async () => null),
 }));
 
 let getResponseImpl: (user: string, msg: string, opts?: any) => Promise<{ response: string; history: any[] }>;

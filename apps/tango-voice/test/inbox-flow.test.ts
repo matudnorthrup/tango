@@ -5,6 +5,7 @@ let quickCompletionImpl: (system: string, user: string) => Promise<string>;
 
 vi.mock('../src/services/whisper.js', () => ({
   transcribe: vi.fn(async (buf: Buffer) => transcribeImpl(buf)),
+  transcribeCommandTail: vi.fn(async () => null),
 }));
 
 vi.mock('../src/services/claude.js', () => ({
