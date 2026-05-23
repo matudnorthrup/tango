@@ -332,11 +332,37 @@ function resolveObsidianVaultRoot(_vaultName?: string): string {
   return path.join(os.homedir(), "Documents", "main");
 }
 
+function parseObsidianAppUrlPath(candidate: string): string | undefined {
+  const trimmed = candidate.trim();
+  if (!trimmed.toLowerCase().startsWith("obsidian://")) {
+    return undefined;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid Obsidian URL: ${candidate}`);
+  }
+
+  const action = url.hostname || url.pathname.replace(/^\/+/u, "");
+  if (action !== "open") {
+    throw new Error(`Unsupported Obsidian URL action: ${action || "(missing)"}`);
+  }
+
+  const targetPath = url.searchParams.get("file") ?? url.searchParams.get("path");
+  if (targetPath == null || targetPath.trim().length === 0) {
+    throw new Error("Obsidian URL must include a file or path parameter");
+  }
+
+  return targetPath;
+}
+
 function ensureVaultRelativePath(vaultRoot: string, candidate: string, options?: {
   allowRoot?: boolean;
   ensureMarkdownExtension?: boolean;
 }): string {
-  const trimmed = candidate.trim();
+  const trimmed = (parseObsidianAppUrlPath(candidate) ?? candidate).trim();
   if (trimmed.length === 0) {
     throw new Error("Path argument is required");
   }
@@ -508,6 +534,7 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
         "  print '<note name>' --vault main",
         "    Read a note's full content (markdown with YAML frontmatter).",
         "    Note name is the display name, not file path (e.g. '3D Printing Setup', '2026 Week 10 Plan').",
+        "    Also accepts obsidian://open URLs with file/path query parameters.",
         "",
         "  search-content '<term>' --vault main",
         "    Search note contents for a term.",

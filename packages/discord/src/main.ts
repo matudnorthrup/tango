@@ -3335,6 +3335,7 @@ function resolveDeterministicRoutingForTurn(
   return {
     enabled: true,
     projectScope: config.projectScope,
+    additionalDomains: config.additionalDomains,
     confidenceThreshold: config.confidenceThreshold ?? 0.8,
     providerNames: mergeProviderOrder(configuredProviderNames, overrideProviderName),
     configuredProviderNames,
@@ -3682,6 +3683,11 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
   if (!targetAgent) {
     throw new Error(`Agent '${turnInput.agentId}' not found in config.`);
   }
+  turnInput = {
+    ...turnInput,
+    messageTimestamp: turnInput.messageTimestamp?.trim() || new Date().toISOString(),
+    messageTimestampSource: turnInput.messageTimestampSource ?? "voice-finalized",
+  };
 
   const resolvedVoiceSyncChannelId =
     turnInput.channelId?.trim() ||
@@ -3790,6 +3796,8 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       inputSource: "voice-bridge",
       turnId: turnId ?? null,
       utteranceId: turnInput.utteranceId ?? null,
+      messageTimestamp: turnInput.messageTimestamp ?? null,
+      messageTimestampSource: turnInput.messageTimestampSource ?? null,
       guildId: turnInput.guildId ?? null,
       voiceChannelId: turnInput.voiceChannelId ?? null,
       responseMode,
@@ -3860,7 +3868,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     try {
       const bridgeMessage: VictorBridgeMessage = {
         id: randomUUID(),
-        timestamp: new Date().toISOString(),
+        timestamp: turnInput.messageTimestamp ?? new Date().toISOString(),
         source: "discord-voice",
         user: turnInput.discordUserId
           ? { id: turnInput.discordUserId, username: "voice-user" }
@@ -7477,6 +7485,8 @@ async function handleMessage(
       listenOnly,
       commandParse,
       naturalRoute,
+      messageTimestamp: message.createdAt.toISOString(),
+      messageTimestampSource: "discord-sent",
       discordReplyToMessageId: message.reference?.messageId?.trim() || null,
       messageReferent,
       referentSystemMessageId: referentMessageId,
@@ -7785,7 +7795,9 @@ async function handleMessage(
     agentId: targetAgent.id,
     transcript: prompt,
     channelId: message.channelId,
-    discordUserId: message.author.id
+    discordUserId: message.author.id,
+    messageTimestamp: message.createdAt.toISOString(),
+    messageTimestampSource: "discord-sent",
   };
 
   try {

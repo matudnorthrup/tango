@@ -1116,9 +1116,9 @@ function formatActiveContextLine(item: ActiveContextItemRecord): string {
   return `- [${item.kind}]${title} ${truncateText(item.summary, 260)}${facts}${refs}`.trimEnd();
 }
 
-function formatMessageLine(message: Pick<StoredMessageRecord, "direction" | "content">): string {
+function formatMessageLine(message: Pick<StoredMessageRecord, "direction" | "content" | "createdAt">): string {
   const speaker = message.direction === "inbound" ? "user" : "assistant";
-  return `- [${speaker}] ${truncateText(message.content, 360)}`;
+  return `- [${speaker} at ${message.createdAt}] ${truncateText(message.content, 360)}`;
 }
 
 function normalizeWhitespace(text: string): string {

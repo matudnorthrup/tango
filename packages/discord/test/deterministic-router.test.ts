@@ -20,7 +20,7 @@ function createRegistry(): CapabilityRegistry {
       type: "wellness",
       provider: { default: "claude-oauth" },
       orchestration: {
-        workerIds: ["nutrition-logger", "workout-recorder", "recipe-librarian", "health-analyst"],
+        workerIds: ["nutrition-logger", "workout-recorder", "recipe-librarian", "health-analyst", "note-librarian"],
       },
     },
     {
@@ -28,7 +28,7 @@ function createRegistry(): CapabilityRegistry {
       type: "research",
       provider: { default: "claude-oauth" },
       orchestration: {
-        workerIds: ["research-assistant"],
+        workerIds: ["research-assistant", "note-librarian"],
       },
     },
     {
@@ -36,7 +36,7 @@ function createRegistry(): CapabilityRegistry {
       type: "personal",
       provider: { default: "claude-oauth" },
       orchestration: {
-        workerIds: ["personal-assistant"],
+        workerIds: ["personal-assistant", "note-librarian"],
       },
     },
     {
@@ -44,14 +44,38 @@ function createRegistry(): CapabilityRegistry {
       type: "developer",
       provider: { default: "claude-oauth" },
       orchestration: {
-        workerIds: ["dev-assistant"],
+        workerIds: ["dev-assistant", "note-librarian"],
+      },
+    },
+    {
+      id: "juliet",
+      type: "mental-health",
+      provider: { default: "claude-oauth" },
+      orchestration: {
+        workerIds: ["note-librarian"],
+      },
+    },
+    {
+      id: "charlie",
+      type: "quick",
+      provider: { default: "claude-oauth" },
+      orchestration: {
+        workerIds: ["note-librarian"],
+      },
+    },
+    {
+      id: "foxtrot",
+      type: "finance",
+      provider: { default: "claude-oauth" },
+      orchestration: {
+        workerIds: ["personal-assistant", "note-librarian"],
       },
     },
   ];
   const projects: ProjectConfig[] = [
     {
       id: "wellness",
-      workerIds: ["nutrition-logger", "workout-recorder", "recipe-librarian", "health-analyst"],
+      workerIds: ["nutrition-logger", "workout-recorder", "recipe-librarian", "health-analyst", "note-librarian"],
     },
   ];
   const workers: WorkerConfig[] = [
@@ -95,6 +119,11 @@ function createRegistry(): CapabilityRegistry {
       id: "dev-assistant",
       type: "developer",
       ownerAgentId: "victor",
+      provider: { default: "claude-oauth" },
+    },
+    {
+      id: "note-librarian",
+      type: "librarian",
       provider: { default: "claude-oauth" },
     },
   ];
@@ -432,7 +461,7 @@ function createRegistry(): CapabilityRegistry {
       displayName: "Update Note",
       description: "Update or append to an existing local or Obsidian note.",
       mode: "write",
-      route: { kind: "worker", targetId: "research-assistant" },
+      route: { kind: "worker", targetId: "note-librarian" },
       slots: [
         { name: "note_query", required: true },
         { name: "change_request", required: true },
@@ -571,7 +600,7 @@ function createRegistry(): CapabilityRegistry {
       displayName: "Read Note",
       description: "Read or summarize an existing Obsidian note.",
       mode: "read",
-      route: { kind: "worker", targetId: "personal-assistant" },
+      route: { kind: "worker", targetId: "note-librarian" },
       slots: [{ name: "note_query", required: true }],
       examples: ["Read the Obsidian note titled Large Desk OpenGrid and Underware Project"],
     },
@@ -1224,7 +1253,7 @@ describe("deterministic router", () => {
       agentId: "sierra",
       domain: "notes",
     });
-    expect(notesCatalog.map((entry) => entry.id)).toEqual(["notes.note_update"]);
+    expect(notesCatalog.map((entry) => entry.id)).toEqual(["notes.note_read", "notes.note_update"]);
 
     const accountsCatalog = getDeterministicIntentCatalog({
       registry,
@@ -1556,7 +1585,7 @@ describe("deterministic router", () => {
       agentId: "watson",
       domain: "notes",
     });
-    expect(notesCatalog.map((entry) => entry.id)).toEqual(["notes.note_read"]);
+    expect(notesCatalog.map((entry) => entry.id)).toEqual(["notes.note_read", "notes.note_update"]);
 
     const mixedCatalog = getDeterministicIntentCatalog({
       registry,
@@ -1592,6 +1621,52 @@ describe("deterministic router", () => {
     expect(result.plan?.steps.map((step) => step.dependsOn)).toEqual([[], []]);
     expect(result.plan?.steps[0]?.task).toContain("planning.calendar_review");
     expect(result.plan?.steps[1]?.task).toContain("email.inbox_review");
+  });
+
+  it("exposes generic Obsidian note intents through the shared note-librarian for every lead agent", () => {
+    const registry = createRegistry();
+    const agents = [
+      { id: "watson" },
+      { id: "sierra" },
+      { id: "malibu", projectId: "wellness" },
+      { id: "victor" },
+      { id: "juliet" },
+      { id: "charlie" },
+      { id: "foxtrot" },
+    ];
+
+    for (const agent of agents) {
+      const notesCatalog = getDeterministicIntentCatalog({
+        registry,
+        agentId: agent.id,
+        projectId: agent.projectId,
+        domain: "notes",
+      });
+      expect(notesCatalog.map((entry) => entry.id)).toEqual(["notes.note_read", "notes.note_update"]);
+
+      const result = buildDeterministicExecutionPlan({
+        userMessage: "Read obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke",
+        envelopes: [
+          makeEnvelope({
+            intentId: "notes.note_read",
+            mode: "read",
+            domain: "notes",
+            entities: {
+              note_query: "obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke",
+            },
+          }),
+        ],
+        catalog: notesCatalog,
+        registry,
+      });
+
+      expect(result.outcome).toBe("executed");
+      expect(result.plan?.steps[0]).toMatchObject({
+        workerId: "note-librarian",
+        intentId: "notes.note_read",
+        allowedToolIds: ["obsidian"],
+      });
+    }
   });
 
   it("builds Watson health and budget review plans through the personal-assistant worker", () => {
@@ -2151,7 +2226,7 @@ describe("deterministic router", () => {
         displayName: "Review Vault Maintenance",
         description: "Review planning notes, daily notes, and related vault organization issues, then report inconsistencies or cleanup candidates without making changes.",
         mode: "read",
-        route: { kind: "worker", targetId: "personal-assistant" },
+        route: { kind: "worker", targetId: "note-librarian" },
         examples: ["Review the vault for stale planning notes and report what needs cleanup."],
       },
       {
@@ -2274,7 +2349,7 @@ describe("deterministic router", () => {
         displayName: "Update Note",
         description: "Update or append to an existing local or Obsidian note with a clear note target and change request.",
         mode: "write",
-        route: { kind: "worker", targetId: "personal-assistant" },
+        route: { kind: "worker", targetId: "note-librarian" },
         slots: [
           { name: "note_query", required: true },
           { name: "change_request", required: true },

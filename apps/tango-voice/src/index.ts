@@ -37,6 +37,9 @@ initVoiceSettings({
   sttStreamingMinChunkMs: config.sttStreamingMinChunkMs,
   sttStreamingOverlapMs: config.sttStreamingOverlapMs,
   sttStreamingMaxChunks: config.sttStreamingMaxChunks,
+  sttCommandTailProbeEnabled: config.sttCommandTailProbeEnabled,
+  sttCommandTailMs: config.sttCommandTailMs,
+  sttCommandTailMinDurationMs: config.sttCommandTailMinDurationMs,
   vadPositiveSpeechThreshold: config.vadPositiveSpeechThreshold,
   vadNegativeSpeechThreshold: config.vadNegativeSpeechThreshold,
   vadFrameSamples: config.vadFrameSamples,
@@ -464,7 +467,7 @@ function buildSettingsPanel(): { embeds: EmbedBuilder[]; components: ActionRowBu
       {
         name: `STT Streaming — ${s.sttStreamingEnabled ? 'ON' : 'OFF'}`,
         value: s.sttStreamingEnabled
-          ? `Chunk ${s.sttStreamingChunkMs}ms · overlap ${s.sttStreamingOverlapMs}ms · max ${s.sttStreamingMaxChunks} chunks`
+          ? `Chunk ${s.sttStreamingChunkMs}ms · overlap ${s.sttStreamingOverlapMs}ms · max ${s.sttStreamingMaxChunks} chunks · command tail probe ${s.sttCommandTailProbeEnabled ? `${s.sttCommandTailMs}ms` : 'off'}`
           : 'Disabled (batch transcription only).',
         inline: false,
       },

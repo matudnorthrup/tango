@@ -89,11 +89,14 @@ orchestration:
     - nutrition-logger
     - recipe-librarian
     - workout-recorder
+    - note-librarian
   write_confirmation: on-ambiguity
 
 deterministic_routing:
   enabled: true
   project_scope: wellness
+  additional_domains:
+    - notes
   confidence_threshold: 0.8
   provider:
     default: claude-oauth

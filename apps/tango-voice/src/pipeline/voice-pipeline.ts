@@ -14,7 +14,7 @@ import { VoiceConnection } from '@discordjs/voice';
 import { TextChannel } from 'discord.js';
 import { AudioReceiver } from '../discord/audio-receiver.js';
 import { DiscordAudioPlayer } from '../discord/audio-player.js';
-import { transcribe, type StreamingPartialEvent } from '../services/whisper.js';
+import { transcribe, transcribeCommandTail, type StreamingPartialEvent } from '../services/whisper.js';
 import { getResponse, quickCompletion, type Message } from '../services/claude.js';
 import { textToSpeechStream } from '../services/tts.js';
 import { SessionTranscript } from '../services/session-transcript.js';
@@ -93,6 +93,21 @@ export interface IdleNotificationDiagnostics {
   inFlight: boolean;
   recentEvents: IdleNotificationEvent[];
 }
+
+type IndicateProbeDirectiveReason =
+  | 'wake-close'
+  | 'wake-empty'
+  | 'wake-cancel'
+  | 'standalone-code'
+  | 'standalone-dismiss'
+  | 'standalone-close'
+  | 'close-cluster';
+
+type IndicateProbeDirective = {
+  kind: 'close' | 'cancel';
+  reason: IndicateProbeDirectiveReason;
+  transcript: string;
+};
 
 const DEFAULT_ROUTE_HIGH_THRESHOLD = 0.85;
 const DEFAULT_ROUTE_MEDIUM_THRESHOLD = 0.60;
@@ -281,7 +296,7 @@ export class VoicePipeline {
   private indicateProbeResult: {
     wavBuffer: Buffer;
     transcript: string;
-    isDirective: boolean;
+    directive: IndicateProbeDirective;
   } | null = null;
   private indicateProbeEarconPlayed = false;
   private deferredWaitRetryTimer: NodeJS.Timeout | null = null;
@@ -841,6 +856,46 @@ export class VoicePipeline {
 
     if (!hasWakeWord && standaloneCodeWake) {
       return { kind: 'close', reason: 'standalone-code', stripped };
+    }
+
+    return null;
+  }
+
+  private classifyIndicateProbeDirectiveTranscript(transcript: string): IndicateProbeDirective | null {
+    const strictDirective = this.classifyIndicateDirectiveTranscript(transcript);
+    if (strictDirective) {
+      if (strictDirective.kind !== 'close' || strictDirective.reason === 'wake-empty') {
+        return null;
+      }
+      return {
+        kind: strictDirective.kind,
+        reason: strictDirective.reason,
+        transcript,
+      };
+    }
+
+    const stripped = transcript.trim();
+    if (this.isDismissClose(stripped)) {
+      return {
+        kind: 'close',
+        reason: 'standalone-dismiss',
+        transcript,
+      };
+    }
+    if (this.isStandaloneConversationalClose(stripped)) {
+      return {
+        kind: 'close',
+        reason: 'standalone-close',
+        transcript,
+      };
+    }
+    const closeOnly = this.extractCloseOnlyUtterance(stripped);
+    if (closeOnly) {
+      return {
+        kind: 'close',
+        reason: 'close-cluster',
+        transcript,
+      };
     }
 
     return null;
@@ -1682,24 +1737,32 @@ export class VoicePipeline {
   }
 
   /**
-   * Probes a buffered utterance for a close word by transcribing it
-   * concurrently with the in-progress transcription.  When the probe
-   * finds a close word, the listening earcon fires immediately instead
-   * of waiting for the previous segment's transcription to finish.
-   * The probe result is cached so the replay skips re-transcription.
+   * Probes a buffered or long utterance for a close word by transcribing
+   * only the audio tail on the command/partials STT lane. When the probe
+   * finds a strict close phrase, the listening earcon fires immediately
+   * instead of waiting for the main transcription lane to drain.
    */
   private async startIndicateCloseWordProbe(wavBuffer: Buffer): Promise<void> {
     this.indicateProbeInFlight = true;
     try {
-      const text = (await transcribe(wavBuffer))?.trim();
+      const settings = getVoiceSettings();
+      const result = await transcribeCommandTail(wavBuffer, {
+        tailMs: settings.sttCommandTailMs,
+      });
+      const text = result?.text.trim() ?? '';
       if (!text || !this.ctx.indicateCaptureActive) return;
-      const isDirective = this.isIndicateDirectiveTranscript(text);
-      this.indicateProbeResult = { wavBuffer, transcript: text, isDirective };
-      if (isDirective && !this.indicateProbeEarconPlayed) {
+      const directive = this.classifyIndicateProbeDirectiveTranscript(text);
+      if (!directive) return;
+
+      this.indicateProbeResult = { wavBuffer, transcript: text, directive };
+      if (!this.indicateProbeEarconPlayed) {
         this.indicateProbeEarconPlayed = true;
         void this.playFastCue('listening');
-        console.log(`Indicate probe: close word detected early — "${text}"`);
       }
+      const tailLabel = result?.usedTail ? `${result.durationMs}ms tail` : `${result?.durationMs ?? 0}ms utterance`;
+      console.log(
+        `Indicate probe: ${directive.reason} detected early from ${tailLabel} in ${result?.elapsedMs ?? 0}ms — "${text}"`,
+      );
     } catch (err: any) {
       console.warn(`Indicate close word probe failed: ${err?.message ?? err}`);
     } finally {
@@ -2101,7 +2164,12 @@ export class VoicePipeline {
       // During indicate capture, probe for close word concurrently while
       // buffering.  The probe transcribes in parallel so the close word
       // earcon can fire before the current transcription finishes.
-      if (this.ctx.indicateCaptureActive && this.stateMachine.getStateType() === 'TRANSCRIBING' && !this.indicateProbeInFlight) {
+      if (
+        getVoiceSettings().sttCommandTailProbeEnabled
+        && this.ctx.indicateCaptureActive
+        && this.stateMachine.getStateType() === 'TRANSCRIBING'
+        && !this.indicateProbeInFlight
+      ) {
         console.log('Indicate capture: buffering utterance + starting close word probe');
         const effects = this.transitionAndResetWatchdog({ type: 'UTTERANCE_RECEIVED' });
         this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs);
@@ -2161,10 +2229,20 @@ export class VoicePipeline {
         probeEarconPlayed = this.indicateProbeEarconPlayed;
         this.indicateProbeResult = null;
         this.indicateProbeEarconPlayed = false;
-        console.log(`Using indicate probe cache (directive=${probe.isDirective})`);
+        console.log(`Using indicate probe cache (${probe.directive.reason})`);
       }
 
       const settings = getVoiceSettings();
+      if (
+        !probeHit
+        && settings.sttCommandTailProbeEnabled
+        && indicateEndpointAtCapture
+        && this.ctx.indicateCaptureActive
+        && durationMs >= settings.sttCommandTailMinDurationMs
+        && !this.indicateProbeInFlight
+      ) {
+        void this.startIndicateCloseWordProbe(wavBuffer);
+      }
       let transcript = probeHit ? probe.transcript : await transcribe(
         wavBuffer,
         this.shouldUseStreamingTranscription()
@@ -2235,6 +2313,14 @@ export class VoicePipeline {
       if (!probeEarconPlayed && this.indicateProbeEarconPlayed) {
         probeEarconPlayed = true;
         this.indicateProbeEarconPlayed = false;
+      }
+      if (!probeHit && this.indicateProbeResult?.wavBuffer === wavBuffer) {
+        const lateProbe = this.indicateProbeResult;
+        this.indicateProbeResult = null;
+        if (!transcript || transcript.trim().length === 0) {
+          transcript = lateProbe.transcript;
+          console.log(`Using indicate probe transcript fallback (${lateProbe.directive.reason}): "${transcript}"`);
+        }
       }
       if (!transcript || transcript.trim().length === 0) {
         if (partialWakeCommandDetected && partialWakeCommandTranscript) {
@@ -3669,6 +3755,9 @@ Use channel names (the part before the colon). Do not explain.`,
     const streamingText = s.sttStreamingEnabled
       ? `Streaming transcription: on, ${s.sttStreamingChunkMs} millisecond chunks.`
       : 'Streaming transcription: off.';
+    const commandTailText = s.sttCommandTailProbeEnabled
+      ? `Command tail probe: on, ${s.sttCommandTailMs} milliseconds.`
+      : 'Command tail probe: off.';
     const endpointText = s.endpointingMode === 'indicate'
       ? `Endpointing: indicate. End command examples: ${
         closeCommands.length > 0
@@ -3680,6 +3769,7 @@ Use channel names (the part before the colon). Do not explain.`,
       `Audio processing: ${s.audioProcessing}. ` +
       `${endpointText} ` +
       `${streamingText} ` +
+      `${commandTailText} ` +
       `Silence delay: ${s.silenceDurationMs} milliseconds. ` +
       `Noise threshold: ${s.speechThreshold}. ` +
       `Minimum speech duration: ${s.minSpeechDurationMs} milliseconds.`,
@@ -3794,6 +3884,11 @@ Use channel names (the part before the colon). Do not explain.`,
     } else {
       parts.push('Streaming STT: off.');
     }
+    parts.push(
+      s.sttCommandTailProbeEnabled
+        ? `Command tail probe: on (${s.sttCommandTailMs} milliseconds).`
+        : 'Command tail probe: off.',
+    );
 
     parts.push(`Tango bridge: ${shouldUseTangoVoiceBridge() ? 'configured' : 'disabled'}.`);
 
@@ -5215,6 +5310,7 @@ Use channel names (the part before the colon). Do not explain.`,
     const systemPrompt = target.systemPrompt;
     const requestedTranscript = target.dispatchTranscript?.trim() || transcript;
     const requestedSessionId = target.sessionId?.trim() || sessionKey;
+    const messageTimestamp = new Date().toISOString();
     const useTangoTurnBridge = shouldUseTangoVoiceBridge();
     const channelId = this.extractChannelIdFromSessionKey(sessionKey);
 
@@ -5252,6 +5348,8 @@ Use channel names (the part before the colon). Do not explain.`,
             voiceChannelId: config.discordVoiceChannelId,
             channelId,
             discordUserId: userId,
+            messageTimestamp,
+            messageTimestampSource: 'voice-finalized',
           });
 
           safeResponse = this.sanitizeAssistantOutput(
@@ -5650,7 +5748,14 @@ Use channel names (the part before the colon). Do not explain.`,
       return;
     }
 
-    // Agent-targeted: find matching agent item in the current inbox flow or fetch fresh
+    const currentLocalReadyItem = this.findLocalReadyItem();
+    if (currentLocalReadyItem) {
+      console.log(`Read-ready addressed to ${agent}, but local ready item is from ${currentLocalReadyItem.displayName}; playing local ready item`);
+      await this.readQueuedReadyItem(currentLocalReadyItem, { bypassBusyCheck: true });
+      return;
+    }
+
+    // Agent-targeted inbox navigation is only valid inside an active inbox flow.
     const needle = agent.toLowerCase();
     const flowState = this.stateMachine.getInboxFlowState();
 
@@ -5676,40 +5781,7 @@ Use channel names (the part before the colon). Do not explain.`,
       }
     }
 
-    // No active flow or no match — fetch fresh agent inbox and look for the agent
-    if (this.inboxClient && this.router) {
-      try {
-        const agentInbox = await this.inboxClient.getAgentInbox();
-        const match = agentInbox.agents.find(
-          (a) => a.agentDisplayName.toLowerCase().includes(needle)
-            || a.agentId.toLowerCase().includes(needle),
-        );
-        if (match) {
-          const agentItems: InboxAgentItem[] = agentInbox.agents.map((inboxAgent) => this.mapInboxAgentItem(inboxAgent));
-
-          const targetIndex = agentItems.findIndex(
-            (a) => a.agentDisplayName.toLowerCase().includes(needle)
-              || a.agentId.toLowerCase().includes(needle),
-          );
-
-          this.ctx.inboxConversationAgentId = null;
-          this.transitionAndResetWatchdog({
-            type: 'ENTER_INBOX_FLOW',
-            items: agentItems,
-            returnChannel: this.router.getActiveChannel().name,
-          });
-          if (targetIndex > 0) {
-            this.transitionAndResetWatchdog({ type: 'INBOX_JUMP', index: targetIndex });
-          }
-          await this.handleInboxNext();
-          return;
-        }
-      } catch (error) {
-        console.warn(`[voice-inbox] agent-targeted read failed: ${error instanceof Error ? error.message : error}`);
-      }
-    }
-
-    await this.speakResponse(`Nothing from ${agent} in the inbox.`);
+    await this.speakResponse(`Nothing ready from ${agent}.`);
     await this.playReadyEarcon();
   }
 
@@ -6324,16 +6396,29 @@ Use channel names (the part before the colon). Do not explain.`,
     this.ctx.inboxConversationAgentId = agentId;
     this.clearLocalReadyItemsForInboxChannel(channel);
 
-    // Try to switch to the channel by name
+    // Prefer the Discord channel/thread ID so ad-hoc threads route replies to
+    // the actual thread instead of a best-effort display name match.
+    let switched = false;
     if (this.router) {
-      const result = await this.router.switchTo(channel.channelName);
-      if (result.success) {
-        await this.onChannelSwitch();
+      const targets = [
+        channel.channelId,
+        channel.channelName,
+      ].filter((target, index, all): target is string => (
+        typeof target === 'string' && target.trim().length > 0 && all.indexOf(target) === index
+      ));
+
+      for (const target of targets) {
+        const result = await this.router.switchTo(target);
+        if (result.success) {
+          await this.onChannelSwitch();
+          switched = true;
+          break;
+        }
       }
     }
 
     const channelLabel = getInboxChannelVoiceLabel(channel, channel.messages[0]?.agentDisplayName);
-    parts.push(`Switched to ${channelLabel}.`);
+    parts.push(switched ? `Switched to ${channelLabel}.` : `I couldn't switch to ${channelLabel}.`);
 
     // Group chunked messages and build readable text
     const grouped = this.groupChunkedMessages(channel.messages);

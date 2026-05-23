@@ -137,6 +137,36 @@ describe("generateWithFailover", () => {
     expect(secondary.calls[0]?.prompt).toContain("Current user message");
   });
 
+  it("injects current turn metadata even when continuity skips warm-start", async () => {
+    const primary = new ScriptedProvider((_callNumber, request) => ({
+      text: request.prompt,
+      providerSessionId: request.providerSessionId,
+    }));
+
+    const result = await generateWithFailover(
+      [{ providerName: "primary", provider: primary }],
+      { prompt: "log this in my journal" },
+      0,
+      { primary: "sess-1" },
+      {
+        warmStartPrompt: "Context handoff packet:\n- older context",
+        currentTurnMetadataPrompt: [
+          "Current user message metadata:",
+          "- timestamp_utc: 2026-05-19T19:25:11.000Z",
+          "- timestamp_source: discord-sent",
+        ].join("\n"),
+      }
+    );
+
+    expect(result.providerName).toBe("primary");
+    expect(result.warmStartUsed).toBe(false);
+    expect(primary.calls[0]?.providerSessionId).toBe("sess-1");
+    expect(primary.calls[0]?.prompt).not.toContain("Context handoff packet");
+    expect(primary.calls[0]?.prompt).toContain("Current user message metadata");
+    expect(primary.calls[0]?.prompt).toContain("timestamp_source: discord-sent");
+    expect(primary.calls[0]?.prompt).toContain("Current user message:\nlog this in my journal");
+  });
+
   it("retries Claude on a fast hard failure before opening circuit and failing over", async () => {
     const claude = new ScriptedProvider(() => new Error("Claude CLI request failed: code=1"));
     const codex = new ScriptedProvider(() => ({ text: "codex-ok" }));

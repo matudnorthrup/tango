@@ -21,6 +21,7 @@ tools:
 orchestration:
   worker_ids:
     - dev-assistant
+    - note-librarian
   write_confirmation: on-ambiguity
 deterministic_routing:
   enabled: true

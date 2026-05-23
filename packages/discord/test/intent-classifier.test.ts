@@ -310,7 +310,7 @@ const catalog: DeterministicIntentCatalogEntry[] = [
     displayName: "Update Note",
     description: "Update or append to an existing local or Obsidian note.",
     mode: "write",
-    route: { kind: "worker", targetId: "personal-assistant" },
+    route: { kind: "worker", targetId: "note-librarian" },
     examples: ["Update the desk project note with today's measurements."],
     slots: [
       { name: "note_query", required: true },
@@ -449,7 +449,7 @@ const catalog: DeterministicIntentCatalogEntry[] = [
     displayName: "Read Note",
     description: "Read or summarize an existing Obsidian note.",
     mode: "read",
-    route: { kind: "worker", targetId: "personal-assistant" },
+    route: { kind: "worker", targetId: "note-librarian" },
     examples: ["Read the Obsidian note titled Large Desk OpenGrid and Underware Project"],
     slots: [{ name: "note_query", required: true }],
   },
@@ -1228,6 +1228,18 @@ describe("classifyDeterministicIntents", () => {
         ]),
         responseWithIntents([
           {
+            intentId: "notes.note_read",
+            confidence: 0.96,
+            entities: {
+              note_query: "obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke",
+            },
+            rawEntities: ["obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke"],
+            missingSlots: [],
+            canRunInParallel: true,
+          },
+        ]),
+        responseWithIntents([
+          {
             intentId: "notes.note_update",
             mode: "write",
             confidence: 0.95,
@@ -1291,6 +1303,10 @@ describe("classifyDeterministicIntents", () => {
       },
       {
         input: "Read the Obsidian note titled Large Desk OpenGrid and Underware Project and summarize the Print Summary section.",
+        expectedIntents: ["notes.note_read"],
+      },
+      {
+        input: "Read obsidian://open?vault=main&file=Tango%2FSmoke%2FObsidian%20Access%20Smoke and tell me what it says.",
         expectedIntents: ["notes.note_read"],
       },
       {
