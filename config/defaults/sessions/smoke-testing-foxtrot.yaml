@@ -1,0 +1,5 @@
+id: smoke-testing-foxtrot
+type: project
+agent: foxtrot
+channels:
+  - "discord:1503463067034587216"

@@ -16,6 +16,11 @@ mcp_servers:
   - name: discord-manage
     command: node
     args: ["packages/discord-manage-mcp/dist/index.js"]
+  - name: obsidian
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
+    env:
+      ALLOWED_TOOL_IDS: "obsidian"
   - name: agent-docs
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
@@ -70,6 +75,7 @@ tools:
 orchestration:
   worker_ids:
     - dev-assistant
+    - note-librarian
   write_confirmation: on-ambiguity
 
 deterministic_routing:

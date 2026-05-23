@@ -23,6 +23,7 @@ tools:
 orchestration:
   worker_ids:
     - personal-assistant
+    - note-librarian
   write_confirmation: on-ambiguity
 deterministic_routing:
   enabled: true

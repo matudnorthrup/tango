@@ -5,13 +5,14 @@ description: Read, inspect, summarize, or quote an existing Obsidian note or per
 mode: read
 route:
   kind: worker
-  target_id: personal-assistant
+  target_id: note-librarian
 slots:
   - name: note_query
     required: true
     inferable: false
 examples:
   - Read the Obsidian note titled Large Desk OpenGrid and Underware Project
+  - Read obsidian://open?vault=main&file=Planning%2FDaily%2F2026-05-23
   - Summarize the Print Summary section from my desk project note
   - What does my Chipotle ordering note say?
 can_run_in_parallel: true

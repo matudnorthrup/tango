@@ -28,6 +28,7 @@ export type ProviderReasoningEffort = "low" | "medium" | "high" | "max" | "xhigh
 export interface DeterministicRoutingConfig {
   enabled?: boolean;
   projectScope?: string;
+  additionalDomains?: string[];
   confidenceThreshold?: number;
   provider?: {
     default: string;

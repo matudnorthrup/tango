@@ -3335,6 +3335,7 @@ function resolveDeterministicRoutingForTurn(
   return {
     enabled: true,
     projectScope: config.projectScope,
+    additionalDomains: config.additionalDomains,
     confidenceThreshold: config.confidenceThreshold ?? 0.8,
     providerNames: mergeProviderOrder(configuredProviderNames, overrideProviderName),
     configuredProviderNames,

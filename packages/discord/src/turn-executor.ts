@@ -80,6 +80,7 @@ export interface DiscordTurnExecutionContext {
   deterministicRouting?: {
     enabled: boolean;
     projectScope?: string;
+    additionalDomains?: string[];
     confidenceThreshold: number;
     providerNames: string[];
     configuredProviderNames: string[];
@@ -801,6 +802,42 @@ function isDeterministicEligible(context: DiscordTurnExecutionContext): boolean 
   return config.providerNames.length > 0;
 }
 
+function getScopedDeterministicIntentCatalog(input: {
+  registry: CapabilityRegistry;
+  agentId: string;
+  projectId?: string;
+  projectScope?: string;
+  additionalDomains?: readonly string[];
+}): DeterministicIntentCatalogEntry[] {
+  const { registry, agentId, projectId, projectScope } = input;
+  if (!projectScope) {
+    return getDeterministicIntentCatalog({
+      registry,
+      agentId,
+      projectId,
+    });
+  }
+
+  const domains = [
+    projectScope,
+    ...(input.additionalDomains ?? []),
+  ]
+    .map((domain) => domain.trim())
+    .filter((domain, index, all) => domain.length > 0 && all.indexOf(domain) === index);
+  const catalogById = new Map<string, DeterministicIntentCatalogEntry>();
+  for (const domain of domains) {
+    for (const entry of getDeterministicIntentCatalog({
+      registry,
+      agentId,
+      projectId,
+      domain,
+    })) {
+      catalogById.set(entry.id, entry);
+    }
+  }
+  return [...catalogById.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
 function buildExplicitDeterministicClassification(input: {
   intentIds: readonly string[];
   catalog: readonly DeterministicIntentCatalogEntry[];
@@ -1393,11 +1430,12 @@ export async function executeDiscordTurn(
     const deterministicConfig = input.context.deterministicRouting!;
     const capabilityRegistry = input.context.capabilityRegistry!;
     const classifierProviderChain = dependencies.resolveProviderChain(deterministicConfig.providerNames);
-    const intentCatalog = getDeterministicIntentCatalog({
+    const intentCatalog = getScopedDeterministicIntentCatalog({
       registry: capabilityRegistry,
       agentId: input.turn.agentId,
       projectId: input.context.projectId,
-      domain: deterministicConfig.projectScope,
+      projectScope: deterministicConfig.projectScope,
+      additionalDomains: deterministicConfig.additionalDomains,
     });
 
     if (intentCatalog.length > 0 && dependencies.executeWorkerWithTask) {

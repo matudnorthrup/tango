@@ -24,6 +24,7 @@ orchestration:
   worker_ids:
     - research-coordinator
     - research-assistant
+    - note-librarian
   write_confirmation: on-ambiguity
 deterministic_routing:
   enabled: true

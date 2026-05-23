@@ -78,6 +78,32 @@ describe("personal-agent-tools obsidian", () => {
     expect(fs.readFileSync(notePath, "utf8")).toBe("replacement");
   });
 
+  it("prints decoded notes from Obsidian app URL targets", async () => {
+    const { tool, vaultDir } = setupObsidianTool();
+    const content = "# Devinn's Note Name\n\nNested note content.";
+    const notePath = path.join(vaultDir, "Projects", "Nested Folder", "Devinn's Note Name.md");
+    fs.mkdirSync(path.dirname(notePath), { recursive: true });
+    fs.writeFileSync(notePath, content, "utf8");
+
+    const targetUrl = "obsidian://open?vault=main&file=Projects%2FNested%20Folder%2FDevinn%27s%20Note%20Name";
+    await expect(tool.handler({
+      command: `print "${targetUrl}"`,
+    })).resolves.toEqual({
+      result: content,
+    });
+  });
+
+  it("rejects traversal after decoding Obsidian app URL targets", async () => {
+    const { tool } = setupObsidianTool();
+    const targetUrl = "obsidian://open?vault=main&file=..%2FOutside";
+
+    const result = await tool.handler({
+      command: `print "${targetUrl}"`,
+    });
+
+    expect(result.result).toContain("Path must stay inside the Obsidian vault");
+  });
+
   it("searches vault content recursively, case-insensitively, and skips hidden directories", async () => {
     const { tool, vaultDir } = setupObsidianTool();
 
