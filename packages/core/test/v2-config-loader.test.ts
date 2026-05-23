@@ -66,6 +66,35 @@ describe("loadV2AgentConfig", () => {
       args: ["packages/atlas-memory/dist/index.js"],
     });
   });
+
+  it("loads Victor as an operations agent with Linear and Obsidian access but no dev MCP surface", () => {
+    const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "victor.yaml"));
+
+    expect(config).toMatchObject({
+      id: "victor",
+      type: "operations",
+      defaultProject: "operations",
+      tools: {
+        mode: "off",
+      },
+      orchestration: {
+        workerIds: ["operations-assistant", "note-librarian"],
+      },
+    });
+
+    const serverNames = config.mcpServers.map((server) => server.name);
+    expect(serverNames).toEqual(expect.arrayContaining(["memory", "linear", "obsidian"]));
+    expect(serverNames).not.toEqual(expect.arrayContaining(["tango-dev", "discord-manage", "agent-docs"]));
+
+    const linearServer = config.mcpServers.find((server) => server.name === "linear");
+    expect(linearServer).toMatchObject({
+      command: "node",
+      args: ["packages/core/dist/mcp-proxy.js", "linear"],
+      env: {
+        ALLOWED_TOOL_IDS: "linear",
+      },
+    });
+  });
 });
 
 describe("isV2RuntimeEnabled", () => {

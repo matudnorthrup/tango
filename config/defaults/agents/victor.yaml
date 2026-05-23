@@ -1,5 +1,5 @@
 id: victor
-type: developer
+type: operations
 display_name: Victor
 provider:
   default: claude-oauth
@@ -7,7 +7,7 @@ provider:
   fallback:
     - claude-oauth-secondary
     - codex
-default_project: personal
+default_project: operations
 voice:
   call_signs:
     - Victor
@@ -16,11 +16,10 @@ voice:
   smoke_test_channel_id: "100000000000001004"
 response_mode: concise
 tools:
-  mode: default
-  permission_mode: bypass
+  mode: off
 orchestration:
   worker_ids:
-    - dev-assistant
+    - operations-assistant
     - note-librarian
   write_confirmation: on-ambiguity
 deterministic_routing:

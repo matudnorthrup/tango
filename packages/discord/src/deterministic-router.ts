@@ -565,6 +565,20 @@ const ENGINEERING_ALLOWED_TOOL_IDS = [
   "tango_file",
 ];
 
+const OPERATIONS_READ_ALLOWED_TOOL_IDS = [
+  "linear",
+  "obsidian",
+  "memory_search",
+];
+
+const OPERATIONS_WRITE_ALLOWED_TOOL_IDS = [
+  "linear",
+  "obsidian",
+  "memory_search",
+  "memory_add",
+  "memory_reflect",
+];
+
 const ALLOWED_TOOL_IDS_BY_INTENT: Record<string, string[]> = {
   "accounts.identity_read": ["onepassword"],
   "docs.google_doc_read_or_update": ["gog_docs_update_tab", "gog_docs"],
@@ -596,6 +610,9 @@ const ALLOWED_TOOL_IDS_BY_INTENT: Record<string, string[]> = {
   "nutrition.log_food": NUTRITION_LOG_ALLOWED_TOOL_IDS,
   "nutrition.log_recipe": NUTRITION_LOG_ALLOWED_TOOL_IDS,
   "nutrition.log_repair": NUTRITION_LOG_REPAIR_ALLOWED_TOOL_IDS,
+  "operations.decision_packet": OPERATIONS_READ_ALLOWED_TOOL_IDS,
+  "operations.project_review": OPERATIONS_READ_ALLOWED_TOOL_IDS,
+  "operations.project_update": OPERATIONS_WRITE_ALLOWED_TOOL_IDS,
   "planning.calendar_review": ["gog_calendar"],
   "planning.current_time_read": ["system_clock"],
   "planning.evening_review": PLANNING_EVENING_REVIEW_ALLOWED_TOOL_IDS,

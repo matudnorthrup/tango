@@ -1,6 +1,6 @@
 id: victor
 display_name: Victor
-type: coordinator
+type: operations
 
 # System prompt = personality + domain + rules
 system_prompt_file: agents/assistants/victor/soul.md
@@ -10,22 +10,16 @@ mcp_servers:
   - name: memory
     command: node
     args: ["packages/atlas-memory/dist/index.js"]
-  - name: tango-dev
+  - name: linear
     command: node
-    args: ["packages/tango-dev-mcp/dist/index.js"]
-  - name: discord-manage
-    command: node
-    args: ["packages/discord-manage-mcp/dist/index.js"]
+    args: ["packages/core/dist/mcp-proxy.js", "linear"]
+    env:
+      ALLOWED_TOOL_IDS: "linear"
   - name: obsidian
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
     env:
       ALLOWED_TOOL_IDS: "obsidian"
-  - name: agent-docs
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
-    env:
-      ALLOWED_TOOL_IDS: "agent_docs"
 
 # Runtime configuration
 runtime:
@@ -58,7 +52,7 @@ discord:
   smoke_test_channel_id: "100000000000001004"
 
 # Legacy registry fields
-default_project: personal
+default_project: operations
 response_mode: concise
 
 provider:
@@ -69,12 +63,11 @@ provider:
     - codex
 
 tools:
-  mode: default
-  permission_mode: bypass
+  mode: off
 
 orchestration:
   worker_ids:
-    - dev-assistant
+    - operations-assistant
     - note-librarian
   write_confirmation: on-ambiguity
 

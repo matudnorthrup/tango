@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   loadAgentConfigs,
@@ -17,6 +18,7 @@ import {
 const tempDirs: string[] = [];
 const originalEnv = { ...process.env };
 const originalCwd = process.cwd();
+const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
 afterEach(() => {
   process.chdir(originalCwd);
@@ -178,6 +180,39 @@ describe("loadSessionConfigs", () => {
 });
 
 describe("loadAgentConfigs", () => {
+  it("loads Victor defaults as operations with operations workers", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+
+    const victor = loadAgentConfigs(defaultsDir).find((agent) => agent.id === "victor");
+    expect(victor).toMatchObject({
+      type: "operations",
+      defaultProject: "operations",
+      tools: {
+        mode: "off",
+      },
+      orchestration: {
+        workerIds: ["operations-assistant", "note-librarian"],
+        writeConfirmation: "on-ambiguity",
+      },
+    });
+    expect(victor?.orchestration?.workerIds).not.toContain("dev-assistant");
+
+    const operationsProject = loadProjectConfigs(defaultsDir).find((project) => project.id === "operations");
+    expect(operationsProject).toMatchObject({
+      defaultAgentId: "victor",
+      workerIds: ["operations-assistant", "note-librarian"],
+      toolContractIds: ["linear", "obsidian"],
+    });
+
+    const operationsWorker = loadWorkerConfigs(defaultsDir).find((worker) => worker.id === "operations-assistant");
+    expect(operationsWorker).toMatchObject({
+      type: "operations",
+      ownerAgentId: "victor",
+      toolContractIds: ["linear", "obsidian", "memory_search", "memory_add", "memory_reflect"],
+    });
+  });
+
   it("parses per-agent access policy fields", () => {
     const dir = createTempConfigDir();
     fs.writeFileSync(
@@ -232,7 +267,7 @@ describe("loadAgentConfigs", () => {
       path.join(dir, "agents", "victor.yaml"),
       [
         "id: victor",
-        "type: developer",
+        "type: operations",
         "provider:",
         "  default: claude-oauth",
         "  model: opus",

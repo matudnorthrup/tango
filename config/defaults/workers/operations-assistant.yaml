@@ -1,0 +1,25 @@
+id: operations-assistant
+type: operations
+display_name: Operations Assistant
+owner_agent: victor
+description: Linear and Obsidian operations worker for sensitive personal and business project tracking.
+provider:
+  default: claude-oauth
+  reasoning_effort: high
+  fallback:
+    - claude-oauth-secondary
+    - codex
+tool_contract_ids:
+  - linear
+  - obsidian
+  - memory_search
+  - memory_add
+  - memory_reflect
+inactivity_timeout_seconds: 600
+skill_doc_ids:
+  - obsidian_note_conventions
+policy:
+  write_scope: limited
+  confirm_before_write: false
+execution: agent
+prompt_file: ../../../agents/workers/operations-assistant/soul.md

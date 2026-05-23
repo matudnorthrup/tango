@@ -120,10 +120,11 @@ function createDeterministicRegistry(): CapabilityRegistry {
     },
     {
       id: "victor",
-      type: "developer",
+      type: "operations",
       provider: { default: "codex" },
+      defaultProject: "operations",
       orchestration: {
-        workerIds: ["dev-assistant", "note-librarian"],
+        workerIds: ["operations-assistant", "note-librarian"],
       },
     },
     {
@@ -155,6 +156,12 @@ function createDeterministicRegistry(): CapabilityRegistry {
     {
       id: "wellness",
       workerIds: ["nutrition-logger", "health-analyst", "workout-recorder", "note-librarian"],
+    },
+    {
+      id: "operations",
+      defaultAgentId: "victor",
+      workerIds: ["operations-assistant", "note-librarian"],
+      toolContractIds: ["linear", "obsidian"],
     },
   ];
   const workers: WorkerConfig[] = [
@@ -189,15 +196,58 @@ function createDeterministicRegistry(): CapabilityRegistry {
       provider: { default: "codex" },
     },
     {
-      id: "dev-assistant",
-      type: "developer",
+      id: "operations-assistant",
+      type: "operations",
       ownerAgentId: "victor",
       provider: { default: "codex" },
+      toolContractIds: ["linear", "obsidian", "memory_search", "memory_add", "memory_reflect"],
     },
     {
       id: "note-librarian",
       type: "librarian",
       provider: { default: "codex" },
+    },
+  ];
+  const toolContracts = [
+    {
+      id: "linear",
+      family: "linear",
+      description: "Linear project and issue operations.",
+      ownerWorkerId: "operations-assistant",
+      mode: "write" as const,
+      integration: { system: "linear", target: "workspace" },
+    },
+    {
+      id: "obsidian",
+      family: "obsidian",
+      description: "Obsidian vault operations.",
+      ownerWorkerId: "operations-assistant",
+      mode: "write" as const,
+      integration: { system: "obsidian", target: "vault" },
+    },
+    {
+      id: "memory_search",
+      family: "memory",
+      description: "Search durable memory.",
+      ownerWorkerId: "operations-assistant",
+      mode: "read" as const,
+      integration: { system: "memory", target: "atlas" },
+    },
+    {
+      id: "memory_add",
+      family: "memory",
+      description: "Add durable memory.",
+      ownerWorkerId: "operations-assistant",
+      mode: "write" as const,
+      integration: { system: "memory", target: "atlas" },
+    },
+    {
+      id: "memory_reflect",
+      family: "memory",
+      description: "Reflect on durable memory.",
+      ownerWorkerId: "operations-assistant",
+      mode: "write" as const,
+      integration: { system: "memory", target: "atlas" },
     },
   ];
   const workflows: WorkflowConfig[] = [
@@ -431,23 +481,37 @@ function createDeterministicRegistry(): CapabilityRegistry {
       examples: ["Update this Google Doc tab with the revised homepage copy."],
     },
     {
-      id: "engineering.repo_status",
-      domain: "engineering",
-      displayName: "Review Repo Status",
-      description: "Read and summarize the current git status, branch state, or dirty files in the Tango repo.",
+      id: "operations.project_review",
+      domain: "operations",
+      displayName: "Review Operations Project",
+      description: "Read and summarize Linear project status, milestones, blockers, and linked Obsidian context.",
       mode: "read",
-      route: { kind: "worker", targetId: "dev-assistant" },
-      examples: ["What's the current git status for the repo?"],
+      route: { kind: "worker", targetId: "operations-assistant" },
+      slots: [{ name: "project_query", required: true }],
+      examples: ["Review the Victor Operations Chief Linear project and summarize current blockers."],
     },
     {
-      id: "engineering.codebase_read",
-      domain: "engineering",
-      displayName: "Read Codebase",
-      description: "Read, summarize, or explain code, config, tests, or scripts in the Tango repo.",
+      id: "operations.project_update",
+      domain: "operations",
+      displayName: "Update Operations Project",
+      description: "Update Linear project or issue tracking records and capture supporting Obsidian or memory context.",
+      mode: "write",
+      route: { kind: "worker", targetId: "operations-assistant" },
+      slots: [
+        { name: "project_query", required: true },
+        { name: "change_request", required: true },
+      ],
+      examples: ["Update the Victor Operations Chief project with the validation plan."],
+    },
+    {
+      id: "operations.decision_packet",
+      domain: "operations",
+      displayName: "Prepare Decision Packet",
+      description: "Gather Linear, Obsidian, and memory context into a decision packet for an operations call.",
       mode: "read",
-      route: { kind: "worker", targetId: "dev-assistant" },
-      slots: [{ name: "target_query", required: true }],
-      examples: ["Read packages/discord/src/turn-executor.ts and explain deterministic routing"],
+      route: { kind: "worker", targetId: "operations-assistant" },
+      slots: [{ name: "decision_topic", required: true }],
+      examples: ["Prepare a decision packet for the separation operations milestone."],
     },
   ];
 
@@ -455,7 +519,7 @@ function createDeterministicRegistry(): CapabilityRegistry {
     agents,
     projects,
     workers,
-    toolContracts: [],
+    toolContracts,
     workflows,
     intentContracts,
   });
@@ -4350,39 +4414,38 @@ describe("createDiscordVoiceTurnExecutor", () => {
     expect(workerCalls[1]?.task).toContain("finance.budget_review");
   });
 
-  it("routes Victor repo-status and codebase-read turns through the deterministic runtime", async () => {
+  it("routes Victor operations project turns through the deterministic runtime", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       if (callNumber === 1) {
         return {
           text: JSON.stringify({
             intents: [
               {
-                intentId: "engineering.repo_status",
+                intentId: "operations.project_review",
                 confidence: 0.95,
                 entities: {
-                  focus: "git_status",
+                  project_query: "Victor Operations Chief",
                 },
-                rawEntities: ["git status", "repo"],
+                rawEntities: ["Victor Operations Chief"],
                 missingSlots: [],
                 canRunInParallel: true,
                 routeHint: {
                   kind: "worker",
-                  targetId: "dev-assistant",
+                  targetId: "operations-assistant",
                 },
               },
               {
-                intentId: "engineering.codebase_read",
+                intentId: "operations.decision_packet",
                 confidence: 0.93,
                 entities: {
-                  target_query: "config/agents/victor.yaml",
-                  focus: "deterministic routing",
+                  decision_topic: "validation milestone",
                 },
-                rawEntities: ["config/agents/victor.yaml", "deterministic routing"],
+                rawEntities: ["validation milestone"],
                 missingSlots: [],
                 canRunInParallel: true,
                 routeHint: {
                   kind: "worker",
-                  targetId: "dev-assistant",
+                  targetId: "operations-assistant",
                 },
               },
             ],
@@ -4392,7 +4455,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
       }
 
       return {
-        text: "The repo is currently dirty, and victor.yaml enables deterministic routing with low-effort classification fallback.",
+        text: "The Victor Operations Chief project is in validation with a decision packet ready for review.",
         metadata: { model: "gpt-5.4" },
       };
     });
@@ -4416,20 +4479,20 @@ describe("createDiscordVoiceTurnExecutor", () => {
         buildWarmStartContextPrompt: () => undefined,
         executeWorkerWithTask: async (workerId, task) => {
           workerCalls.push({ workerId, task });
-          if (task.includes("engineering.repo_status")) {
+          if (task.includes("operations.project_review")) {
             return {
               operations: [
                 {
-                  name: "tango_shell",
-                  toolNames: ["tango_shell"],
-                  input: { command: "git status --short --branch" },
-                  output: { branch: "main", dirty: true },
+                  name: "linear",
+                  toolNames: ["linear"],
+                  input: { operation: "project_review", query: "Victor Operations Chief" },
+                  output: { status: "Validation", blockers: [] },
                   mode: "read",
                 },
               ],
               hasWriteOperations: false,
               data: {
-                workerText: "Git status shows the branch is main with local modifications present.",
+                workerText: "Linear shows Victor Operations Chief in Validation with no open blockers.",
               },
             };
           }
@@ -4437,16 +4500,16 @@ describe("createDiscordVoiceTurnExecutor", () => {
           return {
             operations: [
               {
-                name: "tango_file",
-                toolNames: ["tango_file"],
-                input: { operation: "read", path: "config/agents/victor.yaml" },
+                name: "obsidian",
+                toolNames: ["obsidian"],
+                input: { operation: "read", query: "Victor Operations Chief validation notes" },
                 output: { found: true },
                 mode: "read",
               },
             ],
             hasWriteOperations: false,
             data: {
-              workerText: "config/agents/victor.yaml enables deterministic routing with engineering scope, an 0.8 threshold, and low-effort classifier fallback to Codex.",
+              workerText: "The decision packet summarizes validation evidence, remaining choices, and recommended next action.",
             },
           };
         },
@@ -4464,7 +4527,7 @@ describe("createDiscordVoiceTurnExecutor", () => {
       {
         sessionId: "victor-live-deterministic",
         agentId: "victor",
-        transcript: "What's the current git status and summarize what config/agents/victor.yaml says about deterministic routing?",
+        transcript: "Review the Victor Operations Chief project and prepare a decision packet for the validation milestone.",
         channelId: "channel-1",
         discordUserId: "user-1",
       },
@@ -4477,14 +4540,14 @@ describe("createDiscordVoiceTurnExecutor", () => {
       },
     );
 
-    expect(result.responseText).toContain("repo is currently dirty");
-    expect(result.responseText).toContain("deterministic routing");
+    expect(result.responseText).toContain("Victor Operations Chief");
+    expect(result.responseText).toContain("decision packet");
     expect(result.deterministicTurn?.state.routing.routeOutcome).toBe("executed");
     expect(result.deterministicTurn?.receipts).toHaveLength(2);
-    expect(result.deterministicTurn?.receipts.every((receipt) => receipt.workerId === "dev-assistant")).toBe(true);
+    expect(result.deterministicTurn?.receipts.every((receipt) => receipt.workerId === "operations-assistant")).toBe(true);
     expect(workerCalls).toHaveLength(2);
-    expect(workerCalls[0]?.task).toContain("engineering.repo_status");
-    expect(workerCalls[1]?.task).toContain("engineering.codebase_read");
+    expect(workerCalls[0]?.task).toContain("operations.project_review");
+    expect(workerCalls[1]?.task).toContain("operations.decision_packet");
   });
 
   it("can execute explicit deterministic intents without running the classifier", async () => {
