@@ -11,8 +11,17 @@ import { getSecret } from "./op-secret.js";
 let cachedApiKey: string | null = null;
 async function getApiKey(): Promise<string> {
   if (!cachedApiKey) {
-    const opKey = await getSecret("Watson", "Linear API key devin-watson");
-    if (!opKey) throw new Error("Linear API key not found in 1Password (Watson vault, item 'Linear API key devin-watson')");
+    const envKey = process.env.LINEAR_API_KEY?.trim();
+    const opKey =
+      envKey
+      || await getSecret("Watson", "Linear Seaside-HQ Tango API Key")
+      || await getSecret("Watson", "Linear API key devin-watson");
+    if (!opKey) {
+      throw new Error(
+        "Linear API key not found. Set LINEAR_API_KEY or add 1Password item " +
+        "'Linear Seaside-HQ Tango API Key' in the Watson vault.",
+      );
+    }
     cachedApiKey = opKey;
   }
   return cachedApiKey;
@@ -23,7 +32,7 @@ export function createLinearTools(): AgentTool[] {
     {
       name: "linear",
       description: [
-        "Linear GraphQL API for project management — issues, projects, cycles, documents, comments.",
+        "Linear GraphQL API for Tango project management in the Seaside HQ workspace — issues, projects, cycles, documents, comments.",
         "",
         "Endpoint: https://api.linear.app/graphql (POST)",
         "",

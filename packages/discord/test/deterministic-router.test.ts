@@ -41,10 +41,11 @@ function createRegistry(): CapabilityRegistry {
     },
     {
       id: "victor",
-      type: "developer",
+      type: "operations",
       provider: { default: "claude-oauth" },
+      defaultProject: "operations",
       orchestration: {
-        workerIds: ["dev-assistant", "note-librarian"],
+        workerIds: ["operations-assistant", "note-librarian"],
       },
     },
     {
@@ -76,6 +77,12 @@ function createRegistry(): CapabilityRegistry {
     {
       id: "wellness",
       workerIds: ["nutrition-logger", "workout-recorder", "recipe-librarian", "health-analyst", "note-librarian"],
+    },
+    {
+      id: "operations",
+      defaultAgentId: "victor",
+      workerIds: ["operations-assistant", "note-librarian"],
+      toolContractIds: ["linear", "obsidian"],
     },
   ];
   const workers: WorkerConfig[] = [
@@ -116,15 +123,58 @@ function createRegistry(): CapabilityRegistry {
       provider: { default: "claude-oauth" },
     },
     {
-      id: "dev-assistant",
-      type: "developer",
+      id: "operations-assistant",
+      type: "operations",
       ownerAgentId: "victor",
       provider: { default: "claude-oauth" },
+      toolContractIds: ["linear", "obsidian", "memory_search", "memory_add", "memory_reflect"],
     },
     {
       id: "note-librarian",
       type: "librarian",
       provider: { default: "claude-oauth" },
+    },
+  ];
+  const toolContracts = [
+    {
+      id: "linear",
+      family: "linear",
+      description: "Linear project and issue operations.",
+      ownerWorkerId: "operations-assistant",
+      mode: "write" as const,
+      integration: { system: "linear", target: "workspace" },
+    },
+    {
+      id: "obsidian",
+      family: "obsidian",
+      description: "Obsidian vault operations.",
+      ownerWorkerId: "operations-assistant",
+      mode: "write" as const,
+      integration: { system: "obsidian", target: "vault" },
+    },
+    {
+      id: "memory_search",
+      family: "memory",
+      description: "Search durable memory.",
+      ownerWorkerId: "operations-assistant",
+      mode: "read" as const,
+      integration: { system: "memory", target: "atlas" },
+    },
+    {
+      id: "memory_add",
+      family: "memory",
+      description: "Add durable memory.",
+      ownerWorkerId: "operations-assistant",
+      mode: "write" as const,
+      integration: { system: "memory", target: "atlas" },
+    },
+    {
+      id: "memory_reflect",
+      family: "memory",
+      description: "Reflect on durable memory.",
+      ownerWorkerId: "operations-assistant",
+      mode: "write" as const,
+      integration: { system: "memory", target: "atlas" },
     },
   ];
   const workflows: WorkflowConfig[] = [
@@ -624,23 +674,37 @@ function createRegistry(): CapabilityRegistry {
       examples: ["Catch me up on Slack."],
     },
     {
-      id: "engineering.repo_status",
-      domain: "engineering",
-      displayName: "Review Repo Status",
-      description: "Read and summarize the current git status, branch state, or dirty files in the Tango repo.",
+      id: "operations.project_review",
+      domain: "operations",
+      displayName: "Review Operations Project",
+      description: "Read and summarize Linear project status, milestones, blockers, and linked Obsidian context.",
       mode: "read",
-      route: { kind: "worker", targetId: "dev-assistant" },
-      examples: ["What's the current git status for the repo?"],
+      route: { kind: "worker", targetId: "operations-assistant" },
+      slots: [{ name: "project_query", required: true }],
+      examples: ["Review the Victor Operations Chief Linear project and summarize current blockers."],
     },
     {
-      id: "engineering.codebase_read",
-      domain: "engineering",
-      displayName: "Read Codebase",
-      description: "Read, summarize, or explain code, config, tests, or scripts in the Tango repo.",
+      id: "operations.project_update",
+      domain: "operations",
+      displayName: "Update Operations Project",
+      description: "Update Linear project or issue tracking records and capture supporting Obsidian or memory context.",
+      mode: "write",
+      route: { kind: "worker", targetId: "operations-assistant" },
+      slots: [
+        { name: "project_query", required: true },
+        { name: "change_request", required: true },
+      ],
+      examples: ["Update the Victor Operations Chief project with the validation plan."],
+    },
+    {
+      id: "operations.decision_packet",
+      domain: "operations",
+      displayName: "Prepare Decision Packet",
+      description: "Gather Linear, Obsidian, and memory context into a decision packet for an operations call.",
       mode: "read",
-      route: { kind: "worker", targetId: "dev-assistant" },
-      slots: [{ name: "target_query", required: true }],
-      examples: ["Read packages/discord/src/turn-executor.ts and explain deterministic routing"],
+      route: { kind: "worker", targetId: "operations-assistant" },
+      slots: [{ name: "decision_topic", required: true }],
+      examples: ["Prepare a decision packet for the separation operations milestone."],
     },
   ];
 
@@ -648,7 +712,7 @@ function createRegistry(): CapabilityRegistry {
     agents,
     projects,
     workers,
-    toolContracts: [],
+    toolContracts,
     workflows,
     intentContracts,
   });
@@ -2637,14 +2701,14 @@ describe("deterministic router", () => {
         expected: ["recipe_list", "recipe_read", "recipe_write", "atlas_sql", "fatsecret_api"],
       },
       {
-        label: "engineering.repo_status",
+        label: "operations.project_review",
         catalog: victorCatalog,
         envelope: makeEnvelope({
-          intentId: "engineering.repo_status",
+          intentId: "operations.project_review",
           mode: "read",
-          domain: "engineering",
+          domain: "operations",
         }),
-        expected: ["tango_shell", "tango_file"],
+        expected: ["linear", "obsidian", "memory_search"],
       },
       {
         label: "notes.note_update",
@@ -2718,52 +2782,54 @@ describe("deterministic router", () => {
     expect(result.plan?.steps[0]?.task).toContain("capture_email_reimbursement_evidence");
   });
 
-  it("builds Victor repo-status and codebase-read plans through the dev-assistant worker", () => {
+  it("builds Victor operations project plans through the operations-assistant worker", () => {
     const registry = createRegistry();
 
-    const engineeringCatalog = getDeterministicIntentCatalog({
+    const operationsCatalog = getDeterministicIntentCatalog({
       registry,
       agentId: "victor",
-      domain: "engineering",
+      domain: "operations",
     });
 
-    expect(engineeringCatalog.map((entry) => entry.id)).toEqual([
-      "engineering.codebase_read",
-      "engineering.repo_status",
+    expect(operationsCatalog.map((entry) => entry.id)).toEqual([
+      "operations.decision_packet",
+      "operations.project_review",
+      "operations.project_update",
     ]);
 
     const result = buildDeterministicExecutionPlan({
-      userMessage: "What's the current git status and summarize what config/agents/victor.yaml says about deterministic routing?",
+      userMessage: "Review the Victor Operations Chief project and prepare a decision packet for the validation milestone.",
       envelopes: [
         makeEnvelope({
-          intentId: "engineering.repo_status",
+          intentId: "operations.project_review",
           mode: "read",
-          domain: "engineering",
-          entities: { focus: "git_status" },
+          domain: "operations",
+          entities: { project_query: "Victor Operations Chief" },
         }),
         makeEnvelope({
-          intentId: "engineering.codebase_read",
+          intentId: "operations.decision_packet",
           mode: "read",
-          domain: "engineering",
+          domain: "operations",
           entities: {
-            target_query: "config/agents/victor.yaml",
-            focus: "deterministic routing",
+            decision_topic: "validation milestone",
           },
         }),
       ],
-      catalog: engineeringCatalog,
+      catalog: operationsCatalog,
       registry,
     });
 
     expect(result.outcome).toBe("executed");
     expect(result.plan?.steps).toHaveLength(2);
     expect(result.plan?.steps.map((step) => step.workerId)).toEqual([
-      "dev-assistant",
-      "dev-assistant",
+      "operations-assistant",
+      "operations-assistant",
     ]);
     expect(result.plan?.steps.map((step) => step.dependsOn)).toEqual([[], []]);
-    expect(result.plan?.steps[0]?.task).toContain("engineering.repo_status");
-    expect(result.plan?.steps[1]?.task).toContain("engineering.codebase_read");
+    expect(result.plan?.steps[0]?.task).toContain("operations.project_review");
+    expect(result.plan?.steps[1]?.task).toContain("operations.decision_packet");
+    expect(result.plan?.steps[0]?.task).toContain("Victor Operations Chief");
+    expect(result.plan?.steps[1]?.task).toContain("validation milestone");
     expect(result.plan?.steps[0]?.task).toContain("READ-ONLY step");
     expect(result.plan?.steps[1]?.task).toContain("READ-ONLY step");
   });

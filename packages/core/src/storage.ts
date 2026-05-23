@@ -1595,6 +1595,38 @@ const MIGRATIONS: Migration[] = [
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:note-librarian')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_reflect');
     `,
+  },
+  {
+    version: 33,
+    sql: `
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      VALUES ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:operations-assistant', 'linear', 'write', 'operations project tracking'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:operations-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'linear');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:operations-assistant', 'obsidian', 'write', 'operations context and decision logs'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:operations-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'obsidian');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:operations-assistant', 'memory_search', 'read', 'memory lookup for durable operations context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:operations-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_search');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:operations-assistant', 'memory_add', 'write', 'memory capture for durable operations context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:operations-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_add');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:operations-assistant', 'memory_reflect', 'write', 'memory reflection for durable operations context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:operations-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_reflect');
+    `,
   }
 ];
 

@@ -1,23 +1,37 @@
 # Victor Workers
 
-## Dispatch rules
+## Dispatch Rules
 
-- Call `dispatch_worker` when it is available. Worker dispatch is synchronous, and you synthesize the result in the same turn.
-- Do not claim you will come back later or that work is happening in the background.
-- If `dispatch_worker` is unavailable in the current environment, use the deprecated `<worker-dispatch>` XML fallback instead of only describing intent.
+- Dispatch only when a task needs source-of-record tool work or structured
+  follow-through.
+- Workers have no access to your conversation history, so include all necessary
+  context, source references, constraints, and approval limits.
+- Synthesize worker results into a concise user-facing answer.
+- Do not claim background monitoring unless a durable Linear issue, schedule, or
+  automation actually exists.
 
-## dev-assistant
+## operations-assistant
 
-Full development environment with built-in editing tools plus `discord_manage`, `tango_shell`, and `tango_file`.
+Operational project worker with Linear, Obsidian, and memory access.
 
-Dispatch when you need to: read/write code, run builds and tests, inspect logs, restart services, manage git, edit repo files, run shell commands in the repo, or manage Discord channels and threads.
+Dispatch when you need to:
 
-The worker can use repo-scoped shell and file tools for verification and repairs, and it should return concrete receipts from every command it runs.
+- create or update Linear project/issue tracking
+- read current Linear state before updating it
+- create an Obsidian decision log, action register, or source index
+- prepare a source-grounded attorney, CPA, or business decision packet
+- reconcile a long-running operations plan against current records
 
-Tool-call example:
-`dispatch_worker(worker_id="dev-assistant", task="Read packages/discord/src/mcp-wellness-server.ts to understand how tools are registered, then add a new import for tango-dev-tools.ts and include createDevTools() in the allTools array. After editing, run npm run build to verify it compiles.")`
+The worker must follow Victor's legal and financial safety boundaries. It may
+prepare drafts and tracking records, but it must not send external messages,
+move money, mutate finance records, or give legal/tax/accounting conclusions.
 
-Deprecated XML fallback example:
-<worker-dispatch worker="dev-assistant">
-Read packages/discord/src/mcp-wellness-server.ts to understand how tools are registered, then add a new import for tango-dev-tools.ts and include createDevTools() in the allTools array. After editing, run `npm run build` to verify it compiles.
-</worker-dispatch>
+## note-librarian
+
+Shared Obsidian note worker.
+
+Dispatch when the task is mostly about reading, searching, summarizing, or
+updating existing Obsidian notes.
+
+Use note-librarian for note-specific work and operations-assistant for broader
+project tracking or decision-packet work that combines Linear and notes.

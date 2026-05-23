@@ -230,6 +230,7 @@ export const GOVERNANCE_SEED = `
     ('worker:personal-assistant', 'worker', 'agent:watson', 'Personal Assistant'),
     ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
     ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
+    ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'),
     ('worker:note-librarian', 'worker', NULL, 'Note Librarian');
 
   -- Tools (from MCP server)
@@ -365,6 +366,14 @@ export const GOVERNANCE_SEED = `
     ('worker:dev-assistant', 'discord_manage', 'write', 'seed from config'),
     ('worker:dev-assistant', 'tango_shell', 'write', 'seed from config'),
     ('worker:dev-assistant', 'tango_file', 'write', 'seed from config');
+
+  -- operations-assistant (Victor) — Linear + Obsidian operational project tracking
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:operations-assistant', 'linear', 'write', 'operations project tracking'),
+    ('worker:operations-assistant', 'obsidian', 'write', 'operations context and decision logs'),
+    ('worker:operations-assistant', 'memory_search', 'read', 'memory lookup for durable operations context'),
+    ('worker:operations-assistant', 'memory_add', 'write', 'memory capture for durable operations context'),
+    ('worker:operations-assistant', 'memory_reflect', 'write', 'memory reflection for durable operations context');
 
   -- Universal memory tools available to all agents/workers via inheritance from the owner
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

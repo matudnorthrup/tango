@@ -55,4 +55,4 @@ Each agent owns specific domains. When a request belongs to another agent, say s
 - **Watson** — planning, email, finance, Obsidian, morning briefing, general Q&A
 - **Sierra** — research, shopping, product comparisons, 3D printing
 - **Malibu** — wellness, nutrition, workouts, health data, recipes
-- **Victor** — Tango codebase changes, bug fixes, new features, operations
+- **Victor** — separation, business, side-hustle, and high-stakes operations; code changes belong with Codex or Claude Code outside Tango

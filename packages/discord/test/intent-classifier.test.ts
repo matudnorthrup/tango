@@ -473,23 +473,37 @@ const catalog: DeterministicIntentCatalogEntry[] = [
     examples: ["Catch me up on Slack."],
   },
   {
-    id: "engineering.repo_status",
-    domain: "engineering",
-    displayName: "Review Repo Status",
-    description: "Read and summarize the current git status, branch state, or dirty files in the Tango repo.",
+    id: "operations.project_review",
+    domain: "operations",
+    displayName: "Review Operations Project",
+    description: "Read and summarize Linear project status, milestones, blockers, and linked Obsidian context.",
     mode: "read",
-    route: { kind: "worker", targetId: "dev-assistant" },
-    examples: ["What's the current git status for the repo?"],
+    route: { kind: "worker", targetId: "operations-assistant" },
+    examples: ["Review the Victor Operations Chief Linear project and summarize current blockers."],
+    slots: [{ name: "project_query", required: true }],
   },
   {
-    id: "engineering.codebase_read",
-    domain: "engineering",
-    displayName: "Read Codebase",
-    description: "Read, summarize, or explain code, config, tests, or scripts in the Tango repo.",
+    id: "operations.project_update",
+    domain: "operations",
+    displayName: "Update Operations Project",
+    description: "Update Linear project or issue tracking records and capture supporting Obsidian or memory context.",
+    mode: "write",
+    route: { kind: "worker", targetId: "operations-assistant" },
+    examples: ["Update the Victor Operations Chief project with the validation plan."],
+    slots: [
+      { name: "project_query", required: true },
+      { name: "change_request", required: true },
+    ],
+  },
+  {
+    id: "operations.decision_packet",
+    domain: "operations",
+    displayName: "Prepare Decision Packet",
+    description: "Gather Linear, Obsidian, and memory context into a decision packet for an operations call.",
     mode: "read",
-    route: { kind: "worker", targetId: "dev-assistant" },
-    examples: ["Read packages/discord/src/turn-executor.ts and explain deterministic routing"],
-    slots: [{ name: "target_query", required: true }],
+    route: { kind: "worker", targetId: "operations-assistant" },
+    examples: ["Prepare a decision packet for the separation operations milestone."],
+    slots: [{ name: "decision_topic", required: true }],
   },
 ];
 
@@ -1881,49 +1895,48 @@ describe("classifyDeterministicIntents", () => {
     });
   });
 
-  it("classifies Victor repo-status and codebase-read requests", async () => {
+  it("classifies Victor operations project requests", async () => {
     const provider = new ScriptedProvider((callNumber) => {
       const cases = [
         responseWithIntents([
           {
-            intentId: "engineering.repo_status",
+            intentId: "operations.project_review",
             confidence: 0.95,
-            entities: { focus: "git_status" },
-            rawEntities: ["git status", "repo"],
+            entities: { project_query: "Victor Operations Chief" },
+            rawEntities: ["Victor Operations Chief"],
             missingSlots: [],
             canRunInParallel: true,
           },
         ]),
         responseWithIntents([
           {
-            intentId: "engineering.codebase_read",
+            intentId: "operations.project_update",
             confidence: 0.94,
             entities: {
-              target_query: "config/agents/victor.yaml",
-              focus: "deterministic routing",
+              project_query: "Victor Operations Chief",
+              change_request: "validation plan",
             },
-            rawEntities: ["config/agents/victor.yaml", "deterministic routing"],
+            rawEntities: ["Victor Operations Chief", "validation plan"],
             missingSlots: [],
-            canRunInParallel: true,
+            canRunInParallel: false,
           },
         ]),
         responseWithIntents([
           {
-            intentId: "engineering.repo_status",
+            intentId: "operations.project_review",
             confidence: 0.93,
-            entities: { focus: "git_status" },
-            rawEntities: ["git status"],
+            entities: { project_query: "Victor Operations Chief" },
+            rawEntities: ["Victor Operations Chief"],
             missingSlots: [],
             canRunInParallel: true,
           },
           {
-            intentId: "engineering.codebase_read",
+            intentId: "operations.decision_packet",
             confidence: 0.92,
             entities: {
-              target_query: "config/agents/victor.yaml",
-              focus: "deterministic routing",
+              decision_topic: "validation milestone",
             },
-            rawEntities: ["config/agents/victor.yaml", "deterministic routing"],
+            rawEntities: ["validation milestone"],
             missingSlots: [],
             canRunInParallel: true,
           },
@@ -1934,16 +1947,16 @@ describe("classifyDeterministicIntents", () => {
 
     const benchmarkCases = [
       {
-        input: "What's the current git status for the repo?",
-        expectedIntents: ["engineering.repo_status"],
+        input: "Review the Victor Operations Chief project in Linear.",
+        expectedIntents: ["operations.project_review"],
       },
       {
-        input: "Summarize what config/agents/victor.yaml says about deterministic routing.",
-        expectedIntents: ["engineering.codebase_read"],
+        input: "Update the Victor Operations Chief project with the validation plan.",
+        expectedIntents: ["operations.project_update"],
       },
       {
-        input: "What's the current git status and summarize what config/agents/victor.yaml says about deterministic routing?",
-        expectedIntents: ["engineering.repo_status", "engineering.codebase_read"],
+        input: "Review the Victor Operations Chief project and prepare a decision packet for the validation milestone.",
+        expectedIntents: ["operations.project_review", "operations.decision_packet"],
       },
     ] as const;
 
@@ -1959,7 +1972,7 @@ describe("classifyDeterministicIntents", () => {
 
       expect(result.meetsThreshold).toBe(true);
       expect(result.envelopes.map((envelope) => envelope.intentId)).toEqual(benchmark.expectedIntents);
-      expect(result.envelopes.every((envelope) => envelope.domain === "engineering")).toBe(true);
+      expect(result.envelopes.every((envelope) => envelope.domain === "operations")).toBe(true);
     }
   });
 

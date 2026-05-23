@@ -168,22 +168,22 @@ const CONTINUATION_CASES: readonly ContinuationSmokeCase[] = [
     responsePatterns: [/printer|mk4|printing|idle|status|minutes left|temps?|nozzle|bed|\bdone\b/i],
   },
   {
-    id: "victor-codebase-read",
+    id: "victor-operations-project-review",
     agentId: "victor",
     sessionId: "victor-live-deterministic",
     threadName: "codex-victor-continuation-live",
-    transcript: "yeah, check that file",
-    title: "Review victor routing config",
-    objective: "Read config/agents/victor.yaml and summarize what it says about deterministic routing.",
-    ownerWorkerId: "dev-assistant",
-    intentIds: ["engineering.codebase_read"],
-    clarificationQuestion: "Want me to check victor.yaml and summarize the deterministic routing bits?",
-    suggestedNextAction: "Confirm the codebase read.",
+    transcript: "yeah, review that project",
+    title: "Review Victor Operations Chief project",
+    objective: "Review the Victor Operations Chief project in Linear and summarize status, blockers, and next actions.",
+    ownerWorkerId: "operations-assistant",
+    intentIds: ["operations.project_review"],
+    clarificationQuestion: "Want me to review the Victor Operations Chief project?",
+    suggestedNextAction: "Confirm the operations project review.",
     structuredContext: {
-      targetQuery: "config/agents/victor.yaml",
-      focus: "deterministic routing",
+      projectQuery: "Victor Operations Chief",
+      focus: "status blockers next actions",
     },
-    responsePatterns: [/deterministic routing|victor\.yaml|agent/i],
+    responsePatterns: [/Victor Operations Chief|Linear|project|status|blockers?|next actions?/i],
   },
 ];
 
@@ -196,7 +196,7 @@ const SUITES: Record<string, readonly string[]> = {
     "watson-calendar-review",
     "sierra-note-read",
     "sierra-printer-status",
-    "victor-codebase-read",
+    "victor-operations-project-review",
   ],
 };
 
