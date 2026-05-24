@@ -14,7 +14,7 @@ import {
 import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
-import { fork, execSync, type ChildProcess } from "node:child_process";
+import { fork, execFileSync, execSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { request as httpRequest, createServer as createHttpServer } from "node:http";
 import {
@@ -1275,6 +1275,37 @@ registerDeterministicHandler("memory-index-obsidian", async (_ctx) => {
       removedFileCount: result.removedFileCount,
       insertedMemoryCount: result.insertedMemoryCount,
       deletedMemoryCount: result.deletedMemoryCount,
+    },
+  };
+});
+
+registerDeterministicHandler("vault-daily-check", async (_ctx) => {
+  const rawResult = execFileSync(
+    "npm",
+    ["run", "-s", "vault:daily-check", "--", "--db-path", dbPath, "--json"],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: { ...process.env, TANGO_DB_PATH: dbPath },
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  ).trim();
+  const result = JSON.parse(rawResult) as {
+    summary?: string;
+    reportPath?: string | null;
+    logPath?: string | null;
+    firstRun?: boolean;
+    counts?: Record<string, unknown>;
+  };
+
+  return {
+    status: "ok",
+    summary: result.summary ?? "Vault daily check completed",
+    data: {
+      reportPath: result.reportPath,
+      logPath: result.logPath,
+      firstRun: result.firstRun,
+      counts: result.counts,
     },
   };
 });

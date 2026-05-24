@@ -11,6 +11,7 @@ coverage/
 data/imports/
 data/browser-profile/
 data/reports/
+data/state/
 data/tango.db
 data/tango.db-shm
 data/tango.db-wal
