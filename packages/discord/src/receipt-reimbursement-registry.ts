@@ -85,7 +85,7 @@ export interface UpsertWalmartReimbursementInput {
   submitted?: string;
   note?: string;
   evidencePath?: string;
-  rampReportId?: string;
+  rampReportId?: string | null;
 }
 
 export interface BackfillWalmartReceiptInput {
@@ -229,7 +229,7 @@ function renderBackfilledWalmartReceipt(input: BackfillWalmartReceiptInput): str
     `- Amount: ${reimbursementAmount}`,
   );
   if (tip > 0) {
-    lines.push("- Note: executive buy back time");
+    lines.push("- Note: Exec Buy Back Time");
   } else {
     lines.push("- Note: no driver tip on order detail");
   }
@@ -277,6 +277,9 @@ function buildReimbursementMatchKey(date: string | undefined, amount: number | u
 
 function deriveReceiptStatusFromRampStatus(value: string | undefined): string {
   const normalized = normalizeStatus(value);
+  if (normalized === "draft") {
+    return "draft";
+  }
   if (normalized === "paid") {
     return "reimbursed";
   }
@@ -381,6 +384,8 @@ export function parseWalmartReceiptMarkdown(filePath: string, markdown: string):
     .replace(/\\/gu, "/");
   const orderId =
     /^#\s+Walmart Order\s+(.+)$/mu.exec(markdown)?.[1]?.trim()
+    ?? /-\s+\*\*Order\s*#:\*\*\s+(.+)$/imu.exec(markdown)?.[1]?.trim()
+    ?? /-\s+Order\s*#:\s+(.+)$/imu.exec(markdown)?.[1]?.trim()
     ?? /Order\s+([^./]+)\.md$/u.exec(path.basename(filePath))?.[1]?.trim()
     ?? path.basename(filePath, ".md");
   const date = /-\s+\*\*Date:\*\*\s+([0-9]{4}-[0-9]{2}-[0-9]{2})/u.exec(markdown)?.[1];
@@ -542,6 +547,22 @@ function reimbursementTrackingNeedsSync(
     || current.reimbursement.rampReportId !== verified.reimbursement.rampReportId;
 }
 
+function clearStaleDraftTracking(record: WalmartReceiptRecord): WalmartReceiptRecord {
+  if (normalizeStatus(record.reimbursement.status) !== "draft") {
+    return record;
+  }
+
+  return {
+    ...record,
+    reimbursement: {
+      ...record.reimbursement,
+      status: "not_submitted",
+      submitted: undefined,
+      rampReportId: undefined,
+    },
+  };
+}
+
 export function reconcileWalmartReimbursementsAgainstRamp(
   input: ReconcileWalmartReimbursementsInput,
 ): ReconcileWalmartReimbursementsResult {
@@ -590,11 +611,30 @@ export function reconcileWalmartReimbursementsAgainstRamp(
     }
 
     if (!historyRecord) {
-      records.push(candidate);
+      const verifiedPending = clearStaleDraftTracking(candidate);
+      const shouldSync = reimbursementTrackingNeedsSync(candidate, verifiedPending);
+      const reconciled =
+        input.updateNotes === true && shouldSync
+          ? upsertWalmartReimbursementTracking({
+              notePath: candidate.filePath,
+              status: verifiedPending.reimbursement.status ?? "not_submitted",
+              system: verifiedPending.reimbursement.system,
+              reimbursableItem: verifiedPending.reimbursement.reimbursableItem,
+              amount: verifiedPending.reimbursement.amount,
+              submitted: verifiedPending.reimbursement.submitted,
+              note: verifiedPending.reimbursement.note,
+              rampReportId: verifiedPending.reimbursement.rampReportId ?? null,
+            })
+          : verifiedPending;
+
+      records.push(reconciled);
       if (hasCompletedReimbursementStatus(candidate.reimbursement.status)) {
         unverifiedSubmitted.push(candidate);
       } else {
-        pending.push(candidate);
+        pending.push(reconciled);
+      }
+      if (input.updateNotes === true && shouldSync) {
+        updated.push(reconciled);
       }
       continue;
     }
@@ -641,7 +681,7 @@ export function reconcileWalmartReimbursementsAgainstRamp(
     unverifiedSubmitted,
     updated,
     notesExamined: candidates.length,
-    historyEntriesExamined: historyEntries.length,
+    historyEntriesExamined: input.history.length,
   };
 }
 
@@ -744,7 +784,9 @@ export function upsertWalmartReimbursementTracking(
     evidenceCaptureMode: evidenceRecord?.captureMode ?? currentRecord.reimbursement.evidenceCaptureMode,
     evidenceDateVisible: evidenceRecord?.dateVisible ?? currentRecord.reimbursement.evidenceDateVisible,
     evidenceDateText: evidenceRecord?.visibleDateText?.join(", ") ?? currentRecord.reimbursement.evidenceDateText,
-    rampReportId: input.rampReportId ?? evidenceRecord?.rampReportId ?? currentRecord.reimbursement.rampReportId,
+    rampReportId: input.rampReportId !== undefined
+      ? input.rampReportId ?? undefined
+      : evidenceRecord?.rampReportId ?? currentRecord.reimbursement.rampReportId,
     rampConfirmationPath: evidenceRecord?.rampConfirmationPath ?? currentRecord.reimbursement.rampConfirmationPath,
     lastUpdated: new Date().toISOString(),
   };

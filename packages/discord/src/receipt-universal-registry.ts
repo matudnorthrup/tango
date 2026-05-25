@@ -77,7 +77,7 @@ export interface UpsertReimbursementTrackingInput {
   submitted?: string;
   note?: string;
   evidencePath?: string;
-  rampReportId?: string;
+  rampReportId?: string | null;
 }
 
 export interface CheckSubmissionDedupInput {
@@ -279,6 +279,9 @@ function hasCompletedReimbursementStatus(value: string | undefined): boolean {
 
 function deriveReceiptStatusFromRampStatus(value: string | undefined): string {
   const normalized = normalizeStatus(value);
+  if (normalized === "draft") {
+    return "draft";
+  }
   if (normalized === "paid") {
     return "reimbursed";
   }
@@ -424,6 +427,87 @@ export function renderReimbursementSection(state: ReceiptReimbursementState): st
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+function renderFrontmatterScalar(value: string | number | boolean | null): string {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "number") {
+    return value.toFixed(2);
+  }
+  if (/^[A-Za-z0-9_.\/ -]+$/u.test(value)) {
+    return value;
+  }
+  return JSON.stringify(value);
+}
+
+function upsertSimpleFrontmatterFields(markdown: string, fields: Record<string, string | number | boolean | null>): string {
+  const lines = markdown.replace(/\r\n/gu, "\n").split("\n");
+  let frontmatterStart = -1;
+  let frontmatterEnd = -1;
+
+  if (lines[0]?.trim() === "---") {
+    frontmatterStart = 0;
+    frontmatterEnd = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  }
+
+  if (frontmatterStart === -1 || frontmatterEnd === -1) {
+    const renderedFields = Object.entries(fields)
+      .map(([key, value]) => `${key}: ${renderFrontmatterScalar(value)}`)
+      .join("\n");
+    return `---\n${renderedFields}\n---\n${markdown.replace(/^\n+/u, "")}`;
+  }
+
+  const existing = lines.slice(frontmatterStart + 1, frontmatterEnd);
+  const consumed = new Set<string>();
+  const updated = existing.map((line) => {
+    const match = /^([A-Za-z0-9_-]+):(?:\s.*)?$/u.exec(line);
+    const key = match?.[1];
+    if (!key || !(key in fields)) {
+      return line;
+    }
+    consumed.add(key);
+    return `${key}: ${renderFrontmatterScalar(fields[key]!)}`;
+  });
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (!consumed.has(key)) {
+      updated.push(`${key}: ${renderFrontmatterScalar(value)}`);
+    }
+  }
+
+  return [
+    ...lines.slice(0, frontmatterStart + 1),
+    ...updated,
+    ...lines.slice(frontmatterEnd),
+  ].join("\n");
+}
+
+function shouldMarkReceiptReimbursable(state: ReceiptReimbursementState): boolean {
+  const status = normalizeStatus(state.status);
+  return status !== "not_applicable" && state.amount != null && Number.isFinite(state.amount) && state.amount > 0;
+}
+
+function upsertReimbursementFrontmatter(
+  markdown: string,
+  record: UniversalReceiptRecord,
+  state: ReceiptReimbursementState,
+): string {
+  if (!shouldMarkReceiptReimbursable(state)) {
+    return markdown;
+  }
+
+  return upsertSimpleFrontmatterFields(markdown, {
+    reimbursable: true,
+    ramp_submitted: state.submitted ?? null,
+    ramp_report_id: state.rampReportId ?? null,
+    merchant: record.merchant,
+    amount: state.amount ?? record.reimbursableAmount ?? record.total ?? 0,
+  });
 }
 
 function resolveReimbursementConfigPath(): string {
@@ -974,6 +1058,22 @@ function reimbursementTrackingNeedsSync(
     || current.reimbursement.rampReportId !== verified.reimbursement.rampReportId;
 }
 
+function clearStaleDraftTracking(record: UniversalReceiptRecord): UniversalReceiptRecord {
+  if (normalizeStatus(record.reimbursement.status) !== "draft") {
+    return record;
+  }
+
+  return {
+    ...record,
+    reimbursement: {
+      ...record.reimbursement,
+      status: "not_submitted",
+      submitted: undefined,
+      rampReportId: undefined,
+    },
+  };
+}
+
 function findBestHistoryMatch(
   record: UniversalReceiptRecord,
   history: RampReimbursementHistoryRecord[],
@@ -1051,7 +1151,9 @@ export function upsertReimbursementTracking(
     evidenceDateVisible: evidenceRecord?.dateVisible ?? currentRecord.reimbursement.evidenceDateVisible,
     evidenceDateText:
       evidenceRecord?.visibleDateText?.join(", ") ?? currentRecord.reimbursement.evidenceDateText,
-    rampReportId: input.rampReportId ?? evidenceRecord?.rampReportId ?? currentRecord.reimbursement.rampReportId,
+    rampReportId: input.rampReportId !== undefined
+      ? input.rampReportId ?? undefined
+      : evidenceRecord?.rampReportId ?? currentRecord.reimbursement.rampReportId,
     rampConfirmationPath:
       evidenceRecord?.rampConfirmationPath ?? currentRecord.reimbursement.rampConfirmationPath,
     lastUpdated: new Date().toISOString(),
@@ -1069,6 +1171,8 @@ export function upsertReimbursementTracking(
   } else {
     updated = `${current.trimEnd()}\n\n${renderedSection}`;
   }
+
+  updated = upsertReimbursementFrontmatter(updated, currentRecord, nextState);
 
   fs.writeFileSync(filePath, updated.endsWith("\n") ? updated : `${updated}\n`, "utf8");
   return parseReceiptRecord(filePath, fs.readFileSync(filePath, "utf8"));
@@ -1158,11 +1262,31 @@ export function reconcileUniversalReimbursements(
   for (const candidate of candidates) {
     const match = findBestHistoryMatch(candidate, remainingHistory);
     if (!match) {
-      records.push(candidate);
+      const verifiedPending = clearStaleDraftTracking(candidate);
+      const shouldSync = reimbursementTrackingNeedsSync(candidate, verifiedPending);
+      const reconciled =
+        input.updateNotes === true && shouldSync
+          ? upsertReimbursementTracking({
+              notePath: candidate.filePath,
+              vendor: candidate.vendorKey,
+              status: verifiedPending.reimbursement.status ?? "not_submitted",
+              system: verifiedPending.reimbursement.system,
+              reimbursableItem: verifiedPending.reimbursement.reimbursableItem,
+              amount: verifiedPending.reimbursement.amount,
+              submitted: verifiedPending.reimbursement.submitted,
+              note: verifiedPending.reimbursement.note,
+              rampReportId: verifiedPending.reimbursement.rampReportId ?? null,
+            })
+          : verifiedPending;
+
+      records.push(reconciled);
       if (hasCompletedReimbursementStatus(candidate.reimbursement.status)) {
         unverifiedSubmitted.push(candidate);
       } else if (input.includeSubmitted !== true) {
-        pending.push(candidate);
+        pending.push(reconciled);
+      }
+      if (input.updateNotes === true && shouldSync) {
+        updated.push(reconciled);
       }
       continue;
     }

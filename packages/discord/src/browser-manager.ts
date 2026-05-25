@@ -9,7 +9,7 @@
  * real Chrome/Brave instance avoids automated-browser fingerprint detection.
  */
 
-import { chromium, type Browser, type Page } from "playwright-core";
+import { chromium, type Browser, type Locator, type Page } from "playwright-core";
 import { spawn, execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -102,6 +102,126 @@ function parseRampHistoryAmount(value: string | undefined): number | undefined {
   }
   const parsed = Number.parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function amountsMatch(left: number | undefined, right: number | undefined): boolean {
+  return left != null && right != null && Math.abs(left - right) < 0.01;
+}
+
+function normalizeRampMatchKey(value: string | undefined): string {
+  return value?.trim().toLowerCase().replace(/[^a-z0-9]+/gu, " ").replace(/\s+/gu, " ").trim() ?? "";
+}
+
+export function rampMerchantTextMatchesInput(currentValue: string | undefined, merchant: string): boolean {
+  const currentMerchant = normalizeRampMatchKey(currentValue);
+  if (!currentMerchant) {
+    return false;
+  }
+
+  const merchantCandidates = buildRampMerchantCandidates(merchant).map(normalizeRampMatchKey);
+  return merchantCandidates.some((candidate) =>
+    currentMerchant === candidate
+    || currentMerchant.includes(candidate)
+    || candidate.includes(currentMerchant)
+  );
+}
+
+export function rampDateTextMatchesInput(currentValue: string | undefined, expectedValue: string): boolean {
+  const currentDate = parseFlexibleDateToIso(currentValue?.trim() ?? "");
+  const expectedDate =
+    parseFlexibleDateToIso(expectedValue)
+    ?? parseFlexibleDateToIso(formatRampTransactionDate(expectedValue));
+
+  if (currentDate && expectedDate) {
+    return currentDate === expectedDate;
+  }
+
+  return (currentValue ?? "").trim() === expectedValue.trim();
+}
+
+function parseRampCurrentExpenseMerchantStatus(value: string | undefined): {
+  merchant: string;
+  status: string;
+  statusDetail?: string;
+} | null {
+  const normalized = normalizeRampHistoryCell(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = /^(?<merchant>.+?)(?<status>Draft|Paid|Approved|Rejected|Pending|Submitted|Awaiting reviewer|Needs review|Missing items)(?:\s*·\s*(?<detail>.+))?$/iu.exec(normalized);
+  const merchant = match?.groups?.merchant?.trim();
+  const status = match?.groups?.status?.trim();
+  if (!merchant || !status) {
+    return null;
+  }
+
+  return {
+    merchant,
+    status,
+    statusDetail: match?.groups?.detail?.trim(),
+  };
+}
+
+export function parseRampHistoryRecordFromRow(input: {
+  reviewUrl: string;
+  cells: string[];
+}): RampReimbursementHistoryRecord | null {
+  const reviewUrl = input.reviewUrl.trim();
+  if (!reviewUrl) {
+    return null;
+  }
+
+  const cell = (index: number): string | undefined => normalizeRampHistoryCell(input.cells[index]);
+  const currentMerchantStatus = parseRampCurrentExpenseMerchantStatus(cell(2));
+  const currentAmount = parseRampHistoryAmount(cell(3));
+  const currentTransactionDateText = cell(4);
+  if (currentMerchantStatus && currentAmount != null && currentTransactionDateText) {
+    const submittedDateText = cell(5);
+    return {
+      reviewUrl,
+      rampReportId: extractRampReimbursementIdFromUrl(reviewUrl) ?? undefined,
+      status: currentMerchantStatus.status,
+      merchant: currentMerchantStatus.merchant,
+      amount: currentAmount,
+      transactionDate: parseFlexibleDateToIso(currentTransactionDateText) ?? currentTransactionDateText,
+      submittedDate: submittedDateText ? parseFlexibleDateToIso(submittedDateText) ?? submittedDateText : undefined,
+      entity: currentMerchantStatus.statusDetail,
+      receipt: cell(7),
+      memo: cell(8),
+      flags: cell(10),
+    };
+  }
+
+  const submittedDateText = cell(5);
+  const transactionDateText = cell(6);
+  const reviewedDateText = cell(7);
+  const expectedPaymentDateText = cell(25);
+  const deliveredPaymentDateText = cell(26);
+
+  return {
+    reviewUrl,
+    rampReportId: extractRampReimbursementIdFromUrl(reviewUrl) ?? undefined,
+    user: cell(2),
+    status: cell(3),
+    receipt: cell(4),
+    submittedDate: submittedDateText ? parseFlexibleDateToIso(submittedDateText) ?? submittedDateText : undefined,
+    transactionDate: transactionDateText ? parseFlexibleDateToIso(transactionDateText) ?? transactionDateText : undefined,
+    reviewedDate: reviewedDateText ? parseFlexibleDateToIso(reviewedDateText) ?? reviewedDateText : undefined,
+    merchant: cell(8),
+    amount: parseRampHistoryAmount(cell(9)),
+    statementAmount: parseRampHistoryAmount(cell(10)),
+    entity: cell(11),
+    flags: cell(12),
+    memo: cell(13),
+    reviewer: cell(24),
+    expectedPaymentDate: expectedPaymentDateText
+      ? parseFlexibleDateToIso(expectedPaymentDateText) ?? expectedPaymentDateText
+      : undefined,
+    deliveredPaymentDate: deliveredPaymentDateText
+      ? parseFlexibleDateToIso(deliveredPaymentDateText) ?? deliveredPaymentDateText
+      : undefined,
+  };
 }
 
 function evidencePathLooksImage(filePath: string): boolean {
@@ -1470,41 +1590,7 @@ export class BrowserManager {
     reviewUrl: string;
     cells: string[];
   }): RampReimbursementHistoryRecord | null {
-    const reviewUrl = input.reviewUrl.trim();
-    if (!reviewUrl) {
-      return null;
-    }
-
-    const cell = (index: number): string | undefined => normalizeRampHistoryCell(input.cells[index]);
-    const submittedDateText = cell(5);
-    const transactionDateText = cell(6);
-    const reviewedDateText = cell(7);
-    const expectedPaymentDateText = cell(25);
-    const deliveredPaymentDateText = cell(26);
-
-    return {
-      reviewUrl,
-      rampReportId: extractRampReimbursementIdFromUrl(reviewUrl) ?? undefined,
-      user: cell(2),
-      status: cell(3),
-      receipt: cell(4),
-      submittedDate: submittedDateText ? parseFlexibleDateToIso(submittedDateText) ?? submittedDateText : undefined,
-      transactionDate: transactionDateText ? parseFlexibleDateToIso(transactionDateText) ?? transactionDateText : undefined,
-      reviewedDate: reviewedDateText ? parseFlexibleDateToIso(reviewedDateText) ?? reviewedDateText : undefined,
-      merchant: cell(8),
-      amount: parseRampHistoryAmount(cell(9)),
-      statementAmount: parseRampHistoryAmount(cell(10)),
-      entity: cell(11),
-      flags: cell(12),
-      memo: cell(13),
-      reviewer: cell(24),
-      expectedPaymentDate: expectedPaymentDateText
-        ? parseFlexibleDateToIso(expectedPaymentDateText) ?? expectedPaymentDateText
-        : undefined,
-      deliveredPaymentDate: deliveredPaymentDateText
-        ? parseFlexibleDateToIso(deliveredPaymentDateText) ?? deliveredPaymentDateText
-        : undefined,
-    };
+    return parseRampHistoryRecordFromRow(input);
   }
 
   private async readVisibleRampHistoryRows(page: Page): Promise<Array<{
@@ -1624,7 +1710,7 @@ export class BrowserManager {
     const maxPages = Math.max(1, Math.min(input?.maxPages ?? 3, 10));
     const records = new Map<string, RampReimbursementHistoryRecord>();
 
-    await page.goto("https://app.ramp.com/expenses/reimbursements/history", {
+    await page.goto("https://app.ramp.com/home/personal-expenses/reimbursements", {
       waitUntil: "domcontentloaded",
       timeout: 30_000,
     }).catch(() => undefined);
@@ -1772,6 +1858,226 @@ export class BrowserManager {
     throw new Error(`Could not select Ramp merchant for '${merchant}'.`);
   }
 
+  private rampDraftMatchesInput(record: RampReimbursementHistoryRecord, input: {
+    amount: number;
+    transactionDate: string;
+    merchant: string;
+  }): boolean {
+    const status = normalizeRampMatchKey(record.status);
+    if (status !== "draft" && !/\/draft(?:[/?#]|$)/iu.test(record.reviewUrl)) {
+      return false;
+    }
+
+    const expectedDate = parseFlexibleDateToIso(input.transactionDate)
+      ?? parseFlexibleDateToIso(formatRampTransactionDate(input.transactionDate))
+      ?? input.transactionDate;
+    if (record.transactionDate !== expectedDate) {
+      return false;
+    }
+    if (!amountsMatch(record.amount, input.amount)) {
+      return false;
+    }
+
+    const recordMerchant = normalizeRampMatchKey(record.merchant);
+    const merchantCandidates = buildRampMerchantCandidates(input.merchant).map(normalizeRampMatchKey);
+    return merchantCandidates.some((candidate) =>
+      recordMerchant === candidate
+      || recordMerchant.includes(candidate)
+      || candidate.includes(recordMerchant)
+    );
+  }
+
+  private async findMatchingRampDraft(input: {
+    amount: number;
+    transactionDate: string;
+    merchant: string;
+  }): Promise<RampReimbursementHistoryRecord | null> {
+    const records = await this.listRampReimbursementHistory({ maxPages: 1 });
+    return records.find((record) => this.rampDraftMatchesInput(record, input)) ?? null;
+  }
+
+  private async readRampMerchantDisplayValue(page: Page): Promise<string | undefined> {
+    const merchantButton = page.locator('div[name="merchant"] button, [name="merchant"] button').first();
+    if ((await merchantButton.count().catch(() => 0)) === 0) {
+      return undefined;
+    }
+    if (!(await merchantButton.isVisible().catch(() => false))) {
+      return undefined;
+    }
+    const text = await merchantButton.innerText().catch(() => "");
+    return text.replace(/\s+/gu, " ").trim() || undefined;
+  }
+
+  private async findRampMemoField(page: Page, timeoutMs = 30_000): Promise<Locator> {
+    const candidates = [
+      page.locator('input[name="Memo" i], textarea[name="Memo" i]').first(),
+      page.locator('input[name*="memo" i], textarea[name*="memo" i]').first(),
+      page.locator('div[name="Memo" i] input, div[name="Memo" i] textarea, div[name="Memo" i] [contenteditable="true"], div[name="Memo" i] [role="textbox"]').first(),
+      page.locator('[aria-label*="memo" i]').first(),
+      page.locator('[placeholder*="memo" i]').first(),
+      page.getByLabel(/memo/iu).first(),
+      page.getByRole("textbox", { name: /memo/iu }).first(),
+      page.locator("label", { hasText: /memo/iu }).locator("xpath=..").locator('input, textarea, [contenteditable="true"], [role="textbox"]').first(),
+    ];
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      for (const candidate of candidates) {
+        if ((await candidate.count().catch(() => 0)) === 0) {
+          continue;
+        }
+        if (await candidate.isVisible().catch(() => false)) {
+          return candidate;
+        }
+      }
+      await page.waitForTimeout(500);
+    }
+
+    const visibleFields = await page.evaluate(() =>
+      [...document.querySelectorAll("input, textarea, [contenteditable='true'], [role='textbox']")]
+        .filter((el) => !!(el instanceof HTMLElement && (el.offsetWidth || el.offsetHeight || el.getClientRects().length)))
+        .map((el) => ({
+          tag: el.tagName.toLowerCase(),
+          type: el.getAttribute("type"),
+          name: el.getAttribute("name"),
+          aria: el.getAttribute("aria-label"),
+          placeholder: el.getAttribute("placeholder"),
+          text: (el.textContent ?? "").replace(/\s+/gu, " ").trim().slice(0, 80),
+        }))
+        .slice(0, 20),
+    ).catch(() => []);
+    throw new Error(`Ramp memo field was not found. Visible fields: ${JSON.stringify(visibleFields)}`);
+  }
+
+  private async fillRampTextField(locator: Locator, value: string): Promise<void> {
+    await locator.fill(value);
+    await locator.press("Tab").catch(() => undefined);
+  }
+
+  private async readRampTextField(locator: Locator): Promise<string> {
+    return await locator.evaluate((el) => {
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        return el.value;
+      }
+      return el.textContent ?? "";
+    }).catch(() => "");
+  }
+
+  private async fillRampMemoField(page: Page, memo: string): Promise<void> {
+    const memoInput = await this.findRampMemoField(page);
+    await this.fillRampTextField(memoInput, memo);
+    await page.waitForTimeout(250);
+    let currentValue = await this.readRampTextField(memoInput);
+    if (currentValue.trim() !== memo.trim()) {
+      await this.fillRampTextField(memoInput, memo);
+      await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
+      await page.waitForTimeout(250);
+      currentValue = await this.readRampTextField(memoInput);
+    }
+    if (currentValue.trim() !== memo.trim()) {
+      throw new Error(`Ramp memo field did not retain expected value. Expected '${memo}', saw '${currentValue}'.`);
+    }
+  }
+
+  private async fillRampDateField(page: Page, transactionDate: string): Promise<void> {
+    const dateInput = page.locator('input[name="transaction_date"]').first();
+    const expectedDate = formatRampTransactionDate(transactionDate);
+    await dateInput.click();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type(expectedDate);
+    await page.keyboard.press("Tab").catch(() => undefined);
+    await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
+    await page.waitForTimeout(500);
+    const currentValue = await dateInput.inputValue().catch(() => "");
+    if (!rampDateTextMatchesInput(currentValue, transactionDate)) {
+      await dateInput.fill(expectedDate);
+      await dateInput.press("Tab").catch(() => undefined);
+      await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
+      await page.waitForTimeout(500);
+    }
+  }
+
+  private async assertRampDraftFieldValues(page: Page, input: {
+    amount: number;
+    transactionDate: string;
+    memo: string;
+  }): Promise<void> {
+    const amountInput = page.locator('input[name="amount"]').first();
+    const dateInput = page.locator('input[name="transaction_date"]').first();
+    const memoInput = await this.findRampMemoField(page);
+    const amountValue = await amountInput.inputValue();
+    const dateValue = await dateInput.inputValue();
+    const memoValue = await this.readRampTextField(memoInput);
+    const normalizedAmount = Number(amountValue.replace(/[$,\s]/gu, ""));
+    const expectedDate = formatRampTransactionDate(input.transactionDate);
+
+    if (!Number.isFinite(normalizedAmount) || Math.abs(normalizedAmount - input.amount) >= 0.01) {
+      throw new Error(`Ramp draft amount mismatch: expected ${input.amount.toFixed(2)}, saw '${amountValue}'.`);
+    }
+    if (!rampDateTextMatchesInput(dateValue, input.transactionDate)) {
+      throw new Error(`Ramp draft date mismatch: expected ${expectedDate}, saw '${dateValue}'.`);
+    }
+    if (memoValue.trim() !== input.memo.trim()) {
+      throw new Error(`Ramp draft memo mismatch: expected '${input.memo}', saw '${memoValue}'.`);
+    }
+  }
+
+  private async fillRampReimbursementDraftFields(page: Page, input: {
+    amount: number;
+    transactionDate: string;
+    memo: string;
+    merchant?: string;
+  }): Promise<void> {
+    await page.locator('input[name="amount"]').waitFor({ state: "visible", timeout: 60_000 });
+    await this.findRampMemoField(page, 30_000);
+    // Ramp shows a processing overlay while analyzing the receipt; wait for inputs to become actionable.
+    await page
+      .locator('input[name="amount"]')
+      .click({ timeout: 60_000, trial: true })
+      .catch(() => undefined);
+    await page.locator('input[name="amount"]').fill(input.amount.toFixed(2));
+    await this.fillRampDateField(page, input.transactionDate);
+    await this.fillRampMemoField(page, input.memo);
+    await page.waitForTimeout(1_000);
+    await this.assertRampDraftFieldValues(page, {
+      amount: input.amount,
+      transactionDate: input.transactionDate,
+      memo: input.memo,
+    });
+
+    const merchant = input.merchant?.trim();
+    if (!merchant) {
+      return;
+    }
+    const visibleMerchant = await this.readRampMerchantDisplayValue(page);
+    if (rampMerchantTextMatchesInput(visibleMerchant, merchant)) {
+      debug(`Ramp draft merchant already set to '${visibleMerchant}', skipping merchant picker.`);
+      return;
+    }
+
+    try {
+      await this.selectRampMerchant(page, merchant);
+      await page.waitForTimeout(1_200);
+      await this.fillRampMemoField(page, input.memo);
+      await this.assertRampDraftFieldValues(page, {
+        amount: input.amount,
+        transactionDate: input.transactionDate,
+        memo: input.memo,
+      });
+    } catch (error) {
+      debug(
+        `Continuing Ramp reimbursement without explicit merchant selection for '${merchant}': ${error instanceof Error ? error.message : String(error)}`,
+      );
+      await page.keyboard.press("Escape").catch(() => undefined);
+      await this.assertRampDraftFieldValues(page, {
+        amount: input.amount,
+        transactionDate: input.transactionDate,
+        memo: input.memo,
+      });
+    }
+  }
+
   async captureEmailReimbursementEvidence(input: {
     emailContent: string;
     label?: string;
@@ -1889,8 +2195,30 @@ export class BrowserManager {
     }
   }
 
+  private async assertRampReimbursementStillDraft(page: Page, action: string): Promise<void> {
+    const [title, body] = await Promise.all([
+      page.title().catch(() => ""),
+      page.locator("body").innerText().catch(() => ""),
+    ]);
+    if (rampReimbursementLooksSubmitted(`${title}\n${body}`)) {
+      throw new Error(
+        `${action} refused because Ramp shows this reimbursement is already submitted or pending review. Do not repair or update draft tracking; reconcile against Ramp history instead.`,
+      );
+    }
+    const submitButtonCount = await page
+      .getByRole("button", { name: /\bSubmit\b/iu })
+      .count()
+      .catch(() => 0);
+    if (submitButtonCount === 0) {
+      throw new Error(
+        `${action} refused because Ramp no longer exposes a draft Submit button; the page is not in reviewable draft state.`,
+      );
+    }
+  }
+
   private async ensureRampReceiptFileInput(page: Page): Promise<void> {
     const fileInput = page.locator('input[type="file"]').first();
+    await fileInput.waitFor({ state: "attached", timeout: 15_000 }).catch(() => undefined);
     if ((await fileInput.count().catch(() => 0)) > 0) {
       return;
     }
@@ -1914,11 +2242,161 @@ export class BrowserManager {
         continue;
       }
       await locator.click({ timeout: 5_000 }).catch(() => undefined);
-      await page.waitForTimeout(750);
+      await page.waitForTimeout(1_500);
       if ((await fileInput.count().catch(() => 0)) > 0) {
         return;
       }
     }
+
+    throw new Error("Ramp receipt file input was not found after opening available upload controls.");
+  }
+
+  async prepareRampReimbursementDraft(input: {
+    amount: number;
+    transactionDate: string;
+    memo: string;
+    evidencePath: string;
+    merchant?: string;
+  }): Promise<{
+    reviewUrl: string;
+    rampReportId: string;
+    amount: number;
+    transactionDate: string;
+    memo: string;
+    evidencePath: string;
+    evidenceSha256: string;
+    evidenceImageWidth?: number;
+    evidenceImageHeight?: number;
+    rampConfirmationPath?: string;
+  }> {
+    const MAX_ATTEMPTS = 2;
+    let lastError: Error | undefined;
+    let createdDraftUrl: string | undefined;
+    let createdRampReportId: string | undefined;
+    let createdEvidenceRecord: ReturnType<typeof archiveReimbursementEvidence> | undefined;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const page = this.getPage();
+        const merchant = (input.merchant ?? "Walmart").trim();
+        const existingDraft = await this.findMatchingRampDraft({
+          amount: input.amount,
+          transactionDate: input.transactionDate,
+          merchant,
+        }).catch((error) => {
+          debug(`Could not check existing Ramp drafts before upload: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
+        });
+        if (existingDraft) {
+          throw new Error(
+            `Matching Ramp draft already exists for ${merchant} ${input.amount.toFixed(2)} on ${input.transactionDate}: ${existingDraft.reviewUrl}`,
+          );
+        }
+
+        const isWalmartEvidence = /\bwalmart\b/iu.test(merchant);
+        createdEvidenceRecord = archiveReimbursementEvidence({
+          sourcePath: input.evidencePath,
+          label: isWalmartEvidence ? "walmart-tip-evidence" : "ramp-reimbursement-evidence",
+          metadata: {
+            kind: isWalmartEvidence ? "walmart_tip_evidence" : "ramp_reimbursement_evidence",
+          },
+        });
+        await page.goto("https://app.ramp.com/details/reimbursements/new", {
+          waitUntil: "domcontentloaded",
+          timeout: 30_000,
+        }).catch(() => undefined);
+        await page.waitForTimeout(1_000);
+        await this.assertRampPageAuthenticated(page, "prepare a Ramp reimbursement draft");
+        await this.ensureRampReceiptFileInput(page);
+        await page.locator('input[type="file"]').first().setInputFiles([createdEvidenceRecord.archivedPath]);
+        await page.waitForURL(/\/details\/reimbursements\/.+\/draft/, {
+          timeout: 120_000,
+        });
+        await page.waitForTimeout(3_000);
+
+        createdDraftUrl = page.url();
+        createdRampReportId = extractRampReimbursementIdFromUrl(createdDraftUrl) ?? undefined;
+        if (!createdRampReportId) {
+          throw new Error(`Could not extract Ramp reimbursement id from ${createdDraftUrl}`);
+        }
+
+        await this.fillRampReimbursementDraftFields(page, {
+          amount: input.amount,
+          transactionDate: input.transactionDate,
+          memo: input.memo,
+          merchant,
+        });
+        await this.assertRampReimbursementStillDraft(page, "prepare Ramp reimbursement draft");
+
+        return {
+          reviewUrl: createdDraftUrl,
+          rampReportId: createdRampReportId,
+          amount: input.amount,
+          transactionDate: formatRampTransactionDate(input.transactionDate),
+          memo: input.memo,
+          evidencePath: createdEvidenceRecord.archivedPath,
+          evidenceSha256: createdEvidenceRecord.sha256,
+          evidenceImageWidth: createdEvidenceRecord.imageWidth,
+          evidenceImageHeight: createdEvidenceRecord.imageHeight,
+          rampConfirmationPath: "",
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (/^Matching Ramp draft already exists\b/u.test(lastError.message)) {
+          throw lastError;
+        }
+        if (createdDraftUrl && createdRampReportId && createdEvidenceRecord) {
+          try {
+            const page = this.getPage();
+            await page.goto(createdDraftUrl, {
+              waitUntil: "domcontentloaded",
+              timeout: 30_000,
+            }).catch(() => undefined);
+            await page.waitForTimeout(2_000);
+            await this.assertRampPageAuthenticated(page, "repair the Ramp reimbursement draft");
+            await this.assertRampReimbursementStillDraft(page, "repair Ramp reimbursement draft");
+            await this.fillRampReimbursementDraftFields(page, {
+              amount: input.amount,
+              transactionDate: input.transactionDate,
+              memo: input.memo,
+              merchant: (input.merchant ?? "Walmart").trim(),
+            });
+            await this.assertRampReimbursementStillDraft(page, "repair Ramp reimbursement draft");
+            return {
+              reviewUrl: createdDraftUrl,
+              rampReportId: createdRampReportId,
+              amount: input.amount,
+              transactionDate: formatRampTransactionDate(input.transactionDate),
+              memo: input.memo,
+              evidencePath: createdEvidenceRecord.archivedPath,
+              evidenceSha256: createdEvidenceRecord.sha256,
+              evidenceImageWidth: createdEvidenceRecord.imageWidth,
+              evidenceImageHeight: createdEvidenceRecord.imageHeight,
+              rampConfirmationPath: "",
+            };
+          } catch (repairError) {
+            const repairMessage = repairError instanceof Error ? repairError.message : String(repairError);
+            throw new Error(
+              `Ramp draft was created at ${createdDraftUrl}, but automation could not finish filling it: ${lastError.message}. Repair attempt also failed: ${repairMessage}`,
+            );
+          }
+        }
+        if (createdDraftUrl) {
+          throw new Error(
+            `Ramp draft was created at ${createdDraftUrl}, but automation could not finish filling it: ${lastError.message}. Not retrying because retrying would create another duplicate draft.`,
+          );
+        }
+        if (attempt < MAX_ATTEMPTS) {
+          debug(`Ramp submission attempt ${attempt} failed, retrying: ${lastError.message}`);
+          continue;
+        }
+        debug(`Ramp submission attempt ${attempt} failed: ${lastError.message}`);
+      }
+    }
+
+    throw new Error(
+      `Ramp draft preparation failed after ${MAX_ATTEMPTS} attempts: ${lastError?.message ?? "unknown error"}`,
+    );
   }
 
   async submitRampReimbursement(input: {
@@ -1939,116 +2417,187 @@ export class BrowserManager {
     evidenceImageHeight?: number;
     rampConfirmationPath?: string;
   }> {
-    const MAX_ATTEMPTS = 2;
-    let lastError: Error | undefined;
+    return this.prepareRampReimbursementDraft(input);
+  }
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      try {
-        const page = this.getPage();
-        const merchant = (input.merchant ?? "Walmart").trim();
-        const isWalmartEvidence = /\bwalmart\b/iu.test(merchant);
-        const evidenceRecord = archiveReimbursementEvidence({
+  async repairRampReimbursementDraft(input: {
+    reviewUrl: string;
+    amount: number;
+    transactionDate: string;
+    memo: string;
+    merchant?: string;
+    evidencePath?: string;
+  }): Promise<{
+    reviewUrl: string;
+    rampReportId: string;
+    amount: number;
+    transactionDate: string;
+    memo: string;
+    merchant?: string;
+    evidencePath?: string;
+    evidenceSha256?: string;
+    evidenceImageWidth?: number;
+    evidenceImageHeight?: number;
+    rampConfirmationPath?: string;
+  }> {
+    const page = this.getPage();
+    const merchant = input.merchant?.trim();
+    const evidenceRecord = input.evidencePath
+      ? archiveReimbursementEvidence({
           sourcePath: input.evidencePath,
-          label: isWalmartEvidence ? "walmart-tip-evidence" : "ramp-reimbursement-evidence",
+          label: /\bwalmart\b/iu.test(merchant ?? "") ? "walmart-tip-evidence" : "ramp-reimbursement-evidence",
           metadata: {
-            kind: isWalmartEvidence ? "walmart_tip_evidence" : "ramp_reimbursement_evidence",
+            kind: /\bwalmart\b/iu.test(merchant ?? "") ? "walmart_tip_evidence" : "ramp_reimbursement_evidence",
           },
-        });
-        await page.goto("https://app.ramp.com/details/reimbursements/new", {
-          waitUntil: "domcontentloaded",
-          timeout: 30_000,
-        }).catch(() => undefined);
-        await page.waitForTimeout(1_000);
-        await this.assertRampPageAuthenticated(page, "submit a Ramp reimbursement");
-        await page.locator('input[type="file"]').first().setInputFiles([evidenceRecord.archivedPath]);
-        await page.waitForURL(/\/details\/reimbursements\/.+\/draft/, {
-          timeout: 120_000,
-        });
-        await page.waitForTimeout(3_000);
+        })
+      : undefined;
+    await page.goto(input.reviewUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    }).catch(() => undefined);
+    await page.waitForTimeout(2_000);
+    await this.assertRampPageAuthenticated(page, "repair a Ramp reimbursement draft");
+    await this.assertRampReimbursementStillDraft(page, "repair Ramp reimbursement draft");
+    if (evidenceRecord) {
+      await this.ensureRampReceiptFileInput(page);
+      await page.locator('input[type="file"]').first().setInputFiles([evidenceRecord.archivedPath]);
+      await page.waitForTimeout(2_000);
+      await this.assertRampReimbursementStillDraft(page, "repair Ramp reimbursement draft");
+    }
+    await this.fillRampReimbursementDraftFields(page, {
+      amount: input.amount,
+      transactionDate: input.transactionDate,
+      memo: input.memo,
+      merchant,
+    });
+    await this.assertRampReimbursementStillDraft(page, "repair Ramp reimbursement draft");
 
-        const createdDraftUrl = page.url();
-        const createdRampReportId = extractRampReimbursementIdFromUrl(createdDraftUrl);
-        if (!createdRampReportId) {
-          throw new Error(`Could not extract Ramp reimbursement id from ${createdDraftUrl}`);
-        }
+    const rampReportId = extractRampReimbursementIdFromUrl(page.url()) ?? extractRampReimbursementIdFromUrl(input.reviewUrl);
+    if (!rampReportId) {
+      throw new Error(`Could not extract Ramp reimbursement id from ${page.url() || input.reviewUrl}`);
+    }
+    return {
+      reviewUrl: page.url(),
+      rampReportId,
+      amount: input.amount,
+      transactionDate: formatRampTransactionDate(input.transactionDate),
+      memo: input.memo,
+      merchant,
+      evidencePath: evidenceRecord?.archivedPath,
+      evidenceSha256: evidenceRecord?.sha256,
+      evidenceImageWidth: evidenceRecord?.imageWidth,
+      evidenceImageHeight: evidenceRecord?.imageHeight,
+      rampConfirmationPath: "",
+    };
+  }
 
-        // Wait for the Ramp draft form to fully render and the OCR overlay to clear.
-        await page.locator('input[name="amount"]').waitFor({ state: "visible", timeout: 60_000 });
-        await page.locator('input[name="Memo"]').first().waitFor({ state: "visible", timeout: 30_000 });
-        // Ramp shows a processing overlay while analyzing the receipt — wait for inputs to become actionable.
-        await page
-          .locator('input[name="amount"]')
-          .click({ timeout: 60_000, trial: true })
-          .catch(() => undefined);
-        await page.locator('input[name="amount"]').fill(input.amount.toFixed(2));
-        await page
-          .locator('input[name="transaction_date"]')
-          .fill(formatRampTransactionDate(input.transactionDate));
-        const memoInput = page.locator('input[name="Memo"]').first();
-        const ensureMemoValue = async (): Promise<void> => {
-          await memoInput.fill(input.memo);
-          await memoInput.press("Tab").catch(() => undefined);
-          await page.waitForTimeout(250);
-          const currentValue = await memoInput.inputValue().catch(() => "");
-          if (currentValue.trim() !== input.memo.trim()) {
-            await memoInput.fill(input.memo);
-            await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
-            await page.waitForTimeout(250);
-          }
-        };
-        await ensureMemoValue();
+  async submitReviewedRampReimbursement(input: {
+    reviewUrl: string;
+    amount: number;
+    transactionDate: string;
+    memo: string;
+    merchant?: string;
+    evidencePath?: string;
+  }): Promise<{
+    reviewUrl: string;
+    rampReportId?: string;
+    amount: number;
+    transactionDate: string;
+    memo: string;
+    merchant?: string;
+    rampConfirmationPath?: string;
+  }> {
+    const page = this.getPage();
+    const expectedDate = formatRampTransactionDate(input.transactionDate);
+    await page.goto(input.reviewUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    }).catch(() => undefined);
+    await page.waitForTimeout(2_000);
+    await this.assertRampPageAuthenticated(page, "submit a reviewed Ramp reimbursement draft");
 
-        try {
-          await this.selectRampMerchant(page, merchant);
-          await page.waitForTimeout(1_200);
-        } catch (error) {
-          debug(
-            `Continuing Ramp reimbursement without explicit merchant selection for '${merchant}': ${error instanceof Error ? error.message : String(error)}`,
-          );
-          await page.keyboard.press("Escape").catch(() => undefined);
-        }
+    const bodyBefore = await page.locator("body").innerText().catch(() => "");
+    if (rampReimbursementLooksSubmitted(bodyBefore)) {
+      return {
+        reviewUrl: page.url(),
+        rampReportId: extractRampReimbursementIdFromUrl(page.url()) ?? undefined,
+        amount: input.amount,
+        transactionDate: expectedDate,
+        memo: input.memo,
+        merchant: input.merchant,
+      };
+    }
 
-        const spendAllocation = page.locator('div[name="spend_allocation"] button').first();
-        if ((await spendAllocation.count().catch(() => 0)) > 0) {
-          const disabled = await spendAllocation.isDisabled().catch(() => false);
-          if (!disabled) {
-            await spendAllocation.click().catch(() => undefined);
-            await page.waitForTimeout(500);
-            const noneOption = page.getByRole("option", { name: /^None/i }).first();
-            if ((await noneOption.count().catch(() => 0)) > 0) {
-              await noneOption.click().catch(() => undefined);
-              await page.waitForTimeout(500);
-            }
-          }
-        }
+    const amountInput = page.locator('input[name="amount"]').first();
+    const dateInput = page.locator('input[name="transaction_date"]').first();
 
-        await ensureMemoValue();
+    await amountInput.waitFor({ state: "visible", timeout: 30_000 });
+    await dateInput.waitFor({ state: "visible", timeout: 30_000 });
+    const memoInput = await this.findRampMemoField(page);
 
-        return {
-          reviewUrl: createdDraftUrl,
-          rampReportId: createdRampReportId,
-          amount: input.amount,
-          transactionDate: formatRampTransactionDate(input.transactionDate),
-          memo: input.memo,
-          evidencePath: evidenceRecord.archivedPath,
-          evidenceSha256: evidenceRecord.sha256,
-          evidenceImageWidth: evidenceRecord.imageWidth,
-          evidenceImageHeight: evidenceRecord.imageHeight,
-          rampConfirmationPath: "",
-        };
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        if (attempt < MAX_ATTEMPTS) {
-          debug(`Ramp submission attempt ${attempt} failed, retrying: ${lastError.message}`);
-          continue;
-        }
-        debug(`Ramp submission attempt ${attempt} failed: ${lastError.message}`);
+    const amountValue = await amountInput.inputValue();
+    const dateValue = await dateInput.inputValue();
+    const memoValue = await this.readRampTextField(memoInput);
+    const normalizedAmount = Number(amountValue.replace(/[$,\s]/gu, ""));
+    if (!Number.isFinite(normalizedAmount) || Math.abs(normalizedAmount - input.amount) >= 0.01) {
+      throw new Error(
+        `Ramp draft amount mismatch: expected ${input.amount.toFixed(2)}, saw '${amountValue}'.`,
+      );
+    }
+    if (!rampDateTextMatchesInput(dateValue, input.transactionDate)) {
+      throw new Error(`Ramp draft date mismatch: expected ${expectedDate}, saw '${dateValue}'.`);
+    }
+    if (memoValue.trim() !== input.memo.trim()) {
+      throw new Error(`Ramp draft memo mismatch: expected '${input.memo}', saw '${memoValue}'.`);
+    }
+
+    if (input.merchant && input.merchant.trim().length > 0) {
+      const visibleMerchant = await this.readRampMerchantDisplayValue(page);
+      const normalizedBody = bodyBefore.replace(/\s+/gu, " ");
+      if (
+        !rampMerchantTextMatchesInput(visibleMerchant, input.merchant)
+        && !rampMerchantTextMatchesInput(normalizedBody, input.merchant)
+      ) {
+        throw new Error(`Ramp draft merchant check failed: expected page to include '${input.merchant}'.`);
       }
     }
 
-    throw new Error(
-      `Ramp submission failed after ${MAX_ATTEMPTS} attempts: ${lastError?.message ?? "unknown error"}`,
-    );
+    const submitButton = page
+      .getByRole("button", { name: /\bSubmit\b/iu })
+      .last();
+    if ((await submitButton.count().catch(() => 0)) === 0) {
+      throw new Error("Ramp draft submit button was not found.");
+    }
+    await submitButton.click({ timeout: 30_000 });
+    await page.waitForTimeout(2_000);
+    await page.waitForURL(/\/details\/(?:list\/reimbursement|reimbursements)\/.+\/review/, {
+      timeout: 60_000,
+    }).catch(() => undefined);
+
+    const bodyAfter = await page.locator("body").innerText().catch(() => "");
+    if (!rampReimbursementLooksSubmitted(bodyAfter) && !/\/review(?:[/?#]|$)/iu.test(page.url())) {
+      throw new Error("Ramp did not show submitted/review state after clicking Submit.");
+    }
+
+    let rampConfirmationPath: string | undefined;
+    if (input.evidencePath && input.evidencePath.trim().length > 0) {
+      const confirmation = await this.captureRampConfirmationScreenshot(
+        page,
+        input.evidencePath,
+        `ramp-submit-confirmation-${extractRampReimbursementIdFromUrl(page.url()) ?? "reviewed"}`,
+      );
+      rampConfirmationPath = confirmation.archivedPath;
+    }
+
+    return {
+      reviewUrl: page.url(),
+      rampReportId: extractRampReimbursementIdFromUrl(page.url()) ?? undefined,
+      amount: input.amount,
+      transactionDate: expectedDate,
+      memo: input.memo,
+      merchant: input.merchant,
+      rampConfirmationPath,
+    };
   }
 
   async replaceRampReimbursementReceipt(input: {

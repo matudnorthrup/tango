@@ -38,6 +38,11 @@ describe("reimbursement-automation helpers", () => {
         "https://app.ramp.com/details/list/reimbursement/6bd4a150-a102-4118-8628-a8f3ec7ff7af/review",
       ),
     ).toBe("6bd4a150-a102-4118-8628-a8f3ec7ff7af");
+    expect(
+      extractRampReimbursementIdFromUrl(
+        "https://app.ramp.com/details/reimbursements/52a796e6-3f32-4aa7-9b4b-953d06ca3a28",
+      ),
+    ).toBe("52a796e6-3f32-4aa7-9b4b-953d06ca3a28");
   });
 
   it("extracts and flattens Walmart order ids from order urls", () => {
@@ -156,6 +161,13 @@ describe("reimbursement-automation helpers", () => {
 
     expect(rampReimbursementLooksSubmitted(submittedBody)).toBe(true);
     expect(rampReimbursementLooksSubmitted(draftBody)).toBe(false);
+    expect(
+      rampReimbursementLooksSubmitted([
+        "Edit pending reimbursement",
+        "Maid in Newport",
+        "Save changes",
+      ].join("\n")),
+    ).toBe(true);
   });
 
   it("tracks meaningful Ramp receipt preview changes", () => {

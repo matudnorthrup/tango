@@ -22,7 +22,8 @@ Captured from the April 2026 full financial review session.
 - Create Obsidian receipt notes for: Amazon, Walmart, Costco, and any reimbursable transactions.
 - Evidence PDFs go in `Records/Finance/Receipts/Evidence/`.
 - Reimbursable notes need frontmatter: `reimbursable: true`, `ramp_submitted` (date or null), `ramp_report_id`.
-- The Obsidian Base view for tracking reimbursements lives at `Records/Finance/Receipts/Latitude Reimbursements.base`.
+- The Obsidian Base view for reimbursement QA/display lives at `Records/Finance/Receipts/Latitude Reimbursements.base`.
+- For agent decisions, `receipt_registry` plus live Ramp reconciliation is authoritative. Do not infer pending/submitted status from the Base view, old review notes, or note search.
 - Always use the actual PDF invoice when available — not screenshots.
 - For Venmo, use the official Venmo confirmation email rendered to PDF.
 

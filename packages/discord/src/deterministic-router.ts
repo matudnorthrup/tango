@@ -99,6 +99,7 @@ function buildExecutionConstraintLines(
   const reimbursementLines =
     entry.id === "finance.reimbursement_submit"
       ? [
+          "receipt_registry plus live Ramp reconciliation is authoritative for reimbursement status; Obsidian Base files, old review notes, and broad note search are context only.",
           "If this is a Walmart delivery-tip reimbursement, start by using receipt_registry to find outstanding candidates unless the user already pinned a specific order.",
           "Before claiming any Walmart tip reimbursement is still unsubmitted, verify it against live Ramp history with receipt_registry rather than trusting Obsidian note status alone.",
           "If the requested Walmart history window is not fully cataloged yet, use receipt_registry backfill_walmart_delivery_candidates before filing reimbursements.",
@@ -107,15 +108,31 @@ function buildExecutionConstraintLines(
           "If Gmail provides a PDF or other real attachment, download that file and upload it directly to Ramp instead of converting it to a screenshot.",
           "Only use ramp_reimbursement capture_email_reimbursement_evidence when the receipt lives in the email body and there is no better attachment to download.",
           "Use receipt_registry and capture_walmart_tip_evidence only for Walmart delivery-tip reimbursements, not for generic vendor invoices or Venmo receipts.",
-          "For each submission, use ramp_reimbursement as the primary execution path once you have the right evidence file.",
+          "Interpret broad wording like 'submit any pending or draft reimbursements' in two lanes: pending verified candidates get drafts prepared, while already-prepared drafts may be submitted only after their expected fields are verified.",
+          "Default to ramp_reimbursement prepare_ramp_reimbursement_draft: upload evidence, fill the Ramp draft, then stop for Devin's review.",
+          "Only use ramp_reimbursement submit_reviewed_ramp_reimbursement after Devin explicitly says to submit an already-prepared draft.",
+          "For batch reimbursement work, fail closed: if any candidate or draft has a missing receipt, mismatch, duplicate risk, or unverifiable state, stop and report that issue before preparing or submitting more reimbursements.",
+          "Do not treat a prepared draft as submitted; report the draft URL and the exact fields Devin needs to review.",
+          "For each reimbursement, use ramp_reimbursement as the primary execution path once you have the right evidence file.",
           "Use the raw browser tool only for login, page-state inspection, or debugging when ramp_reimbursement cannot complete the step.",
           "Do not try to recreate the screenshot or Ramp form flow by hand with generic browser snapshot/click heuristics if ramp_reimbursement is available.",
           "For Walmart order pages, capture screenshot evidence before opening or updating the Ramp reimbursement form.",
           "On Walmart order pages, prefer the order payment summary block that contains Driver tip instead of screenshotting the inline Driver tip label itself.",
           "When filling Ramp reimbursement drafts, use transaction dates in MM/DD/YYYY format.",
           "Use the exact reimbursement memo text the user requested. If they did not specify one, fall back to the installation default.",
-          "Only mark the receipt note submitted after the Ramp reimbursement was actually filed.",
+          "Only mark the receipt note submitted after submit_reviewed_ramp_reimbursement actually files it; draft preparation should use draft/prepared state.",
           "If Walmart or Ramp requires login or MFA, pause cleanly and report that the managed Brave session needs user authentication.",
+        ]
+      : [];
+  const financeReviewReimbursementLines =
+    entry.id === "finance.budget_review" || entry.id === "finance.sinking_fund_reconciliation"
+      ? [
+          "If the user asks what remains or what is left from a previous finance review, treat old review notes as candidate lists only; verify each item against live Lunch Money and receipt_registry/Ramp state before answering.",
+          "When live verification shows a finance review note is stale, update the current review record with a timestamped correction before reporting current open items.",
+          "For any Ramp/Latitude reimbursement status in a finance review, use receipt_registry structured actions before summarizing.",
+          "Run receipt_registry gap/ledger/candidate checks where reimbursement state is in scope, and reconcile against live Ramp history before calling an item pending, unsubmitted, submitted, or reimbursed.",
+          "If receipt_registry or live Ramp verification cannot confirm the state, say unverified instead of inferring from Obsidian Base files, old review notes, or broad note search.",
+          "Keep sinking fund reimbursement transfers separate from Ramp/Latitude reimbursements.",
         ]
       : [];
   const nutritionLines =
@@ -145,6 +162,7 @@ function buildExecutionConstraintLines(
       ...nutritionLines,
       ...docsLines,
       ...reimbursementLines,
+      ...financeReviewReimbursementLines,
       ...(
         entry.id === "printing.job_prepare_or_start" && isPreviewOnlyRequest(userMessage, envelope)
           ? [
@@ -170,6 +188,7 @@ function buildExecutionConstraintLines(
       ...nutritionLines,
       ...docsLines,
       ...reimbursementLines,
+      ...financeReviewReimbursementLines,
       ...(
         entry.id === "printing.job_prepare_or_start" && isPreviewOnlyRequest(userMessage, envelope)
           ? [
@@ -191,10 +210,18 @@ function buildExecutionConstraintLines(
       ...nutritionLines,
       ...docsLines,
       ...reimbursementLines,
+      ...financeReviewReimbursementLines,
     ];
   }
 
-  return [...productSelectionLines, ...deepResearchLines, ...nutritionLines, ...docsLines, ...reimbursementLines];
+  return [
+    ...productSelectionLines,
+    ...deepResearchLines,
+    ...nutritionLines,
+    ...docsLines,
+    ...reimbursementLines,
+    ...financeReviewReimbursementLines,
+  ];
 }
 
 function normalizeEntityString(value: unknown): string | null {
@@ -589,11 +616,11 @@ const ALLOWED_TOOL_IDS_BY_INTENT: Record<string, string[]> = {
   "engineering.repo_status": ENGINEERING_ALLOWED_TOOL_IDS,
   "files.local_read": ["file_ops"],
   "files.local_write": ["file_ops"],
-  "finance.budget_review": ["lunch_money"],
+  "finance.budget_review": ["lunch_money", "obsidian", "receipt_registry"],
   "finance.receipt_catalog": FINANCE_RECEIPT_CATALOG_ALLOWED_TOOL_IDS,
   "finance.receipt_lookup": FINANCE_RECEIPT_LOOKUP_ALLOWED_TOOL_IDS,
   "finance.reimbursement_submit": ["receipt_registry", "ramp_reimbursement", "gog_email", "onepassword", "obsidian", "browser"],
-  "finance.sinking_fund_reconciliation": ["lunch_money", "obsidian"],
+  "finance.sinking_fund_reconciliation": ["lunch_money", "obsidian", "receipt_registry"],
   "finance.transaction_categorization": FINANCE_TRANSACTION_CATEGORIZATION_ALLOWED_TOOL_IDS,
   "finance.transaction_lookup": ["lunch_money"],
   "finance.unreviewed_transactions": ["lunch_money"],
