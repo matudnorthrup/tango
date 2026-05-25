@@ -67,6 +67,7 @@
     "memory:reembed": "node --import tsx ./scripts/memory-reembed.ts",
     "memory:reflect": "node --import tsx ./scripts/memory-reflect.ts",
     "vault:audit": "node --import tsx ./scripts/vault-audit.ts",
+    "vault:daily-check": "node --import tsx ./scripts/vault-daily-check.ts",
     "dev:voice-app": "npm run dev -w @tango/tango-voice",
     "start:voice-app": "npm run start -w @tango/tango-voice",
     "cli": "tsx packages/cli/src/index.ts",

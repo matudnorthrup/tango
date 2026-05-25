@@ -64,6 +64,9 @@ execution:
       personally (not service accounts or shared org tokens)
     - Linear login alerts: these are informational, not actionable
     - "Check email log" reminders: email review is handled separately
+    - Vault Audit "Known Review" items: these stay in the brief/log as
+      maintenance context. Only add Vault Audit items to today's priorities
+      when they appear under the brief's Flagged section.
 
     Do NOT modify the frontmatter fields other than adding `brief:` if
     missing. Do NOT add a Morning Brief section to the daily note — that
