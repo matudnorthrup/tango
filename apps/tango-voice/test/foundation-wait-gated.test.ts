@@ -461,7 +461,30 @@ describe('Layer 1: Foundation — Single Channel, Wait Mode, Gated', () => {
     pipeline.stop();
   });
 
-  it('1.3d2c — indicate mode closes on clustered close phrases polluted by STT noise', async () => {
+  it('1.3d2c — indicate mode does not close on "thanks" with an unknown trailing word', async () => {
+    const pipeline = makePipeline();
+    voiceSettings.endpointingMode = 'indicate';
+
+    const prompts: string[] = [];
+    getResponseImpl = async (_user, msg) => {
+      prompts.push(msg);
+      return { response: 'Combined response.' };
+    };
+
+    await simulateUtterance(pipeline, 'user1', 'Tango, log food');
+    await simulateUtterance(pipeline, 'user1', 'for lunch i had my');
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
+
+    await simulateUtterance(pipeline, 'user1', 'thanks Max');
+
+    expect(prompts).toEqual([]);
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
+    expect((pipeline as any).ctx.indicateCaptureSegments.join(' ')).toContain('thanks Max');
+
+    pipeline.stop();
+  });
+
+  it('1.3d2d — indicate mode closes on clustered close phrases polluted by STT noise', async () => {
     const pipeline = makePipeline();
     voiceSettings.endpointingMode = 'indicate';
 
@@ -554,6 +577,26 @@ describe('Layer 1: Foundation — Single Channel, Wait Mode, Gated', () => {
     expect(prompts).toEqual([]);
     expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
     expect((pipeline as any).ctx.indicateCaptureSegments.join(' ')).toContain('if so, please go ahead');
+
+    pipeline.stop();
+  });
+
+  it('1.3d4c — same-utterance trailing "thank you" stays in dictation instead of closing', async () => {
+    const pipeline = makePipeline();
+    voiceSettings.endpointingMode = 'indicate';
+    (pipeline as any).ctx.promptGraceUntil = Date.now() + 10_000;
+
+    const prompts: string[] = [];
+    getResponseImpl = async (_user, msg) => {
+      prompts.push(msg);
+      return { response: 'Combined response.' };
+    };
+
+    await simulateUtterance(pipeline, 'user1', 'these are some of the angles that i have available thank you');
+
+    expect(prompts).toEqual([]);
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
+    expect((pipeline as any).ctx.indicateCaptureSegments.join(' ')).toContain('thank you');
 
     pipeline.stop();
   });
@@ -823,7 +866,7 @@ describe('Layer 1: Foundation — Single Channel, Wait Mode, Gated', () => {
     });
     transcribeImpl = async () => fullStt;
     transcribeCommandTailMock.mockResolvedValueOnce({
-      text: 'thank you',
+      text: 'go ahead',
       durationMs: 900,
       elapsedMs: 35,
       usedTail: false,
@@ -836,12 +879,69 @@ describe('Layer 1: Foundation — Single Channel, Wait Mode, Gated', () => {
     expect(earconHistory).toContain('listening');
     expect(prompts).toEqual([]);
 
-    resolveFullStt('thank you');
+    resolveFullStt('go ahead');
     await pending;
     await new Promise((r) => setTimeout(r, 10));
 
     expect(prompts).toEqual(['capture this update']);
     expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
+
+    pipeline.stop();
+  });
+
+  it('1.3l3 — cached command tail probe does not replace a buffered utterance transcript', async () => {
+    const pipeline = makePipeline();
+    voiceSettings.endpointingMode = 'indicate';
+    voiceSettings.sttCommandTailProbeEnabled = true;
+    voiceSettings.sttCommandTailMinDurationMs = 1000;
+
+    const prompts: string[] = [];
+    getResponseImpl = async (_user, msg) => {
+      prompts.push(msg);
+      return { response: 'Combined response.' };
+    };
+
+    await simulateUtterance(pipeline, 'user1', 'Tango, voice status');
+    await simulateUtterance(pipeline, 'user1', 'capture this update');
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
+    playerIsPlaying = false;
+    playerIsWaiting = false;
+
+    let resolveFirstStt!: (value: string) => void;
+    const firstStt = new Promise<string>((resolve) => {
+      resolveFirstStt = resolve;
+    });
+    let fullTranscribeCalls = 0;
+    transcribeImpl = async () => {
+      fullTranscribeCalls += 1;
+      if (fullTranscribeCalls === 1) return firstStt;
+      return 'Power salad';
+    };
+    transcribeCommandTailMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        text: 'go ahead',
+        durationMs: 900,
+        elapsedMs: 35,
+        usedTail: false,
+      });
+
+    const receiver = (pipeline as any).receiver;
+    const firstPending = receiver.simulateUtterance('user1', Buffer.from('first-audio'), 2500);
+    await new Promise((r) => setTimeout(r, 20));
+    await receiver.simulateUtterance('user1', Buffer.from('second-audio'), 2500);
+    await new Promise((r) => setTimeout(r, 50));
+
+    resolveFirstStt('still dictating');
+    await firstPending;
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(fullTranscribeCalls).toBe(2);
+    expect(prompts).toEqual([]);
+    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
+    const captured = (pipeline as any).ctx.indicateCaptureSegments.join(' ');
+    expect(captured).toContain('still dictating');
+    expect(captured).toContain('Power salad');
 
     pipeline.stop();
   });
