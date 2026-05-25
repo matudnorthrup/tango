@@ -6,11 +6,124 @@ Structured access to cataloged receipt reimbursement state for Watson.
 
 Use this tool instead of ad hoc note parsing when you need to:
 
+- find pending reimbursement candidates across configured vendors
+- build a reimbursement ledger for a review window
+- detect missing/stale reimbursement tracking fields
 - find Walmart receipt notes that include a delivery driver tip
 - verify whether a reimbursement has already been submitted in Ramp
 - update a receipt note after a Ramp submission succeeds
 
+Do not use Obsidian Base files, old review notes, or broad note search as the
+source of truth for whether a Ramp reimbursement is pending. They are context
+only. If this tool cannot verify the state, report the item as unverified.
+
 ## Actions
+
+### `list_reimbursement_candidates`
+
+Lists configured reimbursement candidates across receipt folders using
+`reimbursement-config.yaml`.
+
+Use this first for reimbursement review, unless the task is explicitly limited
+to Walmart delivery tips.
+
+Optional params:
+
+- `since`
+- `until`
+- `vendor`
+- `include_submitted`
+- `verify_with_ramp`
+- `max_pages`
+
+### `reconcile_reimbursements`
+
+Verifies configured reimbursement notes against live Ramp reimbursement history
+and updates stale tracking blocks in place.
+
+Use before telling the user that an item is pending, unsubmitted, submitted, or
+reimbursed when the note state looks stale, disputed, older than 30 days, or
+important for close.
+
+Optional params:
+
+- `since`
+- `until`
+- `vendor`
+- `max_pages`
+
+### `upsert_reimbursement`
+
+Creates or updates the standardized `## Reimbursement Tracking` block inside
+any configured vendor receipt note.
+
+Required fields:
+
+- `note_path`
+- `status`
+
+Optional fields:
+
+- `vendor`
+- `system`
+- `reimbursable_item`
+- `amount`
+- `submitted`
+- `note`
+- `evidence_path`
+- `ramp_report_id`
+
+### `generate_monthly_ledger`
+
+Builds a reimbursement ledger for a month or date range, grouped by vendor,
+category, and status.
+
+Use this during finance reviews and close prep before summarizing reimbursement
+state.
+
+Optional params:
+
+- `month`
+- `since`
+- `until`
+- `vendor`
+- `verify_with_ramp`
+- `max_pages`
+
+### `detect_gaps`
+
+Detects missing tracking blocks, stale submitted notes, missing recurring
+receipts, missing Ramp IDs, and other reimbursement coverage gaps.
+
+Use this during every finance review. Treat its output as the queue to repair,
+not as permission to invent missing amounts.
+
+Optional params:
+
+- `since`
+- `until`
+- `vendor`
+- `lookback_months`
+- `verify_with_ramp`
+- `max_pages`
+
+### `check_submission_dedup`
+
+Checks whether a proposed reimbursement already appears in local receipt notes
+or live Ramp history.
+
+Use this before manual repairs or any unusual re-submission path.
+
+Optional params:
+
+- `note_path`
+- `vendor`
+- `merchant`
+- `amount`
+- `transaction_date`
+- `memo`
+- `verify_with_ramp`
+- `max_pages`
 
 ### `list_walmart_delivery_candidates`
 
@@ -73,7 +186,20 @@ Optional fields:
 
 ## Expected usage
 
-1. Reconcile or list Walmart reimbursement candidates with Ramp verification enabled.
-2. Use browser evidence and Ramp submission to complete the reimbursement.
-3. Let the Ramp reimbursement tool update the corresponding receipt note automatically after a successful submission.
-4. Use `upsert_walmart_reimbursement` only for repairs or manual note correction.
+### Finance review / close prep
+
+1. Run `detect_gaps`.
+2. Run `generate_monthly_ledger`.
+3. Run `list_reimbursement_candidates`.
+4. For Walmart delivery tips, run `list_walmart_delivery_candidates`.
+5. Reconcile before making any confident stale/pending/submitted claim.
+6. If verification fails, say `unverified`; do not fill gaps with guesses.
+
+### Ramp submission
+
+1. Reconcile or list reimbursement candidates with Ramp verification enabled.
+2. Use evidence collection and Ramp submission tools to complete the reimbursement.
+3. Let the Ramp reimbursement tool update the corresponding receipt note
+   automatically after a successful submission.
+4. Use `upsert_reimbursement` or `upsert_walmart_reimbursement` only for
+   repairs or manual note correction.

@@ -67,8 +67,9 @@ execution:
        skill format at Records/Finance/Receipts/{Retailer}/.
     4. Use the transaction_categorization skill rules to suggest
        categories for non-grocery items.
-    5. For any reimbursable vendor receipt created, add a ## Reimbursement Tracking
-       section using the receipt_registry upsert_reimbursement action.
+    5. For any reimbursable vendor receipt created, add or repair the
+       frontmatter plus ## Reimbursement Tracking section using the
+       receipt_registry upsert_reimbursement action.
 
     If a login page appears, use 1Password to retrieve credentials and
     log in (item names: "Amazon" for Amazon, "Walmart" for Walmart).
@@ -82,7 +83,7 @@ execution:
   timeout_seconds: 900
 
 provider:
-  model: sonnet
+  model: claude-sonnet-4-6
 
 delivery:
   mode: none

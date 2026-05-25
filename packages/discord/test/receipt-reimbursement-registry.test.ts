@@ -41,7 +41,7 @@ describe("receipt reimbursement registry", () => {
       "- System: Ramp",
       "- Amount: $41.03",
       "- Submitted: 2026-04-02",
-      "- Note: executive buy back time",
+      "- Note: Exec Buy Back Time",
     ].join("\n");
 
     const record = parseWalmartReceiptMarkdown(filePath, markdown);
@@ -50,6 +50,24 @@ describe("receipt reimbursement registry", () => {
     expect(record.isDelivery).toBe(true);
     expect(record.reimbursement.status).toBe("submitted");
     expect(record.reimbursement.system).toBe("Ramp");
+  });
+
+  it("parses Walmart order ids from explicit order number fields", () => {
+    const record = parseWalmartReceiptMarkdown(
+      "/tmp/2026-05-02 Walmart Receipt.md",
+      [
+        "# Walmart Delivery Receipt — May 2, 2026",
+        "",
+        "- **Date:** 2026-05-02",
+        "- **Order #:** 200014788507768",
+        "",
+        "## Notes",
+        "",
+        "Delivery from store. Driver tip: $16.53.",
+      ].join("\n"),
+    );
+
+    expect(record.orderId).toBe("200014788507768");
   });
 
   it("upserts a reimbursement tracking section into a receipt note", () => {
@@ -77,7 +95,7 @@ describe("receipt reimbursement registry", () => {
       status: "submitted",
       system: "Ramp",
       submitted: "2026-04-02",
-      note: "executive buy back time",
+      note: "Exec Buy Back Time",
       evidencePath: "/tmp/tango-screenshot.png",
     });
 
@@ -87,7 +105,7 @@ describe("receipt reimbursement registry", () => {
     expect(updated).toContain("- Status: submitted");
     expect(updated).toContain("- System: Ramp");
     expect(updated).toContain("- Amount: $41.03");
-    expect(updated).toContain("- Note: executive buy back time");
+    expect(updated).toContain("- Note: Exec Buy Back Time");
     expect(updated).toContain("- Evidence: /tmp/tango-screenshot.png");
   });
 
@@ -302,7 +320,17 @@ describe("receipt reimbursement registry", () => {
           submittedDate: "2026-04-02",
           merchant: "Walmart",
           amount: 41.03,
-          memo: "executive buy back time",
+          memo: "Exec Buy Back Time",
+        },
+        {
+          reviewUrl: "https://app.ramp.com/details/list/reimbursement/maid/review",
+          rampReportId: "maid",
+          status: "Paid",
+          transactionDate: "2026-04-01",
+          submittedDate: "2026-04-02",
+          merchant: "Maid in Newport",
+          amount: 350,
+          memo: "Exec Buy Back Time",
         },
       ],
       since: "2026-04-01",
@@ -317,13 +345,112 @@ describe("receipt reimbursement registry", () => {
         rampReportId: "6bd4a150-a102-4118-8628-a8f3ec7ff7af",
       }),
     ]);
+    expect(reconciled.historyEntriesExamined).toBe(2);
     expect(reconciled.pending.map((record) => record.orderId)).toEqual(["2000143-77828633"]);
     expect(reconciled.updated).toHaveLength(1);
 
     const updatedMarkdown = fs.readFileSync(stalePath, "utf8");
     expect(updatedMarkdown).toContain("- Status: reimbursed");
     expect(updatedMarkdown).toContain("- Submitted: 2026-04-02");
-    expect(updatedMarkdown).toContain("- Note: executive buy back time");
+    expect(updatedMarkdown).toContain("- Note: Exec Buy Back Time");
     expect(updatedMarkdown).toContain("- Ramp Report ID: 6bd4a150-a102-4118-8628-a8f3ec7ff7af");
+  });
+
+  it("keeps Ramp drafts as draft during reconciliation", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-ramp-reconcile-draft-"));
+    process.env.TANGO_WALMART_RECEIPTS_DIR = tempDir;
+    const notePath = path.join(tempDir, "2026-05-02 Walmart Receipt.md");
+    fs.writeFileSync(
+      notePath,
+      [
+        "# Walmart Receipt",
+        "",
+        "- **Date:** 2026-05-02",
+        "- **Order #:** 200014788507768",
+        "",
+        "## Notes",
+        "",
+        "Delivery from store. Driver tip: $16.53.",
+        "",
+        "## Reimbursement Tracking",
+        "",
+        "- Status: not_submitted",
+        "- System: Ramp",
+        "- Reimbursable Item: Driver tip",
+        "- Amount: $16.53",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const reconciled = reconcileWalmartReimbursementsAgainstRamp({
+      history: [
+        {
+          reviewUrl: "https://app.ramp.com/details/reimbursements/abc/draft",
+          rampReportId: "abc",
+          status: "Draft",
+          transactionDate: "2026-05-02",
+          merchant: "Walmart",
+          amount: 16.53,
+          memo: "Delivery driver tip",
+        },
+      ],
+      since: "2026-05-01",
+      updateNotes: true,
+    });
+
+    expect(reconciled.matched).toEqual([
+      expect.objectContaining({
+        noteStatusBefore: "not_submitted",
+        noteStatusAfter: "draft",
+        rampStatus: "Draft",
+        rampReportId: "abc",
+      }),
+    ]);
+    expect(reconciled.pending).toEqual([]);
+    expect(fs.readFileSync(notePath, "utf8")).toContain("- Status: draft");
+  });
+
+  it("treats draft notes with no live Ramp match as pending", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-ramp-stale-draft-"));
+    process.env.TANGO_WALMART_RECEIPTS_DIR = tempDir;
+    const notePath = path.join(tempDir, "2026-05-09 Order 2000146-30847351.md");
+    fs.writeFileSync(
+      notePath,
+      [
+        "# Walmart Order 2000146-30847351",
+        "",
+        "- **Date:** 2026-05-09",
+        "",
+        "## Notes",
+        "",
+        "Delivery from store. Driver tip: $28.90.",
+        "",
+        "## Reimbursement Tracking",
+        "",
+        "- Status: draft",
+        "- System: Ramp",
+        "- Reimbursable Item: Driver tip",
+        "- Amount: $28.90",
+        "- Note: Exec Buy Back Time",
+        "- Ramp Report ID: stale-draft-id",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const reconciled = reconcileWalmartReimbursementsAgainstRamp({
+      history: [],
+      since: "2026-05-01",
+      updateNotes: true,
+    });
+
+    expect(reconciled.pending).toHaveLength(1);
+    expect(reconciled.pending[0]?.reimbursement.status).toBe("not_submitted");
+    expect(reconciled.pending[0]?.reimbursement.rampReportId).toBeUndefined();
+    expect(reconciled.updated).toHaveLength(1);
+
+    const updatedMarkdown = fs.readFileSync(notePath, "utf8");
+    expect(updatedMarkdown).toContain("- Status: not_submitted");
+    expect(updatedMarkdown).not.toContain("stale-draft-id");
+    expect(updatedMarkdown).not.toContain("- Ramp Report ID:");
   });
 });

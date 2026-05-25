@@ -21,6 +21,7 @@ Prompt assembly loads these docs into worker prompts from `config/defaults/worke
 | `email-review.md` | `email_review` | `personal-assistant` | Email triage phases, drafting voice, reply conventions |
 | `evening-checkin.md` | `evening_checkin` | `nutrition-logger` | Pre-dinner calorie budget (TDEE + FatSecret intake) |
 | `health-baselines.md` | `health_baselines` | `health-analyst`, `personal-assistant` | Baseline comparisons for health summaries |
+| `lds-companion-workflows.md` | `lds_companion_workflows` | `church-assistant` | LDS study, Gospel Library marking/linking, talks, lessons, and calling support |
 | `obsidian-note-conventions.md` | `obsidian_note_conventions` | `personal-assistant` | Vault note structure and task conventions |
 | `printing-profile-selection.md` | `printing_profile_selection` | `research-assistant` | Print/material selection and reporting rules |
 | `receipt-logging.md` | `receipt_logging` | `personal-assistant` | General-purpose Obsidian receipt file creation |

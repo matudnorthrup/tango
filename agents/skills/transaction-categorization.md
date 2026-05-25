@@ -1,33 +1,37 @@
 # transaction_categorization
 
-Lunch Money transaction categorization workflow. Pull uncategorized transactions, apply rules, handle splits, and present ambiguous ones for user review.
+Lunch Money transaction categorization workflow. Pull uncleared transactions, verify or apply categories, handle splits, and present ambiguous ones for user review.
 
 ## When to use
 
 When the user asks to categorize transactions, review spending, or clean up their Lunch Money inbox.
 
-## Step 1: Get uncategorized transactions
+## Step 1: Get uncleared transactions
 
 ```json
 {
   "method": "GET",
-  "endpoint": "/transactions?status=unreviewed&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD"
+  "endpoint": "/transactions?status=uncleared&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD"
 }
 ```
 
-Adjust date range as needed. Also check for explicitly uncategorized:
+Adjust date range as needed. In this workflow, `uncleared` means the
+transaction has not been reviewed by our process yet. It may already have a
+category from a Lunch Money rule; still verify it against the finance rules.
 
 ```json
 {
   "method": "GET",
-  "endpoint": "/transactions?status=unreviewed&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD"
+  "endpoint": "/transactions?status=uncleared&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD"
 }
 ```
 
 ## Step 2: Apply automatic rules
 
-Read the active finance rules note for this installation from the profile-owned
-finance guidance or configured notes system.
+Read the categorization rules from the path provided in the task context. When
+invoked by the nightly job, that path is
+`~/Documents/main/References/Finance/Lunch Money Rules.md`. If no path is
+provided, ask before proceeding — do not guess.
 
 For each uncategorized transaction, check payee against rules (first match wins). Auto-categorizable transactions can be updated directly:
 
@@ -57,8 +61,8 @@ These vendors span multiple categories and ALWAYS need human review:
 For Amazon and Walmart: use the `amazon_orders` or `walmart_orders` skill to look up what was in the order via browser. Then use `receipt_logging` to create an Obsidian receipt. The receipt tells you whether to categorize directly or split.
 
 Special Walmart rule:
-- If a cataloged Walmart delivery receipt shows a reimbursable driver tip, split the driver tip to **Work Reimbursements** and the remaining grocery merchandise to **Groceries** (plus any other non-grocery item categories present in the receipt).
-- If the driver tip posted as its own separate transaction, categorize that transaction entirely to **Work Reimbursements**.
+- If a cataloged Walmart delivery receipt shows a reimbursable driver tip, split the driver tip to **Latitude Reimbursements** and the remaining grocery merchandise to **Groceries** (plus any other non-grocery item categories present in the receipt).
+- If the driver tip posted as its own separate transaction, categorize that transaction entirely to **Latitude Reimbursements**.
 
 For Costco: use the browser to look up the order on costco.com (order history). Then use `receipt_logging` to create the receipt, same flow as Amazon/Walmart.
 
@@ -71,7 +75,7 @@ For restaurants (Subway, Chipotle, etc.): ask the user whether it was personal o
 When an order contains items spanning multiple categories (e.g., Walmart with groceries + a LEGO set), the transaction must be split.
 
 Also split when a Walmart delivery order includes a reimbursable driver tip:
-- reimbursement tip amount -> Work Reimbursements
+- reimbursement tip amount -> Latitude Reimbursements
 - remaining merchandise -> Groceries and/or other item categories from the receipt
 
 Lunch Money split via API (use `PUT` on the parent transaction with a `split` array — there is no separate `/split` or `/group` endpoint):
@@ -107,7 +111,7 @@ Category IDs are installation-specific. At the start of a categorization session
 { "method": "GET", "endpoint": "/categories" }
 ```
 
-Use the active finance rules note as the authoritative source for payee matching patterns and the active category names in this installation. Common categories often include Groceries, Work Reimbursements, Discretionary Spending, Family / Allowance, Home Improvement, Travel, and Health, but do not assume names or IDs without checking the current system.
+Use the categorization rules file (see Step 2) as the authoritative source for payee matching patterns and category names. Do not assume category names or IDs without checking the current system via `GET /categories`.
 
 ## Rate limiting
 
