@@ -875,13 +875,6 @@ export class VoicePipeline {
     }
 
     const stripped = transcript.trim();
-    if (this.isDismissClose(stripped)) {
-      return {
-        kind: 'close',
-        reason: 'standalone-dismiss',
-        transcript,
-      };
-    }
     if (this.isStandaloneConversationalClose(stripped)) {
       return {
         kind: 'close',
@@ -979,7 +972,7 @@ export class VoicePipeline {
 
   /**
    * Checks if a transcript (already normalized or raw) is a dismiss close.
-   * Matches fixed dismiss words AND "thanks/thank you [agent_name]" patterns.
+   * Matches fixed dismiss words AND "thanks/thank you [known_agent_name]" patterns.
    * Does NOT require a wake word prefix — dismiss closes are standalone.
    */
   private isDismissClose(transcript: string): boolean {
@@ -999,14 +992,6 @@ export class VoicePipeline {
         for (const callSign of agent.callSigns) {
           if (this.normalizeClosePhrase(callSign) === namePart) return true;
         }
-      }
-      // Whisper often hallucinates a short trailing word/name after
-      // "thank you" (e.g. "Thank you, Lynn"). If the remainder is a
-      // single short word, treat it as a dismiss — it's almost certainly
-      // a bare "thank you" with STT noise appended.
-      const remainderWords = namePart.split(/\s+/).filter(Boolean);
-      if (remainderWords.length === 1 && remainderWords[0].length <= 8) {
-        return true;
       }
     }
 
@@ -1060,7 +1045,11 @@ export class VoicePipeline {
     if (!normalized) return null;
 
     // Build all candidate close phrases (dismiss + conversational)
-    const dismissPhrases = this.getIndicateDismissPhrases();
+    const dismissPhrases = this.getIndicateDismissPhrases()
+      // Generic gratitude appears in ordinary dictated content. Keep exact
+      // standalone "thanks/thank you" support, but do not use those phrases as
+      // same-utterance tail closes unless they include a known agent name.
+      .filter((phrase) => phrase !== 'thanks' && phrase !== 'thank you');
     const closePhrases = this.getStandaloneConversationalClosePhrases();
 
     // Also build dynamic "thanks [agent]" patterns
@@ -2224,12 +2213,13 @@ export class VoicePipeline {
       // Check for a cached indicate probe result (concurrent close word probe)
       const probe = this.indicateProbeResult;
       const probeHit = probe && probe.wavBuffer === wavBuffer;
+      const cachedProbe = probeHit ? probe : null;
       let probeEarconPlayed = false;
       if (probeHit) {
         probeEarconPlayed = this.indicateProbeEarconPlayed;
         this.indicateProbeResult = null;
         this.indicateProbeEarconPlayed = false;
-        console.log(`Using indicate probe cache (${probe.directive.reason})`);
+        console.log(`Using indicate probe cue cache (${probe.directive.reason})`);
       }
 
       const settings = getVoiceSettings();
@@ -2243,7 +2233,7 @@ export class VoicePipeline {
       ) {
         void this.startIndicateCloseWordProbe(wavBuffer);
       }
-      let transcript = probeHit ? probe.transcript : await transcribe(
+      let transcript = await transcribe(
         wavBuffer,
         this.shouldUseStreamingTranscription()
           ? {
@@ -2313,6 +2303,10 @@ export class VoicePipeline {
       if (!probeEarconPlayed && this.indicateProbeEarconPlayed) {
         probeEarconPlayed = true;
         this.indicateProbeEarconPlayed = false;
+      }
+      if (cachedProbe && (!transcript || transcript.trim().length === 0)) {
+        transcript = cachedProbe.transcript;
+        console.log(`Using indicate probe transcript fallback (${cachedProbe.directive.reason}): "${transcript}"`);
       }
       if (!probeHit && this.indicateProbeResult?.wavBuffer === wavBuffer) {
         const lateProbe = this.indicateProbeResult;
