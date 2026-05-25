@@ -1,7 +1,7 @@
 id: finance.reimbursement_submit
 domain: finance
-display_name: Submit Reimbursement
-description: Submit a reimbursement or expense repayment request in an external finance system, gather supporting evidence, and record submission status.
+display_name: Prepare Or Submit Reimbursement
+description: Prepare a reimbursement draft for review or submit a reviewed reimbursement in an external finance system, gather supporting evidence, and record status.
 mode: write
 route:
   kind: worker
@@ -17,11 +17,15 @@ slots:
     required: false
     inferable: true
 examples:
+  - Prepare Ramp drafts for the pending Walmart delivery-tip reimbursements.
+  - Submit any pending or draft reimbursements.
   - Submit the Walmart delivery-tip reimbursements to Ramp.
   - File those reimbursable Walmart driver tips in Ramp and record that they were submitted.
   - Submit this MAID invoice reimbursement in Ramp using the receipt from Gmail.
   - File the Venmo tree service reimbursement in Ramp from the email receipt.
 classifier_hints:
-  - Use for explicit reimbursement submission, repayment filing, or expense-report browser flows that require evidence gathering and a real external submission.
-  - This includes non-Walmart reimbursements when the invoice or receipt lives in Gmail and the task is to actually file it in Ramp.
+  - Use for reimbursement draft preparation, explicit reimbursement submission, repayment filing, or expense-report browser flows that require evidence gathering.
+  - Treat broad "submit pending or draft reimbursements" wording as draft-prep for pending candidates and verified final submission only for already-prepared drafts.
+  - Default execution should prepare a Ramp draft for review; final submission requires explicit user approval after the draft is prepared.
+  - This includes non-Walmart reimbursements when the invoice or receipt lives in Gmail and the task is to prepare or file it in Ramp.
   - Prefer finance.receipt_lookup when the user only wants to inspect receipt details or find possible reimbursement candidates without submitting anything.

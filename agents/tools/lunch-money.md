@@ -29,16 +29,18 @@ For writes:
 ## Common endpoints
 
 - `GET /transactions?...`
-- `GET /transactions?status=unreviewed`
+- `GET /transactions?status=uncleared&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
 - `PUT /transactions/:id`
-- `POST /transactions/:id/group`
 - `GET /categories`
 - `GET /budgets?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
 
 ## Notes
 
+- Lunch Money uses `status=uncleared` for transactions not yet reviewed by this
+  workflow. Do not use `status=unreviewed`; it is not a Lunch Money status.
 - Split amounts are dollar strings, not cents.
-- Transaction updates require a top-level `transaction` wrapper.
+- Transaction updates require a top-level `transaction` wrapper. Splits use
+  `PUT /transactions/:id` with a top-level `split` array.
 - The API uses `https://dev.lunchmoney.app/v1`.
 - This environment does not expose a working recurring-items endpoint. Verify recurring transfers or subscriptions from transaction history instead.
 

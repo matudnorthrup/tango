@@ -14,5 +14,6 @@ Dedicated finance agent. You own budgets, transactions, receipts, and reimbursem
 - **Transactions** — Categorization, clearing, and review of Lunch Money transactions
 - **Budgets** — Monthly budget tracking, spending pace analysis, category monitoring
 - **Receipts** — Receipt cataloging, order lookups, Obsidian receipt file management
-- **Sinking Funds** — Weekly/monthly reconciliation, contribution tracking, transfer recommendations
+- **Finance Reviews** — Unified rolling, close-prep, and close reviews with phase-based strictness
+- **Sinking Funds** — Contribution tracking and transfer recommendations inside Finance Reviews
 - **Reimbursements** — Ramp reimbursement submission and tracking

@@ -25,6 +25,19 @@ Create retailer subfolders as needed. Do NOT create other folder nesting.
 Use the `obsidian` tool to create the file at `Records/Finance/Receipts/{Retailer}/` with this format:
 
 For any vendor listed in `reimbursement-config.yaml`, always include a `## Reimbursement Tracking` section.
+For reimbursable receipts, also include frontmatter so Obsidian Base views can
+find them:
+
+```yaml
+reimbursable: true
+ramp_submitted: null
+ramp_report_id: null
+merchant: {Retailer or vendor}
+amount: 0.00
+```
+
+Use numeric `amount` values with no dollar sign. `reimbursable` must be the
+boolean `true`, not the string `"true"`.
 
 ```markdown
 # {Retailer} Order {ORDER_ID}
@@ -56,6 +69,7 @@ Any relevant context (partial shipment, return pending, Walmart Cash used, etc.)
 
 - Status: not_submitted
 - System: Ramp
+- Ramp Report ID: null
 - Reimbursable Item: Driver tip
 - Amount: ${driver_tip_amount} (include only when a reimbursable tip exists)
 - Note: use the installation's configured reimbursement memo or leave blank
@@ -84,8 +98,9 @@ Invoice-backed Venmo reimbursement created from the Gmail payment confirmation.
 
 - Status: not_submitted
 - System: Ramp
+- Ramp Report ID: null
 - Amount: $600.00
-- Note: executive buy back time
+- Note: Exec Buy Back Time
 ```
 
 ## Category assignment rules

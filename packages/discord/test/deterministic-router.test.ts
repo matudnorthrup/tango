@@ -1609,8 +1609,9 @@ describe("deterministic router", () => {
     expect(result.outcome).toBe("executed");
     expect(result.plan?.steps).toHaveLength(1);
     expect(result.plan?.steps[0]?.workerId).toBe("personal-assistant");
-    expect(result.plan?.steps[0]?.allowedToolIds).toEqual(["lunch_money", "obsidian"]);
+    expect(result.plan?.steps[0]?.allowedToolIds).toEqual(["lunch_money", "obsidian", "receipt_registry"]);
     expect(result.plan?.steps[0]?.task).toContain("finance.sinking_fund_reconciliation");
+    expect(result.plan?.steps[0]?.task).toContain("Keep sinking fund reimbursement transfers separate");
   });
 
   it("builds Watson health, calendar, email, and note read plans through the personal-assistant worker", () => {
@@ -1769,6 +1770,8 @@ describe("deterministic router", () => {
     expect(result.plan?.steps.map((step) => step.dependsOn)).toEqual([[], []]);
     expect(result.plan?.steps[0]?.task).toContain("health.morning_brief");
     expect(result.plan?.steps[1]?.task).toContain("finance.budget_review");
+    expect(result.plan?.steps[1]?.allowedToolIds).toEqual(["lunch_money", "obsidian", "receipt_registry"]);
+    expect(result.plan?.steps[1]?.task).toContain("use receipt_registry structured actions before summarizing");
   });
 
   it("builds Watson categorization, receipt, planning, docs, and slack plans through the personal-assistant worker", () => {
@@ -2098,13 +2101,19 @@ describe("deterministic router", () => {
       "browser",
     ]);
     expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
-      "use ramp_reimbursement as the primary execution path",
+      "prepare_ramp_reimbursement_draft",
+    );
+    expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
+      "submit_reviewed_ramp_reimbursement",
     );
     expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
       "Use the raw browser tool only for login, page-state inspection, or debugging",
     );
     expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
       "If this reimbursement's invoice or receipt lives in Gmail, use gog_email",
+    );
+    expect(watsonReimbursementResult.plan?.steps[0]?.task).toContain(
+      "receipt_registry plus live Ramp reconciliation is authoritative",
     );
 
     const watsonReceiptCatalogResult = buildDeterministicExecutionPlan({

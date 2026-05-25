@@ -1,7 +1,7 @@
 default_system: "Ramp"
 categories:
   exec_buy_back_time:
-    memo: "executive buy back time"
+    memo: "Exec Buy Back Time"
     vendors: [walmart_tip, venmo_services, maid_in_newport, factor]
   offsite_reimbursements:
     memo: "offsite reimbursement"

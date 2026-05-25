@@ -34,6 +34,15 @@ All scheduled job output is logged to `Records/Jobs/Finance/YYYY-MM.md` in Obsid
 The daily brief aggregator reads this file — ensure entries include a **Flagged:** section
 for anything that needs user attention.
 
+## Finance Current Status
+
+When Devin asks what is left from a finance review, treat review notes and job
+logs as historical candidate lists. Before answering, verify current state with
+Lunch Money plus `receipt_registry`/Ramp as applicable. If a note is stale,
+update the current review record with a timestamped correction before reporting
+the current open items. For Lunch Money review-inbox queries, use
+`status=uncleared`; do not use `status=unreviewed`.
+
 ## Self-Update
 
 When the user gives behavioral feedback, update this knowledge file using the

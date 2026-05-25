@@ -308,6 +308,8 @@ export function rampReimbursementLooksSubmitted(text: string): boolean {
     || /\bsubmitted on\s+\d{2}\/\d{2}\/\d{4}\b/iu.test(normalized)
     || /\bapprove reimbursement\b/iu.test(normalized)
     || /\bawaiting reviewer\b/iu.test(normalized)
+    || /\bedit pending reimbursement\b/iu.test(normalized)
+    || /\bsave changes\b/iu.test(normalized)
   );
 }
 
@@ -459,7 +461,7 @@ export function formatRampTransactionDate(input: string): string {
 
 export function extractRampReimbursementIdFromUrl(url: string): string | null {
   const match =
-    /\/details\/(?:list\/reimbursement|reimbursements)\/([0-9a-f-]+)\/(?:draft|review)/i.exec(
+    /\/details\/(?:list\/reimbursement|reimbursements)\/([0-9a-f-]+)(?:\/(?:draft|review))?(?:[/?#]|$)/i.exec(
       url,
     );
   return match?.[1] ?? null;

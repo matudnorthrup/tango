@@ -1,7 +1,7 @@
 id: nightly-transaction-categorizer
 display_name: Nightly Transaction Categorizer
 description: >
-  Fetch uncategorized Lunch Money transactions from the last 48 hours,
+  Fetch uncleared Lunch Money transactions from the last 48 hours,
   apply categorization rules, and post a summary. Exit silently if none.
 enabled: true
 runtime: v2
@@ -32,7 +32,7 @@ execution:
     1. Fetch the uncleared (status=uncleared) Lunch Money transactions
        for exactly that date window. These may already have categories
        auto-applied by Lunch Money rules — you need to review and
-       correct them using Watson's rules.
+       correct them using the finance rules.
     2. If the follow-up fetch unexpectedly returns zero transactions,
        return EXACTLY the text "__NO_OUTPUT__" and nothing else.
     3. Read the categorization rules from
@@ -51,7 +51,7 @@ execution:
   timeout_seconds: 420
 
 provider:
-  model: sonnet
+  model: claude-sonnet-4-6
 
 delivery:
   mode: none

@@ -4,6 +4,13 @@ Reconcile Watson's sinking-fund-backed Lunch Money spending against the three
 Ally sinking fund balances. Use this for weekly tracking, month-end pre-close,
 and ad-hoc requests like "run a sinking fund reconciliation for April."
 
+This skill is now a module inside the unified `finance_review` workflow. Use it
+for the sinking-fund section of rolling, close-prep, and close reviews.
+
+This workflow does **not** create or manage Ramp drafts. Ramp is only for
+Latitude reimbursements. In this file, "reimbursement" means an SB transfer
+that offsets a covered personal budget category in Lunch Money.
+
 ## Source of truth
 
 Start every run by reading the Obsidian note titled `Sinking Fund Budget System`.
@@ -66,6 +73,16 @@ you finish. If balances still cannot be retrieved, say that explicitly.
 When you need contribution verification:
 - Check the current month's transaction history for the three SB contribution
   categories instead of relying on recurring-item data.
+- Check savings-side transfer activity before marking a contribution missing.
+  House SB and Recreation SB contributions may be visible on their dedicated
+  Ally savings accounts even when checking-account outflows are hard to match.
+- Fetch `/plaid_accounts` and verify `last_import`, `last_fetch`, and
+  `plaid_last_successful_update` for checking and the three SB accounts. If
+  those timestamps are before the expected contribution date, trigger
+  `POST /plaid_accounts/fetch` for the stale account IDs and contribution date
+  window, wait about 20-60 seconds, then re-query account freshness and
+  transactions. If the data is still stale or absent, report
+  `unverified - account data stale` rather than `missing`.
 
 ## Reconciliation rules
 
@@ -113,6 +130,13 @@ Then aggregate by fund:
 This `fund_outstanding` number is the amount required to "clear the books"
 today if the user wants categories brought back toward zero via the SB
 reimbursement flow.
+
+Recommendation thresholds when called from `finance_review`:
+- Under $50: monitor or defer.
+- $50-$250: recommend as optional.
+- Over $250 or older than 14 days: recommend `do now`.
+- Close-prep or close phase: true up all intentional remaining draws unless the
+  user explicitly carries them forward.
 
 ### 5. Compare against current balances, floors, and targets
 
