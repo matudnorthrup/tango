@@ -13,6 +13,7 @@ interface CliOptions {
   vaultPath: string;
   dbPath?: string;
   outputPath: string;
+  summaryJsonPath?: string;
   maxExamples: number;
   writeReport: boolean;
 }
@@ -67,6 +68,54 @@ interface TagSummary {
   inlineHashtagCounts: Map<string, number>;
 }
 
+interface JsonFinding {
+  code: string;
+  severity: Severity;
+  message: string;
+  filePath?: string;
+  relativePath?: string;
+  detail?: string;
+  suggestion?: string;
+}
+
+interface VaultAuditJsonSummary {
+  generatedAt: string;
+  vaultPath: string;
+  dbPath: string;
+  reportPath: string | null;
+  notesScanned: number;
+  schema: {
+    areas: number;
+    types: number;
+    categories: number;
+  };
+  tags: {
+    filesWithFrontmatterTagField: number;
+    filesWithFrontmatterTags: number;
+    uniqueFrontmatterTags: number;
+    inlineHashtagTotal: number;
+    uniqueInlineHashtags: number;
+  };
+  findings: {
+    total: number;
+    warnings: number;
+    review: number;
+    info: number;
+    byCode: Record<string, number>;
+    items: JsonFinding[];
+  };
+  atlas: {
+    available: boolean;
+    skippedReason?: string;
+    indexRows: number;
+    memoryRows: number;
+    staleIndexRows: number;
+    missingIndexFiles: number;
+    missingMemorySourceFiles: number;
+    promotionCandidateRows: number | null;
+  };
+}
+
 const DEFAULT_VAULT_PATH = "~/Documents/main";
 const DEFAULT_OUTPUT_DIR = "data/reports";
 const REQUIRED_FRONTMATTER_FIELDS = ["date", "types", "areas"];
@@ -112,8 +161,9 @@ async function main(): Promise<void> {
     vaultPath,
   });
 
+  const generatedAt = new Date();
   const report = renderReport({
-    generatedAt: new Date(),
+    generatedAt,
     vaultPath,
     notes,
     schema,
@@ -129,6 +179,24 @@ async function main(): Promise<void> {
     console.log(`Wrote vault audit report: ${outputPath}`);
   } else {
     console.log(report);
+  }
+
+  if (options.summaryJsonPath) {
+    const summaryPath = path.resolve(options.summaryJsonPath);
+    fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
+    fs.writeFileSync(
+      summaryPath,
+      `${JSON.stringify(buildJsonSummary({
+        generatedAt,
+        vaultPath,
+        dbPath: atlas.dbPath,
+        reportPath: options.writeReport ? path.resolve(options.outputPath) : null,
+        notes,
+        schema,
+        findings,
+        atlas,
+      }), null, 2)}\n`,
+    );
   }
 }
 
@@ -162,6 +230,12 @@ function parseArgs(args: string[]): CliOptions {
       case "--output-path":
         if (!next) throw new Error(`${arg} requires a value`);
         options.outputPath = next;
+        index += 1;
+        break;
+      case "--summary-json":
+      case "--summary-json-path":
+        if (!next) throw new Error(`${arg} requires a value`);
+        options.summaryJsonPath = next;
         index += 1;
         break;
       case "--max-examples":
@@ -632,6 +706,74 @@ function renderReport(input: {
   lines.push("");
 
   return `${lines.join("\n")}\n`;
+}
+
+function buildJsonSummary(input: {
+  generatedAt: Date;
+  vaultPath: string;
+  dbPath: string;
+  reportPath: string | null;
+  notes: NoteRecord[];
+  schema: SchemaCatalog;
+  findings: Finding[];
+  atlas: AtlasAuditResult;
+}): VaultAuditJsonSummary {
+  const allFindings = [...input.findings, ...input.atlas.findings];
+  const severityCounts = countBy(allFindings, (finding) => finding.severity);
+  const byCode = groupFindingsByCode(allFindings);
+  const tagSummary = summarizeTags(input.notes);
+
+  return {
+    generatedAt: input.generatedAt.toISOString(),
+    vaultPath: input.vaultPath,
+    dbPath: input.dbPath,
+    reportPath: input.reportPath,
+    notesScanned: input.notes.length,
+    schema: {
+      areas: input.schema.areas.size,
+      types: input.schema.types.size,
+      categories: input.schema.categories.size,
+    },
+    tags: {
+      filesWithFrontmatterTagField: tagSummary.filesWithFrontmatterTagField,
+      filesWithFrontmatterTags: tagSummary.filesWithFrontmatterTags,
+      uniqueFrontmatterTags: tagSummary.uniqueFrontmatterTags,
+      inlineHashtagTotal: tagSummary.inlineHashtagTotal,
+      uniqueInlineHashtags: tagSummary.uniqueInlineHashtags,
+    },
+    findings: {
+      total: allFindings.length,
+      warnings: severityCounts.get("warning") ?? 0,
+      review: severityCounts.get("review") ?? 0,
+      info: severityCounts.get("info") ?? 0,
+      byCode: Object.fromEntries(
+        [...byCode.entries()].map(([code, findings]) => [code, findings.length]),
+      ),
+      items: allFindings.map((finding) => toJsonFinding(finding, input.vaultPath)),
+    },
+    atlas: {
+      available: input.atlas.available,
+      skippedReason: input.atlas.skippedReason,
+      indexRows: input.atlas.indexRows,
+      memoryRows: input.atlas.memoryRows,
+      staleIndexRows: input.atlas.staleIndexRows,
+      missingIndexFiles: input.atlas.missingIndexFiles,
+      missingMemorySourceFiles: input.atlas.missingMemorySourceFiles,
+      promotionCandidateRows: input.atlas.promotionCandidateRows,
+    },
+  };
+}
+
+function toJsonFinding(finding: Finding, vaultPath: string): JsonFinding {
+  return {
+    code: finding.code,
+    severity: finding.severity,
+    message: finding.message,
+    filePath: finding.filePath,
+    relativePath: finding.filePath ? toDisplayPath(finding.filePath, vaultPath) : undefined,
+    detail: finding.detail,
+    suggestion: finding.suggestion,
+  };
 }
 
 function walkMarkdownFiles(rootPath: string): string[] {
@@ -1137,7 +1279,7 @@ function isIntentionalDailyWorkflowPath(date: string, relativePath: string): boo
 
 function isIntentionalMonthlyJobLogPath(month: string, relativePath: string): boolean {
   return new RegExp(
-    `^Records/Jobs/(?:Email|Finance|Planning|Slack)(?:/Mentions)?/${escapeRegExp(month)}\\.md$`,
+    `^Records/Jobs/(?:Email|Finance|Planning|Slack|Vault)(?:/Mentions)?/${escapeRegExp(month)}\\.md$`,
     "u",
   ).test(relativePath);
 }
@@ -1179,6 +1321,7 @@ Options:
   --vault-path <path>      Obsidian vault path (default: ~/Documents/main)
   --db-path <path>         Tango SQLite path (default: active Tango profile DB)
   --output-path <path>     Markdown report path (default: data/reports/vault-audit-YYYY-MM-DD.md)
+  --summary-json <path>    Also write a machine-readable JSON summary
   --max-examples <n>       Max examples per finding section (default: 25)
   --stdout                 Print report instead of writing a file
 `);
