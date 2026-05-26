@@ -13,7 +13,7 @@ Lightweight agent for quick, throwaway questions. No persistence, no memory writ
 ### Agent Setup
 - **Soul:** `agents/assistants/charlie/soul.md` — concise, direct personality. Explicitly prohibits memory writes.
 - **V2 Config:** `config/v2/agents/charlie.yaml` — type: quick, MCP servers: memory (read-only), exa (search/answer), agent-docs. Memory extraction disabled. Low reasoning effort. 4-hour idle timeout. 50% context reset threshold.
-- **Defaults Config:** `config/defaults/agents/charlie.yaml` — voice callsigns, response_mode: concise, no workers, no deterministic routing.
+- **Registry Fields:** Charlie's voice call signs, response mode, tools, and deterministic routing now live in `config/v2/agents/charlie.yaml`.
 - **Session Config:** `config/defaults/sessions/quick-questions.yaml` — 8K context tokens, aggressive summarization (window: 8), high importance threshold (0.8).
 
 ### Close Word Migration
@@ -52,6 +52,6 @@ Lightweight agent for quick, throwaway questions. No persistence, no memory writ
 ## Key Files
 - `agents/assistants/charlie/soul.md`
 - `config/v2/agents/charlie.yaml`
-- `config/defaults/agents/charlie.yaml`
+- `config/v2/agents/charlie.yaml`
 - `config/defaults/sessions/quick-questions.yaml`
 - `apps/tango-voice/src/pipeline/voice-pipeline.ts` (close word change)

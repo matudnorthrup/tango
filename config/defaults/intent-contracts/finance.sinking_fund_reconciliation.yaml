@@ -21,7 +21,8 @@ examples:
   - How are the sinking funds looking this month?
   - What do I need to transfer from the sinking funds to clear the books?
 classifier_hints:
-  - Use for sinking fund reconciliation, fund balance checks, weekly sinking fund tracking, month-end pre-close, or reimbursement-to-zero analysis.
+  - Use for sinking fund reconciliation, fund balance checks, sinking fund tracking inside Finance Review, close-prep, or reimbursement-to-zero analysis.
+  - Keep sinking fund transfers separate from Ramp/Latitude reimbursements; use receipt_registry only for Ramp/Latitude reimbursement visibility checks.
   - Prefer finance.transaction_lookup when the user only wants raw transaction history rather than a fund reconciliation.
 evaluation:
   task_class: reconciliation

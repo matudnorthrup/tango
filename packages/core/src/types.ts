@@ -75,6 +75,7 @@ export interface AgentConfig {
   type: string;
   displayName?: string;
   avatarURL?: string;
+  avatarPath?: string;
   provider: {
     default: string;
     model?: string;

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   isV2RuntimeEnabled,
   loadAllV2AgentConfigs,
+  loadLayeredV2AgentConfigs,
   loadV2AgentConfig,
 } from "../src/v2-config-loader.js";
 
@@ -51,12 +52,12 @@ describe("loadV2AgentConfig", () => {
       voice: {
         callSigns: ["Malibu", "Malibooth", "Coach Malibu"],
         kokoroVoice: "am_puck",
-        defaultChannelId: "100000000000000002",
-        smokeTestChannelId: "100000000000001002",
+        defaultChannelId: "1480419549403942913",
+        smokeTestChannelId: "1488248020821606492",
       },
       discord: {
-        defaultChannelId: "100000000000000002",
-        smokeTestChannelId: "100000000000001002",
+        defaultChannelId: "1480419549403942913",
+        smokeTestChannelId: "1488248020821606492",
       },
     });
     expect(config.mcpServers.length).toBeGreaterThanOrEqual(5);
@@ -92,6 +93,56 @@ describe("loadV2AgentConfig", () => {
       args: ["packages/core/dist/mcp-proxy.js", "linear"],
       env: {
         ALLOWED_TOOL_IDS: "linear",
+      },
+    });
+  });
+
+  it("loads Porter as an LDS companion with direct governed tool access", () => {
+    const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "porter.yaml"));
+
+    expect(config).toMatchObject({
+      id: "porter",
+      displayName: "Porter",
+      type: "lds-companion",
+      avatarPath: "agents/assistants/porter/avatar.png",
+      systemPromptFile: "agents/assistants/porter/soul.md",
+      runtime: {
+        provider: "claude-code-v2",
+        reasoningEffort: "high",
+      },
+      voice: {
+        callSigns: ["Porter", "Brother Porter"],
+        kokoroVoice: "am_liam",
+        defaultChannelId: "1508531125243478176",
+        smokeTestChannelId: "1508531126321549455",
+      },
+      discord: {
+        defaultChannelId: "1508531125243478176",
+        smokeTestChannelId: "1508531126321549455",
+      },
+    });
+
+    const serverNames = config.mcpServers.map((server) => server.name);
+    expect(serverNames).toEqual(expect.arrayContaining(["memory", "google", "obsidian", "browser", "gospel-library", "onepassword"]));
+    expect(serverNames).not.toContain("agent-docs");
+
+    const gospelLibraryServer = config.mcpServers.find((server) => server.name === "gospel-library");
+    expect(gospelLibraryServer).toMatchObject({
+      command: "node",
+      args: ["packages/core/dist/mcp-proxy.js", "gospel-library"],
+      env: {
+        ALLOWED_TOOL_IDS: "gospel_library",
+        WORKER_ID: "church-assistant",
+      },
+    });
+
+    const onePasswordServer = config.mcpServers.find((server) => server.name === "onepassword");
+    expect(onePasswordServer).toMatchObject({
+      command: "node",
+      args: ["packages/core/dist/mcp-proxy.js", "onepassword"],
+      env: {
+        ALLOWED_TOOL_IDS: "onepassword",
+        WORKER_ID: "church-assistant",
       },
     });
   });
@@ -235,5 +286,109 @@ describe("loadAllV2AgentConfigs", () => {
         provider: "legacy",
       },
     });
+  });
+});
+
+describe("loadLayeredV2AgentConfigs", () => {
+  it("merges repo v2 configs with profile v2 overrides", () => {
+    const repoRoot = createTempDir("tango-v2-layered-repo-");
+    const homeDir = createTempDir("tango-v2-layered-home-");
+    const originalCwd = process.cwd();
+    const originalEnv = { ...process.env };
+    process.chdir(repoRoot);
+    const resolvedRepoRoot = process.cwd();
+    process.env.TANGO_HOME = homeDir;
+    process.env.TANGO_PROFILE = "default";
+
+    try {
+      fs.mkdirSync(path.join(resolvedRepoRoot, "config", "defaults"), { recursive: true });
+      fs.mkdirSync(path.join(resolvedRepoRoot, "config", "v2", "agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(resolvedRepoRoot, "config", "v2", "agents", "alpha.yaml"),
+        [
+          "id: alpha",
+          "display_name: Alpha",
+          "type: test",
+          "system_prompt_file: agents/assistants/alpha/soul.md",
+          "mcp_servers:",
+          "  - name: memory",
+          "    command: node",
+          "runtime:",
+          "  mode: persistent",
+          "  provider: claude-code-v2",
+          "  fallback: codex",
+          "  model: claude-sonnet-4-6",
+          "  reasoning_effort: medium",
+          "  idle_timeout_hours: 24",
+          "  context_reset_threshold: 0.8",
+          "memory:",
+          "  post_turn_extraction: enabled",
+          "  extraction_model: claude-haiku-4-5",
+          "  importance_threshold: 0.4",
+          "  scheduled_reflection: enabled",
+          "discord:",
+          "  default_channel_id: \"repo-channel\"",
+          "voice:",
+          "  call_signs:",
+          "    - Alpha",
+          "  kokoro_voice: am_adam",
+          "  default_channel_id: \"repo-channel\"",
+        ].join("\n"),
+      );
+      const profileV2Dir = path.join(
+        homeDir,
+        "profiles",
+        "default",
+        "config",
+        "v2",
+        "agents",
+      );
+      fs.mkdirSync(profileV2Dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(profileV2Dir, "alpha.yaml"),
+        [
+          "id: alpha",
+          "voice:",
+          "  default_channel_id: \"profile-channel\"",
+          "  smoke_test_channel_id: \"profile-smoke\"",
+          "discord:",
+          "  default_channel_id: \"profile-channel\"",
+          "  smoke_test_channel_id: \"profile-smoke\"",
+        ].join("\n"),
+      );
+
+      const configs = loadLayeredV2AgentConfigs(path.join(resolvedRepoRoot, "config", "defaults"));
+
+      expect(configs.get("alpha")).toMatchObject({
+        id: "alpha",
+        displayName: "Alpha",
+        runtime: {
+          provider: "claude-code-v2",
+        },
+        voice: {
+          callSigns: ["Alpha"],
+          defaultChannelId: "profile-channel",
+          smokeTestChannelId: "profile-smoke",
+        },
+        discord: {
+          defaultChannelId: "profile-channel",
+          smokeTestChannelId: "profile-smoke",
+        },
+      });
+    } finally {
+      process.chdir(originalCwd);
+      for (const key of Object.keys(process.env)) {
+        if (!(key in originalEnv)) {
+          delete process.env[key];
+        }
+      }
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
   });
 });

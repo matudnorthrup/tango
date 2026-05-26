@@ -35,6 +35,7 @@ import {
 import { createAllPersonalTools } from "./personal-agent-tools.js";
 import { createAllResearchTools } from "./research-agent-tools.js";
 import { createBrowserTools } from "./browser-agent-tools.js";
+import { createGospelLibraryTools, gospelLibraryActionLooksMutating } from "./gospel-library-agent-tools.js";
 import { createTangoTools } from "./tango-agent-tools.js";
 import { createDevTools } from "./tango-dev-tools.js";
 import { createDiscordManageTools } from "./discord-manage-tools.js";
@@ -97,6 +98,7 @@ const allTools: AgentTool[] = [
   ...createAllPersonalTools(),
   ...createAllResearchTools(),
   ...createBrowserTools(),
+  ...createGospelLibraryTools(),
   ...createTangoTools(),
   ...createDevTools(),
   ...createDiscordManageTools({ storage: threadSessionStorage }),
@@ -177,6 +179,36 @@ function isReadOnlyObsidianCommand(command: unknown): boolean {
 function isReadOnlyIMessageCommand(command: unknown): boolean {
   const head = getCommandHead(command);
   return head[0] === "chats" || head[0] === "history";
+}
+
+function sanitizeToolArgsForLog(name: string, args: Record<string, unknown> | undefined): Record<string, unknown> {
+  const seen = new WeakSet<object>();
+  const sensitiveKeyPattern = /password|secret|token|credential|authorization|otp|one[-_]?time|passcode/iu;
+  const sanitize = (value: unknown, key = ""): unknown => {
+    if (sensitiveKeyPattern.test(key)) {
+      return "[redacted]";
+    }
+    if (name === "browser" && ["value", "text"].includes(key)) {
+      return "[redacted]";
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => sanitize(item));
+    }
+    if (value && typeof value === "object") {
+      if (seen.has(value)) {
+        return "[circular]";
+      }
+      seen.add(value);
+      const output: Record<string, unknown> = {};
+      for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+        output[childKey] = sanitize(childValue, childKey);
+      }
+      return output;
+    }
+    return value;
+  };
+
+  return sanitize(args ?? {}) as Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +339,10 @@ function inferRequestedAccessLevel(
       return ["status", "open", "snapshot", "screenshot", "wait", "eval", "connect", "launch", "close", "scroll"].includes(action)
         ? "read"
         : "write";
+    }
+    case "gospel_library": {
+      const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
+      return gospelLibraryActionLooksMutating(action) ? "write" : "read";
     }
     default:
       return (governance?.getToolAccessType(name) ?? "read") as AccessLevel;
@@ -474,7 +510,7 @@ if (isHttpMode) {
 
         case "tools/call": {
           const params = message.params as { name: string; arguments?: Record<string, unknown> };
-          const argsStr = JSON.stringify(params.arguments ?? {});
+          const argsStr = JSON.stringify(sanitizeToolArgsForLog(params.name, params.arguments));
           debug(
             `HTTP tools/call: ${params.name} (worker=${workerIdHeader || "none"} ` +
             `readOnly=${readOnlyStep ? "yes" : "no"} ` +
@@ -587,7 +623,7 @@ if (isHttpMode) {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    debug(`tools/call: ${name} readOnly=${readOnlyStep ? "yes" : "no"}`, JSON.stringify(args ?? {}));
+    debug(`tools/call: ${name} readOnly=${readOnlyStep ? "yes" : "no"}`, JSON.stringify(sanitizeToolArgsForLog(name, (args ?? {}) as Record<string, unknown>)));
     return executeToolCall(
       name,
       (args ?? {}) as Record<string, unknown>,

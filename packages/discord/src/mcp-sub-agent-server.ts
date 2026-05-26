@@ -21,7 +21,6 @@ import {
   type SubAgentResult,
   type SubTaskSpec,
 } from "@tango/core";
-import { buildWorkerProviderTools } from "./agent-worker-bridge.js";
 import { getMcpToolAnnotations } from "./mcp-tool-metadata.js";
 import {
   generateWithFailover,
@@ -31,6 +30,7 @@ import {
   SPAWN_SUB_AGENTS_TOOL_NAME,
   SUB_AGENT_MCP_SERVER_NAME,
 } from "./sub-agent-tool.js";
+import { buildWorkerProviderTools } from "./worker-provider-tools.js";
 
 const debug = (...args: unknown[]): void => {
   console.error("[mcp-subagents]", ...args);

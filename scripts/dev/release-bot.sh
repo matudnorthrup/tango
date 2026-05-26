@@ -35,13 +35,13 @@ read_lock_field() {
 }
 
 main_discord_target() {
-  if tmux has-session -t tango 2>/dev/null \
-    && tmux list-windows -t tango -F '#{window_name}' 2>/dev/null | grep -qx 'discord'; then
+  if tango_service_tmux has-session -t tango 2>/dev/null \
+    && tango_service_tmux list-windows -t tango -F '#{window_name}' 2>/dev/null | grep -qx 'discord'; then
     printf 'tango:discord\n'
     return 0
   fi
 
-  if tmux has-session -t tango-discord 2>/dev/null; then
+  if tango_service_tmux has-session -t tango-discord 2>/dev/null; then
     printf 'tango-discord\n'
     return 0
   fi
@@ -70,9 +70,9 @@ start_main_discord() {
 
   printf -v run_cmd '%s' "cd \"$main_repo_dir\" && env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$node_bin\" packages/discord/dist/main.js"
 
-  if tmux has-session -t tango 2>/dev/null; then
-    if ! tmux list-windows -t tango -F '#{window_name}' 2>/dev/null | grep -qx 'discord'; then
-      tmux new-window -t tango -n discord -c "$main_repo_dir" "$run_cmd"
+  if tango_service_tmux has-session -t tango 2>/dev/null; then
+    if ! tango_service_tmux list-windows -t tango -F '#{window_name}' 2>/dev/null | grep -qx 'discord'; then
+      tango_service_tmux new-window -t tango -n discord -c "$main_repo_dir" "$run_cmd"
     fi
     return 0
   fi
@@ -86,7 +86,7 @@ wait_for_discord_ready() {
   local waited=0
 
   while [ "$waited" -lt "$timeout_seconds" ]; do
-    if tmux capture-pane -t "$target" -p 2>/dev/null | grep -q '\[tango-discord\] connected as '; then
+    if tango_service_tmux capture-pane -t "$target" -p 2>/dev/null | grep -q '\[tango-discord\] connected as '; then
       return 0
     fi
     sleep 1

@@ -64,4 +64,4 @@ obsidian_log:
 
 - TGO-440: nightly-transaction-categorizer not yet live-tested (runs at 11pm, will validate tonight)
 - TGO-444: morning-planning cron time needs stakeholder decision
-- The post-hook writes a generic "No flagged items." — it doesn't parse the summary for flags. A future enhancement could extract **Flagged:** sections from the agent's summary.
+- Resolved 2026-05-24: the post-hook now emits a **Flagged:** section when the summary contains review/exception signals instead of always writing a generic "No flagged items."

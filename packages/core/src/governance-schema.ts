@@ -220,7 +220,8 @@ export const GOVERNANCE_SEED = `
     ('agent:malibu', 'agent', 'user:owner', 'Malibu'),
     ('agent:sierra', 'agent', 'user:owner', 'Sierra'),
     ('agent:dispatch', 'agent', 'user:owner', 'Tango'),
-    ('agent:victor', 'agent', 'user:owner', 'Victor');
+    ('agent:victor', 'agent', 'user:owner', 'Victor'),
+    ('agent:porter', 'agent', 'user:owner', 'Porter');
 
   INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
     ('worker:nutrition-logger', 'worker', 'agent:malibu', 'Nutrition Logger'),
@@ -231,6 +232,7 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
     ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
     ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'),
+    ('worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'),
     ('worker:note-librarian', 'worker', NULL, 'Note Librarian');
 
   -- Tools (from MCP server)
@@ -248,6 +250,7 @@ export const GOVERNANCE_SEED = `
     ('gog_docs', 'personal', 'Google Docs', 'write'),
     ('gog_docs_update_tab', 'personal', 'Google Docs Tab Updater', 'write'),
     ('obsidian', 'personal', 'Obsidian Vault', 'write'),
+    ('gospel_library', 'personal', 'Gospel Library', 'write'),
     ('health_morning', 'personal', 'Health Morning Briefing', 'read'),
     ('lunch_money', 'personal', 'Lunch Money Finance', 'write'),
     ('receipt_registry', 'personal', 'Receipt Registry', 'write'),
@@ -374,6 +377,17 @@ export const GOVERNANCE_SEED = `
     ('worker:operations-assistant', 'memory_search', 'read', 'memory lookup for durable operations context'),
     ('worker:operations-assistant', 'memory_add', 'write', 'memory capture for durable operations context'),
     ('worker:operations-assistant', 'memory_reflect', 'write', 'memory reflection for durable operations context');
+
+  -- church-assistant (Porter) — LDS study and calling support
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:church-assistant', 'gospel_library', 'write', 'Gospel Library marking and linking'),
+    ('worker:church-assistant', 'obsidian', 'write', 'church study notes and calling outlines'),
+    ('worker:church-assistant', 'browser', 'write', 'authenticated Gospel Library marking and linking'),
+    ('worker:church-assistant', 'onepassword', 'read', 'credential retrieval for Church login if explicitly configured'),
+    ('worker:church-assistant', 'gog_email', 'read', 'read-only calling context from email'),
+    ('worker:church-assistant', 'memory_search', 'read', 'memory lookup for durable church context'),
+    ('worker:church-assistant', 'memory_add', 'write', 'memory capture for durable church context'),
+    ('worker:church-assistant', 'memory_reflect', 'write', 'memory reflection for durable church context');
 
   -- Universal memory tools available to all agents/workers via inheritance from the owner
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

@@ -23,7 +23,6 @@ import {
   assembleSessionMemoryPrompt,
   buildDeterministicConversationMemory,
   buildDeterministicConversationSummary,
-  CapabilityRegistry,
   auditPromptSnapshotsWithProvider,
   collectPromptSnapshotAuditSamples,
   cleanupExpiredClaudeArtifacts,
@@ -35,8 +34,6 @@ import {
   type ChatProvider,
   type EmbeddingProvider,
   type DeadLetterInsertInput,
-  type ProviderMcpServerConfig,
-  type ProviderToolsConfig,
   estimateConversationImportance,
   estimateTokenCount,
   extractExecutionTrace,
@@ -48,7 +45,6 @@ import {
   type ModelRunRecord,
   type MessageInsertInput,
   type ModelRunInsertInput,
-  type DeterministicTurnInsertInput,
   type OrchestratorContinuityMode,
   type PromptSnapshotInsertInput,
   type ProviderReasoningEffort,
@@ -64,17 +60,10 @@ import {
   resolveProviderToolsForAgent,
   selectMemoriesToArchive,
   type SessionConfig,
-  type WorkerConfig,
-  loadAgentConfigs,
   loadUnifiedAgentConfigs,
   loadMemoryEvalConfig,
-  loadIntentContractConfigs,
-  loadProjectConfigs,
   loadSessionConfigs,
-  loadWorkerConfigs,
   loadScheduleConfigs,
-  loadToolContractConfigs,
-  loadWorkflowConfigs,
   loadV2AgentConfig,
   renderMemoryEvalDiscordSummary,
   renderMemoryEvalMarkdownReport,
@@ -82,7 +71,7 @@ import {
   resolveConfigDir,
   resolveConfiguredPath,
   resolveDatabasePath,
-  loadAllV2AgentConfigs,
+  loadLayeredV2AgentConfigs,
   renderContextPacket,
   planSessionCompaction,
   SessionManager,
@@ -94,12 +83,18 @@ import {
   registerDeterministicHandler,
   registerPreCheckHandler,
   runMemoryEvalBenchmarks,
+  assembleV2SystemPrompt,
   contactsSyncHandler,
   isV2RuntimeEnabled,
   type V2AgentConfig,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
+import {
+  createDailyNoteBootstrapHandler,
+  createMorningFlowSentinelHandler,
+} from "./morning-flow.js";
+import { createDailyBriefAggregationHandler } from "./daily-brief-aggregator.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
 import { z } from "zod";
@@ -122,8 +117,6 @@ import { applyThreadSessionRoute } from "./thread-route.js";
 import {
   HttpVoiceBridge,
   ProjectDirectory,
-  appendTopicContextToSystemPrompt,
-  appendProjectContextToSystemPrompt,
   buildDefaultSessionKey,
   extractChannelIdFromSessionKey,
   buildProjectSessionId,
@@ -144,24 +137,7 @@ import {
   type VoiceInboxAgentResponse,
   type VoiceInboxAgentGroup
 } from "@tango/voice";
-import {
-  createDiscordVoiceTurnExecutor,
-  type DiscordTurnExecutionContext,
-  type DiscordTurnExecutionResult,
-  type WorkerDispatchTelemetry,
-  VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT
-} from "./turn-executor.js";
-import { selectScheduledTurnResponseText } from "./scheduled-turn-response.js";
-import { buildActiveTaskPersistencePlan } from "./active-task-state.js";
 import { getSecret } from "./op-secret.js";
-import {
-  DISPATCH_MCP_SERVER_NAME,
-  DISPATCH_TOOL_FULL_NAME,
-} from "./dispatch-extractor.js";
-import {
-  SPAWN_SUB_AGENTS_TOOL_FULL_NAME,
-  SUB_AGENT_MCP_SERVER_NAME,
-} from "./sub-agent-tool.js";
 import {
   buildVoiceTurnResultFromReceipt,
   waitForVoiceTurnReceiptResolution
@@ -169,6 +145,7 @@ import {
 import {
   createReplyPresenter,
   DeliveryError,
+  resolveSpeakerAvatarPath,
   resolveSpeakerAvatarURL,
   resolveSpeakerDisplayName,
   type PresentedReplyResult,
@@ -178,7 +155,6 @@ import { IMessageListener, type IMessageInboundMessage } from "./imessage-listen
 import { parseNaturalTextRoute, type NaturalTextSystemCommand } from "./natural-routing.js";
 import { resolveTargetAgent } from "./target-agent.js";
 import { processAttachments, cleanupAttachments } from "./attachment-processor.js";
-import { createWellnessDispatcher } from "./wellness-dispatcher.js";
 import {
   buildPromptWithReferent,
   buildReferentSystemMessage,
@@ -218,10 +194,11 @@ import {
   buildVoiceRouterErrorResult,
   buildVoiceRouterResult,
   dispatchVoiceTurnByRuntime,
+  VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
   VOICE_V2_TTS_ERROR_MESSAGE,
 } from "./voice-turn-runtime-routing.js";
 import {
-  isVictorPersistentSessionActive,
+  isVictorManualConsoleBridgeActive,
   sendToVictorInbox,
   waitForVictorResponse,
   type VictorBridgeMessage,
@@ -236,79 +213,6 @@ let allowedChannels = parseAllowedChannels(process.env.DISCORD_ALLOWED_CHANNELS)
 const shouldProvisionSlotMode = shouldInitializeSlotMode(process.env, allowedChannels);
 if (shouldProvisionSlotMode) {
   allowedChannels = new Set();
-}
-
-// ---------------------------------------------------------------------------
-// Remote work MCP — provides Notion, Slack, Linear, etc. via OAuth
-// ---------------------------------------------------------------------------
-// DISABLED: Claude CLI's --mcp-config flag only supports command-based servers
-// (command + args), not URL-based ones. URL-type MCP servers only work through
-// Claude Code's own settings.json. To re-enable, we need either:
-//   1. A local stdio proxy that bridges to the remote HTTP MCP server, or
-//   2. Claude CLI to add --mcp-config support for URL-type servers.
-// The latitude-remote server IS registered in Claude Code settings and works
-// for interactive sessions, but cannot be injected into worker configs yet.
-import type { McpServerEntry } from "@tango/core";
-
-function buildAdditionalMcpServers(
-  workerConfig?: { id?: string; toolContractIds?: string[] },
-  context?: { sessionId?: string; agentId?: string; conversationKey?: string },
-): Record<string, McpServerEntry> | undefined {
-  const servers: Record<string, McpServerEntry> = {};
-
-  if (workerConfig?.id === "research-coordinator") {
-    servers[SUB_AGENT_MCP_SERVER_NAME] = {
-      command: process.execPath,
-      args: [path.resolve("packages/discord/dist/mcp-sub-agent-server.js")],
-      env: {
-        ...buildRuntimePathEnv({
-          dbPath: resolveDatabasePath(env.TANGO_DB_PATH),
-        }),
-        TANGO_COORDINATOR_WORKER_ID: workerConfig.id,
-        TANGO_MCP_SERVER_SCRIPT: path.resolve("packages/discord/dist/mcp-wellness-server.js"),
-        TANGO_MCP_SERVER_NAME: "wellness",
-        CLAUDE_CLI_COMMAND: env.CLAUDE_CLI_COMMAND,
-        ...(env.CLAUDE_SECONDARY_CLI_COMMAND ? { CLAUDE_SECONDARY_CLI_COMMAND: env.CLAUDE_SECONDARY_CLI_COMMAND } : {}),
-        CLAUDE_HARNESS_COMMAND: env.CLAUDE_HARNESS_COMMAND,
-        CODEX_CLI_COMMAND: env.CODEX_CLI_COMMAND,
-        ...(env.CLAUDE_MODEL ? { CLAUDE_MODEL: env.CLAUDE_MODEL } : {}),
-        ...(env.CLAUDE_SECONDARY_MODEL ? { CLAUDE_SECONDARY_MODEL: env.CLAUDE_SECONDARY_MODEL } : {}),
-        ...(env.CLAUDE_HARNESS_MODEL ? { CLAUDE_HARNESS_MODEL: env.CLAUDE_HARNESS_MODEL } : {}),
-        ...(env.CODEX_MODEL ? { CODEX_MODEL: env.CODEX_MODEL } : {}),
-        CLAUDE_EFFORT: env.CLAUDE_EFFORT,
-        ...(env.CLAUDE_SECONDARY_EFFORT ? { CLAUDE_SECONDARY_EFFORT: env.CLAUDE_SECONDARY_EFFORT } : {}),
-        ...(env.CLAUDE_HARNESS_EFFORT ? { CLAUDE_HARNESS_EFFORT: env.CLAUDE_HARNESS_EFFORT } : {}),
-        CODEX_REASONING_EFFORT: env.CODEX_REASONING_EFFORT,
-        CODEX_SANDBOX: env.CODEX_SANDBOX,
-        CODEX_APPROVAL_POLICY: env.CODEX_APPROVAL_POLICY,
-        TANGO_PROVIDER_RETRY_LIMIT: String(env.TANGO_PROVIDER_RETRY_LIMIT),
-        ...(env.TANGO_SUB_AGENT_DEFAULT_PROVIDER ? { TANGO_SUB_AGENT_DEFAULT_PROVIDER: env.TANGO_SUB_AGENT_DEFAULT_PROVIDER } : {}),
-        ...(
-          env.TANGO_SUB_AGENT_DEFAULT_PROVIDERS
-            ? { TANGO_SUB_AGENT_DEFAULT_PROVIDERS: env.TANGO_SUB_AGENT_DEFAULT_PROVIDERS }
-            : { TANGO_SUB_AGENT_DEFAULT_PROVIDERS: "codex,claude-oauth-secondary,claude-oauth" }
-        ),
-        ...(env.TANGO_SUB_AGENT_CLAUDE_MODEL ? { TANGO_SUB_AGENT_CLAUDE_MODEL: env.TANGO_SUB_AGENT_CLAUDE_MODEL } : {}),
-        ...(env.TANGO_SUB_AGENT_CODEX_MODEL ? { TANGO_SUB_AGENT_CODEX_MODEL: env.TANGO_SUB_AGENT_CODEX_MODEL } : {}),
-        ...(persistentMcpPort ? { TANGO_PERSISTENT_MCP_PORT: String(persistentMcpPort) } : {}),
-        ...(context?.sessionId ? { TANGO_PARENT_SESSION_ID: context.sessionId } : {}),
-        ...(context?.agentId ? { TANGO_PARENT_AGENT_ID: context.agentId } : {}),
-        ...(context?.conversationKey ? { TANGO_PARENT_CONVERSATION_KEY: context.conversationKey } : {}),
-      },
-    };
-  }
-
-  return Object.keys(servers).length > 0 ? servers : undefined;
-}
-
-function buildAdditionalAllowedToolNames(
-  workerConfig?: { id?: string },
-): string[] | undefined {
-  if (workerConfig?.id === "research-coordinator") {
-    return [SPAWN_SUB_AGENTS_TOOL_FULL_NAME];
-  }
-
-  return undefined;
 }
 
 type ResponseMode = "concise" | "explain";
@@ -402,34 +306,6 @@ const envSchema = z.object({
   CODEX_APPROVAL_POLICY: z
     .enum(["untrusted", "on-failure", "on-request", "never"])
     .default("never"),
-  TANGO_SUB_AGENT_DEFAULT_PROVIDER: z
-    .string()
-    .optional()
-    .transform((value) => {
-      const normalized = value?.trim();
-      return normalized && normalized.length > 0 ? normalized : undefined;
-    }),
-  TANGO_SUB_AGENT_DEFAULT_PROVIDERS: z
-    .string()
-    .optional()
-    .transform((value) => {
-      const normalized = value?.trim();
-      return normalized && normalized.length > 0 ? normalized : undefined;
-    }),
-  TANGO_SUB_AGENT_CLAUDE_MODEL: z
-    .string()
-    .optional()
-    .transform((value) => {
-      const normalized = value?.trim();
-      return normalized && normalized.length > 0 ? normalized : undefined;
-    }),
-  TANGO_SUB_AGENT_CODEX_MODEL: z
-    .string()
-    .optional()
-    .transform((value) => {
-      const normalized = value?.trim();
-      return normalized && normalized.length > 0 ? normalized : undefined;
-    }),
   TANGO_DB_PATH: z
     .string()
     .optional()
@@ -439,7 +315,6 @@ const envSchema = z.object({
     }),
   TANGO_CAPTURE_PROVIDER_RAW: z.string().default("false"),
   TANGO_PROVIDER_RETRY_LIMIT: z.coerce.number().int().min(0).max(3).default(1),
-  TANGO_WORKER_DISPATCH_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   TANGO_MEMORY_COMPACTION_TRIGGER_TURNS: z.coerce.number().int().min(8).max(200).default(24),
   TANGO_MEMORY_COMPACTION_RETAIN_RECENT_TURNS: z.coerce.number().int().min(2).max(100).default(8),
   TANGO_MEMORY_COMPACTION_SUMMARY_MAX_CHARS: z.coerce.number().int().min(400).max(4000).default(1800),
@@ -531,9 +406,6 @@ const maxProviderTimeoutMs = Math.max(
   claudeHarnessTimeoutMs,
   codexTimeoutMs
 );
-const workerDispatchTimeoutMs =
-  env.TANGO_WORKER_DISPATCH_TIMEOUT_MS
-  ?? Math.max(15 * 60 * 1000, maxProviderTimeoutMs * (providerRetryLimit + 1));
 const memoryCompactionTriggerTurns = env.TANGO_MEMORY_COMPACTION_TRIGGER_TURNS;
 const memoryCompactionRetainRecentTurns = Math.min(
   env.TANGO_MEMORY_COMPACTION_RETAIN_RECENT_TURNS,
@@ -572,49 +444,7 @@ const defaultAccessPolicy = buildDefaultAccessPolicy({
 const sessionManager = new SessionManager(sessionConfigs);
 const sessionConfigById = new Map(sessionConfigs.map((session) => [session.id, session]));
 const agentConfigs = loadUnifiedAgentConfigs(configDir);
-const projectConfigs = loadProjectConfigs(configDir);
-const workerConfigs = loadWorkerConfigs(configDir);
-const toolContractConfigs = loadToolContractConfigs(configDir);
-const workflowConfigs = loadWorkflowConfigs(configDir);
-const intentContractConfigs = loadIntentContractConfigs(configDir);
-const workerConfigById = new Map(workerConfigs.map((worker) => [worker.id, worker]));
-const knownToolContractIds = new Set(toolContractConfigs.map((contract) => contract.id));
-const sanitizeToolContractIds = (
-  ownerLabel: string,
-  toolContractIds?: string[],
-): string[] | undefined => {
-  if (!toolContractIds || toolContractIds.length === 0) {
-    return undefined;
-  }
-
-  const kept = toolContractIds.filter((toolContractId) => knownToolContractIds.has(toolContractId));
-  const dropped = toolContractIds.filter((toolContractId) => !knownToolContractIds.has(toolContractId));
-  if (dropped.length > 0) {
-    console.warn(
-      `[tango-discord] capability registry dropping unknown tool contracts for ${ownerLabel}: ${dropped.join(", ")}`
-    );
-  }
-  return kept.length > 0 ? kept : undefined;
-};
-const capabilityRegistry = new CapabilityRegistry({
-  agents: agentConfigs,
-  projects: projectConfigs.map((project) => ({
-    ...project,
-    toolContractIds: sanitizeToolContractIds(`project:${project.id}`, project.toolContractIds),
-  })),
-  workers: workerConfigs.map((worker) => ({
-    ...worker,
-    toolContractIds: sanitizeToolContractIds(`worker:${worker.id}`, worker.toolContractIds),
-  })),
-  toolContracts: toolContractConfigs,
-  workflows: workflowConfigs.map((workflow) => ({
-    ...workflow,
-    toolContractIds: sanitizeToolContractIds(`workflow:${workflow.id}`, workflow.toolContractIds),
-  })),
-  intentContracts: intentContractConfigs,
-});
 const dbPath = resolveDatabasePath(env.TANGO_DB_PATH);
-const orchestratorMcpServers = buildOrchestratorMcpServers(agentConfigs, workerConfigById);
 const voiceV2AgentRuntimeConfigs = loadEnabledVoiceV2AgentRuntimeConfigs({
   dbPath,
   configDir,
@@ -652,7 +482,7 @@ const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !==
 const storage = new TangoStorage(dbPath);
 // Manual enablement: flip config/v2/agents/<agent>.yaml runtime.provider to
 // "claude-code-v2" and restart the bot. Keep committed configs on "legacy".
-const v2Configs = loadAllV2AgentConfigs();
+const v2Configs = loadLayeredV2AgentConfigs(configDir);
 const v2EnabledAgents = buildV2EnabledAgentSet(v2Configs);
 const atlasMemoryClient = new AtlasMemoryClient();
 const tangoRouter = new TangoRouter({
@@ -716,7 +546,6 @@ const providers = createBuiltInProviderRegistry({
 const providerSessionByConversation = new Map<string, string>();
 const channelQueues = new Map<string, Promise<void>>();
 const focusedTextAgentByChannel = new Map<string, string>();
-const wellnessWorkerDispatcher = createWellnessDispatcher();
 
 function resolveMemoryEvalAuditProvider(): ChatProvider {
   for (const providerName of ["claude-oauth", "claude-oauth-secondary", "claude-harness"]) {
@@ -736,91 +565,6 @@ function writeMemoryEvalReport(markdown: string, now: Date = new Date()): string
   const fullPath = path.join(reportsDir, filename);
   fs.writeFileSync(fullPath, markdown, "utf8");
   return path.relative(process.cwd(), fullPath);
-}
-
-function sanitizeDispatchWorkerLabel(value: string | undefined, fallback: string): string {
-  const normalized = (value ?? "")
-    .replace(/[\r\n]+/g, " ")
-    .replace(/,/g, " /")
-    .replace(/\s+/g, " ")
-    .trim();
-  return normalized.length > 0 ? normalized : fallback;
-}
-
-function buildDispatchWorkerLabel(workerId: string, workerConfig: WorkerConfig | undefined): string {
-  return sanitizeDispatchWorkerLabel(
-    workerConfig?.description ?? workerConfig?.displayName,
-    workerId,
-  );
-}
-
-function buildOrchestratorMcpServers(
-  agents: readonly AgentConfig[],
-  workerConfigs: ReadonlyMap<string, WorkerConfig>,
-): Map<string, Record<string, ProviderMcpServerConfig>> {
-  const dispatchServerScript = path.resolve("packages/discord/dist/mcp-dispatch-server.js");
-  if (!fs.existsSync(dispatchServerScript)) {
-    console.warn(
-      `[tango] Dispatch MCP server not found at ${dispatchServerScript}; structured worker dispatch disabled`,
-    );
-    return new Map();
-  }
-
-  const serversByAgent = new Map<string, Record<string, ProviderMcpServerConfig>>();
-  for (const agent of agents) {
-    const workerIds = [...new Set(
-      (agent.orchestration?.workerIds ?? [])
-        .map((workerId) => workerId.trim())
-        .filter((workerId) => workerId.length > 0),
-    )];
-    if (workerIds.length === 0) {
-      continue;
-    }
-
-    const workerLabels = workerIds.map((workerId) =>
-      buildDispatchWorkerLabel(workerId, workerConfigs.get(workerId)),
-    );
-    serversByAgent.set(agent.id, {
-      [DISPATCH_MCP_SERVER_NAME]: {
-        command: process.execPath,
-        args: [dispatchServerScript],
-        env: {
-          ...buildRuntimePathEnv({
-            dbPath,
-          }),
-          DISPATCH_WORKER_IDS: workerIds.join(","),
-          DISPATCH_WORKER_LABELS: workerLabels.join(","),
-        },
-      },
-    });
-  }
-
-  return serversByAgent;
-}
-
-function resolveOrchestratorProviderTools(agent: AgentConfig | undefined): ProviderToolsConfig {
-  const providerTools = resolveProviderToolsForAgent(agent);
-  const mcpServers = agent ? orchestratorMcpServers.get(agent.id) : undefined;
-  if (!mcpServers) {
-    return providerTools;
-  }
-
-  if (providerTools.mode === "default") {
-    return {
-      ...providerTools,
-      mcpServers,
-    };
-  }
-
-  const allowlist = new Set(providerTools.allowlist ?? []);
-  allowlist.add(DISPATCH_TOOL_FULL_NAME);
-
-  return {
-    ...providerTools,
-    mode: "allowlist",
-    allowlist: [...allowlist],
-    mcpServers,
-  };
 }
 
 function normalizeRuntimeReasoningEffort(
@@ -853,10 +597,9 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
         continue;
       }
 
-      const systemPromptPath = resolveConfiguredPath(config.systemPromptFile);
-      const systemPrompt = fs.readFileSync(systemPromptPath, "utf8").trim();
+      const systemPrompt = assembleV2SystemPrompt(config, { repoRoot: process.cwd() }).trim();
       if (systemPrompt.length === 0) {
-        throw new Error(`System prompt file '${systemPromptPath}' is empty.`);
+        throw new Error(`System prompt for agent '${config.id}' is empty.`);
       }
 
       configs.set(config.id, {
@@ -901,6 +644,9 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
 
 registerDeterministicHandler("contacts-sync", contactsSyncHandler);
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
+registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
+registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
+registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
 
 let cachedLunchMoneyApiKey: string | null = null;
 const RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN = 3;
@@ -1434,306 +1180,6 @@ startPersistentMcpServer().then((port) => {
 
   // Initialize and start the scheduler once MCP is ready
   if (scheduleConfigs.length > 0) {
-    const executeWorkerForScheduler = async (
-      workerId: string,
-      task: string,
-      model?: string,
-      reasoningEffort?: ProviderReasoningEffort,
-    ) => {
-      const { executeAgentWorker, loadAgentSoulPrompt } = await import("./agent-worker-bridge.js");
-      const workerConfig = workerConfigById.get(workerId);
-      const workerProviderConfig = resolveWorkerProviderConfig(workerConfig);
-      const soulPrompt = workerConfig?.prompt ?? loadAgentSoulPrompt(workerId);
-      const result = await executeAgentWorker(workerId, task, soulPrompt, {
-        mcpServerScript: path.resolve("packages/discord/dist/mcp-wellness-server.js"),
-        mcpServerName: "wellness",
-        providerChain:
-          workerProviderConfig.providerNames.length > 0
-            ? resolveProviderChain(workerProviderConfig.providerNames)
-            : undefined,
-        providerRetryLimit,
-        model: model ?? workerProviderConfig.model,
-        reasoningEffort: reasoningEffort ?? workerProviderConfig.reasoningEffort,
-        persistentMcpPort,
-        inactivityTimeoutMs: workerConfig?.inactivityTimeoutSeconds ? workerConfig.inactivityTimeoutSeconds * 1000 : undefined,
-        toolIds: workerConfig?.toolContractIds,
-        additionalMcpServers: buildAdditionalMcpServers(workerConfig),
-        additionalAllowedToolNames: buildAdditionalAllowedToolNames(workerConfig),
-      });
-      return { text: result.data?.workerText as string ?? "", durationMs: result.trace?.durationMs ?? 0 };
-    };
-
-    const executeScheduledTurnForScheduler = async (input: {
-      config: ScheduleConfig;
-      workerId: string;
-      task: string;
-      model?: string;
-      reasoningEffort?: ProviderReasoningEffort;
-    }) => {
-      const intentIds = input.config.execution.intentIds?.filter((intentId) => intentId.trim().length > 0) ?? [];
-      if (intentIds.length === 0) {
-        throw new Error(`Schedule '${input.config.id}' is missing execution.intent_ids.`);
-      }
-
-      const workerConfig = workerConfigById.get(input.workerId);
-      const executionAgentId = resolveScheduledExecutionAgentId({
-        config: input.config,
-        workerConfig,
-      });
-      if (!executionAgentId) {
-        throw new Error(
-          `Schedule '${input.config.id}' could not resolve a deterministic execution agent for worker '${input.workerId}'.`,
-        );
-      }
-
-      const targetAgent = agentRegistry.get(executionAgentId);
-      if (!targetAgent) {
-        throw new Error(`Schedule '${input.config.id}' references unknown agent '${executionAgentId}'.`);
-      }
-
-      const sessionId = buildScheduleExecutionSessionId(input.config.id, executionAgentId);
-      upsertSessionForRoute({ sessionId, agentId: executionAgentId }, `schedule:${input.config.id}`);
-
-      const conversationKey = getConversationKey(sessionId, executionAgentId);
-      const providerSelection = resolveProviderNamesForTurn({
-        sessionId,
-        agent: targetAgent,
-      });
-      const providerChain = resolveProviderChain(providerSelection.providerNames);
-      const orchestratorContinuityMode = resolveOrchestratorContinuityMode(sessionId);
-      const deterministicRoutingBase = resolveDeterministicRoutingForTurn({
-        sessionId,
-        agent: targetAgent,
-        project: providerSelection.project,
-      });
-      if (!deterministicRoutingBase?.enabled) {
-        throw new Error(`Schedule '${input.config.id}' agent '${executionAgentId}' does not have deterministic routing enabled.`);
-      }
-
-      const systemPrompt = composeSystemPrompt(
-        targetAgent.prompt,
-        targetAgent.responseMode ?? "concise",
-        null,
-        providerSelection.project?.displayName ?? null,
-      );
-      const providerTools = resolveOrchestratorProviderTools(targetAgent);
-      const continuityByProvider =
-        orchestratorContinuityMode === "provider"
-          ? loadProviderContinuityMap(conversationKey, providerSelection.providerNames)
-          : undefined;
-      const warmStartContext = await buildWarmStartContext({
-        sessionId,
-        agentId: executionAgentId,
-        currentUserPrompt: input.task,
-        orchestratorContinuityMode,
-      });
-      const warmStartPrompt = warmStartContext.prompt;
-      const requestMessageId = writeMessage({
-        sessionId,
-        agentId: executionAgentId,
-        direction: "system",
-        source: "tango",
-        visibility: "internal",
-        content: input.task,
-        metadata: {
-          kind: "scheduled-task-instruction",
-          scheduleId: input.config.id,
-          workerId: input.workerId,
-          intentIds,
-        },
-      });
-
-      const turnInput: VoiceTurnInput = {
-        sessionId,
-        agentId: executionAgentId,
-        transcript: input.task,
-      };
-
-      const startedAt = Date.now();
-      const turnResult = await voiceTurnExecutor.executeTurnDetailed(turnInput, {
-        conversationKey,
-        providerNames: providerSelection.providerNames,
-        configuredProviderNames: providerSelection.configuredProviderNames,
-        projectId: providerSelection.project?.id,
-        topicId: undefined,
-        orchestratorContinuityMode,
-        overrideProviderName: providerSelection.overrideProviderName,
-        model: input.model ?? providerSelection.model,
-        reasoningEffort: input.reasoningEffort ?? providerSelection.reasoningEffort,
-        systemPrompt,
-        tools: providerTools,
-        warmStartPrompt,
-        providerChain,
-        continuityByProvider,
-        capabilityRegistry,
-        deterministicRouting: {
-          ...deterministicRoutingBase,
-          explicitIntentIds: intentIds,
-        },
-      });
-      recoverProviderContinuityAfterContextConfusion({
-        sessionId,
-        conversationKey,
-        turnResult,
-      });
-      const latencyMs = Date.now() - startedAt;
-      const routeOutcome = turnResult.deterministicTurn?.state.routing.routeOutcome;
-      if (routeOutcome !== "executed") {
-        throw new Error(
-          `Schedule '${input.config.id}' deterministic execution did not complete (routeOutcome=${routeOutcome ?? "none"}).`,
-        );
-      }
-
-      const responseText = selectScheduledTurnResponseText(intentIds, turnResult);
-      const response = turnResult.response;
-      const toolTelemetry = extractToolTelemetry(response.raw);
-      const executionTrace = extractExecutionTrace(response.raw);
-      const responseMessageId = writeMessage({
-        sessionId,
-        agentId: executionAgentId,
-        providerName: turnResult.providerName,
-        direction: "outbound",
-        source: "tango",
-        visibility: "internal",
-        content: responseText,
-        metadata: {
-          kind: "scheduled-turn-response",
-          scheduleId: input.config.id,
-          workerId: input.workerId,
-          intentIds,
-          latencyMs,
-          providerUsedFailover: turnResult.providerUsedFailover ?? false,
-          warmStartUsed: turnResult.warmStartUsed ?? false,
-          ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-          ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-          executionTrace,
-        },
-      });
-
-      const modelRunId = writeModelRun({
-        sessionId,
-        agentId: executionAgentId,
-        providerName: turnResult.providerName,
-        conversationKey,
-        providerSessionId: turnResult.providerSessionId ?? null,
-        model: response.metadata?.model,
-        stopReason: response.metadata?.stopReason,
-        responseMode: "scheduled-turn",
-        latencyMs,
-        providerDurationMs: response.metadata?.durationMs,
-        providerApiDurationMs: response.metadata?.durationApiMs,
-        inputTokens: response.metadata?.usage?.inputTokens,
-        outputTokens: response.metadata?.usage?.outputTokens,
-        cacheReadInputTokens: response.metadata?.usage?.cacheReadInputTokens,
-        cacheCreationInputTokens: response.metadata?.usage?.cacheCreationInputTokens,
-        totalCostUsd: response.metadata?.totalCostUsd,
-        requestMessageId,
-        responseMessageId,
-        metadata: {
-          phase: "scheduled-turn",
-          scheduleId: input.config.id,
-          workerId: input.workerId,
-          deliveryAgentId: input.config.delivery?.agentId ?? null,
-          executionAgentId,
-          intentIds,
-          providerUsedFailover: turnResult.providerUsedFailover ?? false,
-          warmStartUsed: turnResult.warmStartUsed ?? false,
-          warmStartContextChars: turnResult.warmStartContextChars,
-          providerOverride: turnResult.providerOverrideName ?? null,
-          configuredProviders: turnResult.configuredProviders,
-          effectiveProviders: turnResult.effectiveProviders,
-          orchestratorContinuityMode,
-          providerFailures: turnResult.providerFailures,
-          ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-          ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-          toolTelemetry,
-          executionTrace,
-        },
-        rawResponse:
-          captureProviderRaw && response.raw && typeof response.raw === "object"
-            ? (response.raw as Record<string, unknown>)
-            : null,
-      });
-
-      if (modelRunId !== null) {
-        writePromptSnapshot({
-          modelRunId,
-          sessionId,
-          agentId: executionAgentId,
-          providerName: turnResult.providerName,
-          requestMessageId,
-          responseMessageId,
-          promptText: turnResult.providerRequestPrompt,
-          systemPrompt,
-          warmStartPrompt: warmStartPrompt ?? null,
-          metadata: {
-            phase: "scheduled-turn",
-            scheduleId: input.config.id,
-            intentIds,
-            promptChars: turnResult.providerRequestPrompt.length,
-            systemPromptChars: systemPrompt?.length ?? 0,
-            warmStartPromptChars: warmStartPrompt?.length ?? 0,
-            turnWarmStartUsed: turnResult.warmStartUsed ?? false,
-            requestWarmStartUsed: turnResult.providerRequestWarmStartUsed,
-            initialRequestWarmStartUsed: turnResult.initialRequestWarmStartUsed,
-            usedWorkerSynthesis: turnResult.usedWorkerSynthesis ?? false,
-            synthesisRetried: turnResult.synthesisRetried ?? false,
-            initialRequestPrompt:
-              turnResult.initialRequestPrompt !== turnResult.providerRequestPrompt
-              ? turnResult.initialRequestPrompt
-                : null,
-            warmStartContext: warmStartContext.diagnostics,
-            responseTextWasPassthrough: responseText !== turnResult.responseText,
-          },
-        });
-      }
-
-      const deterministicIntentModelRunId = persistDeterministicClassifierArtifacts({
-        sessionId,
-        agentId: executionAgentId,
-        conversationKey,
-        turnResult,
-        requestMessageId,
-        captureRawResponse: captureProviderRaw,
-      });
-      persistDeterministicTurnArtifacts({
-        sessionId,
-        agentId: executionAgentId,
-        conversationKey,
-        providerName: turnResult.providerName,
-        turnResult,
-        requestMessageId,
-        responseMessageId,
-        projectId: providerSelection.project?.id ?? null,
-        topicId: null,
-        latencyMs,
-        intentModelRunId: deterministicIntentModelRunId,
-        narrationModelRunId: modelRunId,
-      });
-
-      return {
-        text: responseText,
-        durationMs: latencyMs,
-        modelUsed: response.metadata?.model ?? turnResult.providerName,
-        metadata: {
-          phase: "scheduled-turn",
-          scheduleId: input.config.id,
-          workerId: input.workerId,
-          deliveryAgentId: input.config.delivery?.agentId ?? null,
-          executionAgentId,
-          sessionId,
-          providerName: turnResult.providerName,
-          providerUsedFailover: turnResult.providerUsedFailover ?? false,
-          warmStartUsed: turnResult.warmStartUsed ?? false,
-          deterministicRouteOutcome: turnResult.deterministicTurn?.state.routing.routeOutcome ?? null,
-          deterministicIntentIds: turnResult.deterministicTurn?.state.intent.envelopes.map((intent) => intent.intentId) ?? intentIds,
-          responseTextWasPassthrough: responseText !== turnResult.responseText,
-          ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-          ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-        },
-      };
-    };
-
     const executeV2TurnForScheduler: V2ScheduledTurnExecuteFn = async (input) => {
       const v2Entry = v2Configs.get(input.agentId);
       if (!v2Entry) {
@@ -1742,8 +1188,7 @@ startPersistentMcpServer().then((port) => {
         );
       }
 
-      const systemPromptPath = resolveConfiguredPath(v2Entry.systemPromptFile);
-      const systemPrompt = fs.readFileSync(systemPromptPath, "utf8").trim();
+      const systemPrompt = assembleV2SystemPrompt(v2Entry, { repoRoot: process.cwd() }).trim();
       if (systemPrompt.length === 0) {
         throw new Error(`System prompt file for agent '${input.agentId}' is empty.`);
       }
@@ -1954,8 +1399,6 @@ startPersistentMcpServer().then((port) => {
 
     scheduler = new SchedulerService(scheduleConfigs, {
       db: storage.getDatabase(),
-      executeWorker: executeWorkerForScheduler,
-      executeScheduledTurn: executeScheduledTurnForScheduler,
       executeV2Turn: executeV2TurnForScheduler,
       deliver: deliverToChannel,
       alert: sendAlert,
@@ -3067,27 +2510,6 @@ function resolveOrchestratorContinuityMode(sessionId: string): OrchestratorConti
   return resolveEffectiveSessionConfig(sessionId)?.orchestratorContinuity ?? "provider";
 }
 
-function composeSystemPrompt(
-  basePrompt: string | undefined,
-  responseMode: ResponseMode,
-  topicTitle?: string | null,
-  projectTitle?: string | null,
-): string {
-  const policy =
-    responseMode === "explain"
-      ? "Response mode: explain. Give a concise step-by-step explanation and final answer."
-      : "Response mode: concise. Give the direct answer only. Do not include internal reasoning or process narration unless explicitly asked.";
-
-  const prompt = (basePrompt ?? "").trim();
-  const baseSystemPrompt = !prompt ? policy : `${prompt}\n\n${policy}`;
-  const projectScopedPrompt = appendProjectContextToSystemPrompt(baseSystemPrompt, projectTitle);
-  return appendTopicContextToSystemPrompt(projectScopedPrompt, topicTitle);
-}
-
-function appendSystemPrompt(base: string | undefined, extra: string): string {
-  return [base?.trim(), extra.trim()].filter(Boolean).join("\n\n");
-}
-
 function getConversationKey(sessionId: string, agentId: string, threadChannelId?: string | null): string {
   if (threadChannelId) {
     return `${sessionId}:${agentId}:${threadChannelId}`;
@@ -3186,80 +2608,6 @@ function buildIMessageMetadata(
   };
 }
 
-function resolveWorkerDispatchConcurrencyGroup(dispatch: {
-  workerId: string;
-  task: string;
-}): string | undefined {
-  const workerConfig = workerConfigById.get(dispatch.workerId);
-  if (!workerConfig?.toolContractIds?.includes("browser")) {
-    return undefined;
-  }
-
-  const task = dispatch.task.toLowerCase();
-  const browserSignals = [
-    "browser",
-    "navigate",
-    "open amazon",
-    "open walmart",
-    "amazon",
-    "walmart",
-    "receipt",
-    "order history",
-    "log in",
-    "login",
-    "sign in",
-    "checkout",
-    "cart",
-    "tab",
-    "page",
-  ];
-
-  return browserSignals.some((signal) => task.includes(signal)) ? "browser" : undefined;
-}
-
-function buildWorkerDispatchMetadata(
-  telemetry: WorkerDispatchTelemetry | undefined,
-): Record<string, unknown> {
-  if (!telemetry) return {};
-
-  return {
-    workerDispatchSource: telemetry.dispatchSource,
-    workerDispatchCount: telemetry.dispatchCount,
-    workerDispatchCompletedCount: telemetry.completedDispatchCount,
-    workerDispatchFailedCount: telemetry.failedDispatchCount,
-    workerDispatchConcurrencyLimit: telemetry.concurrencyLimit,
-    workerDispatchWorkerIds: telemetry.workerIds,
-    workerDispatchTaskIds: telemetry.taskIds,
-    workerDispatchConcurrencyGroups: telemetry.concurrencyGroups,
-    workerDispatchConstrainedGroups: telemetry.constrainedConcurrencyGroups,
-    workerDispatches: telemetry.dispatches,
-  };
-}
-
-function formatWorkerDispatchTelemetryForLog(
-  telemetry: WorkerDispatchTelemetry | undefined,
-): string {
-  if (!telemetry) return "";
-
-  const taskIds =
-    telemetry.taskIds.length > 0
-      ? ` taskIds=${telemetry.taskIds.slice(0, 4).join(",")}${telemetry.taskIds.length > 4 ? ",..." : ""}`
-      : "";
-  const groups =
-    telemetry.constrainedConcurrencyGroups.length > 0
-      ? ` groups=${telemetry.constrainedConcurrencyGroups.join(",")}`
-      : "";
-
-  return (
-    ` workerDispatchSource=${telemetry.dispatchSource}` +
-    ` workerDispatches=${telemetry.dispatchCount}` +
-    ` completed=${telemetry.completedDispatchCount}` +
-    ` failed=${telemetry.failedDispatchCount}` +
-    taskIds +
-    groups
-  );
-}
-
 function resolveProviderByName(providerName: string): ChatProvider {
   return selectProviderByName(providerName, providers);
 }
@@ -3319,86 +2667,8 @@ function resolveProviderNamesForTurn(input: { sessionId: string; agent: AgentCon
   };
 }
 
-function resolveWorkerProviderConfig(workerConfig: WorkerConfig | undefined): {
-  providerNames: string[];
-  model?: string;
-  reasoningEffort?: ProviderReasoningEffort;
-} {
-  return {
-    providerNames: workerConfig ? resolveProviderCandidates(workerConfig) : [],
-    model: normalizeConfiguredModel(workerConfig?.provider.model),
-    reasoningEffort: workerConfig?.provider.reasoningEffort,
-  };
-}
-
-function resolveDeterministicRoutingForTurn(
-  input: {
-    sessionId: string;
-    agent: AgentConfig;
-    project?: ReturnType<ProjectDirectory["getProject"]>;
-  }
-): DiscordTurnExecutionContext["deterministicRouting"] | undefined {
-  const config = input.agent.deterministicRouting;
-  if (!config?.enabled) {
-    return undefined;
-  }
-
-  const project = input.project ?? resolveProjectForSession(input.sessionId);
-  const configuredProviderNames = [
-    ...(config.provider ? resolveProviderCandidates({ provider: config.provider }) : []),
-    ...(config.provider ? [] : resolveProviderCandidates(project ?? {})),
-    ...(config.provider ? [] : resolveProviderCandidates(input.agent)),
-  ].filter((value, index, all) => all.indexOf(value) === index);
-
-  if (configuredProviderNames.length === 0) {
-    return undefined;
-  }
-
-  const overrideProviderName = resolveSessionProviderOverride(input.sessionId, input.agent.id);
-  const configuredModel =
-    normalizeConfiguredModel(config.provider?.model)
-    ?? normalizeConfiguredModel(project?.provider?.model)
-    ?? normalizeConfiguredModel(input.agent.provider.model);
-  const reasoningEffort =
-    config.provider?.reasoningEffort
-    ?? resolveConfiguredReasoningEffort({ project, agent: input.agent });
-
-  return {
-    enabled: true,
-    projectScope: config.projectScope,
-    additionalDomains: config.additionalDomains,
-    confidenceThreshold: config.confidenceThreshold ?? 0.8,
-    providerNames: mergeProviderOrder(configuredProviderNames, overrideProviderName),
-    configuredProviderNames,
-    model: overrideProviderName ? undefined : configuredModel,
-    reasoningEffort,
-  };
-}
-
 function buildScheduleExecutionSessionId(scheduleId: string, agentId: string): string {
   return `schedule:${agentId}:${scheduleId}`;
-}
-
-function resolveScheduledExecutionAgentId(input: {
-  config: ScheduleConfig;
-  workerConfig?: WorkerConfig;
-}): string | null {
-  const explicitAgentId = input.config.execution.deterministicAgentId?.trim();
-  if (explicitAgentId) {
-    return explicitAgentId;
-  }
-
-  const ownerAgentId = input.workerConfig?.ownerAgentId?.trim();
-  if (ownerAgentId) {
-    return ownerAgentId;
-  }
-
-  const deliveryAgentId = input.config.delivery?.agentId?.trim();
-  if (deliveryAgentId) {
-    return deliveryAgentId;
-  }
-
-  return null;
 }
 
 function resolveProviderChain(providerNames: string[]): Array<{ providerName: string; provider: ChatProvider }> {
@@ -3419,102 +2689,6 @@ function resolveProviderChain(providerNames: string[]): Array<{ providerName: st
 
   return chain;
 }
-
-const voiceTurnExecutor = createDiscordVoiceTurnExecutor(
-  {
-    providerRetryLimit,
-    workerDispatchConcurrency: 3,
-    workerDispatchTimeoutMs,
-    getWorkerDispatchConcurrencyGroup: resolveWorkerDispatchConcurrencyGroup,
-    resolveProviderChain,
-    loadProviderContinuityMap,
-    savePersistedProviderSession,
-    buildWarmStartContextPrompt,
-    normalizeProviderContinuityMap,
-    listActiveTasks: (sessionId, agentId) =>
-      storage.listActiveTasks({
-        sessionId,
-        agentId,
-        limit: 8,
-      }),
-    getLatestDeterministicTurnForConversation: (conversationKey) =>
-      storage.getLatestDeterministicTurnForConversation(conversationKey),
-    executeWorker: wellnessWorkerDispatcher ?? undefined,
-    executeWorkerWithTask: async (workerId, task, _turn, _context, options) => {
-      const { executeAgentWorker, loadAgentSoulPrompt } = await import("./agent-worker-bridge.js");
-      const workerConfig = workerConfigById.get(workerId);
-      const workerProviderConfig = resolveWorkerProviderConfig(workerConfig);
-      const effectiveToolIds = (() => {
-        const baseToolIds = workerConfig?.toolContractIds ?? [];
-        if (options?.toolIds && options.toolIds.length > 0) {
-          return options.toolIds;
-        }
-        if (options?.excludedToolIds?.length) {
-          return baseToolIds.filter((toolId) => !options.excludedToolIds?.includes(toolId));
-        }
-        return baseToolIds;
-      })();
-      const soulPrompt = workerConfig?.prompt ?? loadAgentSoulPrompt(workerId);
-      return executeAgentWorker(workerId, task, soulPrompt, {
-        mcpServerScript: path.resolve("packages/discord/dist/mcp-wellness-server.js"),
-        mcpServerName: "wellness",
-        providerChain:
-          workerProviderConfig.providerNames.length > 0
-            ? resolveProviderChain(workerProviderConfig.providerNames)
-            : undefined,
-        providerRetryLimit,
-        model: workerProviderConfig.model,
-        reasoningEffort: options?.reasoningEffort ?? workerProviderConfig.reasoningEffort,
-        persistentMcpPort,
-        inactivityTimeoutMs: workerConfig?.inactivityTimeoutSeconds ? workerConfig.inactivityTimeoutSeconds * 1000 : undefined,
-        toolIds: effectiveToolIds,
-        additionalMcpServers: buildAdditionalMcpServers(workerConfig, {
-          sessionId: _turn.sessionId,
-          agentId: _turn.agentId,
-          conversationKey: _context.conversationKey,
-        }),
-        additionalAllowedToolNames: buildAdditionalAllowedToolNames(workerConfig),
-      });
-    },
-  },
-  (turnInput) => {
-    const agent = agentRegistry.get(turnInput.agentId);
-    if (!agent) {
-      throw new Error(`No agent config found for '${turnInput.agentId}'.`);
-    }
-
-    const topic = resolveTopicRecordForSession(turnInput.sessionId);
-    const providerSelection = resolveProviderNamesForTurn({
-      sessionId: turnInput.sessionId,
-      agent
-    });
-    const deterministicRouting = resolveDeterministicRoutingForTurn({
-      sessionId: turnInput.sessionId,
-      agent,
-      project: providerSelection.project,
-    });
-
-    return {
-      conversationKey: getConversationKey(turnInput.sessionId, turnInput.agentId),
-      providerNames: providerSelection.providerNames,
-      configuredProviderNames: providerSelection.configuredProviderNames,
-      projectId: providerSelection.project?.id,
-      topicId: topic?.id,
-      overrideProviderName: providerSelection.overrideProviderName,
-      model: providerSelection.model,
-      reasoningEffort: providerSelection.reasoningEffort,
-      systemPrompt: composeSystemPrompt(
-        agent.prompt,
-        resolveResponseMode(agent, null),
-        topic?.title ?? null,
-        providerSelection.project?.displayName ?? null,
-      ),
-      tools: resolveOrchestratorProviderTools(agent),
-      capabilityRegistry,
-      deterministicRouting,
-    };
-  }
-);
 
 async function syncVoiceUserMessageToDiscord(
   channelId: string | null | undefined,
@@ -3894,8 +3068,8 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     });
   };
 
-  // Victor persistent session bridge: route voice to VICTOR-COS tmux if active
-  if (targetAgent.id === "victor" && isVictorPersistentSessionActive()) {
+  // Victor manual-console bridge: route voice to VICTOR-COS only when explicitly enabled.
+  if (targetAgent.id === "victor" && isVictorManualConsoleBridgeActive()) {
     try {
       const bridgeMessage: VictorBridgeMessage = {
         id: randomUUID(),
@@ -3949,15 +3123,56 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     }
   }
 
+  if (!v2AgentConfig || !isV2RuntimeEnabled(v2AgentConfig)) {
+    clearVoiceTyping();
+    const messageText = `Agent '${targetAgent.id}' is not configured for the v2 voice runtime.`;
+    const errorMessageId = writeMessage({
+      sessionId: turnInput.sessionId,
+      agentId: targetAgent.id,
+      providerName: "claude-code-v2",
+      direction: "error",
+      source: "tango",
+      visibility: "debug",
+      discordChannelId: resolvedVoiceSyncChannelId,
+      discordUserId: null,
+      discordUsername: "Tango Voice",
+      content: messageText,
+      metadata: {
+        inputSource: "voice-bridge",
+        turnId: turnId ?? null,
+        utteranceId: turnInput.utteranceId ?? null,
+        guildId: turnInput.guildId ?? null,
+        voiceChannelId: turnInput.voiceChannelId ?? null,
+        responseMode,
+        runtime: "v2-required",
+      },
+    });
+
+    if (turnId) {
+      storage.failVoiceTurnReceipt({
+        turnId,
+        errorMessage: messageText,
+        requestMessageId: inboundMessageId,
+        responseMessageId: errorMessageId,
+        modelRunId: null,
+        metadata: {
+          inputSource: "voice-bridge",
+          utteranceId: turnInput.utteranceId ?? null,
+          runtime: "v2-required",
+        },
+      });
+    }
+
+    throw new Error(messageText);
+  }
+
   const voiceWarmStartPrompt =
-    v2AgentConfig && isV2RuntimeEnabled(v2AgentConfig)
-      ? await buildWarmStartContextPrompt({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          currentUserPrompt: turnInput.transcript,
-          discordChannelId: voiceRouterThreadId ?? voiceRouterChannelId,
-        })
-      : undefined;
+    await buildWarmStartContextPrompt({
+      sessionId: turnInput.sessionId,
+      agentId: targetAgent.id,
+      currentUserPrompt: turnInput.transcript,
+      discordChannelId: voiceRouterThreadId ?? voiceRouterChannelId,
+    });
   const voiceContext = [
     voiceWarmStartPrompt,
     VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
@@ -3973,435 +3188,6 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     tangoRouter: voiceTangoRouter,
     sendOptions: {
       context: voiceContext || undefined,
-    },
-    executeLegacyTurn: async (): Promise<VoiceTurnResult> => {
-      const providerSelection = resolveProviderNamesForTurn({
-        sessionId: turnInput.sessionId,
-        agent: targetAgent
-      });
-      const topicRecord = resolveTopicRecordForSession(turnInput.sessionId);
-      const systemPrompt = composeSystemPrompt(
-        targetAgent.prompt,
-        responseMode,
-        topicRecord?.title ?? null,
-        providerSelection.project?.displayName ?? null,
-      );
-      const voiceSystemPrompt = appendSystemPrompt(
-        systemPrompt,
-        VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
-      );
-      const providerTools = resolveOrchestratorProviderTools(targetAgent);
-
-      let providerChain: Array<{ providerName: string; provider: ChatProvider }>;
-      try {
-        providerChain = resolveProviderChain(providerSelection.providerNames);
-      } catch (error) {
-        const messageText = error instanceof Error ? error.message : String(error);
-        throw new Error(`Provider resolution failed: ${messageText}`);
-      }
-
-      const orchestratorContinuityMode = resolveOrchestratorContinuityMode(turnInput.sessionId);
-      const deterministicRouting = resolveDeterministicRoutingForTurn({
-        sessionId: turnInput.sessionId,
-        agent: targetAgent,
-        project: providerSelection.project,
-      });
-      const continuityByProvider =
-        orchestratorContinuityMode === "provider"
-          ? loadProviderContinuityMap(
-              conversationKey,
-              providerSelection.providerNames
-            )
-          : undefined;
-
-      const warmStartContext = await buildWarmStartContext({
-        sessionId: turnInput.sessionId,
-        agentId: targetAgent.id,
-        currentUserPrompt: turnInput.transcript,
-        excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
-        orchestratorContinuityMode,
-        discordChannelId: resolvedVoiceSyncChannelId,
-      });
-      const warmStartPrompt = warmStartContext.prompt;
-
-      try {
-        const turnResult = await voiceTurnExecutor.executeTurnDetailed(turnInput, {
-          conversationKey,
-          providerNames: providerSelection.providerNames,
-          configuredProviderNames: providerSelection.configuredProviderNames,
-          projectId: providerSelection.project?.id,
-          topicId: topicRecord?.id,
-          orchestratorContinuityMode,
-          overrideProviderName: providerSelection.overrideProviderName,
-          model: providerSelection.model,
-          reasoningEffort: providerSelection.reasoningEffort,
-          systemPrompt: voiceSystemPrompt,
-          tools: providerTools,
-          warmStartPrompt,
-          excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
-          providerChain,
-          continuityByProvider,
-          capabilityRegistry,
-          deterministicRouting,
-        });
-        recoverProviderContinuityAfterContextConfusion({
-          sessionId: turnInput.sessionId,
-          conversationKey,
-          turnResult,
-        });
-
-        const response = turnResult.response;
-        const toolTelemetry = extractToolTelemetry(response.raw);
-        const executionTrace = extractExecutionTrace(response.raw);
-        const executionTraceSummary = formatExecutionTraceForLog(executionTrace);
-        const workerDispatchLogSummary = formatWorkerDispatchTelemetryForLog(turnResult.workerDispatchTelemetry);
-        const latencyMs = Date.now() - startedAt;
-
-        const outboundMessageId = writeMessage({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          providerName: turnResult.providerName,
-          direction: "outbound",
-          source: "tango",
-          visibility: "public",
-          discordChannelId: resolvedVoiceSyncChannelId,
-          discordUserId: null,
-          discordUsername: "Tango Voice",
-          content: turnResult.responseText,
-          metadata: {
-            inputSource: "voice-bridge",
-            turnId: turnId ?? null,
-            utteranceId: turnInput.utteranceId ?? null,
-            guildId: turnInput.guildId ?? null,
-            voiceChannelId: turnInput.voiceChannelId ?? null,
-            responseMode,
-            projectId: providerSelection.project?.id ?? null,
-            projectTitle: providerSelection.project?.displayName ?? null,
-            latencyMs,
-            attemptCount: turnResult.attemptCount,
-            attemptedRetry: turnResult.attemptCount > 1,
-            attemptErrors: turnResult.attemptErrors,
-            providerSessionId: turnResult.providerSessionId ?? null,
-            providerUsedFailover: turnResult.providerUsedFailover ?? false,
-            warmStartUsed: turnResult.warmStartUsed ?? false,
-            warmStartContextChars: turnResult.warmStartContextChars,
-            providerOverride: turnResult.providerOverrideName ?? null,
-            configuredProviders: turnResult.configuredProviders,
-            effectiveProviders: turnResult.effectiveProviders,
-            providerFailures: turnResult.providerFailures,
-            ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-            ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-            executionTrace
-          }
-        });
-
-        const modelRunId = writeModelRun({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          providerName: turnResult.providerName,
-          conversationKey,
-          providerSessionId: turnResult.providerSessionId ?? null,
-          model: response.metadata?.model,
-          stopReason: response.metadata?.stopReason,
-          responseMode,
-          latencyMs,
-          providerDurationMs: response.metadata?.durationMs,
-          providerApiDurationMs: response.metadata?.durationApiMs,
-          inputTokens: response.metadata?.usage?.inputTokens,
-          outputTokens: response.metadata?.usage?.outputTokens,
-          cacheReadInputTokens: response.metadata?.usage?.cacheReadInputTokens,
-          cacheCreationInputTokens: response.metadata?.usage?.cacheCreationInputTokens,
-          totalCostUsd: response.metadata?.totalCostUsd,
-          requestMessageId: inboundMessageId,
-          responseMessageId: outboundMessageId,
-          metadata: {
-            inputSource: "voice-bridge",
-            turnId: turnId ?? null,
-            utteranceId: turnInput.utteranceId ?? null,
-            guildId: turnInput.guildId ?? null,
-            voiceChannelId: turnInput.voiceChannelId ?? null,
-            responseMode,
-            projectId: providerSelection.project?.id ?? null,
-            projectTitle: providerSelection.project?.displayName ?? null,
-            attemptCount: turnResult.attemptCount,
-            attemptedRetry: turnResult.attemptCount > 1,
-            attemptErrors: turnResult.attemptErrors,
-            providerUsedFailover: turnResult.providerUsedFailover ?? false,
-            warmStartUsed: turnResult.warmStartUsed ?? false,
-            warmStartContextChars: turnResult.warmStartContextChars,
-            providerOverride: turnResult.providerOverrideName ?? null,
-            configuredProviders: turnResult.configuredProviders,
-            effectiveProviders: turnResult.effectiveProviders,
-            orchestratorContinuityMode,
-            providerFailures: turnResult.providerFailures,
-            ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-            ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-            toolTelemetry,
-            executionTrace
-          },
-          rawResponse:
-            captureProviderRaw && response.raw && typeof response.raw === "object"
-              ? (response.raw as Record<string, unknown>)
-              : null
-        });
-        if (modelRunId !== null) {
-          writePromptSnapshot({
-            modelRunId,
-            sessionId: turnInput.sessionId,
-            agentId: targetAgent.id,
-            providerName: turnResult.providerName,
-            requestMessageId: inboundMessageId,
-            responseMessageId: outboundMessageId,
-            promptText: turnResult.providerRequestPrompt,
-            systemPrompt,
-            warmStartPrompt: warmStartPrompt ?? null,
-            metadata: {
-              inputSource: "voice-bridge",
-              responseMode,
-              promptChars: turnResult.providerRequestPrompt.length,
-              systemPromptChars: systemPrompt?.length ?? 0,
-              warmStartPromptChars: warmStartPrompt?.length ?? 0,
-              orchestratorContinuityMode,
-              turnWarmStartUsed: turnResult.warmStartUsed ?? false,
-              requestWarmStartUsed: turnResult.providerRequestWarmStartUsed,
-              initialRequestWarmStartUsed: turnResult.initialRequestWarmStartUsed,
-              usedWorkerSynthesis: turnResult.usedWorkerSynthesis ?? false,
-              synthesisRetried: turnResult.synthesisRetried ?? false,
-              initialRequestPrompt:
-                turnResult.initialRequestPrompt !== turnResult.providerRequestPrompt
-                  ? turnResult.initialRequestPrompt
-                  : null,
-              warmStartContext: warmStartContext.diagnostics,
-            },
-          });
-        }
-
-        const deterministicIntentModelRunId = persistDeterministicClassifierArtifacts({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          conversationKey,
-          turnResult,
-          requestMessageId: inboundMessageId,
-          captureRawResponse: captureProviderRaw,
-        });
-
-        persistDeterministicTurnArtifacts({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          conversationKey,
-          providerName: turnResult.providerName,
-          turnResult,
-          requestMessageId: inboundMessageId,
-          responseMessageId: outboundMessageId,
-          discordChannelId: resolvedVoiceSyncChannelId,
-          projectId: providerSelection.project?.id ?? null,
-          topicId: topicRecord?.id ?? null,
-          latencyMs,
-          intentModelRunId: deterministicIntentModelRunId,
-          narrationModelRunId: modelRunId,
-        });
-        persistActiveTaskArtifacts({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          turnResult,
-          userMessage: turnInput.transcript,
-          requestMessageId: inboundMessageId,
-          responseMessageId: outboundMessageId,
-        });
-
-        if (turnId) {
-          storage.completeVoiceTurnReceipt({
-            turnId,
-            providerName: turnResult.providerName,
-            providerSessionId: turnResult.providerSessionId ?? null,
-            responseText: turnResult.responseText,
-            providerUsedFailover: turnResult.providerUsedFailover,
-            warmStartUsed: turnResult.warmStartUsed,
-            requestMessageId: inboundMessageId,
-            responseMessageId: outboundMessageId,
-            modelRunId,
-            metadata: {
-              inputSource: "voice-bridge",
-              utteranceId: turnInput.utteranceId ?? null
-            }
-          });
-        }
-
-        maybeCompactSessionMemory({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id
-        });
-
-        console.log(
-          `[tango-voice] reply session=${turnInput.sessionId} agent=${targetAgent.id} provider=${turnResult.providerName} attempts=${turnResult.attemptCount} failover=${turnResult.providerUsedFailover ? "yes" : "no"} warmStart=${turnResult.warmStartUsed ? "yes" : "no"} ms=${latencyMs}${workerDispatchLogSummary}${executionTraceSummary ? ` ${executionTraceSummary}` : ""}`
-        );
-
-        clearVoiceTyping();
-        syncVoiceAgentResponse(turnResult.responseText);
-
-        return {
-          turnId,
-          deduplicated: false,
-          responseText: turnResult.responseText,
-          providerName: turnResult.providerName,
-          providerSessionId: turnResult.providerSessionId,
-          providerUsedFailover: turnResult.providerUsedFailover,
-          warmStartUsed: turnResult.warmStartUsed
-        };
-      } catch (error) {
-        clearVoiceTyping();
-
-        const failoverError = error instanceof ProviderFailoverError ? error : null;
-        const failures = failoverError?.failures ?? [];
-        const attempts = failoverError?.totalAttempts ?? 1;
-        const attemptErrors = failures.flatMap((failure) => failure.attemptErrors);
-        const providerName =
-          failures.at(-1)?.providerName ??
-          providerChain[0]?.providerName ??
-          providerSelection.providerNames[0] ??
-          targetAgent.provider.default;
-        const attemptedRequests = failoverError?.attemptedRequests ?? [];
-        const finalAttempt = attemptedRequests.at(-1);
-        const providerSessionId = continuityByProvider?.[providerName];
-        const messageText = error instanceof Error ? error.message : String(error);
-
-        const deadLetterId = writeDeadLetter({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          providerName,
-          conversationKey,
-          providerSessionId: providerSessionId ?? null,
-          requestMessageId: inboundMessageId,
-          discordChannelId: resolvedVoiceSyncChannelId,
-          discordUserId: turnInput.discordUserId ?? null,
-          promptText: turnInput.transcript,
-          systemPrompt,
-          responseMode,
-          lastErrorMessage: messageText,
-          failureCount: attempts,
-          metadata: {
-            inputSource: "voice-bridge",
-            turnId: turnId ?? null,
-            utteranceId: turnInput.utteranceId ?? null,
-            guildId: turnInput.guildId ?? null,
-            voiceChannelId: turnInput.voiceChannelId ?? null,
-            attemptErrors,
-            responseMode,
-            projectId: providerSelection.project?.id ?? null,
-            projectTitle: providerSelection.project?.displayName ?? null,
-            providerOverride: providerSelection.overrideProviderName ?? null,
-            configuredProviders: providerSelection.configuredProviderNames,
-            effectiveProviders: providerSelection.providerNames,
-            providerFailures: failures
-          }
-        });
-
-        const errorMessageId = writeMessage({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          providerName,
-          direction: "error",
-          source: "tango",
-          visibility: "debug",
-          discordChannelId: resolvedVoiceSyncChannelId,
-          discordUserId: null,
-          discordUsername: "Tango Voice",
-          content: messageText,
-          metadata: {
-            inputSource: "voice-bridge",
-            turnId: turnId ?? null,
-            utteranceId: turnInput.utteranceId ?? null,
-            guildId: turnInput.guildId ?? null,
-            voiceChannelId: turnInput.voiceChannelId ?? null,
-            responseMode,
-            projectId: providerSelection.project?.id ?? null,
-            projectTitle: providerSelection.project?.displayName ?? null,
-            attemptCount: attempts,
-            attemptErrors,
-            deadLetterId,
-            providerFailures: failures
-          }
-        });
-
-        const errorModelRunId = writeModelRun({
-          sessionId: turnInput.sessionId,
-          agentId: targetAgent.id,
-          providerName,
-          conversationKey,
-          providerSessionId: providerSessionId ?? null,
-          responseMode,
-          latencyMs: Date.now() - startedAt,
-          isError: true,
-          errorMessage: messageText,
-          requestMessageId: inboundMessageId,
-          responseMessageId: errorMessageId,
-          metadata: {
-            inputSource: "voice-bridge",
-            turnId: turnId ?? null,
-            utteranceId: turnInput.utteranceId ?? null,
-            guildId: turnInput.guildId ?? null,
-            voiceChannelId: turnInput.voiceChannelId ?? null,
-            responseMode,
-            projectId: providerSelection.project?.id ?? null,
-            projectTitle: providerSelection.project?.displayName ?? null,
-            attemptCount: attempts,
-            attemptErrors,
-            deadLetterId,
-            providerOverride: providerSelection.overrideProviderName ?? null,
-            configuredProviders: providerSelection.configuredProviderNames,
-            effectiveProviders: providerSelection.providerNames,
-            orchestratorContinuityMode,
-            providerFailures: failures,
-            toolTelemetry: emptyToolTelemetry()
-          },
-          rawResponse: null
-        });
-        if (errorModelRunId !== null) {
-          writePromptSnapshot({
-            modelRunId: errorModelRunId,
-            sessionId: turnInput.sessionId,
-            agentId: targetAgent.id,
-            providerName,
-            requestMessageId: inboundMessageId,
-            responseMessageId: errorMessageId,
-            promptText: finalAttempt?.promptText ?? turnInput.transcript,
-            systemPrompt,
-            warmStartPrompt: warmStartPrompt ?? null,
-            metadata: {
-              inputSource: "voice-bridge",
-              responseMode,
-              promptChars: finalAttempt?.promptText.length ?? turnInput.transcript.length,
-              systemPromptChars: systemPrompt?.length ?? 0,
-              warmStartPromptChars: warmStartPrompt?.length ?? 0,
-              orchestratorContinuityMode,
-              failed: true,
-              turnWarmStartUsed: attemptedRequests.some((attempt) => attempt.warmStartUsed),
-              requestWarmStartUsed: finalAttempt?.warmStartUsed ?? false,
-              attemptedRequests,
-              warmStartContext: warmStartContext.diagnostics,
-            },
-          });
-        }
-
-        if (turnId) {
-          storage.failVoiceTurnReceipt({
-            turnId,
-            errorMessage: messageText,
-            requestMessageId: inboundMessageId,
-            responseMessageId: errorMessageId,
-            modelRunId: errorModelRunId,
-            metadata: {
-              inputSource: "voice-bridge",
-              utteranceId: turnInput.utteranceId ?? null
-            }
-          });
-        }
-
-        console.error(
-          `[tango-voice] turn failed session=${turnInput.sessionId} agent=${targetAgent.id} provider=${providerName} error=${messageText}`
-        );
-        throw error;
-      }
     },
     mapRouterResult: async (routeResult): Promise<VoiceTurnResult> => {
       const baseTurnResult = buildVoiceRouterResult({
@@ -5582,16 +4368,6 @@ function writeModelRun(input: ModelRunInsertInput): number | null {
   }
 }
 
-function writeDeterministicTurn(input: DeterministicTurnInsertInput): string | null {
-  try {
-    return storage.insertDeterministicTurn(input);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[tango-storage] failed to write deterministic turn", message);
-    return null;
-  }
-}
-
 function writePromptSnapshot(input: PromptSnapshotInsertInput): number | null {
   try {
     return storage.insertPromptSnapshot(input);
@@ -5599,238 +4375,6 @@ function writePromptSnapshot(input: PromptSnapshotInsertInput): number | null {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[tango-storage] failed to write prompt snapshot", message);
     return null;
-  }
-}
-
-function buildDeterministicTurnMetadata(
-  turn: DiscordTurnExecutionResult["deterministicTurn"] | undefined,
-): Record<string, unknown> {
-  if (!turn) return {};
-
-  const qualityWarnings = [
-    ...new Set(
-      turn.receipts.flatMap((receipt) => receipt.warnings ?? []),
-    ),
-  ];
-
-  return {
-    deterministicRoutingApplied: true,
-    deterministicRouteOutcome: turn.state.routing.routeOutcome,
-    deterministicIntentIds: turn.state.intent.envelopes.map((intent) => intent.intentId),
-    deterministicReceiptCount: turn.receipts.length,
-    deterministicHasWriteOperations: turn.receipts.some((receipt) => receipt.hasWriteOperations),
-    deterministicDelegationChain: turn.state.auth.delegationChain,
-    deterministicFallbackReason: turn.state.routing.fallbackReason ?? null,
-    deterministicClassifierProvider: turn.classifier.providerName,
-    deterministicClassifierModel: turn.classifier.response.metadata?.model ?? null,
-    deterministicClassifierAttemptCount: turn.classifier.attemptCount,
-    deterministicClassifierUsedFailover: turn.classifier.usedFailover,
-    deterministicQualityWarnings: qualityWarnings,
-    deterministicQualityWarningCount: qualityWarnings.length,
-  };
-}
-
-function persistDeterministicClassifierArtifacts(input: {
-  sessionId: string;
-  agentId: string;
-  conversationKey: string;
-  turnResult: DiscordTurnExecutionResult;
-  requestMessageId: number | null;
-  captureRawResponse: boolean;
-}): number | null {
-  const deterministicTurn = input.turnResult.deterministicTurn;
-  if (!deterministicTurn) {
-    return null;
-  }
-
-  const classification = deterministicTurn.classifier;
-  const modelRunId = writeModelRun({
-    sessionId: input.sessionId,
-    agentId: input.agentId,
-    providerName: classification.providerName,
-    conversationKey: input.conversationKey,
-    providerSessionId: classification.response.providerSessionId ?? null,
-    model: classification.response.metadata?.model ?? null,
-    stopReason: classification.response.metadata?.stopReason ?? null,
-    responseMode: "deterministic-intent-classifier",
-    latencyMs: classification.response.metadata?.durationMs ?? deterministicTurn.state.intent.classifierLatencyMs ?? null,
-    providerDurationMs: classification.response.metadata?.durationMs ?? null,
-    providerApiDurationMs: classification.response.metadata?.durationApiMs ?? null,
-    inputTokens: classification.response.metadata?.usage?.inputTokens ?? null,
-    outputTokens: classification.response.metadata?.usage?.outputTokens ?? null,
-    cacheReadInputTokens: classification.response.metadata?.usage?.cacheReadInputTokens ?? null,
-    cacheCreationInputTokens: classification.response.metadata?.usage?.cacheCreationInputTokens ?? null,
-    totalCostUsd: classification.response.metadata?.totalCostUsd ?? null,
-    requestMessageId: input.requestMessageId,
-    responseMessageId: null,
-    metadata: {
-      phase: "deterministic-intent-classifier",
-      routeOutcome: deterministicTurn.state.routing.routeOutcome,
-      fallbackReason: deterministicTurn.state.routing.fallbackReason ?? null,
-      meetsThreshold: classification.meetsThreshold,
-      intentIds: classification.envelopes.map((intent) => intent.intentId),
-      attemptCount: classification.attemptCount,
-      attemptErrors: classification.attemptErrors,
-      providerUsedFailover: classification.usedFailover,
-      providerFailures: classification.failures,
-    },
-    rawResponse:
-      input.captureRawResponse && classification.response.raw && typeof classification.response.raw === "object"
-        ? (classification.response.raw as Record<string, unknown>)
-        : null,
-  });
-
-  if (modelRunId !== null) {
-    writePromptSnapshot({
-      modelRunId,
-      sessionId: input.sessionId,
-      agentId: input.agentId,
-      providerName: classification.providerName,
-      requestMessageId: input.requestMessageId,
-      responseMessageId: null,
-      promptText: classification.requestPrompt,
-      systemPrompt: classification.systemPrompt,
-      warmStartPrompt: null,
-      metadata: {
-        phase: "deterministic-intent-classifier",
-        promptChars: classification.requestPrompt.length,
-        systemPromptChars: classification.systemPrompt.length,
-        meetsThreshold: classification.meetsThreshold,
-        intentIds: classification.envelopes.map((intent) => intent.intentId),
-        responseText: classification.responseText,
-      },
-    });
-  }
-
-  return modelRunId;
-}
-
-function persistDeterministicTurnArtifacts(input: {
-  sessionId: string;
-  agentId: string;
-  conversationKey: string;
-  providerName: string;
-  turnResult: DiscordTurnExecutionResult;
-  requestMessageId: number | null;
-  responseMessageId: number | null;
-  discordChannelId?: string | null;
-  projectId?: string | null;
-  topicId?: string | null;
-  latencyMs: number;
-  intentModelRunId: number | null;
-  narrationModelRunId: number | null;
-}): void {
-  const deterministicTurn = input.turnResult.deterministicTurn;
-  if (!deterministicTurn) {
-    return;
-  }
-
-  if (
-    deterministicTurn.state.routing.routeOutcome === "executed" &&
-    deterministicTurn.receipts.length > 0
-  ) {
-    writeMessage({
-      sessionId: input.sessionId,
-      agentId: input.agentId,
-      providerName: input.providerName,
-      direction: "outbound",
-      source: "tango",
-      visibility: "internal",
-      discordChannelId: input.discordChannelId ?? null,
-      content: deterministicTurn.summaryText,
-      metadata: {
-        kind: "deterministic-turn-summary",
-        routeOutcome: deterministicTurn.state.routing.routeOutcome,
-        intentIds: deterministicTurn.state.intent.envelopes.map((intent) => intent.intentId),
-        relatedResponseMessageId: input.responseMessageId,
-        narrationModelRunId: input.narrationModelRunId,
-      },
-    });
-  }
-
-  const receipts = deterministicTurn.receipts;
-  writeDeterministicTurn({
-    sessionId: input.sessionId,
-    agentId: input.agentId,
-    conversationKey: input.conversationKey,
-    initiatingPrincipalId: deterministicTurn.state.auth.initiatingPrincipalId,
-    leadAgentPrincipalId: deterministicTurn.state.auth.leadAgentPrincipalId,
-    projectId: deterministicTurn.state.auth.projectId ?? input.projectId ?? null,
-    topicId: deterministicTurn.state.auth.topicId ?? input.topicId ?? null,
-    intentIds: deterministicTurn.state.intent.envelopes.map((intent) => intent.intentId),
-    intentJson: deterministicTurn.state.intent.envelopes,
-    intentModelRunId: input.intentModelRunId,
-    routeOutcome: deterministicTurn.state.routing.routeOutcome,
-    fallbackReason: deterministicTurn.state.routing.fallbackReason ?? null,
-    executionPlanJson: deterministicTurn.state.routing.plan ?? null,
-    completedStepCount: receipts.filter((receipt) => receipt.status === "completed").length,
-    failedStepCount: receipts.filter((receipt) => receipt.status === "failed").length,
-    hasWriteOperations:
-      deterministicTurn.state.execution.hasWriteOperations
-      ?? receipts.some((receipt) => receipt.hasWriteOperations),
-    workerIds: [...new Set(receipts.map((receipt) => receipt.workerId))],
-    delegationChain: deterministicTurn.state.auth.delegationChain,
-    receiptsJson: receipts,
-    narrationProvider: input.turnResult.providerName,
-    narrationModel: input.turnResult.response.metadata?.model ?? null,
-    narrationLatencyMs:
-      deterministicTurn.state.narration.narrationLatencyMs
-      ?? input.turnResult.response.metadata?.durationMs
-      ?? input.latencyMs,
-    narrationRetried: input.turnResult.synthesisRetried ?? false,
-    narrationModelRunId: input.narrationModelRunId,
-    intentLatencyMs: deterministicTurn.state.intent.classifierLatencyMs ?? null,
-    routeLatencyMs: deterministicTurn.state.routing.routeLatencyMs ?? null,
-    executionLatencyMs: deterministicTurn.state.execution.executionLatencyMs ?? null,
-    totalLatencyMs: input.latencyMs,
-    requestMessageId: input.requestMessageId,
-    responseMessageId: input.responseMessageId,
-  });
-}
-
-function persistActiveTaskArtifacts(input: {
-  sessionId: string;
-  agentId: string;
-  turnResult: DiscordTurnExecutionResult;
-  userMessage: string;
-  requestMessageId: number | null;
-  responseMessageId: number | null;
-}): void {
-  const continuation =
-    input.turnResult.activeTaskResolution ?? {
-      kind: "none" as const,
-      matchedTask: null,
-      effectiveUserMessage: input.userMessage,
-    };
-
-  try {
-    const existingTasks = storage.listActiveTasks({
-      sessionId: input.sessionId,
-      agentId: input.agentId,
-      includeResolved: false,
-      limit: 8,
-    });
-    const plan = buildActiveTaskPersistencePlan({
-      sessionId: input.sessionId,
-      agentId: input.agentId,
-      userMessage: input.userMessage,
-      responseText: input.turnResult.responseText,
-      existingTasks,
-      continuation,
-      deterministicTurn: input.turnResult.deterministicTurn,
-      requestMessageId: input.requestMessageId,
-      responseMessageId: input.responseMessageId,
-    });
-
-    for (const update of plan.statusUpdates) {
-      storage.updateActiveTaskStatus(update);
-    }
-    for (const upsert of plan.upserts) {
-      storage.upsertActiveTask(upsert);
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[tango-storage] failed to persist active task artifacts", message);
   }
 }
 
@@ -5903,66 +4447,6 @@ function loadProviderContinuityMap(
   return continuity;
 }
 
-function normalizeProviderContinuityMap(input: {
-  turn: VoiceTurnInput;
-  context: {
-    conversationKey: string;
-  };
-  continuityByProvider: ProviderContinuityMap;
-}): ProviderContinuityMap {
-  const providerNames = Object.keys(input.continuityByProvider);
-  if (providerNames.length === 0) {
-    return input.continuityByProvider;
-  }
-
-  try {
-    const sessionMessages = storage
-      .listMessagesForSession(input.turn.sessionId, 5000)
-      .filter((message) => message.agentId === input.turn.agentId);
-    const latestAssistantTurn = [...sessionMessages]
-      .reverse()
-      .find((message) => message.direction === "outbound");
-    if (!latestAssistantTurn) {
-      return input.continuityByProvider;
-    }
-
-    const providerRuns = storage.listModelRunsForConversation(input.context.conversationKey, 200);
-    let normalized: ProviderContinuityMap | null = null;
-
-    for (const providerName of providerNames) {
-      const latestProviderRun = providerRuns.find(
-        (run) =>
-          run.agentId === input.turn.agentId &&
-          run.providerName === providerName &&
-          run.isError === 0 &&
-          typeof run.responseMessageId === "number"
-      );
-      const latestProviderResponseId =
-        typeof latestProviderRun?.responseMessageId === "number"
-          ? latestProviderRun.responseMessageId
-          : 0;
-      const continuityIsStale =
-        latestAssistantTurn.providerName !== providerName ||
-        latestAssistantTurn.id > latestProviderResponseId;
-      if (!continuityIsStale) {
-        continue;
-      }
-
-      normalized ??= { ...input.continuityByProvider };
-      delete normalized[providerName];
-      console.log(
-        `[tango-discord] dropped stale provider continuity session=${input.turn.sessionId} agent=${input.turn.agentId} provider=${providerName} latest_assistant_provider=${latestAssistantTurn.providerName ?? "-"} latest_assistant_message=${latestAssistantTurn.id} latest_provider_response=${latestProviderResponseId}`
-      );
-    }
-
-    return normalized ?? input.continuityByProvider;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[tango-discord] failed to normalize provider continuity", message);
-    return input.continuityByProvider;
-  }
-}
-
 function clearProviderContinuityCacheForSession(sessionId: string): void {
   const prefix = `${sessionId}:`;
   for (const key of providerSessionByConversation.keys()) {
@@ -5970,21 +4454,6 @@ function clearProviderContinuityCacheForSession(sessionId: string): void {
       providerSessionByConversation.delete(key);
     }
   }
-}
-
-function recoverProviderContinuityAfterContextConfusion(input: {
-  sessionId: string;
-  conversationKey: string;
-  turnResult: DiscordTurnExecutionResult;
-}): void {
-  if (!input.turnResult.contextConfusionDetected) {
-    return;
-  }
-
-  console.warn(
-    `[tango-discord] context confusion detected — clearing provider session for conversation=${input.conversationKey}`,
-  );
-  clearProviderContinuityCacheForSession(input.sessionId);
 }
 
 function savePersistedProviderSession(input: {
@@ -6791,7 +5260,7 @@ async function handleReplayCommand(interaction: ChatInputCommandInteraction): Pr
   }
 
   const configuredAgent = agentRegistry.get(deadLetter.agentId);
-  const providerTools = resolveOrchestratorProviderTools(configuredAgent);
+  const providerTools = resolveProviderToolsForAgent(configuredAgent);
   const providerSelection = configuredAgent
     ? resolveProviderNamesForTurn({
         sessionId: deadLetter.sessionId,
@@ -7536,13 +6005,6 @@ async function handleMessage(
     buildPrompt(naturalRoute?.promptText ?? commandParse.promptText, message) + attachmentResult.promptSuffix,
     messageReferent
   );
-  const systemPrompt = composeSystemPrompt(
-    targetAgent.prompt,
-    responseMode,
-    promptRoute.topic?.title ?? null,
-    promptRoute.project?.displayName ?? null,
-  );
-
   if (prompt.length === 0) {
     // Diagnostic: capture what we actually saw so we can tell whether raw content
     // was empty (Discord Message Content Intent cold-start, thread membership
@@ -7561,8 +6023,8 @@ async function handleMessage(
     return;
   }
 
-  // Victor persistent session bridge: route to VICTOR-COS tmux if active
-  if (targetAgent.id === "victor" && isVictorPersistentSessionActive()) {
+  // Victor manual-console bridge: route to VICTOR-COS only when explicitly enabled.
+  if (targetAgent.id === "victor" && isVictorManualConsoleBridgeActive()) {
     const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
     const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
     let typingInterval: ReturnType<typeof setInterval> | undefined;
@@ -7763,540 +6225,34 @@ async function handleMessage(
     }
   }
 
-  const providerTools = resolveOrchestratorProviderTools(targetAgent);
-  const providerSelection = resolveProviderNamesForTurn({
-    sessionId: promptRoute.sessionId,
-    agent: targetAgent
-  });
-
-  let providerChain: Array<{ providerName: string; provider: ChatProvider }>;
-  try {
-    providerChain = resolveProviderChain(providerSelection.providerNames);
-  } catch (error) {
-    const messageText = error instanceof Error ? error.message : String(error);
-    console.error("[tango-discord] provider resolution failed", messageText);
-    await sendPresentedReply(message.channel, `Provider resolution failed: ${messageText}`, systemAgent);
-    return;
-  }
-
-  const isThread = message.channelId !== routingChannelId;
-  const conversationKey = getConversationKey(
-    promptRoute.sessionId,
-    targetAgent.id,
-    isThread ? message.channelId : null,
-  );
-  const orchestratorContinuityMode = resolveOrchestratorContinuityMode(promptRoute.sessionId);
-  const deterministicRouting = resolveDeterministicRoutingForTurn({
-    sessionId: promptRoute.sessionId,
-    agent: targetAgent,
-    project: providerSelection.project,
-  });
-  const continuityByProvider =
-    orchestratorContinuityMode === "provider"
-      ? loadProviderContinuityMap(
-          conversationKey,
-          providerSelection.providerNames
-        )
-      : undefined;
-
-  const startedAt = Date.now();
-  const warmStartContext = await buildWarmStartContext({
+  const retiredRuntimeMessage = `Agent '${targetAgent.id}' is not configured for the v2 runtime. Legacy Discord turn execution has been retired.`;
+  console.error(`[tango-discord] ${retiredRuntimeMessage}`);
+  writeMessage({
     sessionId: promptRoute.sessionId,
     agentId: targetAgent.id,
-    currentUserPrompt: prompt,
-    excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
-    orchestratorContinuityMode,
+    providerName: "claude-code-v2",
+    direction: "error",
+    source: "tango",
+    visibility: "debug",
     discordChannelId: message.channelId,
+    discordUserId: client.user?.id ?? null,
+    discordUsername: systemDisplayName,
+    content: retiredRuntimeMessage,
+    metadata: {
+      replyToDiscordMessageId: message.id,
+      responseMode,
+      runtimePath: "v2-required",
+    },
   });
-  const warmStartPrompt = warmStartContext.prompt;
-  const warmStartContextChars = warmStartPrompt?.length ?? 0;
-  // Keep the "typing..." indicator alive for the full duration of the turn.
-  // Discord's sendTyping() shows the indicator for ~10s, so we repeat every 8s.
-  const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
-  let typingInterval: ReturnType<typeof setInterval> | undefined;
-  if (typeof maybeTypingChannel.sendTyping === "function") {
-    await maybeTypingChannel.sendTyping().catch(() => {/* typing indicator is best-effort */});
-    typingInterval = setInterval(() => {
-      maybeTypingChannel.sendTyping?.().catch(() => {/* ignore */});
-    }, 8_000);
-  }
-
-  const turnInput: VoiceTurnInput = {
-    sessionId: promptRoute.sessionId,
-    agentId: targetAgent.id,
-    transcript: prompt,
-    channelId: message.channelId,
-    discordUserId: message.author.id,
-    messageTimestamp: message.createdAt.toISOString(),
-    messageTimestampSource: "discord-sent",
-  };
-
-  try {
-    const turnResult = await voiceTurnExecutor.executeTurnDetailed(turnInput, {
-      conversationKey,
-      providerNames: providerSelection.providerNames,
-      configuredProviderNames: providerSelection.configuredProviderNames,
-      projectId: promptRoute.project?.id,
-      topicId: promptRoute.topic?.id,
-      orchestratorContinuityMode,
-      overrideProviderName: providerSelection.overrideProviderName,
-      model: providerSelection.model,
-      reasoningEffort: providerSelection.reasoningEffort,
-      systemPrompt,
-      tools: providerTools,
-      warmStartPrompt,
-      excludeMessageIds: inboundMessageId !== null ? [inboundMessageId] : undefined,
-      providerChain,
-      continuityByProvider,
-      capabilityRegistry,
-      deterministicRouting,
-    });
-    recoverProviderContinuityAfterContextConfusion({
-      sessionId: promptRoute.sessionId,
-      conversationKey,
-      turnResult,
-    });
-
-    const providerName = turnResult.providerName;
-    const response = turnResult.response;
-    const failures = turnResult.providerFailures;
-    const usedFailover = turnResult.providerUsedFailover === true;
-    const warmStartUsed = turnResult.warmStartUsed === true;
-    const attemptCount = turnResult.attemptCount;
-    const attemptErrors = turnResult.attemptErrors;
-    const selectedProviderSessionId = turnResult.providerSessionId;
-    const turnWarmStartContextChars = turnResult.warmStartContextChars;
-    const toolTelemetry = extractToolTelemetry(response.raw);
-    const executionTrace = extractExecutionTrace(response.raw);
-    const executionTraceSummary = formatExecutionTraceForLog(executionTrace);
-    const workerDispatchLogSummary = formatWorkerDispatchTelemetryForLog(turnResult.workerDispatchTelemetry);
-
-    if (attemptCount > 1) {
-      console.warn(
-        `[tango-discord] provider recovered after retry session=${promptRoute.sessionId} agent=${targetAgent.id} provider=${providerName} attempts=${attemptCount}`
-      );
-    }
-    if (failures.length > 0) {
-      const failedList = failures.map((failure) => `${failure.providerName}:${failure.lastError}`).join(" | ");
-      console.warn(
-        `[tango-discord] provider failover session=${promptRoute.sessionId} agent=${targetAgent.id} selected=${providerName} failed=${failedList}`
-      );
-    }
-    if (warmStartUsed) {
-      console.log(
-        `[tango-discord] warm-start applied session=${promptRoute.sessionId} agent=${targetAgent.id} provider=${providerName}`
-      );
-    }
-
-    const latencyMs = Date.now() - startedAt;
-    let replyDelivery = buildFailedReplyDeliveryResult(targetAgent);
-    let deliveryFailed = false;
-    let deliveryFailureMessage: string | null = null;
-    let deliveryDeadLetterId: number | null = null;
-
-    try {
-      replyDelivery = await sendPresentedReply(message.channel, turnResult.responseText, targetAgent);
-      ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
-    } catch (error) {
-      deliveryFailed = true;
-      if (error instanceof DeliveryError && error.result) {
-        replyDelivery = error.result;
-      }
-      deliveryFailureMessage = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[tango-discord] delivery failed session=${promptRoute.sessionId} agent=${targetAgent.id} error=${deliveryFailureMessage}`
-      );
-
-      deliveryDeadLetterId = writeDeadLetter({
-        sessionId: promptRoute.sessionId,
-        agentId: targetAgent.id,
-        providerName,
-        conversationKey,
-        providerSessionId: selectedProviderSessionId ?? null,
-        requestMessageId: inboundMessageId,
-        discordChannelId: message.channelId,
-        discordUserId: message.author.id,
-        discordUsername: message.author.username,
-        promptText: prompt,
-        systemPrompt,
-        responseMode,
-        lastErrorMessage: deliveryFailureMessage,
-        metadata: {
-          failureType: "delivery",
-          generatedResponseText: turnResult.responseText,
-          replyToDiscordMessageId: message.id,
-          sentChunks: replyDelivery.sentChunks,
-          senderIdentity: {
-            intendedDisplayName: replyDelivery.intendedDisplayName,
-            actualDisplayName: replyDelivery.actualDisplayName,
-            delivery: replyDelivery.delivery
-          },
-          latencyMs,
-          responseMode,
-          attemptCount,
-          attemptedRetry: attemptCount > 1,
-          attemptErrors,
-          providerSessionId: selectedProviderSessionId ?? null,
-          providerUsedFailover: usedFailover,
-          warmStartUsed,
-          warmStartContextChars: turnWarmStartContextChars,
-          topicId: promptRoute.topic?.id ?? null,
-          topicSlug: promptRoute.topic?.slug ?? null,
-          topicTitle: promptRoute.topic?.title ?? null,
-          projectId: promptRoute.project?.id ?? null,
-          projectTitle: promptRoute.project?.displayName ?? null,
-          providerOverride: providerSelection.overrideProviderName ?? null,
-          configuredProviders: providerSelection.configuredProviderNames,
-          effectiveProviders: providerSelection.providerNames,
-          providerFailures: failures,
-          ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-          ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-          executionTrace
-        }
-      });
-
-      if (deliveryDeadLetterId !== null) {
-        console.error(
-          `[tango-discord] delivery dead letter queued id=${deliveryDeadLetterId} session=${promptRoute.sessionId} agent=${targetAgent.id}`
-        );
-      }
-
-      try {
-        await sendPresentedReply(
-          message.channel,
-          "I generated a response but couldn't deliver it. Please try again.",
-          systemAgent
-        );
-      } catch {
-        // Ignore fallback send failures to avoid cascading errors.
-      }
-    }
-
-    const outboundMessageId = writeMessage({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id,
-      providerName,
-      direction: "outbound",
-      source: "tango",
-      visibility: deliveryFailed ? "internal" : "public",
-      discordMessageId: replyDelivery.lastMessageId ?? null,
-      discordChannelId: message.channelId,
-      discordUserId: replyDelivery.delivery === "bot" ? client.user?.id ?? null : null,
-      discordUsername: replyDelivery.actualDisplayName,
-      content: turnResult.responseText,
-      metadata: {
-        replyToDiscordMessageId: message.id,
-        sentChunks: replyDelivery.sentChunks,
-        senderIdentity: {
-          intendedDisplayName: replyDelivery.intendedDisplayName,
-          actualDisplayName: replyDelivery.actualDisplayName,
-          delivery: replyDelivery.delivery
-        },
-        deliveryFailed,
-        deliveryFailureMessage,
-        deliveryDeadLetterId,
-        latencyMs,
-        responseMode,
-        attemptCount,
-        attemptedRetry: attemptCount > 1,
-        attemptErrors,
-        providerSessionId: selectedProviderSessionId ?? null,
-        providerUsedFailover: usedFailover,
-        warmStartUsed,
-        warmStartContextChars: turnWarmStartContextChars,
-        topicId: promptRoute.topic?.id ?? null,
-        topicSlug: promptRoute.topic?.slug ?? null,
-        topicTitle: promptRoute.topic?.title ?? null,
-        projectId: promptRoute.project?.id ?? null,
-        projectTitle: promptRoute.project?.displayName ?? null,
-        providerOverride: providerSelection.overrideProviderName ?? null,
-        configuredProviders: providerSelection.configuredProviderNames,
-        effectiveProviders: providerSelection.providerNames,
-        providerFailures: failures,
-        ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-        ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-        executionTrace
-      }
-    });
-
-    const modelRunId = writeModelRun({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id,
-      providerName,
-      conversationKey,
-      providerSessionId: selectedProviderSessionId ?? null,
-      model: response.metadata?.model,
-      stopReason: response.metadata?.stopReason,
-      responseMode,
-      latencyMs,
-      providerDurationMs: response.metadata?.durationMs,
-      providerApiDurationMs: response.metadata?.durationApiMs,
-      inputTokens: response.metadata?.usage?.inputTokens,
-      outputTokens: response.metadata?.usage?.outputTokens,
-      cacheReadInputTokens: response.metadata?.usage?.cacheReadInputTokens,
-      cacheCreationInputTokens: response.metadata?.usage?.cacheCreationInputTokens,
-      totalCostUsd: response.metadata?.totalCostUsd,
-      requestMessageId: inboundMessageId,
-      responseMessageId: outboundMessageId,
-      metadata: {
-        sentChunks: replyDelivery.sentChunks,
-        replyToDiscordMessageId: message.id,
-        deliveryFailed,
-        deliveryFailureMessage,
-        deliveryDeadLetterId,
-        responseMode,
-        attemptCount,
-        attemptedRetry: attemptCount > 1,
-        attemptErrors,
-        providerUsedFailover: usedFailover,
-        warmStartUsed,
-        warmStartContextChars: turnWarmStartContextChars,
-        topicId: promptRoute.topic?.id ?? null,
-        topicSlug: promptRoute.topic?.slug ?? null,
-        topicTitle: promptRoute.topic?.title ?? null,
-        projectId: promptRoute.project?.id ?? null,
-        projectTitle: promptRoute.project?.displayName ?? null,
-        providerOverride: providerSelection.overrideProviderName ?? null,
-        configuredProviders: providerSelection.configuredProviderNames,
-        effectiveProviders: providerSelection.providerNames,
-        orchestratorContinuityMode,
-        providerFailures: failures,
-        ...buildWorkerDispatchMetadata(turnResult.workerDispatchTelemetry),
-        ...buildDeterministicTurnMetadata(turnResult.deterministicTurn),
-        toolTelemetry,
-        executionTrace
-      },
-      rawResponse:
-        captureProviderRaw && response.raw && typeof response.raw === "object"
-          ? (response.raw as Record<string, unknown>)
-          : null
-    });
-    if (modelRunId !== null) {
-      writePromptSnapshot({
-        modelRunId,
-        sessionId: promptRoute.sessionId,
-        agentId: targetAgent.id,
-        providerName,
-        requestMessageId: inboundMessageId,
-        responseMessageId: outboundMessageId,
-        promptText: turnResult.providerRequestPrompt,
-        systemPrompt,
-        warmStartPrompt: warmStartPrompt ?? null,
-        metadata: {
-          inputSource: "discord",
-          responseMode,
-          deliveryFailed,
-          promptChars: turnResult.providerRequestPrompt.length,
-          systemPromptChars: systemPrompt?.length ?? 0,
-          warmStartPromptChars: warmStartPrompt?.length ?? 0,
-          orchestratorContinuityMode,
-          turnWarmStartUsed: turnResult.warmStartUsed ?? false,
-          requestWarmStartUsed: turnResult.providerRequestWarmStartUsed,
-          initialRequestWarmStartUsed: turnResult.initialRequestWarmStartUsed,
-          usedWorkerSynthesis: turnResult.usedWorkerSynthesis ?? false,
-          synthesisRetried: turnResult.synthesisRetried ?? false,
-          initialRequestPrompt:
-            turnResult.initialRequestPrompt !== turnResult.providerRequestPrompt
-              ? turnResult.initialRequestPrompt
-              : null,
-          warmStartContext: warmStartContext.diagnostics,
-        },
-      });
-    }
-    const deterministicIntentModelRunId = persistDeterministicClassifierArtifacts({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id,
-      conversationKey,
-      turnResult,
-      requestMessageId: inboundMessageId,
-      captureRawResponse: captureProviderRaw,
-    });
-
-    persistDeterministicTurnArtifacts({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id,
-      conversationKey,
-      providerName,
-      turnResult,
-      requestMessageId: inboundMessageId,
-      responseMessageId: outboundMessageId,
-      discordChannelId: message.channelId,
-      projectId: promptRoute.project?.id ?? null,
-      topicId: promptRoute.topic?.id ?? null,
-      latencyMs,
-      intentModelRunId: deterministicIntentModelRunId,
-      narrationModelRunId: modelRunId,
-    });
-    persistActiveTaskArtifacts({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id,
-      turnResult,
-      userMessage: prompt,
-      requestMessageId: inboundMessageId,
-      responseMessageId: outboundMessageId,
-    });
-    maybeCompactSessionMemory({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id
-    });
-
-    const synthesisRetriedSuffix = turnResult.synthesisRetried ? ` synthesisRetried=yes` : "";
-    console.log(
-      `[tango-discord] reply session=${promptRoute.sessionId} agent=${targetAgent.id} provider=${providerName} mode=${responseMode} attempts=${attemptCount} failover=${usedFailover ? "yes" : "no"} warmStart=${warmStartUsed ? "yes" : "no"} ms=${latencyMs} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks} deliveryFailed=${deliveryFailed ? "yes" : "no"}${workerDispatchLogSummary}${synthesisRetriedSuffix}${executionTraceSummary ? ` ${executionTraceSummary}` : ""}`
-    );
-    if (typingInterval) clearInterval(typingInterval);
-    cleanupAttachments(attachmentResult.tempDir);
-  } catch (error) {
-    if (typingInterval) clearInterval(typingInterval);
-    cleanupAttachments(attachmentResult.tempDir);
-    const failoverError = error instanceof ProviderFailoverError ? error : null;
-    const failures = failoverError?.failures ?? [];
-    const attemptedRequests = failoverError?.attemptedRequests ?? [];
-    const attempts = failoverError?.totalAttempts ?? 1;
-    const attemptErrors = failures.flatMap((failure) => failure.attemptErrors);
-    const providerName =
-      failures.at(-1)?.providerName ??
-      providerChain[0]?.providerName ??
-      providerSelection.providerNames[0] ??
-      targetAgent.provider.default;
-    const finalAttempt = attemptedRequests.at(-1);
-    const selectedProviderSessionId = continuityByProvider?.[providerName];
-    const messageText = error instanceof Error ? error.message : String(error);
-    console.error("[tango-discord] response failed", messageText);
-
-    const deadLetterId = writeDeadLetter({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id,
-      providerName,
-      conversationKey,
-      providerSessionId: selectedProviderSessionId ?? null,
-      requestMessageId: inboundMessageId,
-      discordChannelId: message.channelId,
-      discordUserId: message.author.id,
-      discordUsername: message.author.username,
-      promptText: prompt,
-      systemPrompt,
-      responseMode,
-      lastErrorMessage: messageText,
-      failureCount: attempts,
-      metadata: {
-        replyToDiscordMessageId: message.id,
-        attemptErrors,
-        responseMode,
-        warmStartContextChars,
-        topicId: promptRoute.topic?.id ?? null,
-        topicSlug: promptRoute.topic?.slug ?? null,
-        topicTitle: promptRoute.topic?.title ?? null,
-        projectId: promptRoute.project?.id ?? null,
-        projectTitle: promptRoute.project?.displayName ?? null,
-        providerOverride: providerSelection.overrideProviderName ?? null,
-        configuredProviders: providerSelection.configuredProviderNames,
-        effectiveProviders: providerSelection.providerNames,
-        providerFailures: failures
-      }
-    });
-
-    if (deadLetterId !== null) {
-      console.error(
-        `[tango-discord] dead letter queued id=${deadLetterId} session=${promptRoute.sessionId} agent=${targetAgent.id}`
-      );
-    }
-
-    const errorMessageId = writeMessage({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id,
-      providerName,
-      direction: "error",
-      source: "tango",
-      visibility: "debug",
-      discordChannelId: message.channelId,
-      discordUserId: client.user?.id ?? null,
-      discordUsername: systemDisplayName,
-      content: messageText,
-      metadata: {
-        replyToDiscordMessageId: message.id,
-        responseMode,
-        attemptCount: attempts,
-        attemptErrors,
-        deadLetterId,
-        warmStartContextChars,
-        topicId: promptRoute.topic?.id ?? null,
-        topicSlug: promptRoute.topic?.slug ?? null,
-        topicTitle: promptRoute.topic?.title ?? null,
-        projectId: promptRoute.project?.id ?? null,
-        projectTitle: promptRoute.project?.displayName ?? null,
-        providerFailures: failures
-      }
-    });
-
-    const errorModelRunId = writeModelRun({
-      sessionId: promptRoute.sessionId,
-      agentId: targetAgent.id,
-      providerName,
-      conversationKey,
-      providerSessionId: selectedProviderSessionId ?? null,
-      responseMode,
-      latencyMs: Date.now() - startedAt,
-      isError: true,
-      errorMessage: messageText,
-      requestMessageId: inboundMessageId,
-      responseMessageId: errorMessageId,
-      metadata: {
-        replyToDiscordMessageId: message.id,
-        responseMode,
-        attemptCount: attempts,
-        attemptErrors,
-        deadLetterId,
-        warmStartContextChars,
-        projectId: promptRoute.project?.id ?? null,
-        projectTitle: promptRoute.project?.displayName ?? null,
-        providerOverride: providerSelection.overrideProviderName ?? null,
-        configuredProviders: providerSelection.configuredProviderNames,
-        effectiveProviders: providerSelection.providerNames,
-        orchestratorContinuityMode,
-        providerFailures: failures,
-        toolTelemetry: emptyToolTelemetry()
-      },
-      rawResponse: null
-    });
-    if (errorModelRunId !== null) {
-      writePromptSnapshot({
-        modelRunId: errorModelRunId,
-        sessionId: promptRoute.sessionId,
-        agentId: targetAgent.id,
-        providerName,
-        requestMessageId: inboundMessageId,
-        responseMessageId: errorMessageId,
-        promptText: finalAttempt?.promptText ?? prompt,
-        systemPrompt,
-        warmStartPrompt: warmStartPrompt ?? null,
-        metadata: {
-          inputSource: "discord",
-          responseMode,
-          promptChars: finalAttempt?.promptText.length ?? prompt.length,
-          systemPromptChars: systemPrompt?.length ?? 0,
-          warmStartPromptChars: warmStartPrompt?.length ?? 0,
-          orchestratorContinuityMode,
-          failed: true,
-          turnWarmStartUsed: attemptedRequests.some((attempt) => attempt.warmStartUsed),
-          requestWarmStartUsed: finalAttempt?.warmStartUsed ?? false,
-          attemptedRequests,
-          warmStartContext: warmStartContext.diagnostics,
-        },
-      });
-    }
-
-    try {
-      await sendPresentedReply(
-        message.channel,
-        "I hit an error while generating a response. Please try again.",
-        systemAgent
-      );
-    } catch {
-      // Ignore fallback send failures to avoid cascading errors.
-    }
-  }
+  await sendPresentedReply(
+    message.channel,
+    "That agent has not been migrated to the v2 runtime yet, so I can't safely run it.",
+    systemAgent,
+  );
+  cleanupAttachments(attachmentResult.tempDir);
+  return;
 }
+
 
 function rememberProcessedMessageId(messageId: string): void {
   if (recentlyProcessedMessageIds.has(messageId)) {
@@ -8423,7 +6379,6 @@ client.once("clientReady", async () => {
     `[tango-discord] provider-reasoning-efforts=claude:${env.CLAUDE_EFFORT},claude-secondary:${claudeSecondaryEffort},claude-harness:${claudeHarnessEffort},codex:${env.CODEX_REASONING_EFFORT}`
   );
   console.log(`[tango-discord] provider-retry-limit=${providerRetryLimit}`);
-  console.log(`[tango-discord] worker-dispatch-timeout-ms=${workerDispatchTimeoutMs}`);
   console.log(`[tango-discord] memory-compaction-trigger-turns=${memoryCompactionTriggerTurns}`);
   console.log(`[tango-discord] memory-compaction-retain-recent-turns=${memoryCompactionRetainRecentTurns}`);
   console.log(`[tango-discord] memory-compaction-summary-max-chars=${memoryCompactionSummaryMaxChars}`);

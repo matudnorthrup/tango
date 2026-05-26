@@ -11,8 +11,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   ScheduleConfig,
-  WorkerExecuteFn,
-  ScheduledTurnExecuteFn,
   V2ScheduledTurnExecuteFn,
   DeliveryFn,
   AlertFn,
@@ -24,10 +22,6 @@ import { SchedulerEngine, type EngineConfig } from "./engine.js";
 export interface SchedulerServiceDeps {
   /** SQLite database (shared with TangoStorage) */
   db: DatabaseSync;
-  /** Function to execute an agent worker */
-  executeWorker: WorkerExecuteFn;
-  /** Optional function to execute an explicit deterministic scheduled turn */
-  executeScheduledTurn?: ScheduledTurnExecuteFn;
   /** Optional function to execute a scheduled turn via the fresh v2 runtime */
   executeV2Turn?: V2ScheduledTurnExecuteFn;
   /** Function to deliver messages to Discord channels */
@@ -48,8 +42,6 @@ export class SchedulerService {
     this.store = new SchedulerStore(deps.db);
     this.engine = new SchedulerEngine(configs, {
       store: this.store,
-      executeWorker: deps.executeWorker,
-      executeScheduledTurn: deps.executeScheduledTurn,
       executeV2Turn: deps.executeV2Turn,
       deliver: deps.deliver,
       alert: deps.alert,
@@ -117,8 +109,6 @@ export type {
   DeterministicHandler,
   PreCheckResult,
   PreCheckHandler,
-  WorkerExecuteFn,
-  ScheduledTurnExecuteFn,
   V2ScheduledTurnExecuteFn,
   DeliveryFn,
   AlertFn,

@@ -12,8 +12,9 @@ if [ -f "$SESSION_HELPER" ]; then
   TARGET="$(resolve_tmux_service_target kokoro)"
 else
   TARGET="tango:kokoro"
+  tango_service_tmux() { command tmux "$@"; }
 fi
 
-tmux send-keys -t "$TARGET" C-c
+tango_service_tmux send-keys -t "$TARGET" C-c
 sleep 1
-tmux send-keys -t "$TARGET" "cd ~/Kokoro-FastAPI && source .venv/bin/activate && USE_GPU=false DEVICE_TYPE=cpu python -m uvicorn api.src.main:app --host 0.0.0.0 --port 8880" C-m
+tango_service_tmux send-keys -t "$TARGET" "cd ~/Kokoro-FastAPI && source .venv/bin/activate && USE_GPU=false DEVICE_TYPE=cpu python -m uvicorn api.src.main:app --host 0.0.0.0 --port 8880" C-m

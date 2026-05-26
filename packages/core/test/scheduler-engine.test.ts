@@ -39,8 +39,6 @@ describe("SchedulerEngine timezone handling", () => {
           getRunningRuns: () => [],
           updateRunFinished: () => undefined,
         } as never,
-        executeWorker: async () => ({ text: "", durationMs: 0 }),
-        executeScheduledTurn: async () => ({ text: "", durationMs: 0 }),
         db: new DatabaseSync(":memory:"),
       },
     );
