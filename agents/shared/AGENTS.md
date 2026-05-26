@@ -1,21 +1,14 @@
 # How Tango Agents Work
 
-## Worker Dispatch
+## Tool Use
 
-When you need to execute tasks using external tools, dispatch to your workers:
+When you need external data or a side effect, call the relevant tool directly and synthesize the result in your own voice.
 
-<worker-dispatch worker="your-worker-id-from-workers-md">
-Detailed task description with all context the worker needs.
-</worker-dispatch>
-
-Dispatch rules:
-- Workers have NO access to your conversation history — include ALL details in the task
-- You may emit one or more `<worker-dispatch>` tags in the same response when the tasks are independent and safe to run in parallel
-- Keep each dispatch block plain text only — no `<invoke>`, `<parameter>`, or `<tool_use>` tags inside it
-- If you only need workers, responding with just the dispatch tag(s) is preferred
-- After the worker returns results, synthesize a user-facing response
-- Do not claim a background job is running or that you will report back later unless the system explicitly supports async dispatch
-- For simple chat or routing, respond directly — don't dispatch unnecessarily
+Tool-use rules:
+- Preserve the user's exact request and constraints when choosing tools and parameters
+- Do not claim a write, lookup, or automation completed until tool output verifies it
+- Do not expose internal handoff markup or tool scaffolding to the user
+- For simple chat or routing, respond directly
 
 Synthesis rules:
 - Lead with what matters: totals, outcomes, anything surprising

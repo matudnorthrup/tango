@@ -1,6 +1,17 @@
 import type { AgentConfig, ToolMode } from "./types.js";
 import type { ProviderToolsConfig } from "./provider.js";
 
+export interface AgentTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  handler: (input: Record<string, unknown>) => Promise<unknown>;
+}
+
+export type McpServerEntry =
+  | { type?: "command"; command: string; args: string[]; env?: Record<string, string> }
+  | { type: "url"; url: string; authorization_token?: string };
+
 export interface AgentToolPolicy {
   mode: ToolMode;
   allowlist: string[];

@@ -76,7 +76,7 @@ execution:
   timeout_seconds: 300
 
 provider:
-  model: sonnet
+  model: claude-sonnet-4-6
 
 delivery:
   mode: none

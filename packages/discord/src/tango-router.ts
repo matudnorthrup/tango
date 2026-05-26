@@ -34,6 +34,25 @@ export interface RouteResult {
   conversationKey: string;
 }
 
+const INTERNAL_WORKER_DISPATCH_FALLBACK =
+  "Sorry, I tried to use an internal worker handoff that is not available in this runtime. Please ask again and I will handle it directly.";
+
+export function sanitizeInternalWorkerDispatchResponse(response: RuntimeResponse): RuntimeResponse {
+  if (!response.text.includes("<worker-dispatch")) {
+    return response;
+  }
+
+  return {
+    ...response,
+    text: INTERNAL_WORKER_DISPATCH_FALLBACK,
+    metadata: {
+      ...response.metadata,
+      sanitizedInternalWorkerDispatch: true,
+      originalTextLength: response.text.length,
+    },
+  };
+}
+
 export class TangoRouter {
   private readonly lifecycleManager: SessionLifecycleManager;
   private readonly agentConfigs: Map<string, AgentRuntimeConfig>;
@@ -66,12 +85,18 @@ export class TangoRouter {
       params.conversationKey?.trim()
       || this.getConversationKey(params.channelId, params.threadId);
     const agentConfig = this.resolveAgentConfig(params.agentId);
-    const response = await this.lifecycleManager.sendMessage(
+    const runtimeResponse = await this.lifecycleManager.sendMessage(
       conversationKey,
       agentConfig,
       params.message,
       params.sendOptions,
     );
+    const response = sanitizeInternalWorkerDispatchResponse(runtimeResponse);
+    if (response !== runtimeResponse) {
+      console.warn(
+        `[tango-router] suppressed internal worker-dispatch markup for ${conversationKey} agent=${params.agentId}`,
+      );
+    }
 
     this.schedulePostTurn({
       conversationKey,

@@ -12,8 +12,6 @@ import { Cron } from "croner";
 import type {
   ScheduleConfig,
   RunStatus,
-  WorkerExecuteFn,
-  ScheduledTurnExecuteFn,
   V2ScheduledTurnExecuteFn,
   DeliveryFn,
   AlertFn,
@@ -31,8 +29,6 @@ export interface EngineConfig {
 
 export interface EngineDeps {
   store: SchedulerStore;
-  executeWorker: WorkerExecuteFn;
-  executeScheduledTurn?: ScheduledTurnExecuteFn;
   executeV2Turn?: V2ScheduledTurnExecuteFn;
   deliver?: DeliveryFn;
   alert?: AlertFn;
@@ -221,8 +217,6 @@ export class SchedulerEngine {
     // Execute
     const result = await executeSchedule(config, {
       store,
-      executeWorker: this.deps.executeWorker,
-      executeScheduledTurn: this.deps.executeScheduledTurn,
       executeV2Turn: this.deps.executeV2Turn,
       db: this.deps.db,
     });

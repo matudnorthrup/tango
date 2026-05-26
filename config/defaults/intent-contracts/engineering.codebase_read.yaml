@@ -14,8 +14,8 @@ slots:
     required: false
     inferable: true
 examples:
-  - Read packages/discord/src/turn-executor.ts and explain how deterministic routing works
-  - Summarize what config/agents/victor.yaml says about deterministic routing
+  - Read packages/discord/src/tango-router.ts and explain how Discord turns are routed
+  - Summarize what config/v2/agents/victor.yaml says about MCP tool access
   - Read package.json and tell me what test:deterministic-live-gate does
 can_run_in_parallel: true
 classifier_hints:

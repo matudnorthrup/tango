@@ -49,17 +49,17 @@ function createTempHome(): string {
 }
 
 describe("executeSchedule", () => {
-  it("routes explicit-intent agent schedules through executeScheduledTurn", async () => {
-    const executeWorker = vi.fn(async () => ({ text: "worker path", durationMs: 5 }));
-    const executeScheduledTurn = vi.fn(async () => ({
-      text: "deterministic schedule turn",
+  it("routes migrated explicit-intent agent schedules through executeV2Turn", async () => {
+    const executeV2Turn = vi.fn(async () => ({
+      text: "v2 schedule turn",
       durationMs: 25,
-      modelUsed: "sonnet",
-      metadata: { deterministicIntentIds: ["email.inbox_maintenance"] },
+      model: "claude-sonnet-4-6",
+      metadata: { runtime: "v2", deterministicIntentIds: ["email.inbox_maintenance"] },
     }));
 
     const result = await executeSchedule(
       createAgentSchedule({
+        runtime: "v2",
         execution: {
           mode: "agent",
           workerId: "personal-assistant",
@@ -71,43 +71,38 @@ describe("executeSchedule", () => {
       }),
       {
         store: { getState: () => null } as never,
-        executeWorker,
-        executeScheduledTurn,
+        executeV2Turn,
         db: {} as never,
       },
     );
 
     expect(result.status).toBe("ok");
-    expect(result.summary).toBe("deterministic schedule turn");
-    expect(result.modelUsed).toBe("sonnet");
-    expect(result.metadata).toEqual({ deterministicIntentIds: ["email.inbox_maintenance"] });
-    expect(executeScheduledTurn).toHaveBeenCalledOnce();
-    expect(executeWorker).not.toHaveBeenCalled();
+    expect(result.summary).toBe("v2 schedule turn");
+    expect(result.modelUsed).toBe("claude-sonnet-4-6");
+    expect(result.metadata).toEqual({ runtime: "v2", deterministicIntentIds: ["email.inbox_maintenance"] });
+    expect(executeV2Turn).toHaveBeenCalledOnce();
+    expect(executeV2Turn).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: "watson",
+      task: "Review and maintain the inbox.",
+    }));
   });
 
-  it("keeps legacy agent schedules on the direct worker path when no explicit intents are configured", async () => {
-    const executeWorker = vi.fn(async () => ({ text: "legacy worker run", durationMs: 12 }));
-    const executeScheduledTurn = vi.fn();
-
+  it("fails closed for agent schedules that have not migrated to runtime=v2", async () => {
     const result = await executeSchedule(
       createAgentSchedule(),
       {
         store: { getState: () => null } as never,
-        executeWorker,
-        executeScheduledTurn,
         db: {} as never,
       },
     );
 
-    expect(result.status).toBe("ok");
-    expect(result.summary).toBe("legacy worker run");
-    expect(executeWorker).toHaveBeenCalledOnce();
-    expect(executeScheduledTurn).not.toHaveBeenCalled();
+    expect(result.status).toBe("error");
+    expect(result.error).toBe(
+      "Agent schedule 'daily-email-review' must set runtime: v2; legacy worker execution has been retired.",
+    );
   });
 
   it("routes runtime=v2 agent schedules through executeV2Turn", async () => {
-    const executeWorker = vi.fn(async () => ({ text: "legacy worker run", durationMs: 12 }));
-    const executeScheduledTurn = vi.fn();
     const executeV2Turn = vi.fn(async () => ({
       text: "fresh v2 runtime run",
       durationMs: 20,
@@ -125,8 +120,6 @@ describe("executeSchedule", () => {
       }),
       {
         store: { getState: () => null } as never,
-        executeWorker,
-        executeScheduledTurn,
         executeV2Turn,
         db: {} as never,
       },
@@ -141,11 +134,9 @@ describe("executeSchedule", () => {
       agentId: "malibu",
       task: "Review and maintain the inbox.",
     }));
-    expect(executeWorker).not.toHaveBeenCalled();
-    expect(executeScheduledTurn).not.toHaveBeenCalled();
   });
 
-  it("routes conditional-agent schedules through the deterministic turn only after a proceed pre-check", async () => {
+  it("routes conditional-agent schedules through v2 only after a proceed pre-check", async () => {
     if (!getPreCheckHandler("test-unreviewed-transactions")) {
       registerPreCheckHandler("test-unreviewed-transactions", async () => ({
         action: "proceed",
@@ -157,16 +148,16 @@ describe("executeSchedule", () => {
       }));
     }
 
-    const executeWorker = vi.fn(async () => ({ text: "worker path", durationMs: 5 }));
-    const executeScheduledTurn = vi.fn(async () => ({
-      text: "deterministic schedule turn",
+    const executeV2Turn = vi.fn(async () => ({
+      text: "v2 conditional schedule turn",
       durationMs: 25,
-      modelUsed: "sonnet",
-      metadata: { deterministicIntentIds: ["finance.transaction_categorization"] },
+      model: "claude-sonnet-4-6",
+      metadata: { runtime: "v2", deterministicIntentIds: ["finance.transaction_categorization"] },
     }));
 
     const result = await executeSchedule(
       createAgentSchedule({
+        runtime: "v2",
         execution: {
           mode: "conditional-agent",
           preCheck: { handler: "test-unreviewed-transactions" },
@@ -179,18 +170,16 @@ describe("executeSchedule", () => {
       }),
       {
         store: { getState: () => null } as never,
-        executeWorker,
-        executeScheduledTurn,
+        executeV2Turn,
         db: {} as never,
       },
     );
 
     expect(result.status).toBe("ok");
-    expect(result.summary).toBe("deterministic schedule turn");
+    expect(result.summary).toBe("v2 conditional schedule turn");
     expect(result.preCheckResult).toContain("\"action\":\"proceed\"");
-    expect(executeScheduledTurn).toHaveBeenCalledOnce();
-    expect(executeScheduledTurn.mock.calls[0]?.[0].task).toContain("Found 2 unreviewed transactions");
-    expect(executeWorker).not.toHaveBeenCalled();
+    expect(executeV2Turn).toHaveBeenCalledOnce();
+    expect(executeV2Turn.mock.calls[0]?.[0].task).toContain("Found 2 unreviewed transactions");
   });
 
   it("writes an Obsidian job log after a successful agent run when configured", async () => {
@@ -198,7 +187,7 @@ describe("executeSchedule", () => {
     vi.setSystemTime(new Date("2026-04-29T12:34:00Z"));
     process.env.HOME = createTempHome();
 
-    const executeWorker = vi.fn(async () => ({
+    const executeV2Turn = vi.fn(async () => ({
       text: "Planned focus blocks for inbox zero and budget review.",
       durationMs: 12,
     }));
@@ -206,6 +195,7 @@ describe("executeSchedule", () => {
     const result = await executeSchedule(
       createAgentSchedule({
         id: "morning-planning",
+        runtime: "v2",
         obsidianLog: {
           domain: "Planning",
           jobName: "Morning Planning",
@@ -213,7 +203,7 @@ describe("executeSchedule", () => {
       }),
       {
         store: { getState: () => null } as never,
-        executeWorker,
+        executeV2Turn,
         db: {} as never,
       },
     );
@@ -235,12 +225,64 @@ describe("executeSchedule", () => {
     expect(logText).toContain("Morning Planning");
     expect(logText).toContain("**Status:** Done");
     expect(logText).toContain("**Summary:** Planned focus blocks for inbox zero and budget review.");
+    expect(logText).toContain("No flagged items.");
+  });
+
+  it("writes a Flagged section when an Obsidian job summary contains review signals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-24T14:05:00Z"));
+    process.env.HOME = createTempHome();
+
+    const executeV2Turn = vi.fn(async () => ({
+      text: [
+        "Categorized 1 transaction tonight.",
+        "",
+        "**Needs your review (2 transactions):**",
+        "- Chipotle Mexican Grill $29.80 - personal, family, or Latitude?",
+        "- Apple $149.00 - hardware or software?",
+      ].join("\n"),
+      durationMs: 12,
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        id: "nightly-transaction-categorizer",
+        runtime: "v2",
+        obsidianLog: {
+          domain: "Finance",
+          jobName: "Nightly Transaction Categorizer",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeV2Turn,
+        db: {} as never,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+
+    const logPath = path.join(
+      process.env.HOME!,
+      "Documents",
+      "main",
+      "Records",
+      "Jobs",
+      "Finance",
+      "2026-05.md",
+    );
+    const logText = fs.readFileSync(logPath, "utf8");
+
+    expect(logText).toContain("**Flagged:**");
+    expect(logText).toContain("Needs your review");
+    expect(logText).toContain("Chipotle Mexican Grill");
+    expect(logText).not.toContain("No flagged items.");
   });
 
   it("keeps successful runs green when Obsidian log writing fails", async () => {
     process.env.HOME = createTempHome();
 
-    const executeWorker = vi.fn(async () => ({ text: "legacy worker run", durationMs: 12 }));
+    const executeV2Turn = vi.fn(async () => ({ text: "v2 runtime run", durationMs: 12 }));
     vi.spyOn(fs, "appendFileSync").mockImplementation(() => {
       throw new Error("disk full");
     });
@@ -248,6 +290,7 @@ describe("executeSchedule", () => {
 
     const result = await executeSchedule(
       createAgentSchedule({
+        runtime: "v2",
         obsidianLog: {
           domain: "Email",
           jobName: "Daily Email Review",
@@ -255,13 +298,13 @@ describe("executeSchedule", () => {
       }),
       {
         store: { getState: () => null } as never,
-        executeWorker,
+        executeV2Turn,
         db: {} as never,
       },
     );
 
     expect(result.status).toBe("ok");
-    expect(result.summary).toBe("legacy worker run");
+    expect(result.summary).toBe("v2 runtime run");
     expect(consoleError).toHaveBeenCalledWith(
       "[scheduler] obsidian-log error for daily-email-review:",
       expect.any(Error),
