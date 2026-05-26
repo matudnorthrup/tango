@@ -16,6 +16,6 @@ fi
 
 echo "status=running"
 echo "target=$TARGET"
-tmux list-panes -t "$TARGET" -F "pane=#{pane_index} dead=#{pane_dead} command=#{pane_current_command}"
+tango_service_tmux list-panes -t "$TARGET" -F "pane=#{pane_index} dead=#{pane_dead} command=#{pane_current_command}"
 echo "--- recent logs ---"
-tmux capture-pane -t "$TARGET" -p | tail -n "$LINES"
+tango_service_tmux capture-pane -t "$TARGET" -p | tail -n "$LINES"

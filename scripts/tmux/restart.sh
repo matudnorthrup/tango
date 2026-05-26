@@ -26,12 +26,14 @@ if tmux_service_target_is_running "$EXISTING_TARGET"; then
   tmux_service_target_kill "$EXISTING_TARGET"
 fi
 
+sync_tmux_service_environment "$SESSION_NAME"
+
 RUN_CMD="cd \"$REPO_DIR\" && env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$NODE_BIN\" packages/discord/dist/main.js"
 
-if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-  tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+if tango_service_tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+  tango_service_tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
 else
-  tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+  tango_service_tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
 fi
 
 echo "Restarted Tango Discord in tmux target '${SESSION_NAME}:${WINDOW_NAME}'"

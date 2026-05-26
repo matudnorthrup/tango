@@ -13,4 +13,4 @@ if ! tmux_service_target_is_running "$TARGET"; then
   exit 1
 fi
 
-tmux capture-pane -t "$TARGET" -p | tail -n "$LINES"
+tango_service_tmux capture-pane -t "$TARGET" -p | tail -n "$LINES"
