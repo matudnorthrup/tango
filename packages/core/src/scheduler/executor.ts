@@ -12,8 +12,6 @@ import os from "node:os";
 import path from "node:path";
 import type {
   ScheduleConfig,
-  WorkerExecuteFn,
-  ScheduledTurnExecuteFn,
   V2ScheduledTurnExecuteFn,
   HandlerContext,
   RunStatus,
@@ -33,8 +31,6 @@ export interface ExecutionResult {
 
 export interface ExecutorDeps {
   store: SchedulerStore;
-  executeWorker: WorkerExecuteFn;
-  executeScheduledTurn?: ScheduledTurnExecuteFn;
   executeV2Turn?: V2ScheduledTurnExecuteFn;
   db: import("node:sqlite").DatabaseSync;
 }
@@ -63,9 +59,8 @@ function writeObsidianLog(config: ScheduleConfig, summary: string): void {
 
   fs.mkdirSync(jobsDir, { recursive: true });
 
-  const truncatedSummary = summary.length > 500
-    ? `${summary.slice(0, 497)}...`
-    : summary;
+  const truncatedSummary = truncateText(summary, 2000);
+  const flaggedSection = buildFlaggedSection(summary);
 
   const entry = [
     "",
@@ -74,7 +69,7 @@ function writeObsidianLog(config: ScheduleConfig, summary: string): void {
     "**Status:** Done",
     `**Summary:** ${truncatedSummary}`,
     "",
-    "No flagged items.",
+    flaggedSection ?? "No flagged items.",
     "",
   ].join("\n");
 
@@ -83,6 +78,110 @@ function writeObsidianLog(config: ScheduleConfig, summary: string): void {
   console.error(
     `[scheduler] obsidian-log written: ${domain}/${yyyy}-${mm}.md for ${config.id}`,
   );
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+const FLAG_SIGNAL_PATTERNS = [
+  /\bneeds?\s+(?:your\s+)?(?:review|input|decision|clarification)\b/iu,
+  /\btransactions?\s+held\b/iu,
+  /\bambiguous\b/iu,
+  /\buncategorized\b/iu,
+  /\buncleared\b/iu,
+  /\bbudget setup recommended\b/iu,
+  /\bno budgets configured\b/iu,
+  /\bover budget\b/iu,
+  /\bbelow floor\b/iu,
+  /\binsufficient funds\b/iu,
+  /\bmissing\b/iu,
+  /\bmismatch\b/iu,
+  /\bfailed\b/iu,
+  /\berror\b/iu,
+  /\b2fa\b/iu,
+  /\blogin\b/iu,
+] as const;
+
+const CLEAN_SIGNAL_PATTERNS = [
+  /\bno flags?\b/iu,
+  /\bno flagged items\b/iu,
+  /\bno warnings?\b/iu,
+  /\bno issues?\b/iu,
+  /\bnone\b/iu,
+] as const;
+
+function buildFlaggedSection(summary: string): string | undefined {
+  const explicit = extractExplicitFlaggedSection(summary);
+  if (explicit) {
+    return `**Flagged:**\n${explicit}`;
+  }
+
+  const excerpt = extractSignalExcerpt(summary);
+  if (!excerpt) {
+    return undefined;
+  }
+
+  return `**Flagged:**\n- Review needed: ${excerpt}`;
+}
+
+function extractExplicitFlaggedSection(summary: string): string | undefined {
+  const lines = summary.split(/\r?\n/u);
+  const startIndex = lines.findIndex((line) => isFlagHeading(line));
+  if (startIndex === -1) {
+    return undefined;
+  }
+
+  const block: string[] = [];
+  for (const line of lines.slice(startIndex + 1)) {
+    if (block.length > 0 && isSectionHeading(line)) {
+      break;
+    }
+    block.push(line);
+  }
+
+  const rendered = block.join("\n").trim();
+  return rendered.length > 0 ? truncateText(rendered, 1000) : undefined;
+}
+
+function extractSignalExcerpt(summary: string): string | undefined {
+  const lines = summary
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  const signalIndex = lines.findIndex((line) => hasFlagSignal(line));
+  if (signalIndex === -1) {
+    return undefined;
+  }
+
+  const excerptLines = lines.slice(signalIndex, signalIndex + 8);
+  return truncateText(excerptLines.join(" "), 1000);
+}
+
+function isFlagHeading(line: string): boolean {
+  const normalized = line
+    .replace(/^#{1,6}\s*/u, "")
+    .replace(/\*/gu, "")
+    .replace(/:$/u, "")
+    .trim()
+    .toLowerCase();
+  return normalized === "flagged" || normalized === "flags";
+}
+
+function isSectionHeading(line: string): boolean {
+  const trimmed = line.trim();
+  return /^#{1,6}\s+\S/u.test(trimmed) || /^\*\*[^*\n]+:\*\*\s*$/u.test(trimmed);
+}
+
+function hasFlagSignal(line: string): boolean {
+  if (CLEAN_SIGNAL_PATTERNS.some((pattern) => pattern.test(line))) {
+    return false;
+  }
+  return FLAG_SIGNAL_PATTERNS.some((pattern) => pattern.test(line));
 }
 
 export async function executeSchedule(
@@ -264,86 +363,35 @@ async function runAgentWorker(
     };
   }
 
-  const model = config.provider?.model;
-  const reasoningEffort = config.provider?.reasoningEffort;
   const timeoutMs = (config.execution.timeoutSeconds ?? 300) * 1000;
 
-  // v2 runtime path: spawn a fresh Claude Code adapter for this job
-  if (config.runtime === "v2" && deps.executeV2Turn) {
-    const agentId = config.delivery?.agentId ?? config.execution.deterministicAgentId ?? "dispatch";
-    const v2Result = await withTimeout(
-      deps.executeV2Turn({ config, task, agentId }),
-      timeoutMs,
-      `V2 scheduled turn for agent '${agentId}' timed out`,
-    );
-    const trimmedText = v2Result.text.trim();
-    const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
-    if (config.obsidianLog) {
-      try {
-        writeObsidianLog(config, summary ?? "Completed — no output");
-      } catch (err) {
-        console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
-      }
-    }
-
+  if (config.runtime !== "v2") {
     return {
-      status: "ok",
+      status: "error",
       durationMs: Date.now() - startTime,
-      summary,
-      modelUsed: v2Result.model,
-      preCheckResult: preCheckContext ? JSON.stringify({ action: "proceed", context: preCheckContext }) : undefined,
-      metadata: v2Result.metadata,
+      error: `Agent schedule '${config.id}' must set runtime: v2; legacy worker execution has been retired.`,
     };
   }
 
-  if ((config.execution.intentIds?.length ?? 0) > 0) {
-    if (!deps.executeScheduledTurn) {
-      return {
-        status: "error",
-        durationMs: Date.now() - startTime,
-        error: "Scheduler deterministic turn executor is not configured.",
-      };
-    }
-
-    const scheduledTurnPromise = deps.executeScheduledTurn({
-      config,
-      workerId,
-      task,
-      model,
-      reasoningEffort,
-    });
-    const result = await withTimeout(
-      scheduledTurnPromise,
-      timeoutMs,
-      `Deterministic schedule turn for worker '${workerId}' timed out`,
-    );
-    const trimmedText = result.text.trim();
-    const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
-    if (config.obsidianLog) {
-      try {
-        writeObsidianLog(config, summary ?? "Completed — no output");
-      } catch (err) {
-        console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
-      }
-    }
-
+  if (!deps.executeV2Turn) {
     return {
-      status: "ok",
+      status: "error",
       durationMs: Date.now() - startTime,
-      summary,
-      modelUsed: result.modelUsed ?? model,
-      preCheckResult: preCheckContext ? JSON.stringify({ action: "proceed", context: preCheckContext }) : undefined,
-      metadata: result.metadata,
+      error: "Scheduler v2 turn executor is not configured.",
     };
   }
 
-  const workerPromise = deps.executeWorker(workerId, task, model, reasoningEffort);
-  const result = await withTimeout(workerPromise, timeoutMs, `Worker '${workerId}' timed out`);
+  const agentId = config.delivery?.agentId ?? config.execution.deterministicAgentId ?? "dispatch";
+  const v2Result = await withTimeout(
+    deps.executeV2Turn({ config, task, agentId }),
+    timeoutMs,
+    `V2 scheduled turn for agent '${agentId}' timed out`,
+  );
 
   // Workers can return "__NO_OUTPUT__" to signal nothing to report (e.g., no
   // uncategorized transactions). Treat as a successful skip — no delivery, no
   // summary in logs.
-  const trimmedText = result.text.trim();
+  const trimmedText = v2Result.text.trim();
   const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
   if (config.obsidianLog) {
     try {
@@ -357,8 +405,9 @@ async function runAgentWorker(
     status: "ok",
     durationMs: Date.now() - startTime,
     summary,
-    modelUsed: model,
+    modelUsed: v2Result.model,
     preCheckResult: preCheckContext ? JSON.stringify({ action: "proceed", context: preCheckContext }) : undefined,
+    metadata: v2Result.metadata,
   };
 }
 

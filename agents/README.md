@@ -9,15 +9,13 @@ Current convention:
 
 - `agents/shared/*.md`: shared prompt material
 - `agents/assistants/<agent-id>/soul.md`: required identity prompt for user-facing named agents
-- `agents/assistants/<agent-id>/{knowledge,workers}.md`: optional assistant-specific context and dispatch guidance
-- `agents/workers/<worker-id>/soul.md`: delegated task workers
+- `agents/assistants/<agent-id>/knowledge.md`: optional assistant-specific context
 - `agents/system/<agent-id>/soul.md`: internal/meta agents
-- `agents/tools/*.md`: standalone callable-capability docs shared across workers
-- `agents/skills/*.md`: reusable workflow guidance shared across workers
+- `agents/tools/*.md`: standalone callable-capability docs
+- `agents/skills/*.md`: reusable workflow guidance for agent prompts
 - `agents/evals/`: prompt and routing eval inputs
 
 Runtime wiring:
 
-- `config/defaults/agents/<agent-id>.yaml` uses `prompt_file` paths under `agents/assistants/` or `agents/system/`
-- `config/defaults/workers/<worker-id>.yaml` uses `prompt_file` paths under `agents/workers/`
-- Tango assembles prompts from `soul.md`, `agents/shared/*.md`, optional `knowledge.md` and `workers.md`, tool docs selected from worker `tool_contract_ids`, and skill docs selected from worker `skill_doc_ids`
+- `config/v2/agents/<agent-id>.yaml` declares `system_prompt_file`, MCP servers, model/runtime settings, memory, and Discord/voice routing.
+- Tango V2 assembles prompts from `soul.md`, `agents/shared/RULES.md`, `agents/shared/USER.md`, and optional `knowledge.md`. Legacy worker dispatch prompt files are not loaded.

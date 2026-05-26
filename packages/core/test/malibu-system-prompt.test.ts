@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { assembleSoulPrompt } from "../src/prompt-assembly.js";
+import { assembleSoulPrompt, assembleV2SystemPrompt } from "../src/system-prompt.js";
 import { loadV2AgentConfig } from "../src/v2-config-loader.js";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -27,9 +27,11 @@ describe("assembleSoulPrompt", () => {
     const atlasTool = readRepoFile("agents/tools/atlas-sql.md");
 
     const prompt = assembleSoulPrompt(config, { repoRoot });
+    const v2Prompt = assembleV2SystemPrompt(config, { repoRoot });
 
     expect(typeof prompt).toBe("string");
     expect(prompt).toBe([soul, rules, user, knowledge].join("\n\n"));
+    expect(v2Prompt).toBe(prompt);
     expect(prompt).toContain(soul);
     expect(prompt).toContain(rules);
     expect(prompt).toContain(user);

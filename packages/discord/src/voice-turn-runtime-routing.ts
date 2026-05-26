@@ -8,6 +8,14 @@ import type { RouteResult, TangoRouter } from "./tango-router.js";
 
 export const VOICE_V2_ROUTER_TIMEOUT_MS = 900_000;
 export const VOICE_V2_TTS_ERROR_MESSAGE = "Sorry, I'm having trouble. Try again.";
+export const VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT = [
+  "The user is speaking to you via voice, and your response will be read aloud by text-to-speech.",
+  "Keep your response concise and conversational — use plain spoken language, not written formatting.",
+  "Never use markdown formatting: no tables, no bold/italic, no headers, no code blocks, no bullet lists.",
+  "If there are many items (transactions, logs, entries), summarize the top 3-5 and offer to continue rather than listing everything.",
+  "Break complex information into short, digestible sentences.",
+  "Avoid reading out IDs, URLs, or long reference numbers — paraphrase or omit them.",
+].join(" ");
 
 function extractProviderSessionId(response: RuntimeResponse): string | undefined {
   const metadata = response.metadata;
@@ -72,14 +80,13 @@ export async function dispatchVoiceTurnByRuntime<T>(input: {
   conversationKey?: string;
   v2AgentConfig?: V2AgentConfig | null;
   tangoRouter?: Pick<TangoRouter, "routeMessage"> | null;
-  executeLegacyTurn: () => Promise<T>;
   mapRouterResult: (routeResult: RouteResult) => Promise<T> | T;
   onRouterError?: (error: unknown) => Promise<T> | T;
   sendOptions?: { context?: string };
   timeoutMs?: number;
 }): Promise<T> {
   if (!input.v2AgentConfig || !isV2RuntimeEnabled(input.v2AgentConfig)) {
-    return input.executeLegacyTurn();
+    throw new Error(`Agent '${input.agentId}' is not configured for the v2 voice runtime.`);
   }
 
   if (!input.tangoRouter) {
