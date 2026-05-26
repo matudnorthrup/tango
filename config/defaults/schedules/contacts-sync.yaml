@@ -2,8 +2,8 @@ id: contacts-sync
 display_name: Contacts Sync
 description: >
   Export macOS Contacts (AddressBook) to JSON for iMessage contact name
-  resolution. Runs daily at 4am to pick up any new or changed contacts.
-enabled: true
+  resolution. Disabled while the iMessage integration is parked.
+enabled: false
 
 schedule:
   cron: "0 4 * * *"
