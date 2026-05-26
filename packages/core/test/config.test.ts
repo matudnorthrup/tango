@@ -209,10 +209,7 @@ describe("loadAgentConfigs", () => {
       toolContractIds: ["linear", "obsidian"],
     });
 
-    const defaultWorkerIds = loadWorkerConfigs(defaultsDir).map((worker) => worker.id);
-    expect(defaultWorkerIds).not.toContain("operations-assistant");
-    expect(defaultWorkerIds).not.toContain("note-librarian");
-    expect(defaultWorkerIds).not.toContain("dev-assistant");
+    expect(loadWorkerConfigs(defaultsDir)).toEqual([]);
   });
 
   it("parses per-agent access policy fields", () => {
