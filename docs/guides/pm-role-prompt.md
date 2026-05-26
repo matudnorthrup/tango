@@ -67,6 +67,18 @@ If the brief is already a detailed spec, skip to Planning.
 
   **Do NOT** send `cat /tmp/file.md` as raw text — Codex treats that as a literal string, not a shell command. Always use the helper script or expand via `$(cat ...)`.
 - [ ] **Update Linear issues** to "In Progress" when work begins
+- [ ] **Post a Linear Project Update** with the handoff summary: who owns the work, what branch/slot they are using, what acceptance criteria they are working against, and when you will check back
+
+### Project Update Format
+
+Every Linear Project Update must be structured enough that the stakeholder can understand the project without reading the issue list.
+
+Include:
+- **Completed:** what changed or was verified since the last update
+- **Blockers/Risks:** anything preventing progress, uncertain, stale, or awaiting a decision; write "None" if clear
+- **Next Steps:** concrete follow-up actions, labeled by owner when useful: `Agent`, `Devin`, or an external dependency
+
+Keep it short, but do not omit any of the three sections.
 
 ### 4. Monitoring
 
@@ -84,6 +96,8 @@ If the brief is already a detailed spec, skip to Planning.
   - If idle with unprocessed input → the work order may not have submitted; re-send with `tmux send-keys -t dev-wt-{N} Enter` or re-prompt with explicit instructions
   - If still working → exit silently (don't waste tokens)
 - [ ] **Update your status file** after each meaningful check
+- [ ] **Post Linear Project Updates for meaningful progress** — newly discovered blockers, design decisions, dev completion, test summaries, deploy/restart notes, and validation outcomes should be visible from the project timeline
+- [ ] **Use issue comments only for issue-local evidence** — paste logs, command output, validation proof, or cancellation rationale on the specific issue when that detail belongs there
 - [ ] **Delete the cron** when the work completes or the slot is released
 
 ### 5. Review
@@ -93,6 +107,8 @@ When a dev agent completes work:
 - [ ] **Run automated tests** if they exist
 - [ ] **Merge to the target branch** if the diff looks correct
 - [ ] **Update Linear issues** to "Done" with a note about what was delivered
+- [ ] **Comment before closing** — every issue moved to Done or Canceled must have a brief Linear comment explaining the evidence, test result, supersession, or cancellation reason
+- [ ] **Post a Project Update** when the review changes project-level status, scope, risk, or readiness
 - [ ] **Release the worktree slot** when no longer needed
 
 ### 6. Deploy (for TypeScript/code changes)
@@ -115,12 +131,14 @@ When a dev agent completes work:
 - [ ] **Claim the Discord bot** for slot testing if needed: `scripts/dev/claim-bot.sh {N} --live`
 - [ ] **Run live tests** through the test harness or manual Discord interaction
 - [ ] **Document test results** in the Linear issue comments
+- [ ] **Post a Linear Project Update** with the current validation result before telling the CoS or stakeholder
 - [ ] **Release the bot** when done: `scripts/dev/release-bot.sh {N} --live`
 - [ ] **Do NOT move the Linear project to Ship** until every validation issue is marked Done with documented test results
 
 ### 8. Ship
 
 - [ ] **Update the Linear project status** to Ship
+- [ ] **Post a final Linear Project Update** with shipped scope, PR/commit links, docs link, tests run, live validation result, and any follow-up issues
 - [ ] **Update `docs/projects/{project-slug}.md`** with final status, test results, and key files
 - [ ] **Report completion to the CoS via tmux** — this is mandatory, not optional.
 

@@ -177,26 +177,30 @@ describe("loadSessionConfigs", () => {
       },
     });
   });
-});
 
-describe("loadAgentConfigs", () => {
-  it("loads Victor defaults without requiring legacy worker configs", () => {
+  it("loads Porter session routing for the agent and smoke-test channels", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     process.env.TANGO_CONFIG_DIR = defaultsDir;
 
-    const victor = loadAgentConfigs(defaultsDir).find((agent) => agent.id === "victor");
-    expect(victor).toMatchObject({
-      type: "operations",
-      defaultProject: "operations",
-      tools: {
-        mode: "off",
-      },
-      orchestration: {
-        workerIds: ["operations-assistant", "note-librarian"],
-        writeConfirmation: "on-ambiguity",
-      },
+    const porter = loadSessionConfigs(defaultsDir).find((session) => session.id === "project:porter");
+    expect(porter).toMatchObject({
+      id: "project:porter",
+      type: "project",
+      agent: "porter",
+      channels: [
+        "discord:1508531125243478176",
+        "discord:1508531126321549455",
+      ],
     });
-    expect(victor?.orchestration?.workerIds).not.toContain("dev-assistant");
+  });
+});
+
+describe("loadAgentConfigs", () => {
+  it("keeps repo agent defaults limited to legacy-only dispatch", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+
+    expect(loadAgentConfigs(defaultsDir).map((agent) => agent.id)).toEqual(["dispatch"]);
 
     const operationsProject = loadProjectConfigs(defaultsDir).find((project) => project.id === "operations");
     expect(operationsProject).toMatchObject({
@@ -725,10 +729,9 @@ describe("loadWorkerConfigs", () => {
   });
 
   it("returns an empty list when no legacy worker configs are present", () => {
-    const defaultsDir = path.join(repoRoot, "config", "defaults");
-    process.env.TANGO_CONFIG_DIR = defaultsDir;
+    const dir = createTempConfigDir();
 
-    expect(loadWorkerConfigs(defaultsDir)).toEqual([]);
+    expect(loadWorkerConfigs(dir)).toEqual([]);
   });
 });
 

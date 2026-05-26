@@ -5,6 +5,7 @@ const OPEN_WORLD_TOOLS = new Set<string>([
   "exa_search",
   "exa_answer",
   "browser",
+  "gospel_library",
   "walmart",
   "find_diesel",
   "spawn_sub_agents",

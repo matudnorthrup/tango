@@ -71,15 +71,16 @@ voice:
   call_signs:
     - Watson
   kokoro_voice: am_adam
-  default_channel_id: "100000000000000001"
-  smoke_test_channel_id: "100000000000001001"
+  default_channel_id: "1480419548212498442"
+  smoke_test_channel_id: "1488248022335881390"
 
 # Discord routing
 discord:
-  default_channel_id: "100000000000000001"
-  smoke_test_channel_id: "100000000000001001"
+  default_channel_id: "1480419548212498442"
+  smoke_test_channel_id: "1488248022335881390"
 
 # Legacy registry fields (used by agentRegistry consumers)
+avatar_url: https://cdn.discordapp.com/avatars/1480550056523468861/ff5bac712e31630feba87803474bc0c6.webp
 default_topic: personal/default
 default_project: personal
 response_mode: concise

@@ -134,7 +134,7 @@ describe("memory-eval", () => {
         agentId: "watson",
         providerName: "claude-oauth",
         conversationKey: "tango-default:watson",
-        model: "claude-sonnet",
+        model: "claude-sonnet-4-6",
         requestMessageId,
         responseMessageId,
         responseMode: "concise",

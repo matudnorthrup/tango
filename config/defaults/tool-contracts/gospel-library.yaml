@@ -1,0 +1,30 @@
+id: gospel_library
+family: gospel-library
+description: Authenticated Gospel Library notes API operations for scripture annotations, reference links, and verification.
+owner_worker: church-assistant
+mode: read_write
+status: implemented
+confirmation_required: true
+live_execution:
+  enabled: true
+  write_enabled: true
+integration:
+  system: churchofjesuschrist.org
+  target: notes-api-v3-annotations
+input_fields:
+  - action
+  - url
+  - open_if_needed
+  - query
+  - annotation
+  - annotation_id
+  - verify
+output_fields:
+  - status
+  - annotationId
+  - verification
+legacy:
+  notes:
+    - Requires an authenticated browser session at churchofjesuschrist.org.
+    - Uses page-context fetch against /notes/api/v3/annotations.
+    - Never hardcode or expose personal IDs from annotation payloads.

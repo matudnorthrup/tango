@@ -10,10 +10,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { assembleAgentPrompt } from "./system-prompt.js";
-import { resolveConfiguredPath } from "./runtime-paths.js";
 import type { AgentConfig } from "./types.js";
 import type { V2AgentConfig } from "./v2-config-loader.js";
-import { loadAllV2AgentConfigs } from "./v2-config-loader.js";
+import { loadLayeredV2AgentConfigs } from "./v2-config-loader.js";
 import { loadAgentConfigs } from "./config.js";
 
 function resolveV2PromptFile(
@@ -25,27 +24,6 @@ function resolveV2PromptFile(
   }
   const root = repoRoot ?? process.cwd();
   return path.resolve(root, systemPromptFile);
-}
-
-function findV2AgentConfigDir(configDir: string): string | undefined {
-  let current = resolveConfiguredPath(configDir);
-
-  while (true) {
-    for (const candidate of [
-      path.join(current, "v2", "agents"),
-      path.join(current, "config", "v2", "agents"),
-    ]) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    const parent = path.dirname(current);
-    if (parent === current) {
-      return undefined;
-    }
-    current = parent;
-  }
 }
 
 function resolveV2Prompt(
@@ -99,6 +77,7 @@ export function v2ToLegacyAgentConfig(
     type: v2.type,
     displayName: v2.displayName,
     avatarURL: v2.avatarURL,
+    avatarPath: v2.avatarPath,
     provider,
     prompt,
     promptFile,
@@ -149,30 +128,20 @@ export function v2ToLegacyAgentConfig(
 /**
  * Load agent configs with unified v2 + legacy support.
  *
- * Strategy: Legacy configs (with profile layering) remain authoritative for
- * agents that have them. For agents that exist ONLY in v2, we generate a
- * legacy AgentConfig from the v2 config. This ensures:
- * - Existing agents keep profile overlay values (real channel IDs, avatars)
- * - New v2-only agents work without needing a legacy config file
+ * Strategy: v2 configs are authoritative for every agent that has a v2 file.
+ * The legacy loader is retained only for legacy-only system agents such as
+ * dispatch until they get first-class v2 configs.
  */
 export function loadUnifiedAgentConfigs(
   configDir: string,
   options: { repoRoot?: string } = {},
 ): AgentConfig[] {
-  const legacyConfigs = loadAgentConfigs(configDir);
-  const legacyIds = new Set(legacyConfigs.map((c) => c.id));
+  const v2Configs = loadLayeredV2AgentConfigs(configDir);
+  const v2AgentConfigs = [...v2Configs.values()].map((v2Config) =>
+    v2ToLegacyAgentConfig(v2Config, options),
+  );
+  const v2Ids = new Set(v2AgentConfigs.map((config) => config.id));
+  const legacyOnlyConfigs = loadAgentConfigs(configDir).filter((config) => !v2Ids.has(config.id));
 
-  // Generate AgentConfig for v2-only agents (no legacy file)
-  const v2ConfigDir = findV2AgentConfigDir(configDir);
-  const v2Configs = v2ConfigDir
-    ? loadAllV2AgentConfigs(v2ConfigDir)
-    : new Map<string, V2AgentConfig>();
-  const v2Only: AgentConfig[] = [];
-  for (const v2Config of v2Configs.values()) {
-    if (!legacyIds.has(v2Config.id)) {
-      v2Only.push(v2ToLegacyAgentConfig(v2Config, options));
-    }
-  }
-
-  return [...legacyConfigs, ...v2Only];
+  return [...legacyOnlyConfigs, ...v2AgentConfigs];
 }

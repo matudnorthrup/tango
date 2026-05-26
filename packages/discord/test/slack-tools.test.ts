@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe("slack tool", () => {
-  it("returns saved items regardless of date_create", async () => {
+  it("filters saved items to the recent window by default", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-29T12:00:00Z"));
 
@@ -54,11 +54,13 @@ describe("slack tool", () => {
     const slackTool = createSlackTools().find((tool) => tool.name === "slack");
     const result = await slackTool?.handler({
       action: "saved_items",
-      since_hours: 48,
     });
 
     expect(result).toMatchObject({
-      count: 2,
+      count: 1,
+      total_items: 2,
+      since_hours: 48,
+      skipped_older_count: 1,
       items: [
         {
           channel_id: "C123",
@@ -66,12 +68,58 @@ describe("slack tool", () => {
           user: "U123",
           ts: "1714391940.000200",
         },
-        {
-          channel_id: "C999",
-          text: "old item",
-          user: "U999",
-          ts: "1714132800.000200",
-        },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("can include old saved items when since_hours is zero", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T12:00:00Z"));
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/stars.list")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          items: [
+            {
+              type: "message",
+              channel: "C123",
+              date_create: Math.floor(Date.now() / 1000) - 60,
+              message: { ts: "1714391940.000200", text: "recent item", user: "U123" },
+            },
+            {
+              type: "message",
+              channel: "C999",
+              date_create: Math.floor(Date.now() / 1000) - (72 * 3600),
+              message: { ts: "1714132800.000200", text: "old item", user: "U999" },
+            },
+          ],
+        }));
+      }
+      if (url.pathname.endsWith("/chat.getPermalink")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          permalink: "https://example.slack.com/archives/C123/p1714391940000200",
+        }));
+      }
+      throw new Error(`Unexpected Slack API call: ${url.pathname}`);
+    });
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+
+    const slackTool = createSlackTools().find((tool) => tool.name === "slack");
+    const result = await slackTool?.handler({
+      action: "saved_items",
+      since_hours: 0,
+    });
+
+    expect(result).toMatchObject({
+      count: 2,
+      skipped_older_count: 0,
+      items: [
+        { text: "recent item" },
+        { text: "old item" },
       ],
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -97,5 +145,28 @@ describe("slack tool", () => {
 
     expect(result).toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("returns a structured warning when star removal lacks scope", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: false,
+      error: "missing_scope",
+    })));
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+
+    const slackTool = createSlackTools().find((tool) => tool.name === "slack");
+    const result = await slackTool?.handler({
+      action: "remove_star",
+      channel_id: "C123",
+      timestamp: "1714391940.000200",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "missing_scope",
+      required_scope: "stars:write",
+      remediation:
+        "Reauthorize the Watson Slack user token with the stars:write user scope, or manually unsave the item in Slack.",
+    });
   });
 });

@@ -1627,6 +1627,74 @@ const MIGRATIONS: Migration[] = [
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:operations-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_reflect');
     `,
+  },
+  {
+    version: 34,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('gospel_library', 'personal', 'Gospel Library', 'write');
+
+      INSERT OR IGNORE INTO principals (id, type, display_name)
+      SELECT 'user:owner', 'user', 'Owner'
+      WHERE NOT EXISTS (SELECT 1 FROM principals WHERE type = 'user');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      SELECT 'agent:porter', 'agent', id, 'Porter'
+      FROM principals
+      WHERE type = 'user'
+      ORDER BY
+        CASE
+          WHEN id = 'user:owner' THEN 0
+          WHEN id = 'user:devin' THEN 1
+          ELSE 2
+        END,
+        id
+      LIMIT 1;
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      SELECT 'worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:porter');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:church-assistant', 'gospel_library', 'write', 'Gospel Library marking and linking'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'gospel_library');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:church-assistant', 'obsidian', 'write', 'church study notes and calling outlines'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'obsidian');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:church-assistant', 'browser', 'write', 'authenticated Gospel Library marking and linking'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'browser');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:church-assistant', 'onepassword', 'read', 'credential retrieval for Church login if explicitly configured'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'onepassword');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:church-assistant', 'gog_email', 'read', 'read-only calling context from email'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'gog_email');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:church-assistant', 'memory_search', 'read', 'memory lookup for durable church context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_search');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:church-assistant', 'memory_add', 'write', 'memory capture for durable church context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_add');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:church-assistant', 'memory_reflect', 'write', 'memory reflection for durable church context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_reflect');
+    `,
   }
 ];
 

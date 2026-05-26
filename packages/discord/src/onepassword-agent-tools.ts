@@ -69,6 +69,15 @@ const BLOCKED_ITEMS = new Set<string>([
   // Enforced at the tool level as a safety net beyond vault scoping
 ]);
 
+function isChurchCredentialItem(item: string): boolean {
+  const normalized = item.trim().toLowerCase();
+  const configured = process.env.CHURCH_ACCOUNT_1PASSWORD_ITEM?.trim().toLowerCase();
+  return Boolean(configured && normalized === configured)
+    || normalized === "devin church"
+    || normalized === "church account"
+    || normalized === "church of jesus christ";
+}
+
 // Actions that are safe and don't need audit logging
 const QUIET_ACTIONS = new Set(["list", "whoami", "vault-list"]);
 
@@ -202,6 +211,12 @@ export function createOnePasswordTools(): AgentTool[] {
             if (BLOCKED_ITEMS.has(item.toLowerCase())) {
               debug(`BLOCKED: attempted access to restricted item "${item}"`);
               return { error: `Access to "${item}" is restricted. Ask the user directly.` };
+            }
+            if (isChurchCredentialItem(item)) {
+              debug(`BLOCKED: direct Church credential access for "${item}"`);
+              return {
+                error: "Direct Church credential retrieval is blocked. Use gospel_library login so the credential stays inside the tool handler.",
+              };
             }
 
             // Build field reference — section.field or just field

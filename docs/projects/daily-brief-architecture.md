@@ -71,7 +71,7 @@ Add `Records/Jobs/` to Obsidian Settings → Files & Links → Excluded Files. T
 
 1. Reads all domain log files, collecting entries from the past 24h
 2. Extracts any **Flagged** blocks
-3. Fetches today's calendar events (first 3–5)
+3. Fetches today's calendar events without an arbitrary event-count cap
 4. Optionally fetches current weather
 5. Writes a `## Morning Brief` section to the top of today's daily note in Obsidian
 6. Posts a single Discord ping to the personal channel

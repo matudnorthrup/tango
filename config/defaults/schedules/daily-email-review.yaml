@@ -61,7 +61,7 @@ completion:
   scope: daily
 
 policy:
-  max_consecutive_failures: 3
+  max_consecutive_failures: 1
   alert_channel_id: "100000000000000010"
   concurrency_group: watson-tasks
   priority: 5

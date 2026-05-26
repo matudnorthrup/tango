@@ -1,6 +1,6 @@
 # Slack Saved Items Daily Review
 
-**Status:** Shipped (Phase 2: native stars.list)
+**Status:** Validation (Phase 3: recent-item filter and cleanup-scope hardening live)
 **Linear:** TGO-401 through TGO-408
 **Owner:** PM
 
@@ -11,48 +11,47 @@ Devin saves/bookmarks items in Slack throughout the day but has no systematic wa
 ## Solution
 
 A daily scheduled job that:
-1. Scans Slack channels for messages Devin has reacted to with `:bookmark:`
+1. Scans Devin's recent Slack saved messages through `stars.list`
 2. Summarizes each bookmarked item
-3. Writes them as tasks in the Obsidian daily note under `## Slack Saved Items`
-4. Logs to `Records/Jobs/Slack/YYYY-MM.md` for daily brief aggregation
+3. Logs them to `Records/Jobs/Slack/YYYY-MM.md` for daily brief aggregation
+4. Attempts to unsave processed items so they do not repeat
 
 ## Auth Decision
 
 **Phase 1 (shipped 2026-04-27):** Used `:bookmark:` emoji reactions as proxy — bot token can't call `stars.list`.
 
-**Phase 2 (shipped 2026-04-28):** Devin added `stars:read` user scope to the Watson Slack app and stored the user token in 1Password as "Watson Slack User Token". The `saved_items` action now calls `stars.list` with the user token directly. The user token is ONLY used for `stars.list`; all other Slack API calls use the bot token.
+**Phase 2 (shipped 2026-04-28):** Devin added `stars:read` user scope to the Watson Slack app and stored the user token in 1Password as "Watson Slack User Token". The `saved_items` action now calls `stars.list` with the user token directly. The user token is used for `stars.list` and `stars.remove`; all other Slack API calls use the bot token.
+
+**Phase 3 (2026-05-25):** The job was hardened after repeated `missing_scope` failures on `stars.remove`.
+
+- `saved_items` defaults to `since_hours: 48` so old saved items from 2022-2023 do not keep polluting the daily brief when cleanup cannot run.
+- `remove_star` returns a structured `missing_scope` warning instead of throwing a generic tool failure.
+- The schedule writes only to the Slack domain log. Morning planning owns daily note updates.
+- Devin added `stars:write` and live validation confirmed the Watson Slack user token can remove message stars.
+- The stale saved-message backlog was cleared on 2026-05-25. Slack still has seven starred non-message objects, which this job intentionally skips.
 
 ## Architecture
 
 ### New slack tool action: `saved_items`
 
-Added to `packages/discord/src/slack-tools.ts`. Calls `stars.list` with the Slack user token, filters to message-type items, and fetches permalinks via `chat.getPermalink` (bot token).
+Added to `packages/discord/src/slack-tools.ts`. Calls `stars.list` with the Slack user token, filters to recent message-type items, and fetches permalinks via `chat.getPermalink` (bot token).
 
 ### Schedule: `slack-saved-review.yaml`
 
 - **Cron:** 4:45am Pacific (before 5:15am daily brief)
 - **Agent:** Watson worker
-- **Task:** Fetch saved items → summarize → write to daily note + domain log
+- **Task:** Fetch recent saved items → summarize → write to domain log → try to unsave processed items
 - **Delivery:** mode none (output to Obsidian only)
 
 ### Obsidian Output
-
-**Daily note** (`Planning/Daily/YYYY-MM-DD.md`):
-```markdown
-## Slack Saved Items
-
-- [ ] [Summary of saved item](https://slack-permalink) — #channel-name
-- [ ] [Summary of saved item](https://slack-permalink) — #channel-name
-```
 
 **Domain log** (`Records/Jobs/Slack/YYYY-MM.md`):
 ```markdown
 ## 2026-04-27 04:45 — Slack Saved Items Review
 
 **Status:** Done — 3 items found
-**Summary:** Saved messages from #engineering (1), #random (2)
-
-No flagged items.
+**Items:**
+- [ ] [Summary of saved item](https://slack-permalink) — #channel-name
 ```
 
 ## Validation Results (2026-04-27) — Phase 1
@@ -72,6 +71,14 @@ No flagged items.
 5. **Bot restart**: Clean startup, `slack-saved-review` schedule loaded (next fire 4:45am PDT)
 6. **End-to-end schedule**: Manual test blocked by daily completion scope (already ran today with old code); next auto-run at 4:45am will use new `saved_items` action
 
+## Validation Results (2026-05-25) — Phase 3: cleanup hardening
+
+1. **Recent filter**: `saved_items` defaults to a 48-hour window and can still include all message saves with `since_hours: 0`.
+2. **Cleanup scope**: Live `remove_star` succeeded after `stars:write` was added to the Watson Slack app.
+3. **Backlog cleanup**: Removed all 10 stale saved messages through the Slack tool path. Recheck showed `all_count: 0` and `recent_count: 0` for message saves.
+4. **Non-message stars**: Slack still reported 7 non-message starred objects. The review job skips those by design.
+5. **Build/runtime**: `slack-saved-review` loaded successfully after `npm run bot:restart`.
+
 ## Key Files
 
 - `packages/discord/src/slack-tools.ts` — `saved_items` action (uses user token for stars.list)
@@ -80,3 +87,8 @@ No flagged items.
 - `config/defaults/schedules/manual-test-slack-saved-review.yaml` — manual test variant
 - `config/defaults/intent-contracts/productivity.slack_saved_review.yaml` — intent contract
 - `agents/skills/slack-digest.md` — reference for Slack data handling patterns
+
+## Open Validation
+
+- Confirm the next scheduled run logs only recent saved items.
+- Confirm daily brief reads the Slack domain log accurately.

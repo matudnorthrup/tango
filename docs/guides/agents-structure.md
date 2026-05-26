@@ -146,38 +146,37 @@ Runtime implementation:
 
 Prompt assets live with the agents. Runtime configuration stays centralized under `config/`.
 
-### `config/defaults/agents/*.yaml`
-
-Use for assistant or system-agent runtime wiring:
-- `provider`
-- `access`
-- `prompt_file`
-
-These files usually point at:
-- `../../agents/assistants/<id>/soul.md`
-- `../../agents/system/<id>/soul.md`
-
 ### `config/v2/agents/*.yaml`
 
-Use for V2 runtime wiring:
+Use for assistant runtime wiring:
 - runtime mode/model/fallback
 - MCP servers and tool allowlists
 - Discord/voice routing
 - memory settings
 - system prompt file
+- legacy registry fields consumed by current routing/presentation code
+
+V2 agent config is the source of truth for assistants. Current registry
+consumers still receive an `AgentConfig` shape, but it is generated from v2 at
+boot.
+
+### `config/defaults/agents/dispatch.yaml`
+
+Use only for legacy-only system agents that do not have a v2 runtime yet.
+Today that means `dispatch`. Do not add new assistant configs here.
 
 ## Adding a New Assistant
 
 1. Create `agents/assistants/<id>/soul.md`
 2. Add `knowledge.md` if the assistant needs assistant-specific facts
-3. Add `config/v2/agents/<id>.yaml` with `system_prompt_file` and MCP servers
+3. Add `config/v2/agents/<id>.yaml` with `system_prompt_file`, MCP servers, voice/Discord routing, provider, tools, orchestration, and response metadata
 4. Add or update any session routing in `config/defaults/sessions/*.yaml`
 5. Add governance principal and permissions for any tools it can call
 
 ## Adding a New System Agent
 
 1. Create `agents/system/<id>/soul.md`
-2. Add `config/defaults/agents/<id>.yaml` with `prompt_file`
+2. Add `config/defaults/agents/<id>.yaml` with `prompt_file` only if the agent is legacy-only and has no v2 runtime
 3. Update the calling code or routing config that invokes it
 
 System agents usually do not need `knowledge.md` unless the runtime grows to support those patterns intentionally.

@@ -17,7 +17,7 @@ const debug = (...args: unknown[]) => {
 
 const OP_BINARY = "/opt/homebrew/bin/op";
 
-// In-memory cache: "vault/item/field" → value
+// In-memory cache: "vault/item/field" -> value
 const cache = new Map<string, string>();
 
 interface CommandResult {
@@ -90,6 +90,36 @@ export async function getSecret(
     return value;
   } catch (err) {
     debug(`Error fetching secret "${item}":`, err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+/**
+ * Fetch a one-time password from a 1Password item. OTP values are intentionally
+ * not cached because they rotate.
+ */
+export async function getOneTimePassword(
+  vault: string,
+  item: string,
+): Promise<string | null> {
+  const token = process.env.OP_SERVICE_ACCOUNT_TOKEN;
+  if (!token) return null;
+
+  try {
+    const result = await execOp(
+      ["item", "get", item, "--vault", vault, "--otp"],
+      token,
+    );
+
+    if (result.code !== 0) {
+      debug(`Failed to get OTP for "${item}" from "${vault}": ${result.stderr.trim()}`);
+      return null;
+    }
+
+    const value = result.stdout.trim();
+    return value || null;
+  } catch (err) {
+    debug(`Error fetching OTP for "${item}":`, err instanceof Error ? err.message : String(err));
     return null;
   }
 }
