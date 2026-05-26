@@ -3,7 +3,8 @@
 # Run after reboot from any checkout path.
 #
 # All Tango services run inside a single tmux session named `tango`, with one
-# named window per service:
+# named window per service. By default this uses the dedicated `tango-service`
+# tmux socket to avoid inheriting stale auth/session state from interactive tmux.
 #
 #   tango:kokoro           Kokoro TTS server (port 8880)
 #   tango:whisper-main     Whisper STT server (port 8178)
@@ -12,10 +13,10 @@
 #   tango:discord          Tango Discord bot
 #   tango:voice            Tango Voice pipeline
 #
-# Attach:      tmux attach -t tango
+# Attach:      tmux -L tango-service attach -t tango
 # Pick window: Ctrl-b w  (or Ctrl-b 0..5)
 # Detach:      Ctrl-b d
-# List:        tmux list-windows -t tango
+# List:        tmux -L tango-service list-windows -t tango
 
 set -e
 
@@ -37,55 +38,56 @@ fi
 
 echo "=== Starting Tango services in tmux session '$SESSION' ==="
 
-if tmux has-session -t "$SESSION" 2>/dev/null; then
+if tango_service_tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session '$SESSION' already exists."
-  echo "Stop it first with: tmux kill-session -t $SESSION"
+  echo "Stop it first with: $(tango_service_tmux_command_hint) kill-session -t $SESSION"
   exit 1
 fi
 
 # Warn about legacy standalone sessions from the pre-consolidation layout.
 for legacy in tango-discord tango-voice kokoro whisper-server whisper-partials owntracks; do
-  if tmux has-session -t "$legacy" 2>/dev/null; then
+  if tango_service_tmux has-session -t "$legacy" 2>/dev/null; then
     echo "Warning: legacy tmux session '$legacy' is still running."
-    echo "  Stop it with: tmux kill-session -t $legacy"
+    echo "  Stop it with: $(tango_service_tmux_command_hint) kill-session -t $legacy"
   fi
 done
 
 # 1. Kokoro TTS server (port 8880) — creates the session with its first window
 echo "[1/6] Kokoro TTS..."
-tmux new-session -d -s "$SESSION" -n kokoro -c "$HOME/Kokoro-FastAPI" \
+tango_service_tmux new-session -d -s "$SESSION" -n kokoro -c "$HOME/Kokoro-FastAPI" \
   '.venv/bin/python -m uvicorn api.src.main:app --host 0.0.0.0 --port 8880'
+sync_tmux_service_environment "$SESSION"
 
 # 2. Whisper STT server (port 8178) - main
 echo "[2/6] Whisper server (main)..."
-tmux new-window -t "$SESSION" -n whisper-main \
+tango_service_tmux new-window -t "$SESSION" -n whisper-main \
   'whisper-server --model ~/whisper-models/ggml-small.en.bin --port 8178 --language en --prompt "Malibu Watson Sierra Tango Victor"'
 
 # 3. Whisper STT server (port 8179) - partials
 echo "[3/6] Whisper server (partials)..."
-tmux new-window -t "$SESSION" -n whisper-partials \
+tango_service_tmux new-window -t "$SESSION" -n whisper-partials \
   'whisper-server --model ~/whisper-models/ggml-small.en.bin --port 8179 --language en --prompt "Malibu Watson Sierra Tango Victor Charlie Tango"'
 
 # 4. OwnTracks receiver (port 3456)
 echo "[4/6] OwnTracks receiver..."
-tmux new-window -t "$SESSION" -n owntracks -c "$REPO_DIR" \
+tango_service_tmux new-window -t "$SESSION" -n owntracks -c "$REPO_DIR" \
   'source .env && export OWNTRACKS_AUTH_TOKEN OWNTRACKS_PORT && node apps/owntracks-receiver/server.js'
 
 # 5. Tango Discord bot
 echo "[5/6] Tango Discord..."
-tmux new-window -t "$SESSION" -n discord -c "$REPO_DIR" \
+tango_service_tmux new-window -t "$SESSION" -n discord -c "$REPO_DIR" \
   "env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$NODE_BIN\" packages/discord/dist/main.js"
 
 # 6. Tango Voice pipeline
 echo "[6/6] Tango Voice..."
-tmux new-window -t "$SESSION" -n voice -c "$VOICE_APP_DIR" \
+tango_service_tmux new-window -t "$SESSION" -n voice -c "$VOICE_APP_DIR" \
   "\"$NODE_BIN\" dist/index.js 2>&1 | tee /tmp/tango-voice.log"
 
 echo ""
 echo "=== All services started in tmux session '$SESSION' ==="
 echo ""
-echo "List windows: tmux list-windows -t $SESSION"
-echo "Attach:       tmux attach -t $SESSION   (then Ctrl-b w to pick a window)"
+echo "List windows: $(tango_service_tmux_command_hint) list-windows -t $SESSION"
+echo "Attach:       $(tango_service_tmux_command_hint) attach -t $SESSION   (then Ctrl-b w to pick a window)"
 echo "Detach:       Ctrl-b d"
 echo ""
 echo "Per-service management via npm scripts:"
