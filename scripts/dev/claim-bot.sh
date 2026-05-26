@@ -45,22 +45,22 @@ require_slot_worktree_env() {
 }
 
 main_discord_window_exists() {
-  tmux has-session -t tango 2>/dev/null \
-    && tmux list-windows -t tango -F '#{window_name}' 2>/dev/null | grep -qx 'discord'
+  tango_service_tmux has-session -t tango 2>/dev/null \
+    && tango_service_tmux list-windows -t tango -F '#{window_name}' 2>/dev/null | grep -qx 'discord'
 }
 
 main_discord_session_exists() {
-  tmux has-session -t tango-discord 2>/dev/null
+  tango_service_tmux has-session -t tango-discord 2>/dev/null
 }
 
 stop_main_discord() {
   if main_discord_window_exists; then
-    tmux kill-window -t tango:discord
+    tango_service_tmux kill-window -t tango:discord
     return 0
   fi
 
   if main_discord_session_exists; then
-    tmux kill-session -t tango-discord
+    tango_service_tmux kill-session -t tango-discord
     return 0
   fi
 
@@ -101,9 +101,9 @@ start_main_discord() {
 
   printf -v run_cmd '%s' "cd \"$main_repo_dir\" && env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$node_bin\" packages/discord/dist/main.js"
 
-  if tmux has-session -t tango 2>/dev/null; then
+  if tango_service_tmux has-session -t tango 2>/dev/null; then
     if ! main_discord_window_exists; then
-      tmux new-window -t tango -n discord -c "$main_repo_dir" "$run_cmd"
+      tango_service_tmux new-window -t tango -n discord -c "$main_repo_dir" "$run_cmd"
     fi
     return 0
   fi

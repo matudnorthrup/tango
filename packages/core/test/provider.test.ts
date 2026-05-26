@@ -30,52 +30,50 @@ describe("parseClaudePrintJson", () => {
   it("extracts normalized tool calls from Claude stream-json assistant events", () => {
     const parsed = parseClaudePrintJson(
       '{"type":"system","subtype":"init","session_id":"sess-1"}\n' +
-        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"ToolSearch","input":{"query":"select:mcp__dispatch__dispatch_worker"}}]}}\n' +
-        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__dispatch__dispatch_worker","input":{"worker_id":"planner","task":"hello"}}]}}\n' +
-        '{"type":"assistant","message":{"content":[{"type":"text","text":"Dispatched. Results will arrive in the next message."}]}}\n' +
-        '{"type":"result","is_error":false,"result":"Dispatched. Results will arrive in the next message.","session_id":"sess-1"}\n'
+        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"ToolSearch","input":{"query":"select:mcp__example__read_status"}}]}}\n' +
+        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__example__read_status","input":{"scope":"planner"}}]}}\n' +
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Status read."}]}}\n' +
+        '{"type":"result","is_error":false,"result":"Status read.","session_id":"sess-1"}\n'
     );
 
-    expect(parsed.text).toBe("Dispatched. Results will arrive in the next message.");
+    expect(parsed.text).toBe("Status read.");
     expect(parsed.providerSessionId).toBe("sess-1");
     expect(parsed.toolCalls).toEqual([
       {
         name: "ToolSearch",
         input: {
-          query: "select:mcp__dispatch__dispatch_worker",
+          query: "select:mcp__example__read_status",
         },
         output: undefined,
         serverName: undefined,
         toolName: "ToolSearch",
       },
       {
-        name: "mcp__dispatch__dispatch_worker",
+        name: "mcp__example__read_status",
         input: {
-          worker_id: "planner",
-          task: "hello",
+          scope: "planner",
         },
         output: undefined,
         serverName: undefined,
-        toolName: "mcp__dispatch__dispatch_worker",
+        toolName: "mcp__example__read_status",
       },
     ]);
   });
 
   it("extracts normalized tool calls from Claude result payloads", () => {
     const parsed = parseClaudePrintJson(
-      '{"type":"result","is_error":false,"result":"done","session_id":"abc-123","tool_uses":[{"name":"mcp__dispatch__dispatch_worker","input":{"worker_id":"planner","task":"hello"}}]}\n'
+      '{"type":"result","is_error":false,"result":"done","session_id":"abc-123","tool_uses":[{"name":"mcp__example__read_status","input":{"scope":"planner"}}]}\n'
     );
 
     expect(parsed.toolCalls).toEqual([
       {
-        name: "mcp__dispatch__dispatch_worker",
+        name: "mcp__example__read_status",
         input: {
-          worker_id: "planner",
-          task: "hello",
+          scope: "planner",
         },
         output: undefined,
         serverName: undefined,
-        toolName: "mcp__dispatch__dispatch_worker",
+        toolName: "mcp__example__read_status",
       },
     ]);
   });
@@ -93,7 +91,7 @@ describe("buildClaudeCliArgs", () => {
       {
         prompt: "hello"
       },
-      { defaultModel: "sonnet" }
+      { defaultModel: "claude-sonnet-4-6" }
     );
 
     expect(args).toEqual([
@@ -104,7 +102,7 @@ describe("buildClaudeCliArgs", () => {
       "--tools",
       "",
       "--model",
-      "sonnet",
+      "claude-sonnet-4-6",
       "hello"
     ]);
   });
@@ -115,7 +113,7 @@ describe("buildClaudeCliArgs", () => {
         prompt: "weather now",
         tools: { mode: "default" }
       },
-      { defaultModel: "sonnet" }
+      { defaultModel: "claude-sonnet-4-6" }
     );
 
     expect(args).toEqual([
@@ -126,7 +124,7 @@ describe("buildClaudeCliArgs", () => {
       "--tools",
       "default",
       "--model",
-      "sonnet",
+      "claude-sonnet-4-6",
       "weather now"
     ]);
   });
@@ -142,7 +140,7 @@ describe("buildClaudeCliArgs", () => {
         providerSessionId: "sess-1",
         systemPrompt: "You are Watson."
       },
-      { defaultModel: "sonnet", mcpConfigPath: "/tmp/dispatch.json" }
+      { defaultModel: "claude-sonnet-4-6", mcpConfigPath: "/tmp/dispatch.json" }
     );
 
     expect(args).toEqual([
@@ -162,7 +160,7 @@ describe("buildClaudeCliArgs", () => {
       "--system-prompt",
       "You are Watson.",
       "--model",
-      "sonnet",
+      "claude-sonnet-4-6",
       "check weather"
     ]);
   });
@@ -171,10 +169,10 @@ describe("buildClaudeCliArgs", () => {
     const args = buildClaudeCliArgs(
       {
         prompt: "think it through",
-        model: "opus",
+        model: "claude-opus-4-6",
         reasoningEffort: "xhigh",
       },
-      { defaultModel: "sonnet", defaultReasoningEffort: "medium" }
+      { defaultModel: "claude-sonnet-4-6", defaultReasoningEffort: "medium" }
     );
 
     expect(args).toEqual([
@@ -185,7 +183,7 @@ describe("buildClaudeCliArgs", () => {
       "--tools",
       "",
       "--model",
-      "opus",
+      "claude-opus-4-6",
       "--effort",
       "max",
       "think it through"
@@ -199,7 +197,7 @@ describe("buildClaudeCliArgs", () => {
           prompt: "test",
           tools: { mode: "allowlist", allowlist: [] }
         },
-        { defaultModel: "sonnet" }
+        { defaultModel: "claude-sonnet-4-6" }
       )
     ).toThrow(/requires at least one tool/u);
   });
@@ -273,18 +271,17 @@ describe("parseCodexExecJson", () => {
     const parsed = parseCodexExecJson(
       '{"type":"thread.started","thread_id":"thread-123"}\n' +
         '{"type":"turn.started"}\n' +
-        '{"type":"item.started","item":{"id":"item_0","type":"mcp_tool_call","server":"dispatch","tool":"dispatch_worker","arguments":{"worker_id":"planner","task":"hello"},"result":null,"error":null,"status":"in_progress"}}\n' +
-        '{"type":"item.completed","item":{"id":"item_0","type":"mcp_tool_call","server":"dispatch","tool":"dispatch_worker","arguments":{"worker_id":"planner","task":"hello"},"result":{"content":[{"type":"text","text":"ok"}]},"error":null,"status":"completed"}}\n' +
+        '{"type":"item.started","item":{"id":"item_0","type":"mcp_tool_call","server":"example","tool":"read_status","arguments":{"scope":"planner"},"result":null,"error":null,"status":"in_progress"}}\n' +
+        '{"type":"item.completed","item":{"id":"item_0","type":"mcp_tool_call","server":"example","tool":"read_status","arguments":{"scope":"planner"},"result":{"content":[{"type":"text","text":"ok"}]},"error":null,"status":"completed"}}\n' +
         '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}\n' +
         '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":3}}\n'
     );
 
     expect(parsed.toolCalls).toEqual([
       {
-        name: "mcp__dispatch__dispatch_worker",
+        name: "mcp__example__read_status",
         input: {
-          worker_id: "planner",
-          task: "hello",
+          scope: "planner",
         },
         output: {
           content: [
@@ -294,8 +291,8 @@ describe("parseCodexExecJson", () => {
             },
           ],
         },
-        serverName: "dispatch",
-        toolName: "dispatch_worker",
+        serverName: "example",
+        toolName: "read_status",
       },
     ]);
   });
@@ -396,16 +393,16 @@ describe("buildCodexExecArgs", () => {
   it("injects MCP server config overrides for codex", () => {
     const args = buildCodexExecArgs(
       {
-        prompt: "dispatch work",
+        prompt: "use configured mcp",
         tools: {
           mode: "allowlist",
-          allowlist: ["WebSearch", "mcp__dispatch__dispatch_worker"],
+          allowlist: ["WebSearch", "mcp__example__read_status"],
           mcpServers: {
-            dispatch: {
+            example: {
               command: "/usr/bin/env",
-              args: ["node", "/tmp/mcp-dispatch-server.js"],
+              args: ["node", "/tmp/mcp-example-server.js"],
               env: {
-                DISPATCH_WORKER_IDS: "planner",
+                EXAMPLE_SCOPE: "planner",
               },
             },
           },
@@ -425,15 +422,15 @@ describe("buildCodexExecArgs", () => {
       "read-only",
       "--search",
       "-c",
-      "mcp_servers.dispatch.command=\"/usr/bin/env\"",
+      "mcp_servers.example.command=\"/usr/bin/env\"",
       "-c",
-      "mcp_servers.dispatch.args=[\"node\",\"/tmp/mcp-dispatch-server.js\"]",
+      "mcp_servers.example.args=[\"node\",\"/tmp/mcp-example-server.js\"]",
       "-c",
-      "mcp_servers.dispatch.env={DISPATCH_WORKER_IDS=\"planner\"}",
+      "mcp_servers.example.env={EXAMPLE_SCOPE=\"planner\"}",
       "exec",
       "--json",
       "--skip-git-repo-check",
-      "dispatch work"
+      "use configured mcp"
     ]);
   });
 

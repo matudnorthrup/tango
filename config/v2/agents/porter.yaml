@@ -1,0 +1,102 @@
+id: porter
+display_name: Porter
+type: lds-companion
+
+# System prompt = personality + domain + rules
+system_prompt_file: agents/assistants/porter/soul.md
+
+# MCP servers this agent can access
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+  - name: google
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "google"]
+    env:
+      ALLOWED_TOOL_IDS: "gog_email"
+      WORKER_ID: "church-assistant"
+  - name: obsidian
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
+    env:
+      ALLOWED_TOOL_IDS: "obsidian"
+      WORKER_ID: "church-assistant"
+  - name: browser
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "browser"]
+    env:
+      ALLOWED_TOOL_IDS: "browser"
+      WORKER_ID: "church-assistant"
+  - name: gospel-library
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "gospel-library"]
+    env:
+      ALLOWED_TOOL_IDS: "gospel_library"
+      WORKER_ID: "church-assistant"
+  - name: onepassword
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "onepassword"]
+    env:
+      ALLOWED_TOOL_IDS: "onepassword"
+      WORKER_ID: "church-assistant"
+
+# Runtime configuration
+runtime:
+  mode: persistent
+  provider: claude-code-v2
+  fallback: codex
+  model: claude-sonnet-4-6
+  reasoning_effort: high
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+
+# Memory configuration
+memory:
+  post_turn_extraction: enabled
+  extraction_model: claude-haiku-4-5
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+# Voice configuration
+voice:
+  call_signs:
+    - Porter
+    - Brother Porter
+  kokoro_voice: am_liam
+  default_channel_id: "1508531125243478176"
+  smoke_test_channel_id: "1508531126321549455"
+
+# Discord routing
+discord:
+  default_channel_id: "1508531125243478176"
+  smoke_test_channel_id: "1508531126321549455"
+
+# Legacy registry fields
+avatar_path: agents/assistants/porter/avatar.png
+default_topic: personal/lds-companion
+default_project: personal
+response_mode: explain
+
+provider:
+  default: claude-oauth
+  reasoning_effort: high
+  fallback:
+    - claude-oauth-secondary
+    - codex
+
+tools:
+  mode: allowlist
+  allowlist:
+    - WebSearch
+    - WebFetch
+
+deterministic_routing:
+  enabled: true
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex

@@ -14,6 +14,15 @@ import { getSecret } from "./op-secret.js";
 
 const SLACK_API = "https://slack.com/api";
 
+class SlackApiError extends Error {
+  constructor(
+    public readonly method: string,
+    public readonly slackError: string,
+  ) {
+    super(`Slack ${method}: ${slackError}`);
+  }
+}
+
 let cachedToken: string | null = null;
 async function getSlackToken(): Promise<string> {
   if (!cachedToken) {
@@ -48,7 +57,7 @@ async function slackApiWithToken(
   });
   if (!res.ok) throw new Error(`Slack ${method} HTTP ${res.status}`);
   const body = (await res.json()) as Record<string, unknown>;
-  if (!body.ok) throw new Error(`Slack ${method}: ${body.error}`);
+  if (!body.ok) throw new SlackApiError(method, String(body.error ?? "unknown_error"));
   return body;
 }
 
@@ -85,8 +94,8 @@ export function createSlackTools(): AgentTool[] {
         "    Returns: array of reply messages",
         "",
         "  saved_items — List all Slack saved messages via stars.list API.",
-        "    Params: limit (default 100)",
-        "    Returns: { count, items: [{ type, channel_id, text, user, ts, permalink, date_create }] }",
+        "    Params: limit (default 100), since_hours (default 48; set 0 to include all)",
+        "    Returns: { count, since_hours, skipped_older_count, items: [{ type, channel_id, text, user, ts, permalink, date_create }] }",
         "",
         "  remove_star — Remove a star from a message (unsave it).",
         "    Params: channel_id (required), timestamp (required)",
@@ -136,7 +145,7 @@ export function createSlackTools(): AgentTool[] {
           },
           since_hours: {
             type: "number",
-            description: "Deprecated — no longer used. All saved items are returned regardless of age.",
+            description: "Only return saved messages created in this many hours. Defaults to 48; set 0 to include all saved messages.",
           },
         },
         required: ["action"],
@@ -229,6 +238,10 @@ export function createSlackTools(): AgentTool[] {
 
           case "saved_items": {
             const limit = Number(input.limit) || 100;
+            const rawSinceHours = input.since_hours === undefined ? 48 : Number(input.since_hours);
+            const sinceHours = Number.isFinite(rawSinceHours) && rawSinceHours > 0 ? rawSinceHours : 0;
+            const cutoffSeconds =
+              sinceHours > 0 ? Math.floor(Date.now() / 1000 - sinceHours * 3600) : undefined;
             const userToken = await getSlackUserToken();
             const body = await slackApiWithToken(userToken, "stars.list", {
               count: String(limit),
@@ -236,9 +249,24 @@ export function createSlackTools(): AgentTool[] {
             const items = (body.items as Array<Record<string, unknown>>) ?? [];
 
             const messageItems: Array<Record<string, unknown>> = [];
+            let skippedOlderCount = 0;
+            let skippedNonMessageCount = 0;
 
             for (const item of items) {
-              if (String(item.type) !== "message") continue;
+              if (String(item.type) !== "message") {
+                skippedNonMessageCount++;
+                continue;
+              }
+
+              const dateCreate = Number(item.date_create);
+              if (
+                cutoffSeconds !== undefined &&
+                Number.isFinite(dateCreate) &&
+                dateCreate < cutoffSeconds
+              ) {
+                skippedOlderCount++;
+                continue;
+              }
 
               const channelId = String(item.channel || "");
               const message = item.message as Record<string, unknown> | undefined;
@@ -270,6 +298,10 @@ export function createSlackTools(): AgentTool[] {
 
             return {
               count: messageItems.length,
+              total_items: items.length,
+              since_hours: sinceHours,
+              skipped_older_count: skippedOlderCount,
+              skipped_non_message_count: skippedNonMessageCount,
               items: messageItems,
             };
           }
@@ -281,10 +313,23 @@ export function createSlackTools(): AgentTool[] {
               return { error: "remove_star requires channel_id and timestamp" };
             }
             const userToken = await getSlackUserToken();
-            await slackApiWithToken(userToken, "stars.remove", {
-              channel: channelId,
-              timestamp,
-            });
+            try {
+              await slackApiWithToken(userToken, "stars.remove", {
+                channel: channelId,
+                timestamp,
+              });
+            } catch (error) {
+              if (error instanceof SlackApiError && error.slackError === "missing_scope") {
+                return {
+                  ok: false,
+                  error: "missing_scope",
+                  required_scope: "stars:write",
+                  remediation:
+                    "Reauthorize the Watson Slack user token with the stars:write user scope, or manually unsave the item in Slack.",
+                };
+              }
+              throw error;
+            }
             return { ok: true };
           }
 

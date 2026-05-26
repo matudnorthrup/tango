@@ -1,7 +1,7 @@
 # Agent Config Unification: Legacy → V2
 
 **Linear Project**: [Agent Config Unification](https://linear.app/seaside-hq/project/agent-config-unification-legacy-v2-00856fcfdac3)
-**Status**: Implementation
+**Status**: Validation complete / ready to ship
 **Date**: 2026-05-11
 
 ## Problem
@@ -51,7 +51,7 @@ Fields present in legacy but **missing from v2 schema**:
 | `deterministic_routing.*` | main.ts | Fast-path intent classification |
 | `access.mode` / `access.allowlist_*` | access-control | Channel/user access gating |
 | `avatar_url` | reply-presentation | Discord avatar |
-| `prompt_file` | config.ts → prompt-assembly | Legacy uses relative path; v2 uses `system_prompt_file` (repo-relative) |
+| `prompt_file` | config.ts → system-prompt | Legacy uses relative path; v2 uses `system_prompt_file` (repo-relative) |
 
 Fields that **overlap** (present in both, may differ):
 - `id`, `display_name`, `type` — identical
@@ -64,12 +64,12 @@ Special case: **dispatch** agent has a legacy config but NO v2 config (it's a ro
 
 ### Approach
 
-Add the missing legacy-only fields to the v2 YAML schema and parser. Then create a function `generateLegacyConfigFromV2(v2Config: V2AgentConfig): AgentConfig` that produces the `AgentConfig` shape from a v2 config. At boot, `loadAgentConfigs()` continues to work as-is for backward compatibility, but a new `loadUnifiedAgentConfigs()` function:
+Add the missing legacy-only fields to the v2 YAML schema and parser. Then create a function `generateLegacyConfigFromV2(v2Config: V2AgentConfig): AgentConfig` that produces the `AgentConfig` shape from a v2 config. At boot, `loadAgentConfigs()` continues to work for legacy-only system agents, but `loadUnifiedAgentConfigs()` is the assistant registry entrypoint:
 
 1. Loads all v2 configs from `config/v2/agents/`
 2. Generates `AgentConfig` objects from each v2 config
 3. Falls back to legacy configs for any agent ID not found in v2 (e.g., dispatch)
-4. Returns the merged array
+4. Returns the merged array with v2 authoritative for assistants
 
 ### V2 Schema Additions
 
@@ -138,9 +138,17 @@ access:                                    # optional
 
 #### Phase 3: Delete legacy configs (TGO-482)
 
-1. Delete `config/defaults/agents/` except `dispatch.yaml` (or create a v2 dispatch config)
-2. Remove `loadAgentConfigs()` fallback path from `loadUnifiedAgentConfigs()`
-3. Rename `loadUnifiedAgentConfigs()` → `loadAgentConfigs()` (or update all callers)
+1. Delete `config/defaults/agents/` except `dispatch.yaml`
+2. Keep `loadAgentConfigs()` fallback only for legacy-only IDs such as `dispatch`
+3. Keep the `loadUnifiedAgentConfigs()` name while old registry consumers still expect `AgentConfig`
+
+### Final Design Notes
+
+- `config/v2/agents/*.yaml` is now the source of truth for assistant agents.
+- `config/defaults/agents/dispatch.yaml` remains as a legacy-only system/router config.
+- `loadUnifiedAgentConfigs()` loads layered v2 configs, generates `AgentConfig` for every v2 agent, then appends legacy-only configs whose IDs do not exist in v2.
+- Profile-specific v2 overrides can live in `~/.tango/profiles/<profile>/config/v2/agents/*.yaml` and are deep-merged over repo v2 defaults.
+- Legacy profile agent configs may still exist locally, but they are ignored for agents that have v2 configs.
 
 ### Risk Mitigation
 
@@ -151,8 +159,8 @@ access:                                    # optional
 
 ### Validation (TGO-483)
 
-- Send messages to all agents (watson, malibu, sierra, victor, charlie, juliet, foxtrot) — verify routing works
-- Test voice call signs — verify voice routing
-- Test access control — verify channel allowlisting
-- Test `/provider` command — verify provider resolution
-- Create a test agent with ONLY a v2 config — verify it's fully functional
+- Automated config/unification tests pass, including v2 → `AgentConfig` mapping and v2-over-legacy precedence.
+- Live Discord slot validation passed for Watson, Malibu, Sierra, Victor, Charlie, Juliet, Foxtrot, and Porter.
+- Access-control negative probe passed in the slot harness.
+- Config smoke verified providers, call signs, default channels, and smoke-test channels.
+- Actual microphone-path validation remains a main voice-pipeline concern because slot mode disables singleton voice services.

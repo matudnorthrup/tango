@@ -7,7 +7,7 @@ import {
   resolveRepoDefaultsConfigDir,
   traceConfigCategory,
 } from "./config-layering.js";
-import { assembleAgentPrompt } from "./prompt-assembly.js";
+import { assembleAgentPrompt } from "./system-prompt.js";
 import {
   resolveConfiguredConfigDir,
   resolveConfiguredPath,
@@ -75,6 +75,7 @@ const agentSchema = z.object({
   type: z.string().min(1),
   display_name: z.string().min(1).optional(),
   avatar_url: z.string().url().optional(),
+  avatar_path: z.string().min(1).optional(),
   provider: providerSchema,
   prompt: z.string().optional(),
   prompt_file: z.string().min(1).optional(),
@@ -417,6 +418,7 @@ export function loadAgentConfigs(configDir: string): AgentConfig[] {
         type: parsed.type,
         displayName: parsed.display_name,
         avatarURL: parsed.avatar_url,
+        avatarPath: parsed.avatar_path,
         provider: mapProviderConfig(parsed.provider),
         prompt,
         promptFile,
@@ -496,7 +498,7 @@ export function loadWorkerConfigs(configDir: string): WorkerConfig[] {
   return loadLayeredConfigCategory({
     category: "workers",
     configDir,
-    required: true,
+    required: false,
     schema: workerSchema,
     map: (parsed, trace) => {
       const { prompt, promptFile } = resolvePromptFields(

@@ -1,53 +1,74 @@
 id: sinking-fund-reconciliation-month-end
-display_name: Sinking Fund Reconciliation Month-End
+display_name: Finance Review Close Prep
 description: >
-  Month-end pre-close sinking fund reconciliation so the books can be cleared
-  before the new month starts.
+  Month-end close-prep invocation of the unified Finance Review. The legacy id
+  is retained for schedule continuity.
 enabled: true
 runtime: v2
+
+obsidian_log:
+  domain: Finance
+  job_name: Finance Review Close Prep
 
 schedule:
   cron: "0 7 28,29 * *"
   timezone: America/Los_Angeles
 
 execution:
-  mode: conditional-agent
-  pre_check:
-    handler: foxtrot-sinking-fund-reconciliation-context
+  mode: agent
   deterministic_agent_id: foxtrot
   worker_id: personal-assistant
   intent_ids:
+    - finance.budget_review
     - finance.sinking_fund_reconciliation
-  task_template: |
-    Month-end pre-close sinking fund reconciliation for Watson.
+    - finance.transaction_lookup
+  task: |
+    Run a close-prep Finance Review for the Foxtrot finance thread.
 
-    Scheduler context:
-    - run_date: {{runDate}}
-    - cadence: {{cadence}}
+    Review parameters:
+    - review_phase: close_prep
+    - dry_run: false
+    - review_window: current month-to-date
+    - lookback_window: since the most recent review note
 
     IMPORTANT: Confirm today's date before doing any date math.
 
-    Follow the sinking_fund_reconciliation skill guidance. This run should make
-    it obvious what transfers are needed to clear the books before month-end.
-    Default to the current month-to-date unless the task text says otherwise.
+    Follow the unified finance_review skill guidance in
+    agents/skills/finance-review.md. This is the same Finance Review process as
+    the rolling review, with stricter close-prep exit criteria.
 
-    Return a report with:
-    1. Fund summary
-    2. Category detail
-    3. Contribution check
-    4. Recommended transfers needed to clear the books today
-    5. Warnings or an explicit all-clear
-  timeout_seconds: 300
+    Required behavior:
+    1. Refresh stale Lunch Money/Plaid account data before judging missing
+       transactions, reimbursements, or sinking fund contributions.
+    2. Identify transaction, receipt, reimbursement, budget, and sinking fund
+       blockers that would prevent month close.
+    3. For Ramp/Latitude reimbursements, use receipt_registry structured
+       actions first. Reconcile against live Ramp history before claiming an
+       item is pending, unsubmitted, submitted, or reimbursed. Do not infer
+       reimbursement amounts from Base views, old review notes, or note search.
+    4. For sinking fund draws, true-up all intentional remaining draws unless
+       explicitly carried forward.
+    5. Create or overwrite the review note at
+       Records/Finance/Reviews/YYYY-MM-DD Finance Review.md.
+    6. Return a concise summary with close blockers, true-up recommendations,
+       unresolved reimbursements, budget target changes to consider, and review
+       note path.
+
+    Do not submit to Ramp or mutate Lunch Money categories/status unless the
+    user explicitly approved a correction during the review.
+
+    Rate limit: wait 0.3s between Lunch Money API calls.
+  timeout_seconds: 600
 
 provider:
-  model: sonnet
+  model: claude-sonnet-4-6
 
 delivery:
   channel_id: "1503463044112580798"
   agent_id: foxtrot
 
 completion:
-  workflow_id: sinking-fund-reconciliation-month-end
+  workflow_id: finance-review-close-prep
   scope: monthly
 
 policy:
@@ -63,5 +84,4 @@ policy:
 tags:
   - foxtrot
   - finance
-  - month-end
-  - sinking-fund
+  - close-prep

@@ -408,6 +408,7 @@ This avoids:
 - One session at a time — check before spawning
 - CoS pulse monitors VICTOR-COS session status automatically
 - Stakeholder can `tmux attach -t VICTOR-COS` for live visibility
+- Discord text and voice stay on the normal Victor runtime by default. Routing into this console requires `VICTOR_BRIDGE_MODE=manual-console` in the bot environment plus a live `VICTOR-COS` session.
 
 ### Channel ID Resolution
 

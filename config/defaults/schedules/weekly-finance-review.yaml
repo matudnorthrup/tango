@@ -1,14 +1,15 @@
 id: weekly-finance-review
-display_name: Weekly Finance Review
+display_name: Finance Review (Rolling)
 description: >
-  Sunday morning review of month-to-date spending vs budgets, sinking
-  fund transfers, and fixed cost anomalies.
+  Sunday rolling finance review using the unified finance_review workflow:
+  data freshness, transaction backlog, budget pace, reimbursements, and sinking
+  fund contribution/draw status.
 enabled: true
 runtime: v2
 
 obsidian_log:
   domain: Finance
-  job_name: Weekly Finance Review
+  job_name: Finance Review
 
 schedule:
   cron: "0 7 * * 0"
@@ -20,43 +21,52 @@ execution:
   worker_id: personal-assistant
   intent_ids:
     - finance.budget_review
+    - finance.sinking_fund_reconciliation
+    - finance.transaction_lookup
   task: |
-    Weekly finance review for the Watson finance thread.
+    Run a Finance Review for the Foxtrot finance thread.
 
-    IMPORTANT: Before doing anything, check the current date and time.
-    Use a tool call or system check to confirm today's date — do NOT
-    rely on your training data or assumptions about what day it is.
-    Use the confirmed date for all date calculations below.
+    Review parameters:
+    - review_phase: rolling
+    - dry_run: false
+    - review_window: current month-to-date
+    - lookback_window: since the most recent review note
 
-    Follow the weekly_finance_review skill guidance:
+    IMPORTANT: Confirm today's date before doing any date math.
 
-    1. Fetch all Lunch Money categories (GET /categories) and current
-       month budgets (GET /budgets?start_date=YYYY-MM-01&end_date=YYYY-MM-DD
-       using confirmed today's date).
-    2. Compare month-to-date actuals vs budget for each category.
-       Flag any category that's already over 80% of monthly budget
-       before the month is 80% elapsed.
-    3. Check "Discretionary Spending" category — flag if spending pace
-       suggests it will exceed the monthly disbursement backstop.
-    4. Verify sinking fund transfers from month-to-date transaction
-       history in the known sinking-fund categories instead of using a
-       recurring-items endpoint.
-    5. Scan Fixed Costs categories for anomalies — anything materially
-       different (>20%) from prior month's amount for the same payee.
-    6. Return a summary (it will be delivered to Discord automatically).
-       Do NOT post to Slack or any other channel. Include:
-       - Budget status table (category, budget, spent, remaining, %)
-       - Any flags or warnings
-       - Sinking fund transfer status
-       - Fixed cost anomalies (or "none")
-    7. If everything looks clean, still return a brief all-clear with
-       the budget summary table.
+    Follow the unified finance_review skill guidance in
+    agents/skills/finance-review.md. Weekly review is the rolling phase of the
+    same process, not a separate workflow.
+
+    Required behavior:
+    1. Refresh stale Lunch Money/Plaid account data before judging missing
+       transactions or sinking fund contributions. Use POST
+       /plaid_accounts/fetch for stale relevant accounts, wait briefly, then
+       re-query.
+    2. Check job health, uncleared/uncategorized transaction backlog, receipt
+       and reimbursement gaps, budget pace, rolling 30-day spending signals,
+       sinking fund contributions, and sinking fund draw recommendations.
+    3. For Ramp/Latitude reimbursements, use receipt_registry structured
+       actions first. Reconcile against live Ramp history before claiming an
+       item is pending, unsubmitted, submitted, or reimbursed. Do not infer
+       reimbursement amounts from Base views, old review notes, or note search.
+    4. For sinking fund draws, classify recommendations as monitor/defer,
+       optional, do now, or month-end true-up. Do not create or manage Ramp
+       drafts.
+    5. Create or overwrite the review note at
+       Records/Finance/Reviews/YYYY-MM-DD Finance Review.md.
+    6. Return a concise summary with review phase, data freshness, top flags,
+       sinking fund recommendation summary, reimbursement/receipt gaps, budget
+       pace signals, and review note path.
+
+    Do not submit to Ramp or mutate Lunch Money categories/status unless the
+    user explicitly approved a correction during the review.
 
     Rate limit: wait 0.3s between Lunch Money API calls.
-  timeout_seconds: 300
+  timeout_seconds: 600
 
 provider:
-  model: sonnet
+  model: claude-sonnet-4-6
 
 delivery:
   mode: none
@@ -78,4 +88,4 @@ policy:
 tags:
   - foxtrot
   - finance
-  - weekly
+  - rolling-review

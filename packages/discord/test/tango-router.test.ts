@@ -62,7 +62,7 @@ function createAgentConfig(agentId: string): AgentRuntimeConfig {
       },
     ],
     runtimePreferences: {
-      model: "sonnet",
+      model: "claude-sonnet-4-6",
       timeout: 30_000,
     },
   };
@@ -202,6 +202,44 @@ describe("TangoRouter", () => {
       channelId: "channel-1",
       threadId: "thread-1",
     });
+  });
+
+  it("suppresses v2 internal worker-dispatch tags before delivery and post-turn hooks", async () => {
+    const response = createResponse([
+      "Dispatching to fetch sources.",
+      '<worker-dispatch worker="church-assistant">Fetch Alma 32:21.</worker-dispatch>',
+    ].join("\n\n"));
+    const onPostTurn = vi.fn(async () => {});
+
+    mockState.sendMessage.mockResolvedValue(response);
+
+    const router = new TangoRouter({
+      agentConfigs: new Map([
+        ["alpha", createAgentConfig("alpha")],
+      ]),
+      onPostTurn,
+    });
+
+    const result = await router.routeMessage({
+      message: "build a lesson",
+      channelId: "channel-1",
+      agentId: "alpha",
+    });
+
+    expect(result.response.text).toBe(
+      "Sorry, I tried to use an internal worker handoff that is not available in this runtime. Please ask again and I will handle it directly.",
+    );
+    expect(result.response.metadata).toMatchObject({
+      sessionId: "session-1",
+      sanitizedInternalWorkerDispatch: true,
+      originalTextLength: response.text.length,
+    });
+
+    await waitForImmediate();
+
+    expect(onPostTurn).toHaveBeenCalledWith(expect.objectContaining({
+      response: result.response,
+    }));
   });
 
   it("delegates conversation resets to the lifecycle manager", async () => {

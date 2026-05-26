@@ -15,8 +15,12 @@ All active work is tracked in **Linear** (Seaside HQ workspace). See memory file
 - Create a project from the **General Project** template for every new initiative
 - Update issue status as work progresses (Todo → In Progress → Done)
 - Update project status to reflect the current milestone (Discovery → Implementation → Deploy → Validation → Ship)
+- Post Linear **Project Updates** at meaningful project milestones: dev handoff, dev completion, test summary, deploy/restart, live validation, and final ship/cancel decision
+- Every Linear Project Update must include: recently completed work, current blockers/risks, and next steps with clear owner labels (`Agent`, `Devin`, or external dependency) when ownership matters
+- Use issue comments for issue-specific evidence such as failing logs, validation proof, or cancellation rationale; do not substitute issue comments for project updates
 - Link PRs and docs in project descriptions
 - When completing work, update Linear BEFORE reporting to stakeholder
+- Final stakeholder reports should summarize the Linear Project Updates already posted, not replace them
 
 ## Engineering Standards
 

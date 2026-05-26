@@ -841,13 +841,14 @@ export function createFinanceTools(overrides?: PersonalToolPaths): AgentTool[] {
         "",
         "Common endpoints:",
         "  GET /transactions?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD — list transactions",
-        "  GET /transactions?status=unreviewed — uncategorized transactions",
-        "  PUT /transactions/:id — update transaction (body: {\"transaction\": {\"category_id\": N, \"notes\": \"...\"}})",
-        "  POST /transactions/:id/group — split transaction",
+        "  GET /transactions?status=uncleared&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD — transactions not yet reviewed by this workflow",
+        "  PUT /transactions/:id — update transaction (body: {\"transaction\": {\"category_id\": N, \"status\": \"cleared\", \"notes\": \"...\"}})",
+        "  PUT /transactions/:id — split transaction with a top-level split array",
         "  GET /categories — list all categories with IDs",
         "  GET /budgets?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD — budget summaries",
         "",
         "Notes:",
+        "  - Use status=uncleared for the review inbox. Do not use status=unreviewed; Lunch Money does not define it.",
         "  - Split amounts are DOLLAR STRINGS, not cents",
         "  - Updates require {\"transaction\": {...}} wrapper",
         "  - Rate limit: ~0.3s between calls",
@@ -950,24 +951,32 @@ function syncWalmartTrackingFromRampEvidence(input: {
   evidencePath: string;
   status: string;
   amount?: number;
+  transactionDate?: string;
   submitted?: string;
   note?: string;
   rampReportId?: string;
 }): void {
   const evidenceRecord = loadReimbursementEvidenceRecord(input.evidencePath);
   const orderId = evidenceRecord?.orderId?.trim();
-  if (!orderId) {
-    return;
-  }
 
-  const existing = findWalmartReceiptRecord(orderId);
+  const existing = orderId
+    ? findWalmartReceiptRecord(orderId)
+    : listWalmartDeliveryCandidates({
+        since: input.transactionDate,
+        includeSubmitted: true,
+      }).find((record) =>
+        (!input.transactionDate || record.date === input.transactionDate)
+        && input.amount != null
+        && record.driverTip != null
+        && Math.abs(record.driverTip - input.amount) < 0.01
+      );
   if (!existing) {
     return;
   }
   const existingStatus = existing?.reimbursement.status?.trim().toLowerCase();
   const nextStatus = existingStatus === "reimbursed" ? "reimbursed" : input.status;
   upsertWalmartReimbursementTracking({
-    orderId,
+    notePath: existing.filePath,
     status: nextStatus,
     system: "Ramp",
     reimbursableItem: "Driver tip",
@@ -1497,9 +1506,19 @@ export function createReimbursementAutomationTools(): AgentTool[] {
         "  capture_email_reimbursement_evidence",
         "    Render a raw reimbursement email body into an archived screenshot evidence file for Ramp uploads when no better attachment exists.",
         "",
-        "  submit_ramp_reimbursement",
-        "    Create and submit a Ramp reimbursement draft with archived evidence, amount, date, memo, and merchant. Evidence may be a PDF or an image file.",
+        "  prepare_ramp_reimbursement_draft",
+        "    Upload evidence and fill a Ramp reimbursement draft with amount, date, memo, and merchant. This stops before final submission.",
         "    A recent-history dedup gate runs automatically unless skip_dedup_check is true.",
+        "",
+        "  submit_reviewed_ramp_reimbursement",
+        "    Submit an already-prepared Ramp draft after checking the expected amount, transaction date, memo, and optional merchant.",
+        "    Requires submission_confirmation='DEVIN_REVIEWED_AND_APPROVED_SUBMISSION'.",
+        "",
+        "  submit_ramp_reimbursement",
+        "    Deprecated alias for prepare_ramp_reimbursement_draft. It prepares a draft only; it does not click final Submit.",
+        "",
+        "  repair_ramp_reimbursement_draft",
+        "    Open an existing Ramp draft, optionally attach evidence, and repair amount, transaction date, memo, and merchant in place.",
         "",
         "  replace_ramp_reimbursement_receipt",
         "    Open an existing Ramp reimbursement review page and replace or add receipt evidence, then capture a Ramp confirmation screenshot. Evidence may be a PDF or an image file.",
@@ -1512,7 +1531,10 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             enum: [
               "capture_walmart_tip_evidence",
               "capture_email_reimbursement_evidence",
+              "prepare_ramp_reimbursement_draft",
               "submit_ramp_reimbursement",
+              "submit_reviewed_ramp_reimbursement",
+              "repair_ramp_reimbursement_draft",
               "replace_ramp_reimbursement_receipt",
             ],
             description: "Ramp reimbursement automation action to perform.",
@@ -1535,35 +1557,39 @@ export function createReimbursementAutomationTools(): AgentTool[] {
           },
           amount: {
             type: "number",
-            description: "For submit_ramp_reimbursement: amount in dollars.",
+            description: "For prepare_ramp_reimbursement_draft or submit_reviewed_ramp_reimbursement: amount in dollars.",
           },
           transaction_date: {
             type: "string",
-            description: "For submit_ramp_reimbursement: date in YYYY-MM-DD or MM/DD/YYYY.",
+            description: "For prepare_ramp_reimbursement_draft or submit_reviewed_ramp_reimbursement: date in YYYY-MM-DD or MM/DD/YYYY.",
           },
           memo: {
             type: "string",
-            description: "For submit_ramp_reimbursement: optional reimbursement memo text. Defaults from reimbursement-config.yaml when merchant or vendor matches.",
+            description: "For prepare_ramp_reimbursement_draft: optional reimbursement memo text. Defaults from reimbursement-config.yaml when merchant or vendor matches. For submit_reviewed_ramp_reimbursement: expected memo.",
           },
           evidence_path: {
             type: "string",
-            description: "For submit or replace actions: absolute evidence file path (PDF or image).",
+            description: "For prepare, submit-reviewed, or replace actions: absolute evidence file path (PDF or image).",
           },
           merchant: {
             type: "string",
-            description: "For submit_ramp_reimbursement: merchant name. Falls back to the vendor config when provided.",
+            description: "For prepare_ramp_reimbursement_draft: merchant name. Falls back to the vendor config when provided. For submit_reviewed_ramp_reimbursement: optional expected merchant text.",
           },
           vendor: {
             type: "string",
-            description: "For submit_ramp_reimbursement: configured vendor key, receipt directory, or merchant alias from reimbursement-config.yaml.",
+            description: "For prepare_ramp_reimbursement_draft: configured vendor key, receipt directory, or merchant alias from reimbursement-config.yaml.",
           },
           skip_dedup_check: {
             type: "boolean",
-            description: "For submit_ramp_reimbursement: bypass the automatic date+amount dedup gate. Use only for intentional re-submissions.",
+            description: "For prepare_ramp_reimbursement_draft: bypass the automatic date+amount dedup gate. Use only for intentional re-submissions.",
           },
           review_url: {
             type: "string",
-            description: "For replace_ramp_reimbursement_receipt: absolute Ramp reimbursement review url.",
+            description: "For submit_reviewed_ramp_reimbursement, repair_ramp_reimbursement_draft, or replace_ramp_reimbursement_receipt: absolute Ramp reimbursement draft/review url.",
+          },
+          submission_confirmation: {
+            type: "string",
+            description: "For submit_reviewed_ramp_reimbursement only: exact confirmation token DEVIN_REVIEWED_AND_APPROVED_SUBMISSION after Devin explicitly approves submission.",
           },
         },
         required: ["action"],
@@ -1594,15 +1620,16 @@ export function createReimbursementAutomationTools(): AgentTool[] {
                 outputPath: typeof input.output_path === "string" ? input.output_path : undefined,
               }),
             };
+          case "prepare_ramp_reimbursement_draft":
           case "submit_ramp_reimbursement":
             if (typeof input.amount !== "number") {
-              return { error: "submit_ramp_reimbursement requires amount" };
+              return { error: `${action} requires amount` };
             }
             if (typeof input.transaction_date !== "string" || input.transaction_date.trim().length === 0) {
-              return { error: "submit_ramp_reimbursement requires transaction_date" };
+              return { error: `${action} requires transaction_date` };
             }
             if (typeof input.evidence_path !== "string" || input.evidence_path.trim().length === 0) {
-              return { error: "submit_ramp_reimbursement requires evidence_path" };
+              return { error: `${action} requires evidence_path` };
             }
             {
               const vendor = typeof input.vendor === "string" ? input.vendor : undefined;
@@ -1619,7 +1646,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
                   : resolveDefaultMemo(vendor ?? resolvedMerchant);
               if (!resolvedMemo) {
                 return {
-                  error: "submit_ramp_reimbursement requires memo or a merchant/vendor with a configured default memo",
+                  error: `${action} requires memo or a merchant/vendor with a configured default memo`,
                 };
               }
 
@@ -1635,13 +1662,13 @@ export function createReimbursementAutomationTools(): AgentTool[] {
                 });
                 if (dedup.duplicate) {
                   return {
-                    error: `submit_ramp_reimbursement blocked by dedup gate: ${dedup.reasons.join(", ")}`,
+                    error: `${action} blocked by dedup gate: ${dedup.reasons.join(", ")}`,
                     dedup,
                   };
                 }
               }
 
-              const result = await bm.submitRampReimbursement({
+              const result = await bm.prepareRampReimbursementDraft({
                 amount: input.amount,
                 transactionDate: input.transaction_date,
                 memo: resolvedMemo,
@@ -1649,17 +1676,107 @@ export function createReimbursementAutomationTools(): AgentTool[] {
                 merchant: resolvedMerchant,
               });
               syncWalmartTrackingFromRampEvidence({
-                evidencePath: result.evidencePath,
+                evidencePath: result.evidencePath ?? input.evidence_path,
                 status: "draft",
                 amount: result.amount,
-                submitted: currentLocalIsoDate(),
+                transactionDate: result.transactionDate,
+                submitted: "",
                 note: result.memo,
                 rampReportId: result.rampReportId,
               });
               return {
                 result,
                 draftUrl: result.reviewUrl,
-                message: `Ramp reimbursement draft created - ready for manual review at ${result.reviewUrl}`,
+                message: `Ramp reimbursement draft prepared for manual review at ${result.reviewUrl}. It has not been submitted.`,
+                deprecatedAlias:
+                  action === "submit_ramp_reimbursement"
+                    ? "submit_ramp_reimbursement now prepares a draft only; prefer prepare_ramp_reimbursement_draft."
+                    : undefined,
+              };
+            }
+          case "submit_reviewed_ramp_reimbursement":
+            if (typeof input.review_url !== "string" || input.review_url.trim().length === 0) {
+              return { error: "submit_reviewed_ramp_reimbursement requires review_url" };
+            }
+            if (input.submission_confirmation !== "DEVIN_REVIEWED_AND_APPROVED_SUBMISSION") {
+              return {
+                error: "submit_reviewed_ramp_reimbursement requires submission_confirmation=DEVIN_REVIEWED_AND_APPROVED_SUBMISSION after Devin explicitly approves submission",
+              };
+            }
+            if (typeof input.amount !== "number") {
+              return { error: "submit_reviewed_ramp_reimbursement requires amount" };
+            }
+            if (typeof input.transaction_date !== "string" || input.transaction_date.trim().length === 0) {
+              return { error: "submit_reviewed_ramp_reimbursement requires transaction_date" };
+            }
+            if (typeof input.memo !== "string" || input.memo.trim().length === 0) {
+              return { error: "submit_reviewed_ramp_reimbursement requires memo" };
+            }
+            {
+              const result = await bm.submitReviewedRampReimbursement({
+                reviewUrl: input.review_url,
+                amount: input.amount,
+                transactionDate: input.transaction_date,
+                memo: input.memo,
+                merchant: typeof input.merchant === "string" ? input.merchant : undefined,
+                evidencePath: typeof input.evidence_path === "string" ? input.evidence_path : undefined,
+              });
+              if (typeof input.evidence_path === "string" && input.evidence_path.trim().length > 0) {
+                syncWalmartTrackingFromRampEvidence({
+                  evidencePath: input.evidence_path,
+                  status: "submitted",
+                  amount: result.amount,
+                  transactionDate: result.transactionDate,
+                  submitted: currentLocalIsoDate(),
+                  note: result.memo,
+                  rampReportId: result.rampReportId,
+                });
+              }
+              return {
+                result,
+                message: `Ramp reimbursement submitted after review check: ${result.reviewUrl}`,
+              };
+            }
+          case "repair_ramp_reimbursement_draft":
+            if (typeof input.review_url !== "string" || input.review_url.trim().length === 0) {
+              return { error: "repair_ramp_reimbursement_draft requires review_url" };
+            }
+            if (typeof input.amount !== "number") {
+              return { error: "repair_ramp_reimbursement_draft requires amount" };
+            }
+            if (typeof input.transaction_date !== "string" || input.transaction_date.trim().length === 0) {
+              return { error: "repair_ramp_reimbursement_draft requires transaction_date" };
+            }
+            {
+              const vendor = typeof input.vendor === "string" ? input.vendor : undefined;
+              const resolvedVendor =
+                resolveVendorConfig(vendor)
+                ?? resolveVendorConfig(typeof input.merchant === "string" ? input.merchant : undefined);
+              const resolvedMerchant =
+                typeof input.merchant === "string" && input.merchant.trim().length > 0
+                  ? input.merchant.trim()
+                  : resolvedVendor?.merchantName;
+              const resolvedMemo =
+                typeof input.memo === "string" && input.memo.trim().length > 0
+                  ? input.memo.trim()
+                  : resolveDefaultMemo(vendor ?? resolvedMerchant);
+              if (!resolvedMemo) {
+                return {
+                  error: "repair_ramp_reimbursement_draft requires memo or a merchant/vendor with a configured default memo",
+                };
+              }
+              const result = await bm.repairRampReimbursementDraft({
+                reviewUrl: input.review_url,
+                amount: input.amount,
+                transactionDate: input.transaction_date,
+                memo: resolvedMemo,
+                merchant: resolvedMerchant,
+                evidencePath: typeof input.evidence_path === "string" ? input.evidence_path : undefined,
+              });
+              return {
+                result,
+                draftUrl: result.reviewUrl,
+                message: `Ramp reimbursement draft repaired for manual review at ${result.reviewUrl}. It has not been submitted.`,
               };
             }
           case "replace_ramp_reimbursement_receipt":

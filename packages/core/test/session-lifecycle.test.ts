@@ -20,7 +20,7 @@ function createConfig(overrides: Partial<AgentRuntimeConfig> = {}): AgentRuntime
       },
     ],
     runtimePreferences: {
-      model: "sonnet",
+      model: "claude-sonnet-4-6",
       timeout: 1_000,
     },
     ...overrides,

@@ -1,0 +1,22 @@
+id: project:porter
+type: project
+agent: porter
+channels:
+  - discord:1508531125243478176
+  - discord:1508531126321549455
+orchestrator_continuity: stateless
+memory:
+  max_context_tokens: 16000
+  zones:
+    pinned: 0.10
+    summary: 0.20
+    memories: 0.25
+    recent: 0.45
+  summarize_window: 10
+  memory_limit: 150
+  importance_threshold: 0.3
+  retrieval_weights:
+    recency: 0.8
+    importance: 1.2
+    relevance: 2.0
+    source: 0.5

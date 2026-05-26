@@ -29,6 +29,13 @@ describe("mcp tool metadata", () => {
     });
   });
 
+  it("marks Gospel Library as an open-world tool", () => {
+    expect(getMcpToolAnnotations("gospel_library", "write")).toMatchObject({
+      readOnlyHint: false,
+      openWorldHint: true,
+    });
+  });
+
   it("marks spawn_sub_agents as an open-world read tool", () => {
     expect(getMcpToolAnnotations("spawn_sub_agents", "read")).toEqual({
       readOnlyHint: true,

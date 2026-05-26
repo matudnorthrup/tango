@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { GovernanceChecker } from "../src/governance.js";
 import { TangoStorage } from "../src/storage.js";
 
 const tempDirs: string[] = [];
@@ -245,6 +246,45 @@ describe("TangoStorage", () => {
       tool_id: "gog_docs_update_tab",
       access_level: "write",
     });
+
+    db.close();
+  });
+
+  it("seeds Porter church-assistant governance with read-only email", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const principal = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'worker:church-assistant'",
+    ).get() as { id: string; parent_id: string } | undefined;
+    const emailPermission = db.prepare(
+      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'worker:church-assistant' AND tool_id = 'gog_email'",
+    ).get() as { principal_id: string; tool_id: string; access_level: string } | undefined;
+    const gospelLibraryTool = db.prepare(
+      "SELECT id, access_type FROM governance_tools WHERE id = 'gospel_library'",
+    ).get() as { id: string; access_type: string } | undefined;
+    const checker = new GovernanceChecker(db);
+
+    expect(principal).toEqual({
+      id: "worker:church-assistant",
+      parent_id: "agent:porter",
+    });
+    expect(emailPermission).toEqual({
+      principal_id: "worker:church-assistant",
+      tool_id: "gog_email",
+      access_level: "read",
+    });
+    expect(gospelLibraryTool).toEqual({
+      id: "gospel_library",
+      access_type: "write",
+    });
+    expect(checker.hasPermission("worker:church-assistant", "gog_email", "read")).toBe(true);
+    expect(checker.hasPermission("worker:church-assistant", "gog_email", "write")).toBe(false);
+    expect(checker.hasPermission("worker:church-assistant", "gospel_library", "write")).toBe(true);
+    expect(checker.hasPermission("worker:church-assistant", "obsidian", "write")).toBe(true);
+    expect(checker.hasPermission("worker:church-assistant", "browser", "write")).toBe(true);
+    expect(checker.hasPermission("worker:church-assistant", "onepassword", "read")).toBe(true);
 
     db.close();
   });
@@ -612,7 +652,7 @@ describe("TangoStorage", () => {
       agentId: "malibu",
       providerName: "claude-oauth",
       conversationKey: "project:wellness:malibu",
-      model: "claude-sonnet",
+      model: "claude-sonnet-4-6",
       responseMode: "deterministic-intent-classifier",
       requestMessageId,
     });
@@ -778,7 +818,7 @@ describe("TangoStorage", () => {
       roundIndex: 1,
       subTaskId: "pricing",
       providerName: "claude-oauth",
-      model: "haiku",
+      model: "claude-haiku-4-5-20251001",
       reasoningEffort: "low",
       toolIds: ["exa_search"],
       dependencyIds: [],
@@ -805,7 +845,7 @@ describe("TangoStorage", () => {
       roundIndex: 1,
       subTaskId: "pricing",
       providerName: "claude-oauth",
-      model: "haiku",
+      model: "claude-haiku-4-5-20251001",
       reasoningEffort: "low",
       toolIds: ["exa_search"],
       dependencyIds: [],

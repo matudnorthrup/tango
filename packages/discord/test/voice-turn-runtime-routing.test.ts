@@ -57,7 +57,6 @@ describe("dispatchVoiceTurnByRuntime", () => {
       agentId: "malibu",
       conversationKey: "voice:session-1:malibu",
     }));
-    const executeLegacyTurn = vi.fn(async () => "legacy");
 
     const result = await dispatchVoiceTurnByRuntime({
       transcript: "hello from voice",
@@ -69,7 +68,6 @@ describe("dispatchVoiceTurnByRuntime", () => {
       tangoRouter: {
         routeMessage,
       },
-      executeLegacyTurn,
       mapRouterResult: (routeResult) =>
         buildVoiceRouterResult({
           routeResult,
@@ -96,7 +94,6 @@ describe("dispatchVoiceTurnByRuntime", () => {
         timeout: VOICE_V2_ROUTER_TIMEOUT_MS,
       },
     });
-    expect(executeLegacyTurn).not.toHaveBeenCalled();
   });
 
   it("passes sendOptions context through to TangoRouter", async () => {
@@ -117,7 +114,6 @@ describe("dispatchVoiceTurnByRuntime", () => {
       tangoRouter: {
         routeMessage,
       },
-      executeLegacyTurn: async () => "legacy",
       mapRouterResult: () => "v2",
       sendOptions: {
         context: "Use spoken language only.",
@@ -135,11 +131,10 @@ describe("dispatchVoiceTurnByRuntime", () => {
     });
   });
 
-  it("uses the legacy executor when v2 is disabled", async () => {
-    const executeLegacyTurn = vi.fn(async () => "legacy reply");
+  it("fails closed when v2 is disabled", async () => {
     const routeMessage = vi.fn();
 
-    const result = await dispatchVoiceTurnByRuntime({
+    await expect(dispatchVoiceTurnByRuntime({
       transcript: "keep using legacy",
       agentId: "malibu",
       channelId: "channel-1",
@@ -147,12 +142,9 @@ describe("dispatchVoiceTurnByRuntime", () => {
       tangoRouter: {
         routeMessage,
       },
-      executeLegacyTurn,
       mapRouterResult: () => "v2 reply",
-    });
+    })).rejects.toThrow("Agent 'malibu' is not configured for the v2 voice runtime.");
 
-    expect(result).toBe("legacy reply");
-    expect(executeLegacyTurn).toHaveBeenCalledTimes(1);
     expect(routeMessage).not.toHaveBeenCalled();
   });
 
@@ -168,9 +160,6 @@ describe("dispatchVoiceTurnByRuntime", () => {
       v2AgentConfig: createV2AgentConfig(),
       tangoRouter: {
         routeMessage,
-      },
-      executeLegacyTurn: async () => {
-        throw new Error("legacy should not run");
       },
       mapRouterResult: () => {
         throw new Error("success path should not run");

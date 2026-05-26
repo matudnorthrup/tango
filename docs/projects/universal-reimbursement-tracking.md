@@ -24,7 +24,7 @@ All 7 phases merged to main across 4 commits:
 - `loadReimbursementConfig()`, `resolveDefaultMemo()`, `resolveVendorConfig()` in `receipt-universal-registry.ts`
 - Submit handler resolves: vendor/merchant → category → memo automatically
 - Memo field now optional — auto-fills from config, explicit memo overrides
-- **Validated:** All candidates resolve "executive buy back time" from config
+- **Validated:** All candidates resolve "Exec Buy Back Time" from config
 
 ### Phase 3: Universal Receipt Record + Scanner
 - `UniversalReceiptRecord` interface with vendor-specific parsers (Venmo, generic)
@@ -92,7 +92,7 @@ Watson's per-agent allowlist didn't include the smoke test parent channel. Fixed
 | Test | Result |
 |------|--------|
 | Dedup gate (offline) | Pass — blocks matching date::amount |
-| Memo auto-fill (offline) | Pass — all candidates resolve "executive buy back time" |
+| Memo auto-fill (offline) | Pass — all candidates resolve "Exec Buy Back Time" |
 | Universal scan (offline) | Pass — 57 records, correct vendorKeys |
 | Gap detection (offline) | Pass — 6 real gaps found |
 | Walmart tip submission (live) | Pass — $27.19 submitted with auto-resolved memo, receipt note updated |

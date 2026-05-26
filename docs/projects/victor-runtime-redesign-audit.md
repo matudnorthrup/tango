@@ -16,11 +16,15 @@ Neither gives the product guarantee the user wants: Victor should be able to coo
 
 ## Current Design
 
-Normal Victor text and voice turns route through Tango v2 unless `VICTOR-COS` exists.
+Normal Victor text and voice turns route through Tango v2. The `VICTOR-COS` bridge is a manual-console mode and is inactive by default.
 
-When `VICTOR-COS` exists:
+The bridge is used only when both conditions are true:
 
-- `packages/discord/src/victor-bridge.ts` checks `tmux has-session -t VICTOR-COS`.
+- `VICTOR_BRIDGE_MODE=manual-console` is set for the Discord bot process.
+- `packages/discord/src/victor-bridge.ts` confirms `tmux has-session -t VICTOR-COS`.
+
+When the bridge is explicitly enabled and `VICTOR-COS` exists:
+
 - Text routing in `packages/discord/src/main.ts` and voice routing in `executeVoiceTurn` short-circuit into the bridge.
 - The bot writes a JSON request under `/tmp/victor-cos-inbox`.
 - `scripts/victor-cos-inbox-watcher.sh` watches the directory, builds a prompt, and pastes it into `VICTOR-COS:0`.
@@ -35,10 +39,10 @@ The watcher is not a durable worker. It deletes inbox files after paste and, if 
 - `/tmp/victor-cos-inbox` and `/tmp/victor-cos-outbox` are not durable queues. Reboots remove state, and bot restarts lose in-memory request mappings.
 - The watcher deletes requests before a response exists. If Claude blocks, crashes, asks for approval, or receives a malformed paste, the request is effectively lost.
 - The five-second idle heuristic can interleave user requests with ongoing work.
-- Text and voice behavior changes depending on whether a tmux session exists, which makes Victor feel nondeterministic.
+- Before the manual-console gate, text and voice behavior changed depending on whether a tmux session existed, which made Victor feel nondeterministic.
 - Direct Discord webhook guidance in `agents/assistants/victor/knowledge.md` conflicts with the product requirement that stakeholder-facing messages go through Tango presentation and session storage.
 - The current design does not protect Tango from self-modification hazards. `VICTOR-COS` runs in the main repo and can edit live files, collide with user changes, or continue on old code while the bot restarts on new code.
-- There are no focused tests for `victor-bridge.ts` or the watcher script.
+- The bridge gate now has focused tests in `packages/discord/test/victor-bridge.test.ts`; the watcher script still lacks coverage.
 
 ## Product Direction
 
@@ -144,7 +148,7 @@ Then it should report only meaningful state changes.
 
 ### Slice 1: Stop Unsafe Bridge Semantics
 
-- Gate bridge usage behind explicit config or command instead of `tmux has-session`.
+- Gate bridge usage behind explicit config or command instead of `tmux has-session`. `VICTOR_BRIDGE_MODE=manual-console` now gates the bot-side bridge.
 - Update watcher so "not idle" leaves work queued instead of pasting anyway.
 - Remove direct webhook guidance from Victor knowledge.
 - Add tests around text/voice fallback behavior.

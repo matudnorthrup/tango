@@ -25,6 +25,11 @@ interface SpawnExecutionResult {
   signal: NodeJS.Signals | null;
 }
 
+export interface ClaudeCodeAdapterOptions {
+  command?: string | null;
+  fallbackCommand?: string | null;
+}
+
 function cloneServerConfig(server: McpServerConfig): McpServerConfig {
   return {
     name: server.name,
@@ -50,6 +55,11 @@ function cloneRuntimeConfig(config: AgentRuntimeConfig): AgentRuntimeConfig {
 
 function resolveEnvVars(value: string): string {
   return value.replace(/\$\{(\w+)\}/g, (_, name) => process.env[name] ?? "");
+}
+
+function normalizeCommand(value: string | null | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
 function normalizeMcpServers(servers: McpServerConfig[]): Record<string, Record<string, unknown>> {
@@ -104,6 +114,101 @@ function parseClaudeJsonOutput(stdout: string) {
   }
 }
 
+function parseJsonLines(stdout: string): unknown[] {
+  const events: unknown[] = [];
+  for (const line of stdout.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    try {
+      events.push(JSON.parse(trimmed));
+    } catch {
+      // Non-JSON lines are ignored; Claude stream-json output can include tool chatter.
+    }
+  }
+  return events;
+}
+
+function extractTextFragments(value: unknown, fragments: string[], limit = 8): void {
+  if (fragments.length >= limit || value === null || value === undefined) {
+    return;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    if (normalized.length > 0) {
+      fragments.push(normalized);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      extractTextFragments(item, fragments, limit);
+      if (fragments.length >= limit) return;
+    }
+    return;
+  }
+
+  if (typeof value !== "object") {
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of ["message", "text", "result", "error", "type"]) {
+    extractTextFragments(record[key], fragments, limit);
+    if (fragments.length >= limit) return;
+  }
+}
+
+function summarizeClaudeFailureOutput(stdout: string): string | undefined {
+  const fragments: string[] = [];
+  for (const event of parseJsonLines(stdout)) {
+    extractTextFragments(event, fragments);
+    if (fragments.length >= 8) break;
+  }
+
+  const summary = fragments
+    .filter((fragment, index, all) => all.indexOf(fragment) === index)
+    .join(" | ")
+    .trim();
+  if (summary.length > 0) {
+    return summary.slice(0, 800);
+  }
+
+  const raw = stdout.trim();
+  return raw.length > 0 ? raw.slice(0, 800) : undefined;
+}
+
+function describeClaudeFailure(execution: SpawnExecutionResult): string {
+  const parts: string[] = [];
+  const stderr = execution.stderr.trim();
+  if (stderr.length > 0) {
+    parts.push(`stderr=${stderr.slice(0, 800)}`);
+  }
+
+  const stdoutSummary = summarizeClaudeFailureOutput(execution.stdout);
+  if (stdoutSummary) {
+    parts.push(`stdout=${stdoutSummary}`);
+  }
+
+  if (execution.signal) {
+    parts.push(`signal=${execution.signal}`);
+  }
+
+  return parts.length > 0 ? parts.join(" | ") : "No stderr output.";
+}
+
+function isClaudeAuthenticationFailure(execution: SpawnExecutionResult): boolean {
+  const haystack = `${execution.stderr}\n${execution.stdout}`.toLowerCase();
+  return (
+    haystack.includes("authentication_failed") ||
+    haystack.includes("authentication_error") ||
+    haystack.includes("failed to authenticate") ||
+    haystack.includes("invalid authentication credentials") ||
+    haystack.includes("api error: 401")
+  );
+}
+
 async function removeFileIfPresent(filePath: string | undefined): Promise<void> {
   if (!filePath) return;
   try {
@@ -144,13 +249,27 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   public readonly id = randomUUID();
   public readonly type = "claude-code" as const;
 
+  private readonly command: string;
+  private readonly fallbackCommand?: string;
   private config?: AgentRuntimeConfig;
   private stateValue: RuntimeState = "closed";
   private child?: ChildProcessWithoutNullStreams;
   private sessionId?: string;
+  private sessionCommand?: string;
   private mcpConfigPath?: string;
 
-  constructor(private readonly command = "claude") {}
+  constructor(commandOrOptions: string | ClaudeCodeAdapterOptions = "claude") {
+    if (typeof commandOrOptions === "string") {
+      this.command = normalizeCommand(commandOrOptions) ?? "claude";
+      this.fallbackCommand = normalizeCommand(process.env.CLAUDE_SECONDARY_CLI_COMMAND);
+      return;
+    }
+
+    this.command = normalizeCommand(commandOrOptions.command) ?? "claude";
+    this.fallbackCommand = Object.prototype.hasOwnProperty.call(commandOrOptions, "fallbackCommand")
+      ? normalizeCommand(commandOrOptions.fallbackCommand)
+      : normalizeCommand(process.env.CLAUDE_SECONDARY_CLI_COMMAND);
+  }
 
   get active(): boolean {
     return this.stateValue === "spawning" || this.stateValue === "active" || this.stateValue === "idle";
@@ -167,12 +286,14 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   resumeSession(sessionId: string): void {
     const normalized = sessionId.trim();
     this.sessionId = normalized.length > 0 ? normalized : undefined;
+    this.sessionCommand = undefined;
   }
 
   async initialize(config: AgentRuntimeConfig): Promise<void> {
     await this.teardown();
     this.config = cloneRuntimeConfig(config);
     this.sessionId = undefined;
+    this.sessionCommand = undefined;
     this.stateValue = "idle";
   }
 
@@ -188,83 +309,105 @@ export class ClaudeCodeAdapter implements AgentRuntime {
 
     const startedAt = Date.now();
     const timeoutMs = options.timeout ?? this.config.runtimePreferences.timeout ?? DEFAULT_SEND_TIMEOUT_MS;
-    const prompt = this.buildPrompt(message, options);
-    const args = this.buildArgs();
+    const attempts = this.buildCommandAttempts();
 
-    this.stateValue = "spawning";
+    for (const [attemptIndex, attempt] of attempts.entries()) {
+      const hasFallbackAttempt = attemptIndex < attempts.length - 1;
+      const resumeForCommand = this.shouldResumeForCommand(attempt.command, attempt.allowUnboundSession);
+      const prompt = this.buildPrompt(message, options, resumeForCommand);
+      const args = this.buildArgs(resumeForCommand);
 
-    let execution: SpawnExecutionResult;
-    try {
-      execution = await this.runClaudeProcess(args, prompt, timeoutMs);
-    } catch (error) {
-      this.sessionId = undefined;
-      this.stateValue = "error";
-      throw error;
-    }
+      this.stateValue = "spawning";
 
-    const durationMs = Date.now() - startedAt;
-    const baseMetadata: Record<string, unknown> = {
-      exitCode: execution.code,
-      signal: execution.signal ?? undefined,
-      ...(execution.stderr.trim().length > 0 ? { stderr: execution.stderr.trim() } : {}),
-    };
-
-    if (execution.code !== 0) {
-      this.sessionId = undefined;
-      this.stateValue = "error";
-
+      let execution: SpawnExecutionResult;
       try {
-        const parsed = parseClaudeJsonOutput(execution.stdout);
-        const toolsUsed = [...new Set((parsed.toolCalls ?? []).map((tool) => tool.name))];
-        return {
-          text: parsed.text,
-          durationMs,
-          model: parsed.metadata?.model ?? this.config.runtimePreferences.model,
-          toolsUsed,
-          metadata: {
-            ...baseMetadata,
-            sessionId: parsed.providerSessionId,
-            raw: parsed.raw,
-            providerMetadata: parsed.metadata,
-            error: true,
-          },
-        };
-      } catch {
-        throw new Error(
-          `Claude Code exited with code ${execution.code}. ${execution.stderr.trim() || "No stderr output."}`,
-        );
+        execution = await this.runClaudeProcess(attempt.command, args, prompt, timeoutMs);
+      } catch (error) {
+        this.sessionId = undefined;
+        this.sessionCommand = undefined;
+        this.stateValue = "error";
+        throw error;
       }
+
+      const durationMs = Date.now() - startedAt;
+      const baseMetadata: Record<string, unknown> = {
+        exitCode: execution.code,
+        signal: execution.signal ?? undefined,
+        command: attempt.command,
+        ...(execution.stderr.trim().length > 0 ? { stderr: execution.stderr.trim() } : {}),
+      };
+
+      if (execution.code !== 0) {
+        if (hasFallbackAttempt && isClaudeAuthenticationFailure(execution)) {
+          continue;
+        }
+
+        this.sessionId = undefined;
+        this.sessionCommand = undefined;
+        this.stateValue = "error";
+
+        try {
+          const parsed = parseClaudeJsonOutput(execution.stdout);
+          const toolsUsed = [...new Set((parsed.toolCalls ?? []).map((tool) => tool.name))];
+          return {
+            text: parsed.text,
+            durationMs,
+            model: parsed.metadata?.model ?? this.config.runtimePreferences.model,
+            toolsUsed,
+            metadata: {
+              ...baseMetadata,
+              sessionId: parsed.providerSessionId,
+              raw: parsed.raw,
+              providerMetadata: parsed.metadata,
+              error: true,
+            },
+          };
+        } catch {
+          throw new Error(
+            `Claude Code exited with code ${execution.code}. ${describeClaudeFailure(execution)}`,
+          );
+        }
+      }
+
+      let parsed;
+      try {
+        parsed = parseClaudeJsonOutput(execution.stdout);
+      } catch (error) {
+        this.sessionId = undefined;
+        this.sessionCommand = undefined;
+        this.stateValue = "error";
+        throw error;
+      }
+      this.sessionId = parsed.providerSessionId?.trim() || this.sessionId;
+      if (this.sessionId) {
+        this.sessionCommand = attempt.command;
+      }
+      this.stateValue = "idle";
+
+      if (options.onChunk && parsed.text.length > 0) {
+        options.onChunk(parsed.text);
+      }
+
+      const toolsUsed = [...new Set((parsed.toolCalls ?? []).map((tool) => tool.name))];
+
+      return {
+        text: parsed.text,
+        durationMs,
+        model: parsed.metadata?.model ?? this.config.runtimePreferences.model,
+        toolsUsed,
+        metadata: {
+          ...baseMetadata,
+          sessionId: this.sessionId,
+          raw: parsed.raw,
+          providerMetadata: parsed.metadata,
+        },
+      };
     }
 
-    let parsed;
-    try {
-      parsed = parseClaudeJsonOutput(execution.stdout);
-    } catch (error) {
-      this.sessionId = undefined;
-      this.stateValue = "error";
-      throw error;
-    }
-    this.sessionId = parsed.providerSessionId?.trim() || this.sessionId;
-    this.stateValue = "idle";
-
-    if (options.onChunk && parsed.text.length > 0) {
-      options.onChunk(parsed.text);
-    }
-
-    const toolsUsed = [...new Set((parsed.toolCalls ?? []).map((tool) => tool.name))];
-
-    return {
-      text: parsed.text,
-      durationMs,
-      model: parsed.metadata?.model ?? this.config.runtimePreferences.model,
-      toolsUsed,
-      metadata: {
-        ...baseMetadata,
-        sessionId: this.sessionId,
-        raw: parsed.raw,
-        providerMetadata: parsed.metadata,
-      },
-    };
+    this.sessionId = undefined;
+    this.sessionCommand = undefined;
+    this.stateValue = "error";
+    throw new Error("Claude Code request failed before any command could be attempted.");
   }
 
   async teardown(): Promise<void> {
@@ -283,6 +426,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     await removeFileIfPresent(this.mcpConfigPath);
     this.mcpConfigPath = undefined;
     this.sessionId = undefined;
+    this.sessionCommand = undefined;
     this.stateValue = "closed";
   }
 
@@ -294,9 +438,9 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     return this.child.exitCode === null && this.child.signalCode === null && !this.child.killed;
   }
 
-  private buildPrompt(message: string, options: SendOptions): string {
+  private buildPrompt(message: string, options: SendOptions, resumeForCommand: boolean): string {
     const sections: string[] = [];
-    if (!this.sessionId && this.config?.coldStartContext?.trim()) {
+    if (!resumeForCommand && this.config?.coldStartContext?.trim()) {
       sections.push(`Cold start context:\n${this.config.coldStartContext.trim()}`);
     }
     if (options.context?.trim()) {
@@ -306,7 +450,34 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     return sections.join("\n\n");
   }
 
-  private buildArgs(): string[] {
+  private buildCommandAttempts(): Array<{ command: string; allowUnboundSession: boolean }> {
+    const attempts: Array<{ command: string; allowUnboundSession: boolean }> = [];
+    const seen = new Set<string>();
+    const add = (command: string | undefined, allowUnboundSession: boolean) => {
+      if (!command || seen.has(command)) return;
+      seen.add(command);
+      attempts.push({ command, allowUnboundSession });
+    };
+
+    if (this.sessionCommand) {
+      add(this.sessionCommand, true);
+    }
+    add(this.command, true);
+    add(this.fallbackCommand, false);
+    return attempts;
+  }
+
+  private shouldResumeForCommand(command: string, allowUnboundSession: boolean): boolean {
+    if (!this.sessionId) {
+      return false;
+    }
+    if (this.sessionCommand) {
+      return this.sessionCommand === command;
+    }
+    return allowUnboundSession;
+  }
+
+  private buildArgs(resumeForCommand: boolean): string[] {
     if (!this.config || !this.mcpConfigPath) {
       throw new Error("ClaudeCodeAdapter is missing required runtime files.");
     }
@@ -342,7 +513,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     if (typeof maxTokens === "number" && Number.isFinite(maxTokens)) {
       args.push("--max-tokens", String(Math.trunc(maxTokens)));
     }
-    if (this.sessionId) {
+    if (resumeForCommand && this.sessionId) {
       args.push("--resume", this.sessionId);
     }
 
@@ -365,6 +536,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   }
 
   private async runClaudeProcess(
+    command: string,
     args: string[],
     prompt: string,
     timeoutMs: number,
@@ -375,7 +547,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       let settled = false;
       let timedOut = false;
 
-      const child = spawn(this.command, args, {
+      const child = spawn(command, args, {
         stdio: ["pipe", "pipe", "pipe"],
       });
       this.child = child;
@@ -420,7 +592,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
         if (error.code === "ENOENT") {
           fail(
             new Error(
-              `Claude Code CLI command not found: '${this.command}'. Install Claude Code or configure the adapter command.`,
+              `Claude Code CLI command not found: '${command}'. Install Claude Code or configure the adapter command.`,
             ),
           );
           return;
