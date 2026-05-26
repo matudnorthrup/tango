@@ -4,7 +4,6 @@ agent: dispatch
 channels:
   - discord:100000000000000001
   - discord:default
-  - imessage:default
 orchestrator_continuity: stateless
 memory:
   max_context_tokens: 100000

@@ -68,8 +68,7 @@ You have MCP tools for managing personal tasks. Use them proactively.
 **Project Tracking** (via `linear` MCP server):
 - `mcp__linear__linear` - query and update Linear issues
 
-**Messaging** (via `imessage` and `slack` servers):
-- `mcp__imessage__imessage` - read and send iMessages
+**Messaging** (via `slack` server):
 - `mcp__slack__slack` - read and post Slack messages
 
 **Latitude Remote** (via `latitude` MCP server):
