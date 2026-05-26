@@ -8,6 +8,8 @@ const VICTOR_INBOX_DIR = "/tmp/victor-cos-inbox";
 const VICTOR_OUTBOX_DIR = "/tmp/victor-cos-outbox";
 const SESSION_CACHE_TTL_MS = 30_000;
 const RESPONSE_POLL_INTERVAL_MS = 250;
+export const VICTOR_BRIDGE_MODE_ENV = "VICTOR_BRIDGE_MODE";
+export const VICTOR_BRIDGE_MANUAL_CONSOLE_MODE = "manual-console";
 
 export interface VictorBridgeMessage {
   id: string;
@@ -31,23 +33,54 @@ let cachedSessionCheckedAt = 0;
 
 const inboxFilesByRequestId = new Map<string, string>();
 
-export function isVictorPersistentSessionActive(): boolean {
-  const now = Date.now();
-  if (now - cachedSessionCheckedAt < SESSION_CACHE_TTL_MS) {
+export interface VictorBridgeSessionCheckOptions {
+  env?: NodeJS.ProcessEnv;
+  exec?: (command: string) => void;
+  now?: number;
+  useCache?: boolean;
+}
+
+export function isVictorBridgeManualConsoleEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return normalizeBridgeMode(env[VICTOR_BRIDGE_MODE_ENV]) === VICTOR_BRIDGE_MANUAL_CONSOLE_MODE;
+}
+
+export function isVictorManualConsoleBridgeActive(options: VictorBridgeSessionCheckOptions = {}): boolean {
+  const env = options.env ?? process.env;
+  if (!isVictorBridgeManualConsoleEnabled(env)) {
+    return false;
+  }
+
+  const now = options.now ?? Date.now();
+  const useCache =
+    options.useCache ?? (options.env === undefined && options.exec === undefined && options.now === undefined);
+  if (useCache && now - cachedSessionCheckedAt < SESSION_CACHE_TTL_MS) {
     return cachedSessionActive;
   }
 
   try {
-    execSync(`tmux has-session -t ${VICTOR_SESSION_NAME} 2>/dev/null`, {
-      stdio: "ignore",
-    });
+    const exec = options.exec ?? runTmuxHasSession;
+    exec(`tmux has-session -t ${VICTOR_SESSION_NAME} 2>/dev/null`);
     cachedSessionActive = true;
   } catch {
     cachedSessionActive = false;
   }
 
-  cachedSessionCheckedAt = now;
+  if (useCache) {
+    cachedSessionCheckedAt = now;
+  }
   return cachedSessionActive;
+}
+
+export function isVictorPersistentSessionActive(options: VictorBridgeSessionCheckOptions = {}): boolean {
+  return isVictorManualConsoleBridgeActive(options);
+}
+
+function runTmuxHasSession(command: string): void {
+  execSync(command, { stdio: "ignore" });
+}
+
+function normalizeBridgeMode(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
 }
 
 export async function sendToVictorInbox(message: VictorBridgeMessage): Promise<string> {

@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import path from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
+import { resolveConfigLayers } from "./config-layering.js";
 import { resolveConfiguredPath } from "./runtime-paths.js";
 import type {
   AccessMode,
@@ -18,6 +20,7 @@ export interface V2AgentConfig {
   displayName: string;
   type: string;
   avatarURL?: string;
+  avatarPath?: string;
   systemPromptFile: string;
   mcpServers: Array<{
     name: string;
@@ -105,6 +108,7 @@ const rawV2AgentConfigSchema = z.object({
   display_name: z.string().min(1),
   type: z.string().min(1),
   avatar_url: z.string().url().optional(),
+  avatar_path: z.string().min(1).optional(),
   system_prompt_file: z.string().min(1),
   mcp_servers: z.array(
     z.union([
@@ -174,16 +178,51 @@ const rawV2AgentConfigSchema = z.object({
   }).optional(),
 });
 
-export function loadV2AgentConfig(configPath: string): V2AgentConfig {
-  const resolvedConfigPath = resolveConfiguredPath(configPath);
-  const raw = fs.readFileSync(resolvedConfigPath, "utf8");
-  const parsed = rawV2AgentConfigSchema.parse(yaml.load(raw));
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function cloneValue<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneValue(item)) as T;
+  }
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneValue(item)]),
+    ) as T;
+  }
+  return value;
+}
+
+function deepMergeValues(base: unknown, override: unknown): unknown {
+  if (Array.isArray(override)) {
+    return cloneValue(override);
+  }
+
+  if (isPlainObject(base) && isPlainObject(override)) {
+    const merged: Record<string, unknown> = Object.fromEntries(
+      Object.entries(base).map(([key, value]) => [key, cloneValue(value)]),
+    );
+
+    for (const [key, value] of Object.entries(override)) {
+      merged[key] = key in merged ? deepMergeValues(merged[key], value) : cloneValue(value);
+    }
+
+    return merged;
+  }
+
+  return cloneValue(override);
+}
+
+function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
+  const parsed = rawV2AgentConfigSchema.parse(rawConfig);
 
   return {
     id: parsed.id,
     displayName: parsed.display_name,
     type: parsed.type,
     avatarURL: parsed.avatar_url,
+    avatarPath: parsed.avatar_path,
     systemPromptFile: parsed.system_prompt_file,
     mcpServers: parsed.mcp_servers.map((server) => ({
       name: server.name,
@@ -271,6 +310,12 @@ export function loadV2AgentConfig(configPath: string): V2AgentConfig {
   };
 }
 
+export function loadV2AgentConfig(configPath: string): V2AgentConfig {
+  const resolvedConfigPath = resolveConfiguredPath(configPath);
+  const raw = fs.readFileSync(resolvedConfigPath, "utf8");
+  return parseV2AgentConfig(yaml.load(raw));
+}
+
 export function loadAllV2AgentConfigs(configDir = "config/v2/agents"): Map<string, V2AgentConfig> {
   const resolvedConfigDir = resolveConfiguredPath(configDir);
   if (!fs.existsSync(resolvedConfigDir)) {
@@ -288,6 +333,78 @@ export function loadAllV2AgentConfigs(configDir = "config/v2/agents"): Map<strin
   }
 
   return configs;
+}
+
+function findV2AgentConfigDir(baseDir: string): string | undefined {
+  let current = resolveConfiguredPath(baseDir);
+
+  while (true) {
+    for (const candidate of [
+      path.join(current, "v2", "agents"),
+      path.join(current, "config", "v2", "agents"),
+    ]) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
+}
+
+export function loadLayeredV2AgentConfigs(configDir?: string): Map<string, V2AgentConfig> {
+  const rawConfigs = new Map<string, Record<string, unknown>>();
+  const seenV2Dirs = new Set<string>();
+
+  for (const layer of resolveConfigLayers(configDir)) {
+    const v2Dir = findV2AgentConfigDir(layer.dir);
+    if (!v2Dir) {
+      continue;
+    }
+
+    const resolvedV2Dir = fs.realpathSync(v2Dir);
+    if (seenV2Dirs.has(resolvedV2Dir)) {
+      continue;
+    }
+    seenV2Dirs.add(resolvedV2Dir);
+
+    const files = fs
+      .readdirSync(v2Dir)
+      .filter((file) => file.endsWith(".yaml") || file.endsWith(".yml"))
+      .sort((left, right) => left.localeCompare(right));
+
+    const seenIds = new Set<string>();
+    for (const file of files) {
+      const fullPath = path.join(v2Dir, file);
+      const rawDocument = yaml.load(fs.readFileSync(fullPath, "utf8"));
+      if (!isPlainObject(rawDocument)) {
+        throw new Error(`V2 agent config file ${fullPath} must contain a YAML object.`);
+      }
+      const id = z.object({ id: z.string().min(1) }).passthrough().parse(rawDocument).id;
+      if (seenIds.has(id)) {
+        throw new Error(`Duplicate v2 agent config id '${id}' within ${v2Dir}.`);
+      }
+      seenIds.add(id);
+
+      const existing = rawConfigs.get(id);
+      rawConfigs.set(
+        id,
+        existing
+          ? deepMergeValues(existing, rawDocument) as Record<string, unknown>
+          : cloneValue(rawDocument),
+      );
+    }
+  }
+
+  return new Map(
+    [...rawConfigs.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, rawConfig]) => [id, parseV2AgentConfig(rawConfig)]),
+  );
 }
 
 export function isV2RuntimeEnabled(config: V2AgentConfig): boolean {

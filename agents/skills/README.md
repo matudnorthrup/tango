@@ -7,9 +7,9 @@ See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) f
 Purpose:
 - capture reusable "how to do this well" knowledge
 - avoid overloading assistant `knowledge.md` files with cross-domain guidance
-- keep worker `soul.md` files focused on behavior and output rules
+- keep assistant `soul.md` files focused on identity, behavior, and output rules
 
-Prompt assembly loads these docs into worker prompts from `config/defaults/workers/*.yaml` via `skill_doc_ids`.
+Reference these docs deliberately from agent prompts when a V2 agent needs the workflow guidance.
 
 | Doc | Skill ID | Workers | Purpose |
 | --- | --- | --- | --- |

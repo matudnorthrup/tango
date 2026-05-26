@@ -6,10 +6,6 @@ description: >
 enabled: true
 runtime: v2
 
-obsidian_log:
-  domain: Slack
-  job_name: Slack Saved Items Review
-
 schedule:
   cron: "45 4 * * *"
   timezone: America/Los_Angeles
@@ -23,8 +19,9 @@ execution:
   task: |
     Review Devin's Slack saved items.
 
-    1. Use the slack tool with action "saved_items" to get all saved
-       messages.
+    1. Use the slack tool with action "saved_items" and since_hours: 48
+       to get recent saved messages. Do not include older recurring saved
+       items in the daily review unless explicitly requested.
 
     2. For each saved message:
        - Resolve the user ID to a display name using slack action "user_info"
@@ -50,7 +47,9 @@ execution:
     4. For each processed item, call the slack tool with action
        "remove_star", channel_id set to the item's channel_id, and
        timestamp set to the item's ts. This prevents items from
-       repeating in the next daily run.
+       repeating in the next daily run. If the tool returns missing_scope
+       for stars:write, continue the job and include a brief **Note:** in
+       the domain log; do not fail the review because cleanup could not run.
 
     Do NOT write to the daily note (Planning/Daily/). The daily-brief
     aggregator will pull Slack items from this domain log.
@@ -67,7 +66,7 @@ completion:
   scope: daily
 
 policy:
-  max_consecutive_failures: 3
+  max_consecutive_failures: 1
   alert_channel_id: "100000000000000010"
   concurrency_group: watson-tasks
   backoff:

@@ -1,4 +1,6 @@
 import type { AgentConfig } from "@tango/core";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 const DEFAULT_WEBHOOK_NAME = "Tango Replies";
 
@@ -6,6 +8,7 @@ interface ReplyWebhook {
   id: string;
   name?: string | null;
   token?: string | null;
+  edit?(options: { name?: string; avatar?: string }): Promise<ReplyWebhook>;
   send(options: {
     content: string;
     username?: string;
@@ -21,7 +24,7 @@ interface ReplyWebhookCollectionLike {
 interface ReplyWebhookCapableChannel {
   id: string;
   fetchWebhooks(): Promise<ReplyWebhookCollectionLike | ReplyWebhook[]>;
-  createWebhook(options: { name: string }): Promise<ReplyWebhook>;
+  createWebhook(options: { name: string; avatar?: string }): Promise<ReplyWebhook>;
 }
 
 interface ReplyThreadLike {
@@ -82,6 +85,7 @@ export interface PresentedReplyOptions {
   speaker?: AgentConfig | null;
   botDisplayName?: string;
   avatarURL?: string;
+  avatarPath?: string;
 }
 
 export interface ReplyPresenter {
@@ -101,13 +105,27 @@ function titleCaseAgentId(agentId: string): string {
 }
 
 export function resolveSpeakerAvatarURL(
-  speaker: Pick<AgentConfig, "id" | "avatarURL"> | null | undefined,
+  speaker: Pick<AgentConfig, "id" | "avatarURL" | "avatarPath"> | null | undefined,
   fallbackAvatarURL?: string
 ): string | undefined {
-  if (speaker && speaker.id !== "dispatch" && speaker.avatarURL) {
-    return speaker.avatarURL;
+  if (speaker && speaker.id !== "dispatch") {
+    if (speaker.avatarURL) {
+      return speaker.avatarURL;
+    }
+    if (speaker.avatarPath) {
+      return undefined;
+    }
   }
   return fallbackAvatarURL;
+}
+
+export function resolveSpeakerAvatarPath(
+  speaker: Pick<AgentConfig, "id" | "avatarPath"> | null | undefined
+): string | undefined {
+  if (speaker && speaker.id !== "dispatch" && speaker.avatarPath) {
+    return speaker.avatarPath;
+  }
+  return undefined;
 }
 
 export function resolveSpeakerDisplayName(
@@ -215,9 +233,65 @@ export function createReplyPresenter(options?: {
     }
   };
   const webhookCache = new Map<string, Promise<ReplyWebhook | null>>();
+  const avatarDataCache = new Map<string, Promise<string | null>>();
 
-  async function getOrCreateWebhook(target: WebhookTarget): Promise<ReplyWebhook | null> {
-    const cached = webhookCache.get(target.cacheKey);
+  function resolveAvatarPath(avatarPath: string): string {
+    return path.isAbsolute(avatarPath) ? avatarPath : path.resolve(process.cwd(), avatarPath);
+  }
+
+  function mimeTypeForAvatarPath(avatarPath: string): string {
+    const ext = path.extname(avatarPath).toLowerCase();
+    switch (ext) {
+      case ".jpg":
+      case ".jpeg":
+        return "image/jpeg";
+      case ".webp":
+        return "image/webp";
+      case ".gif":
+        return "image/gif";
+      case ".png":
+      default:
+        return "image/png";
+    }
+  }
+
+  async function loadAvatarDataUri(avatarPath: string): Promise<string | null> {
+    const resolvedPath = resolveAvatarPath(avatarPath);
+    const cached = avatarDataCache.get(resolvedPath);
+    if (cached) {
+      return cached;
+    }
+
+    const loading = (async () => {
+      try {
+        const buffer = await fs.readFile(resolvedPath);
+        return `data:${mimeTypeForAvatarPath(resolvedPath)};base64,${buffer.toString("base64")}`;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`[tango-discord] agent avatar file unavailable path=${resolvedPath}: ${message}`);
+        return null;
+      }
+    })();
+
+    avatarDataCache.set(resolvedPath, loading);
+    return loading;
+  }
+
+  function agentWebhookName(agentId: string | undefined, displayName: string): string {
+    const stableName = agentId?.trim() || displayName.trim() || "agent";
+    return `${webhookName} - ${stableName}`.slice(0, 80);
+  }
+
+  async function getOrCreateWebhook(
+    target: WebhookTarget,
+    options?: {
+      webhookName?: string;
+      avatarDataUri?: string | null;
+    },
+  ): Promise<ReplyWebhook | null> {
+    const effectiveWebhookName = options?.webhookName?.trim() || webhookName;
+    const cacheKey = `${target.cacheKey}:${effectiveWebhookName}`;
+    const cached = webhookCache.get(cacheKey);
     if (cached) {
       return cached;
     }
@@ -225,12 +299,21 @@ export function createReplyPresenter(options?: {
     const loading = (async () => {
       try {
         const existing = listWebhooks(await target.sourceChannel.fetchWebhooks());
-        const reusable = existing.find((webhook) => webhook.name === webhookName && webhook.token);
+        const reusable = existing.find((webhook) => webhook.name === effectiveWebhookName && webhook.token);
         if (reusable) {
+          if (options?.avatarDataUri && typeof reusable.edit === "function") {
+            return await reusable.edit({
+              name: effectiveWebhookName,
+              avatar: options.avatarDataUri,
+            });
+          }
           return reusable;
         }
 
-        return await target.sourceChannel.createWebhook({ name: webhookName });
+        return await target.sourceChannel.createWebhook({
+          name: effectiveWebhookName,
+          ...(options?.avatarDataUri ? { avatar: options.avatarDataUri } : {}),
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.warn(
@@ -240,10 +323,10 @@ export function createReplyPresenter(options?: {
       }
     })();
 
-    webhookCache.set(target.cacheKey, loading);
+    webhookCache.set(cacheKey, loading);
     const resolved = await loading;
     if (!resolved) {
-      webhookCache.delete(target.cacheKey);
+      webhookCache.delete(cacheKey);
     }
     return resolved;
   }
@@ -324,7 +407,12 @@ export function createReplyPresenter(options?: {
       const chunks = splitForDiscord(normalized);
       const target = resolveWebhookTarget(sendableChannel);
       if (target) {
-        const webhook = await getOrCreateWebhook(target);
+        const avatarPath = replyOptions?.avatarPath?.trim();
+        const avatarDataUri = avatarPath ? await loadAvatarDataUri(avatarPath) : null;
+        const webhook = await getOrCreateWebhook(target, {
+          webhookName: avatarDataUri ? agentWebhookName(speaker?.id, intendedDisplayName) : undefined,
+          avatarDataUri,
+        });
         if (webhook) {
           let sentViaWebhook = 0;
           let lastMsgId: string | undefined;
@@ -333,7 +421,7 @@ export function createReplyPresenter(options?: {
               const sent = await webhook.send({
                 content: chunk,
                 username: intendedDisplayName,
-                avatarURL: replyOptions?.avatarURL,
+                avatarURL: avatarDataUri ? undefined : replyOptions?.avatarURL,
                 ...(target.threadId ? { threadId: target.threadId } : {})
               });
               const sentObj = sent as { id?: string } | null | undefined;

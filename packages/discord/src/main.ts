@@ -71,7 +71,7 @@ import {
   resolveConfigDir,
   resolveConfiguredPath,
   resolveDatabasePath,
-  loadAllV2AgentConfigs,
+  loadLayeredV2AgentConfigs,
   renderContextPacket,
   planSessionCompaction,
   SessionManager,
@@ -90,6 +90,11 @@ import {
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
+import {
+  createDailyNoteBootstrapHandler,
+  createMorningFlowSentinelHandler,
+} from "./morning-flow.js";
+import { createDailyBriefAggregationHandler } from "./daily-brief-aggregator.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
 import { z } from "zod";
@@ -140,6 +145,7 @@ import {
 import {
   createReplyPresenter,
   DeliveryError,
+  resolveSpeakerAvatarPath,
   resolveSpeakerAvatarURL,
   resolveSpeakerDisplayName,
   type PresentedReplyResult,
@@ -192,7 +198,7 @@ import {
   VOICE_V2_TTS_ERROR_MESSAGE,
 } from "./voice-turn-runtime-routing.js";
 import {
-  isVictorPersistentSessionActive,
+  isVictorManualConsoleBridgeActive,
   sendToVictorInbox,
   waitForVictorResponse,
   type VictorBridgeMessage,
@@ -476,7 +482,7 @@ const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !==
 const storage = new TangoStorage(dbPath);
 // Manual enablement: flip config/v2/agents/<agent>.yaml runtime.provider to
 // "claude-code-v2" and restart the bot. Keep committed configs on "legacy".
-const v2Configs = loadAllV2AgentConfigs();
+const v2Configs = loadLayeredV2AgentConfigs(configDir);
 const v2EnabledAgents = buildV2EnabledAgentSet(v2Configs);
 const atlasMemoryClient = new AtlasMemoryClient();
 const tangoRouter = new TangoRouter({
@@ -638,6 +644,9 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
 
 registerDeterministicHandler("contacts-sync", contactsSyncHandler);
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
+registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
+registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
+registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
 
 let cachedLunchMoneyApiKey: string | null = null;
 const RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN = 3;
@@ -3059,7 +3068,8 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     });
   };
 
-  if (targetAgent.id === "victor" && isVictorPersistentSessionActive()) {
+  // Victor manual-console bridge: route voice to VICTOR-COS only when explicitly enabled.
+  if (targetAgent.id === "victor" && isVictorManualConsoleBridgeActive()) {
     try {
       const bridgeMessage: VictorBridgeMessage = {
         id: randomUUID(),
@@ -6013,7 +6023,8 @@ async function handleMessage(
     return;
   }
 
-  if (targetAgent.id === "victor" && isVictorPersistentSessionActive()) {
+  // Victor manual-console bridge: route to VICTOR-COS only when explicitly enabled.
+  if (targetAgent.id === "victor" && isVictorManualConsoleBridgeActive()) {
     const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
     const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
     let typingInterval: ReturnType<typeof setInterval> | undefined;

@@ -17,33 +17,37 @@ execution:
   task: |
     Review Devin's Slack saved items.
 
-    1. Use the slack tool with action "saved_items" to get all saved messages.
+    1. Use the slack tool with action "saved_items" and since_hours: 48
+       to get recent saved messages. Do not include older recurring saved
+       items unless this manual test is explicitly being used for backlog
+       cleanup.
 
     2. For each saved message:
        - Resolve the user ID to a display name using slack action "user_info"
        - Write a one-line summary of what the message is about
        - Include the permalink
 
-    3. Write to Obsidian daily note at Planning/Daily/YYYY-MM-DD.md:
-       - Determine today's date in America/Los_Angeles timezone
-       - Add a "## Slack Saved Items" section
-       - For each item, add a task line: - [ ] [Summary](permalink) — #channel-name
-       - Use direct filesystem I/O (NOT obsidian-cli)
-       - If the file doesn't exist yet, create it with minimal frontmatter
-       - If the section already exists, replace it
-
-    4. Append to domain log at Records/Jobs/Slack/YYYY-MM.md:
-       - Follow the standard domain job log format:
+    3. Write to the domain log at Records/Jobs/Slack/YYYY-MM.md using
+       direct filesystem I/O (NOT obsidian-cli):
+       - Determine today's date and time in America/Los_Angeles timezone
+       - Append a new entry with this format:
          ## YYYY-MM-DD HH:MM — Slack Saved Items Review
          **Status:** Done — N items found
-         **Summary:** Saved messages from #channel1 (count), #channel2 (count)
-       - Create the file/directory if it doesn't exist
+         **Items:**
+         - [ ] [Summary](permalink) — #channel-name
+       - If no saved items are found, write:
+         ## YYYY-MM-DD HH:MM — Slack Saved Items Review
+         **Status:** Done — 0 items found
+       - Create the file/directory if it doesn't exist.
 
-    5. If no saved items found, still write the domain log entry
-       (Status: Done — 0 items found) but skip the daily note section.
+    4. For each processed item, call the slack tool with action
+       "remove_star", channel_id set to the item's channel_id, and
+       timestamp set to the item's ts. If the tool returns missing_scope
+       for stars:write, continue the job and include a brief **Note:** in
+       the domain log; do not fail the review because cleanup could not run.
 
-    Important: The daily note path is ~/Documents/main/Planning/Daily/YYYY-MM-DD.md
-    The domain log path is ~/Documents/main/Records/Jobs/Slack/YYYY-MM.md
+    Do NOT write to the daily note (Planning/Daily/). The daily-brief
+    aggregator will pull Slack items from this domain log.
   timeout_seconds: 180
 
 provider:

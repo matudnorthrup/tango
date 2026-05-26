@@ -1,8 +1,12 @@
 import type { AgentConfig } from "@tango/core";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   DeliveryError,
   createReplyPresenter,
+  resolveSpeakerAvatarPath,
   resolveSpeakerAvatarURL,
   resolveSpeakerDisplayName,
   splitForDiscord,
@@ -21,16 +25,17 @@ function createWebhook(name = "Tango Replies") {
     id: "webhook-1",
     name,
     token: "token-1",
+    edit: vi.fn(async () => createWebhook(name)),
     send: vi.fn(async () => undefined)
   };
 }
 
-function createWebhookChannel(webhook = createWebhook()) {
+function createWebhookChannel(webhook = createWebhook(), existingWebhooks?: ReturnType<typeof createWebhook>[]) {
   return {
     id: "channel-1",
     isSendable: () => true,
     send: vi.fn(async () => undefined),
-    fetchWebhooks: vi.fn(async () => [webhook]),
+    fetchWebhooks: vi.fn(async () => existingWebhooks ?? [webhook]),
     createWebhook: vi.fn(async () => webhook)
   };
 }
@@ -88,6 +93,33 @@ describe("resolveSpeakerAvatarURL", () => {
       )
     ).toBe("https://example.com/fallback.webp");
   });
+
+  it("does not use the bot fallback when a local avatar path is configured", () => {
+    expect(
+      resolveSpeakerAvatarURL(
+        createAgent({
+          id: "porter",
+          type: "lds-companion",
+          avatarPath: "agents/assistants/porter/avatar.png"
+        }),
+        "https://example.com/fallback.webp"
+      )
+    ).toBeUndefined();
+  });
+});
+
+describe("resolveSpeakerAvatarPath", () => {
+  it("uses local avatar paths for agents", () => {
+    expect(
+      resolveSpeakerAvatarPath(
+        createAgent({
+          id: "porter",
+          type: "lds-companion",
+          avatarPath: "agents/assistants/porter/avatar.png"
+        })
+      )
+    ).toBe("agents/assistants/porter/avatar.png");
+  });
 });
 
 describe("createReplyPresenter", () => {
@@ -119,6 +151,41 @@ describe("createReplyPresenter", () => {
       avatarURL: "https://example.com/avatar.png"
     });
     expect(channel.send).not.toHaveBeenCalled();
+  });
+
+  it("creates a per-agent webhook with a local avatar file", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-avatar-"));
+    const avatarPath = path.join(tempDir, "porter.png");
+    fs.writeFileSync(avatarPath, Buffer.from("local-avatar"));
+    const webhook = createWebhook("Tango Replies - porter");
+    const channel = createWebhookChannel(webhook, []);
+    const presenter = createReplyPresenter({ systemDisplayName: "Tango" });
+
+    try {
+      const result = await presenter.sendChunked(channel, "steady now", {
+        speaker: createAgent({
+          id: "porter",
+          type: "lds-companion",
+          displayName: "Porter",
+          avatarPath,
+        }),
+        botDisplayName: "Tango",
+        avatarPath,
+      });
+
+      expect(result.delivery).toBe("webhook");
+      expect(channel.createWebhook).toHaveBeenCalledWith({
+        name: "Tango Replies - porter",
+        avatar: `data:image/png;base64,${Buffer.from("local-avatar").toString("base64")}`,
+      });
+      expect(webhook.send).toHaveBeenCalledWith({
+        content: "steady now",
+        username: "Porter",
+        avatarURL: undefined,
+      });
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("uses the parent channel webhook when sending into a thread", async () => {

@@ -1,7 +1,7 @@
 id: productivity.slack_saved_review
 domain: productivity
 display_name: Slack Saved Items Review
-description: Review Slack messages a user bookmarked with reactions, summarize them, and write the results into the daily note and Slack job log.
+description: Review recent Slack saved messages, summarize them, and write the results into the Slack domain job log for daily brief aggregation.
 mode: mixed
 route:
   kind: worker
@@ -14,7 +14,7 @@ slots:
     required: false
     inferable: true
 examples:
-  - Review my saved Slack items and add them to today's daily note.
+  - Review my saved Slack items and add them to the Slack domain log.
   - Run the Slack saved items review.
 classifier_hints:
   - Use for workflows that gather bookmarked Slack messages and persist the results into local notes or logs.

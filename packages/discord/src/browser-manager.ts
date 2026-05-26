@@ -639,8 +639,17 @@ export class BrowserManager {
             if (label) parts.push(`"${label}"`);
 
             const inputEl = el as HTMLInputElement;
+            const inputMeta = [
+              inputEl.type,
+              inputEl.name,
+              inputEl.id,
+              inputEl.autocomplete,
+              inputEl.getAttribute("aria-label") || "",
+            ].join(" ");
+            const sensitiveInput = /password|token|otp|mfa|one[-_\\s]?time|passcode|security\\s+code/i.test(inputMeta);
             if (
               inputEl.value &&
+              !sensitiveInput &&
               !["BUTTON", "A", "SUMMARY"].includes(el.tagName)
             ) {
               parts.push(`value="${inputEl.value.substring(0, 80)}"`);
@@ -754,7 +763,7 @@ export class BrowserManager {
     if (count === 0) throw new Error(`Ref ${ref} not found. Re-snapshot.`);
 
     await locator.fill(value, { timeout: 10_000 });
-    return `Filled [${ref}] with "${value}"`;
+    return `Filled [${ref}]`;
   }
 
   /** Upload one or more files into a file input by ref. */
@@ -1755,7 +1764,7 @@ export class BrowserManager {
 
     await locator.click({ timeout: 5_000 });
     await locator.pressSequentially(text, { delay: 50, timeout: 30_000 });
-    return `Typed "${text}" into [${ref}]`;
+    return `Typed into [${ref}]`;
   }
 
   /** Press a keyboard key (Enter, Tab, Escape, ArrowDown, etc.) */

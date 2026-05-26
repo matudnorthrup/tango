@@ -61,12 +61,12 @@ sync_tmux_service_environment "$SESSION"
 # 2. Whisper STT server (port 8178) - main
 echo "[2/6] Whisper server (main)..."
 tango_service_tmux new-window -t "$SESSION" -n whisper-main \
-  'whisper-server --model ~/whisper-models/ggml-small.en.bin --port 8178 --language en --prompt "Malibu Watson Sierra Tango Victor"'
+  'whisper-server --model ~/whisper-models/ggml-small.en.bin --port 8178 --language en --prompt "Malibu Watson Sierra Tango Victor Porter"'
 
 # 3. Whisper STT server (port 8179) - partials
 echo "[3/6] Whisper server (partials)..."
 tango_service_tmux new-window -t "$SESSION" -n whisper-partials \
-  'whisper-server --model ~/whisper-models/ggml-small.en.bin --port 8179 --language en --prompt "Malibu Watson Sierra Tango Victor Charlie Tango"'
+  'whisper-server --model ~/whisper-models/ggml-small.en.bin --port 8179 --language en --prompt "Malibu Watson Sierra Tango Victor Charlie Porter Tango"'
 
 # 4. OwnTracks receiver (port 3456)
 echo "[4/6] OwnTracks receiver..."
