@@ -40,9 +40,9 @@ export interface ScheduleExecutionConfig {
   /** Worker ID for agent and conditional-agent modes */
   workerId?: string;
   /**
-   * Explicit deterministic intent IDs for scheduled agent runs.
-   * When provided, the scheduler routes this job through the deterministic
-   * turn runtime instead of calling the worker bridge directly.
+   * Historical deterministic intent IDs for scheduled agent runs.
+   * Retained as metadata for migrated schedules; agent schedules now run
+   * through the v2 runtime instead of the legacy deterministic turn runtime.
    */
   intentIds?: string[];
   /**
@@ -122,7 +122,7 @@ export interface ScheduleConfig {
   displayName?: string;
   description: string;
   enabled: boolean;
-  /** Runtime to use for agent execution: 'legacy' (default) or 'v2' (Claude Code adapter) */
+  /** Runtime to use for agent execution. Agent schedules must use 'v2'. */
   runtime?: "legacy" | "v2";
   schedule: ScheduleTimingConfig;
   execution: ScheduleExecutionConfig;
@@ -207,32 +207,6 @@ export type PreCheckResult =
   | { action: "proceed"; context: Record<string, unknown> };
 
 export type PreCheckHandler = (ctx: HandlerContext) => Promise<PreCheckResult>;
-
-// ============================================================
-// Worker Execution Function Type
-// ============================================================
-
-/** Function signature for executing an agent worker. Injected by main.ts. */
-export type WorkerExecuteFn = (
-  workerId: string,
-  task: string,
-  model?: string,
-  reasoningEffort?: ProviderReasoningEffort,
-) => Promise<{ text: string; durationMs: number }>;
-
-/** Function signature for executing a scheduled turn via the deterministic runtime. */
-export type ScheduledTurnExecuteFn = (input: {
-  config: ScheduleConfig;
-  workerId: string;
-  task: string;
-  model?: string;
-  reasoningEffort?: ProviderReasoningEffort;
-}) => Promise<{
-  text: string;
-  durationMs: number;
-  modelUsed?: string;
-  metadata?: Record<string, unknown>;
-}>;
 
 /** Function signature for executing a scheduled turn via the v2 Claude Code runtime. */
 export type V2ScheduledTurnExecuteFn = (input: {

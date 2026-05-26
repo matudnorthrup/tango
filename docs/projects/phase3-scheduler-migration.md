@@ -1,10 +1,31 @@
 # Phase 3: Scheduler v2 Migration Plan
 
-**Status:** Tier 1 + Tier 2 migrated to v2 — Tier 3 left on legacy per plan
+**Status:** Agent schedules configured and validated for v2 — legacy scheduler execution path retired
 **Linear:** [Tango Architecture Rebuild](https://linear.app/seaside-hq/project/tango-architecture-rebuild-8b6d65e9227d), Phase 3 milestone
-**Date:** 2026-04-21
+**Last updated:** 2026-05-25
 
 ---
+
+## Current Status (2026-05-25)
+
+This document originally described a staged rollout where Tier 3 stayed on legacy. The current config has moved beyond that plan:
+
+- `nightly-transaction-categorizer` and `receipt-cataloger` now have `runtime: v2`.
+- Newer agent schedules such as `daily-brief`, `slack-mention-scan`, `slack-saved-review`, and `cos-pulse` also use `runtime: v2`.
+- Deterministic schedules such as `memory-reflections`, `memory-obsidian-index`, `contacts-sync`, `health-daily-reset`, `printer-monitor`, and `active-threads-tracker` remain on direct handlers; `runtime: v2` is not relevant to them.
+
+Validation snapshot:
+
+| Evidence | Result |
+|----------|--------|
+| `v2-bridge-smoke-test` manual trigger after bot restart on 2026-05-25 | PASS — v2 fresh runtime returned successfully in ~5s |
+| `daily-brief` natural/manual run on 2026-05-25 14:51Z | PASS — runtime:v2, output written |
+| `slack-mention-scan` run on 2026-05-25 15:00Z | PASS — runtime:v2, output written |
+| `scripts/deterministic-schedule-validation.sh` on 2026-05-25 21:02Z | PASS — manual finance/email schedule harness completed |
+| `scripts/deterministic-schedule-validation.sh` after legacy-entrypoint cleanup on 2026-05-25 21:53Z | PASS — final restarted bot; transaction categorizer ran on v2 in 45.4s, receipt/email test jobs skipped because already completed |
+| Early May 25 scheduled runs | FAIL — `Claude Code exited with code 1. No stderr output.` for several v2 schedules |
+
+Ship gate: TGO-516/TGO-518/TGO-517 were closed in Linear on 2026-05-25 with validation evidence. Cleanup work on 2026-05-25 removed the scheduler's legacy agent execution branches: agent and conditional-agent schedules must now set `runtime: v2`, while deterministic schedules continue to call direct handlers.
 
 ## Overview
 
@@ -48,7 +69,7 @@ User-impacting or involves write operations. Should only flip after at least one
 | `weekly-finance-review` | Sun 7:00am | Watson | agent | Financial data, early morning. User reviews output. |
 | `sinking-fund-reconciliation` | Sun 7:00am | Watson | conditional | Financial writes, runs with pre-check. Same time as finance review. |
 | `sinking-fund-reconciliation-month-end` | 28-29th 7:00am | Watson | conditional | Month-end financial, time-sensitive window. |
-| `daily-email-review` | Daily 4:00pm | Watson | agent | Currently **disabled** — safe to flip when re-enabled. |
+| `daily-email-review` | Daily 4:00pm | Watson | agent | Inbox writes/archive actions; validate with manual-test schedule before relying on natural run. |
 
 **Recommendation:** After 2+ successful Tier 1 runs, flip `morning-planning` on a day the stakeholder is available to observe. Then `weekly-finance-review` on a Sunday.
 
@@ -98,7 +119,6 @@ These are either disabled or used for manual testing only. No action needed.
 | `manual-test-slack-summary` | Disabled | Test variant |
 | `manual-test-weekly-finance-review` | Disabled | Test variant |
 | `manual-test-receipt-cataloger` | Disabled | Test variant |
-| `daily-email-review` | Disabled | Production disabled |
 
 ---
 
@@ -140,18 +160,19 @@ Phase 3d — Tier 2 rollout (DONE, 2026-04-21):
   [x] Flip `weekly-finance-review` to v2
   [x] Flip `sinking-fund-reconciliation` to v2
   [x] Flip `sinking-fund-reconciliation-month-end` to v2
-  [x] Flip `daily-email-review` to v2 (disabled, config ready)
+  [x] Flip `daily-email-review` to v2
   Note: Tier 2 triggers hit completion tracking (already ran today on legacy).
-  Natural validation: each will fire on v2 at next scheduled time.
+  May 25 validation: `manual-test-daily-email-review` ran successfully on v2.
 
-Phase 3e — Tier 3 rollout (NOT STARTED — left on legacy per plan):
-  [ ] `nightly-transaction-categorizer` — DO NOT flip without overnight observation plan
-  [ ] `receipt-cataloger` — DO NOT flip without overnight observation plan
+Phase 3e — Tier 3 rollout (DONE as of 2026-05-25):
+  [x] `nightly-transaction-categorizer` config now has `runtime: v2`
+  [x] `receipt-cataloger` config now has `runtime: v2`
+  [x] Validate both through manual-test schedules or observed natural runs
   Reason: fires overnight (11pm, 2am), involves financial writes and browser automation.
-  Stakeholder will flip manually when they can observe.
+  Validation evidence: deterministic schedule validation passed after final cleanup restart on 2026-05-25.
 ```
 
-### Validation Results (2026-04-21)
+### Validation Results (2026-04-21 + 2026-05-25)
 
 | Schedule | Tier | runtime:v2 | Manual Trigger | Result |
 |----------|------|------------|----------------|--------|
@@ -165,9 +186,14 @@ Phase 3e — Tier 3 rollout (NOT STARTED — left on legacy per plan):
 | weekly-finance-review | T2 | Yes | Ran on legacy (stale PID) | Config verified, awaiting next fire |
 | sinking-fund-reconciliation | T2 | Yes | Ran on legacy (stale PID) | Config verified, awaiting next fire |
 | sinking-fund-reconciliation-month-end | T2 | Yes | Ran on legacy (stale PID) | Config verified, awaiting next fire |
-| daily-email-review | T2 | Yes | Ran on legacy (stale PID) | Config verified, awaiting next fire |
-| nightly-transaction-categorizer | T3 | No | — | Left on legacy |
-| receipt-cataloger | T3 | No | — | Left on legacy |
+| daily-email-review | T2 | Yes | 2026-05-25 manual-test run ok 171s | v2 validated |
+| nightly-transaction-categorizer | T3 | Yes | 2026-05-25 final cleanup run ok 51.9s | v2 validated |
+| receipt-cataloger | T3 | Yes | 2026-05-25 manual-test run ok 277s | v2 validated |
+
+Final cleanup validation after deleting the legacy entrypoint/runtime files:
+- `scripts/tmux/restart.sh` rebuilt all packages and restarted the bot.
+- `v2-bridge-smoke-test` passed in 5.8s with `runtime:v2`.
+- `scripts/deterministic-schedule-validation.sh` passed; weekly finance skipped as already completed, nightly transaction categorizer ran on v2 and delivered, receipt/email skipped as already completed earlier on 2026-05-25.
 
 ### Issue Discovered: Stale Bot Process
 
@@ -177,7 +203,7 @@ During validation, discovered that `tmux send-keys C-c` was not reliably killing
 
 ## Rollback
 
-Each schedule can be rolled back independently by removing the `runtime: v2` line from its YAML (or setting `runtime: legacy`). The legacy execution path is untouched and runs in parallel.
+There is no longer an in-process legacy agent execution rollback. Rollback would require reverting the cleanup commit/PR or adding a new explicit fallback path. Direct deterministic schedules remain available because they are handler functions, not legacy LLM orchestration.
 
 ---
 

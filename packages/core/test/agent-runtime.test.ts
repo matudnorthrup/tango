@@ -73,7 +73,7 @@ function createConfig(overrides: Partial<AgentRuntimeConfig> = {}): AgentRuntime
       },
     ],
     runtimePreferences: {
-      model: "sonnet",
+      model: "claude-sonnet-4-6",
       reasoningEffort: "high",
       maxTokens: 1024,
       timeout: 1_000,
@@ -146,7 +146,7 @@ describe("ClaudeCodeAdapter", () => {
       "--append-system-prompt",
       "--mcp-config",
       "--model",
-      "sonnet",
+      "claude-sonnet-4-6",
       "--effort",
       "high",
       "--max-tokens",
@@ -214,6 +214,132 @@ describe("ClaudeCodeAdapter", () => {
 
     const [, secondArgs] = spawnMock.mock.calls[1] as [string, string[]];
     expect(secondArgs).toEqual(expect.arrayContaining(["--resume", "session-abc"]));
+
+    await adapter.teardown();
+  });
+
+  it("falls back to secondary Claude on authentication failure and keeps that session command", async () => {
+    const primaryChild = new MockChildProcess();
+    const secondaryFirstChild = new MockChildProcess();
+    const secondarySecondChild = new MockChildProcess();
+    spawnMock
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          primaryChild.stdout.write(
+            JSON.stringify({
+              type: "assistant",
+              message: {
+                content: [
+                  {
+                    type: "text",
+                    text: "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+                  },
+                ],
+              },
+            }) + "\n",
+          );
+          primaryChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: true,
+              session_id: "primary-session",
+              error: "authentication_failed",
+            }) + "\n",
+          );
+          primaryChild.close(1, null);
+        });
+        return primaryChild;
+      })
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          secondaryFirstChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: false,
+              result: "Recovered on secondary",
+              session_id: "secondary-session",
+            }) + "\n",
+          );
+          secondaryFirstChild.close(0, null);
+        });
+        return secondaryFirstChild;
+      })
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          secondarySecondChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: false,
+              result: "Continued on secondary",
+              session_id: "secondary-session",
+            }) + "\n",
+          );
+          secondarySecondChild.close(0, null);
+        });
+        return secondarySecondChild;
+      });
+
+    const adapter = new ClaudeCodeAdapter({
+      command: "claude",
+      fallbackCommand: "/tmp/claude-secondary",
+    });
+    await adapter.initialize(createConfig());
+
+    const firstResponse = await adapter.send("Hello Claude");
+    const secondResponse = await adapter.send("Continue");
+
+    expect(firstResponse.text).toBe("Recovered on secondary");
+    expect(secondResponse.text).toBe("Continued on secondary");
+    expect(adapter.getSessionId()).toBe("secondary-session");
+    expect(spawnMock).toHaveBeenCalledTimes(3);
+
+    const [firstCommand] = spawnMock.mock.calls[0] as [string, string[]];
+    const [secondCommand, secondArgs] = spawnMock.mock.calls[1] as [string, string[]];
+    const [thirdCommand, thirdArgs] = spawnMock.mock.calls[2] as [string, string[]];
+    expect(firstCommand).toBe("claude");
+    expect(secondCommand).toBe("/tmp/claude-secondary");
+    expect(secondArgs).not.toContain("--resume");
+    expect(thirdCommand).toBe("/tmp/claude-secondary");
+    expect(thirdArgs).toEqual(expect.arrayContaining(["--resume", "secondary-session"]));
+  });
+
+  it("surfaces Claude authentication details when no fallback command is configured", async () => {
+    const child = new MockChildProcess();
+    spawnMock.mockImplementation(() => {
+      queueMicrotask(() => {
+        child.stdout.write(
+          JSON.stringify({
+            type: "assistant",
+            message: {
+              content: [
+                {
+                  type: "text",
+                  text: "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+                },
+              ],
+            },
+          }) + "\n",
+        );
+        child.stdout.write(
+          JSON.stringify({
+            type: "result",
+            is_error: true,
+            error: "authentication_failed",
+          }) + "\n",
+        );
+        child.close(1, null);
+      });
+      return child;
+    });
+
+    const adapter = new ClaudeCodeAdapter({
+      command: "claude",
+      fallbackCommand: null,
+    });
+    await adapter.initialize(createConfig());
+
+    await expect(adapter.send("Hello Claude")).rejects.toThrow(/Failed to authenticate|authentication_failed/u);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
 
     await adapter.teardown();
   });

@@ -180,7 +180,7 @@ describe("loadSessionConfigs", () => {
 });
 
 describe("loadAgentConfigs", () => {
-  it("loads Victor defaults as operations with operations workers", () => {
+  it("loads Victor defaults without requiring legacy worker configs", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     process.env.TANGO_CONFIG_DIR = defaultsDir;
 
@@ -205,12 +205,7 @@ describe("loadAgentConfigs", () => {
       toolContractIds: ["linear", "obsidian"],
     });
 
-    const operationsWorker = loadWorkerConfigs(defaultsDir).find((worker) => worker.id === "operations-assistant");
-    expect(operationsWorker).toMatchObject({
-      type: "operations",
-      ownerAgentId: "victor",
-      toolContractIds: ["linear", "obsidian", "memory_search", "memory_add", "memory_reflect"],
-    });
+    expect(loadWorkerConfigs(defaultsDir)).toEqual([]);
   });
 
   it("parses per-agent access policy fields", () => {
@@ -270,7 +265,7 @@ describe("loadAgentConfigs", () => {
         "type: operations",
         "provider:",
         "  default: claude-oauth",
-        "  model: opus",
+        "  model: claude-opus-4-6",
         "  reasoning_effort: max",
         "  fallback:",
         "    - codex"
@@ -280,7 +275,7 @@ describe("loadAgentConfigs", () => {
     const agents = loadAgentConfigs(dir);
     expect(agents[0]?.provider).toEqual({
       default: "claude-oauth",
-      model: "opus",
+      model: "claude-opus-4-6",
       reasoningEffort: "max",
       fallback: ["codex"],
     });
@@ -429,7 +424,7 @@ describe("loadAgentConfigs", () => {
         "  confidence_threshold: 0.82",
         "  provider:",
         "    default: claude-oauth",
-        "    model: sonnet",
+        "    model: claude-sonnet-4-6",
         "    reasoning_effort: low",
         "    fallback:",
         "      - codex"
@@ -444,7 +439,7 @@ describe("loadAgentConfigs", () => {
       confidenceThreshold: 0.82,
       provider: {
         default: "claude-oauth",
-        model: "sonnet",
+        model: "claude-sonnet-4-6",
         reasoningEffort: "low",
         fallback: ["codex"],
       },
@@ -494,6 +489,20 @@ describe("loadIntentContractConfigs", () => {
 });
 
 describe("loadScheduleConfigs", () => {
+  it("keeps default schedule provider models canonical", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+    const schedules = loadScheduleConfigs(defaultsDir);
+    const shortAliasModels = schedules
+      .map((schedule) => ({
+        id: schedule.id,
+        model: schedule.provider?.model,
+      }))
+      .filter((entry) => entry.model === "sonnet" || entry.model === "haiku" || entry.model === "opus");
+
+    expect(shortAliasModels).toEqual([]);
+  });
+
   it("parses deterministic schedule intent routing fields", () => {
     const dir = createTempConfigDir();
     fs.writeFileSync(
@@ -671,7 +680,7 @@ describe("loadWorkerConfigs", () => {
     });
   });
 
-  it("assembles worker soul prompts from soul, shared files, and knowledge only", () => {
+  it("assembles worker soul prompts from soul, shared files, and knowledge", () => {
     const dir = createTempConfigDir();
     const workerPromptDir = path.join(dir, "agents", "workers", "recipe-librarian");
     fs.mkdirSync(workerPromptDir, { recursive: true });
@@ -707,12 +716,19 @@ describe("loadWorkerConfigs", () => {
       promptFile: path.join(workerPromptDir, "soul.md"),
     });
     expect(workers[0]?.prompt).toContain("recipe soul");
+    expect(workers[0]?.prompt).not.toContain("shared agents");
     expect(workers[0]?.prompt).toContain("shared rules");
     expect(workers[0]?.prompt).toContain("shared user");
     expect(workers[0]?.prompt).toContain("recipe knowledge");
-    expect(workers[0]?.prompt).not.toContain("shared agents");
     expect(workers[0]?.prompt).not.toContain("recipe tool doc");
     expect(workers[0]?.prompt).not.toContain("recipe skill doc");
+  });
+
+  it("returns an empty list when no legacy worker configs are present", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+
+    expect(loadWorkerConfigs(defaultsDir)).toEqual([]);
   });
 });
 

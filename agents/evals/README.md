@@ -2,7 +2,7 @@
 
 Evaluation fixtures and prompt snapshots for Tango's agent system.
 
-See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) for the current directory layout and prompt-assembly inputs these evals should cover.
+See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) for the current directory layout and system-prompt inputs these evals should cover.
 
 Suggested subdirectories:
 - `routing/` — expected assistant/worker selection
