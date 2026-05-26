@@ -35,11 +35,6 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "linear"]
     env:
       ALLOWED_TOOL_IDS: "linear"
-  - name: imessage
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "imessage"]
-    env:
-      ALLOWED_TOOL_IDS: "imessage"
   - name: slack
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "slack"]
