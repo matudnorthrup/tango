@@ -1,5 +1,5 @@
 /**
- * Prompt Assembly — Convention-based multi-file prompt loading.
+ * System Prompt — Convention-based multi-file prompt loading.
  *
  * Assembles a full system prompt by reading conventional files from the
  * agent's directory and shared root files.
@@ -12,7 +12,9 @@
  *   5. prompts/<kind>/<id>/*   (optional profile-owned prompt overlays)
  *
  * Missing files are silently skipped. If no files are found at all,
- * returns a minimal fallback prompt.
+ * returns a minimal fallback prompt. Legacy AGENTS.md and workers.md files
+ * are intentionally excluded so V2 runtimes do not inherit dispatch
+ * instructions.
  */
 
 import * as fs from "node:fs";
@@ -113,7 +115,8 @@ export function traceAgentPrompt(
   });
 
   // ── Shared files from agents/ root ──────────────────────────────
-  for (const filename of ["RULES.md", "USER.md"]) {
+  const sharedFiles = ["RULES.md", "USER.md"];
+  for (const filename of sharedFiles) {
     appendFileSection({
       filePath: path.join(sharedDir, filename),
       kind: "shared",
@@ -123,7 +126,8 @@ export function traceAgentPrompt(
   }
 
   // ── Optional per-agent files ────────────────────────────────────
-  for (const filename of ["knowledge.md"]) {
+  const agentFiles = ["knowledge.md"];
+  for (const filename of agentFiles) {
     appendFileSection({
       filePath: path.join(agentDir, filename),
       kind: "base",
@@ -167,6 +171,7 @@ function appendOverlayDir(
     filenames = fs
       .readdirSync(dir)
       .filter((f) => f.endsWith(".md"))
+      .filter((f) => f !== "workers.md")
       .sort();
   } catch {
     return;

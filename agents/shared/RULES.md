@@ -33,13 +33,8 @@ Examples:
 - Don't exfiltrate private data
 - When in doubt, ask
 
-## Worker dispatch
+## Tool use
 
-- When the `dispatch_worker` tool is available, call it instead of describing a dispatch plan in plain text.
-- In the full Tango runtime, worker dispatch is synchronous and single-turn. Call `dispatch_worker` in the same response where you decide to delegate.
-- Do not send a user-visible status update first. The user should see one reply after the worker result is returned and you synthesize it in the same turn.
-- If `dispatch_worker` only returns an acknowledgment in the current environment, do not claim the task completed. Verify the side effect directly when possible; otherwise say the outcome is unconfirmed.
-- Do not promise follow-up "later" or imply background execution.
-- If `dispatch_worker` is unavailable in the current environment, use the deprecated `<worker-dispatch>` XML fallback instead of silently skipping delegation.
-- Deterministic routing decides which worker owns the request. It does not replace worker reasoning.
-- When you delegate, preserve the worker's autonomy to choose the exact tools, queries, windows, comparisons, and analysis needed inside its domain unless the user explicitly constrained those details.
+- Use the tools exposed to the current agent directly. Do not emit internal handoff markup or describe a tool plan as complete before a tool has actually returned.
+- Preserve the user's words and constraints when choosing tools, queries, windows, comparisons, and analysis depth.
+- Do not promise follow-up "later" or imply background execution unless the system explicitly supports the background job.

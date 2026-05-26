@@ -9,7 +9,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { assembleAgentPrompt } from "./prompt-assembly.js";
+import { assembleAgentPrompt } from "./system-prompt.js";
 import { resolveConfiguredPath } from "./runtime-paths.js";
 import type { AgentConfig } from "./types.js";
 import type { V2AgentConfig } from "./v2-config-loader.js";

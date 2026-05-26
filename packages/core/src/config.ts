@@ -7,7 +7,7 @@ import {
   resolveRepoDefaultsConfigDir,
   traceConfigCategory,
 } from "./config-layering.js";
-import { assembleAgentPrompt } from "./prompt-assembly.js";
+import { assembleAgentPrompt } from "./system-prompt.js";
 import {
   resolveConfiguredConfigDir,
   resolveConfiguredPath,
@@ -496,7 +496,7 @@ export function loadWorkerConfigs(configDir: string): WorkerConfig[] {
   return loadLayeredConfigCategory({
     category: "workers",
     configDir,
-    required: true,
+    required: false,
     schema: workerSchema,
     map: (parsed, trace) => {
       const { prompt, promptFile } = resolvePromptFields(

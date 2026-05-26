@@ -1,10 +1,55 @@
 # Tango Architecture Rebuild
 
-**Status:** Discovery complete — awaiting stakeholder review
+**Status:** Cleanup validation passed — v2 runtime is live and legacy execution code/config has been removed
 **Linear Project:** [Tango Architecture Rebuild](https://linear.app/seaside-hq/project/tango-architecture-rebuild-8b6d65e9227d) (`afa8073d-dc7e-43e2-90a5-fc44a0c89ba9`)
-**Date:** 2026-04-21
+**Last updated:** 2026-05-25
 
 ---
+
+## 0. Current State (2026-05-25)
+
+The rebuild is no longer in discovery. The v2 architecture is live across the main interactive agents and the scheduler bridge:
+
+- All v2 agent configs in `config/v2/agents/` use `runtime.provider: claude-code-v2`.
+- Agent schedules that need LLM execution now carry `runtime: v2`; deterministic maintenance schedules remain on direct handlers and do not use the runtime bridge.
+- `packages/core/src/agent-runtime.ts`, `packages/core/src/claude-code-adapter.ts`, `packages/core/src/session-lifecycle.ts`, `packages/discord/src/tango-router.ts`, and `packages/discord/src/v2-runtime.ts` are implemented.
+- `packages/atlas-memory/`, `packages/tango-dev-mcp/`, and `packages/discord-manage-mcp/` exist as standalone MCP packages.
+- Voice routing has v2 coverage for the configured v2 agents.
+
+The active May 25 ship gate was validation and cleanup, not greenfield architecture. These issues are now closed in Linear with evidence:
+
+1. **TGO-516:** Validate/fix the May 25 scheduled v2 failures. Early May 25 runs for `nightly-transaction-categorizer`, `receipt-cataloger`, `daily-email-review`, `slack-saved-review`, `daily-brief`, and `morning-planning` failed with `Claude Code exited with code 1. No stderr output.` Later May 25 evidence shows v2 can run successfully (`daily-brief`, `slack-mention-scan`, `v2-bridge-smoke-test`, and the deterministic schedule validation harness).
+2. **TGO-518:** Keep v2 system prompt assembly free of legacy dispatch docs. Interactive and scheduled v2 both use `assembleV2SystemPrompt`; the remaining bug was legacy `AGENTS.md` / `workers.md` text leaking into soul prompt assembly.
+3. **TGO-517:** Keep this project doc and `phase3-scheduler-migration.md` aligned with the current code/config reality.
+
+Cleanup update on 2026-05-25:
+
+- `packages/discord/src/main.ts` no longer imports or constructs the old `turn-executor`, dispatch extractor, scheduled-turn response helper, active-task persistence helper, agent-worker bridge, dispatch MCP wiring, or wellness dispatcher.
+- Discord text and voice paths now fail closed for agents that are not configured for v2 instead of falling through to legacy execution.
+- Scheduler agent jobs now require `runtime: v2`; deterministic schedules remain supported as direct handlers because they do not use the retired LLM orchestration path.
+- The old execution modules, worker runner, capability registry, retired tests, and `config/defaults/workers/*.yaml` worker configs have been physically deleted.
+- `prompt-assembly.ts` has been removed. The remaining V2 modular system-prompt assembler lives in `packages/core/src/system-prompt.ts` and does not load legacy `AGENTS.md`, `workers.md`, tool-doc, or skill-doc composition.
+- Shared prompt rules now instruct direct tool use and no longer mention `dispatch_worker` or XML worker-dispatch fallbacks.
+
+### May 25 validation evidence
+
+After rebuilding and restarting the bot on 2026-05-25, `scripts/deterministic-schedule-validation.sh` passed. After the legacy-entrypoint cleanup, the bot was rebuilt/restarted again and the validation harness passed a second time:
+
+| Schedule | Result |
+|----------|--------|
+| `manual-test-weekly-finance-review` | Skipped because it had already completed successfully earlier on 2026-05-25 |
+| `manual-test-nightly-transaction-categorizer` | PASS — categorized 4 transactions on v2 and left 2 ATM withdrawals for user review |
+| `manual-test-receipt-cataloger` | PASS — used v2 browser/tools, updated the Costco receipt note, and linked 2 Lunch Money transactions |
+| `manual-test-daily-email-review` | PASS — scanned 3 accessible accounts, archived 41 messages, and returned actionable flags |
+
+Final cleanup validation:
+
+- Full `scripts/tmux/restart.sh` succeeded.
+- `v2-bridge-smoke-test` passed after final restart in 5.8s with `runtime: v2` and `claude-sonnet-4-6`.
+- `manual-test-nightly-transaction-categorizer` ran through v2 in 51.9s and correctly left 2 WaFd withdrawals for review.
+- `manual-test-receipt-cataloger` and `manual-test-daily-email-review` skipped in the final harness because they had already completed successfully earlier on 2026-05-25.
+
+The physical deletion cleanup tracked in TGO-247/TGO-248/TGO-262 is implemented and live validated. Remaining follow-up, if any, should be framed as new V2 hardening rather than legacy fallback removal.
 
 ## 1. Problem Statement
 
@@ -53,7 +98,7 @@ The root cause is architectural: each layer was built to solve one problem (conc
 | **Memory compaction** | `packages/core/src/memory-compaction.ts` | Aggressive truncation (180 chars/turn, 1800 char summary) destroys analytical context. Replaced by Atlas:memory with proper search/retrieval. |
 | **Concise response mode** | `composeSystemPrompt()` response mode injection | Blanket brevity instruction. New runtime uses per-agent system prompts without artificial length constraints. |
 | **Deterministic routing fast path** | `deterministic-runtime.ts`, `deterministic-router.ts`, `deterministic-worker-fast-path.ts`, `wellness-direct-step-executor.ts` | Complex optimization layer for transactional turns. Claude Code/Codex handle tool calls natively; no need for a separate fast path. |
-| **Prompt assembly** | `packages/core/src/prompt-assembly.ts` | Convention-based prompt assembly (soul.md + shared + knowledge + workers.md + tools + skills). Replaced by per-agent system prompts + MCP server allowlists. |
+| **Prompt assembly** | `packages/core/src/prompt-assembly.ts` | Convention-based prompt assembly (soul.md + shared + knowledge + workers.md + tools + skills). Replaced by `system-prompt.ts` plus per-agent MCP server allowlists. |
 | **Warm-start context** | `buildWarmStartContextPrompt()` in turn executor dependencies | Context reconstruction from stored messages. Replaced by Claude Code session persistence + Atlas:memory. |
 
 ### 2.3 Build New
@@ -977,7 +1022,7 @@ Voice audio → VAD → Whisper ASR → transcript
 **Decision:** Persistent per-conversation runtimes with controlled session lifecycle (idle closure, resume, reset). See Section 5.5-5.7.
 
 ### D2: Agent System Prompts — DECIDED (modular preserved)
-**Decision:** Keep modular source files (soul.md, shared/RULES.md, shared/USER.md, knowledge.md) for maintainability — a change to a shared rule propagates to all agents. Workers.md and tool contract docs are retired. Prompt assembly happens at runtime spawn time: the various source files are concatenated into a single system prompt string passed to the runtime via `--append-system-prompt` (or equivalent). This preserves the current `prompt-assembly.ts` pattern minus worker/tool composition.
+**Decision:** Keep modular source files (soul.md, shared/RULES.md, shared/USER.md, knowledge.md) for maintainability — a change to a shared rule propagates to all agents. Workers.md and tool contract docs are retired. System prompt assembly happens at runtime spawn time: the source files are concatenated into a single system prompt string passed to the runtime via `--append-system-prompt` (or equivalent). The implementation now lives in `packages/core/src/system-prompt.ts`.
 
 ### D3: Voice Latency Tolerance — DECIDED (no optimization work)
 **Decision:** Accept whatever latency the new runtime produces. Measure in Phase 0 for information only. Not worth optimizing preemptively — with persistent runtimes, latency may even improve. Revisit only if it becomes a user-visible problem.
@@ -1012,7 +1057,7 @@ Estimated 1-2 weeks when we decide to do it. Will be its own Linear project.
 
 ## 13. Key Files Reference
 
-### Being Replaced
+### Removed In Cleanup
 | File | Lines | Purpose |
 |------|-------|---------|
 | `packages/discord/src/turn-executor.ts` | ~1400 | Central orchestration |
@@ -1023,10 +1068,14 @@ Estimated 1-2 weeks when we decide to do it. Will be its own Linear project.
 | `packages/discord/src/dispatch-extractor.ts` | ~200 | Dispatch tag parsing |
 | `packages/discord/src/mcp-dispatch-server.ts` | ~300 | Dispatch MCP server |
 | `packages/discord/src/worker-report.ts` | ~200 | Worker report merging |
+| `packages/discord/src/agent-worker-bridge.ts` | ~4500 | Worker execution bridge |
+| `packages/discord/src/active-task-state.ts` | ~800 | Legacy active task state |
+| `packages/discord/src/scheduled-turn-response.ts` | ~100 | Legacy scheduled response synthesis |
+| `packages/discord/src/wellness-dispatcher.ts` | ~100 | Legacy wellness dispatch wrapper |
+| `packages/discord/src/wellness-direct-step-executor.ts` | ~1700 | Deterministic wellness executor |
 | `packages/core/src/worker-agent.ts` | ~400 | Worker agent runtime |
-| `packages/core/src/memory-compaction.ts` | ~110 | Memory compaction |
-| `packages/core/src/prompt-assembly.ts` | ~300 | Prompt composition |
-| `config/defaults/workers/*.yaml` | 8 files | Worker configurations |
+| `packages/core/src/capability-registry.ts` | ~400 | Worker/workflow planner registry |
+| `config/defaults/workers/*.yaml` | 11 files | Worker configurations |
 
 ### Being Created
 | File | Purpose |

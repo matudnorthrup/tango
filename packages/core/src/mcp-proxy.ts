@@ -98,7 +98,7 @@ rl.on("line", (line) => {
 
   // Log each message to stderr and conditionally touch the keepalive file.
   // The CLI swallows MCP server stderr, so the watchdog can't see our
-  // activity via stderr. The keepalive file is monitored by worker-agent
+  // activity via stderr. The keepalive file is monitored by the caller
   // as an alternative activity signal.
   //
   // Only touch keepalive on tools/call — NOT on initialize or tools/list.

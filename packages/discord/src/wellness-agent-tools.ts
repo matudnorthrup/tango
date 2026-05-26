@@ -1,8 +1,8 @@
 /**
- * Wellness Agent Tools — Tool definitions and handlers for wellness worker agents.
+ * Wellness Agent Tools — Tool definitions and handlers for wellness MCP access.
  *
  * Converts the existing shell scripts (nutrition-helper, health-query, atlas, workout)
- * into AgentTool definitions that LLM worker agents can call via the worker-agent framework.
+ * into AgentTool definitions that V2 runtimes can call through the wellness MCP server.
  *
  * Each tool has:
  *   - A name matching the tool contract ID

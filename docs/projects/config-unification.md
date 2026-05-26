@@ -51,7 +51,7 @@ Fields present in legacy but **missing from v2 schema**:
 | `deterministic_routing.*` | main.ts | Fast-path intent classification |
 | `access.mode` / `access.allowlist_*` | access-control | Channel/user access gating |
 | `avatar_url` | reply-presentation | Discord avatar |
-| `prompt_file` | config.ts → prompt-assembly | Legacy uses relative path; v2 uses `system_prompt_file` (repo-relative) |
+| `prompt_file` | config.ts → system-prompt | Legacy uses relative path; v2 uses `system_prompt_file` (repo-relative) |
 
 Fields that **overlap** (present in both, may differ):
 - `id`, `display_name`, `type` — identical

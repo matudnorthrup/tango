@@ -38,7 +38,7 @@ execution:
   timeout_seconds: 300
 
 provider:
-  model: sonnet
+  model: claude-sonnet-4-6
 
 delivery:
   channel_id: "100000000000001003"

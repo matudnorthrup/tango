@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { assembleAgentPrompt } from "../src/prompt-assembly.js";
+import { assembleAgentPrompt } from "../src/system-prompt.js";
 
 const tempDirs: string[] = [];
 
@@ -13,14 +13,14 @@ afterEach(() => {
 });
 
 function createAgentsDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-prompt-assembly-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-system-prompt-"));
   tempDirs.push(dir);
   fs.mkdirSync(path.join(dir, "shared"), { recursive: true });
   return dir;
 }
 
 describe("assembleAgentPrompt", () => {
-  it("assembles soul, shared rules, user context, and knowledge into one string", () => {
+  it("assembles soul, shared rules/user, and knowledge into one string", () => {
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "watson");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -43,12 +43,14 @@ describe("assembleAgentPrompt", () => {
     });
 
     expect(typeof prompt).toBe("string");
-    expect(prompt).toBe("watson soul\n\nshared rules\n\nshared user\n\nwatson knowledge");
+    expect(prompt).toBe(
+      "watson soul\n\nshared rules\n\nshared user\n\nwatson knowledge",
+    );
     expect(prompt).toContain("watson soul");
+    expect(prompt).not.toContain("shared agents");
     expect(prompt).toContain("shared rules");
     expect(prompt).toContain("shared user");
     expect(prompt).toContain("watson knowledge");
-    expect(prompt).not.toContain("shared agents");
     expect(prompt).not.toContain("watson workers");
     expect(prompt).not.toContain("atlas tool doc");
     expect(prompt).not.toContain("fatsecret tool doc");
@@ -104,9 +106,8 @@ describe("assembleAgentPrompt", () => {
     expect(prompt).toContain("base knowledge");
     expect(prompt).toContain("profile persona");
     expect(prompt).toContain("profile knowledge");
-    expect(prompt).toContain("profile worker overlay");
+    expect(prompt).not.toContain("profile worker overlay");
     expect(prompt.indexOf("profile knowledge")).toBeGreaterThan(prompt.indexOf("base knowledge"));
     expect(prompt.indexOf("profile persona")).toBeGreaterThan(prompt.indexOf("profile knowledge"));
-    expect(prompt.indexOf("profile worker overlay")).toBeGreaterThan(prompt.indexOf("profile persona"));
   });
 });
