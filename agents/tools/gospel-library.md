@@ -89,6 +89,11 @@ in the verse with the verse number as token 1, and treat `endOffset` as
 inclusive. Footnotes can split one phrase into multiple rendered mark nodes, so
 verify the rendered/DOM phrase text, not just the API readback fields.
 
+For a user-visible underline, keep `style: "red-underline"` and set `color` to
+the intended visible palette color such as `yellow`, `blue`, `red`, or
+`purple`. Do not use `color: "clear"` for requested underlines; in dark theme it
+can render as an effectively invisible underline.
+
 ### `delete_annotation`
 
 DELETE `/notes/api/v3/annotations/{annotation_id}`.

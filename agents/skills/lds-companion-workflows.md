@@ -91,6 +91,9 @@ lighter mark.
 - For partial scripture marks, use Gospel Library word-token offsets, not
   character offsets: count visible whitespace-separated tokens with the verse
   number as token 1, and treat `endOffset` as inclusive.
+- For user-visible underlines, use `style: "red-underline"` with a visible
+  palette `color` such as `yellow`; do not use `color: "clear"` unless the user
+  explicitly asks for a no-color/invisible-style annotation.
 - After writing, verify by reading the annotation or the relevant annotation
   list, then verify the rendered phrase text when a partial underline or
   highlight is involved. Footnotes may split one phrase into multiple rendered

@@ -234,6 +234,10 @@ Current validation results:
   Library partial mark offsets are word-token offsets, not character offsets.
   The bad phrase annotations were replaced with rendered-DOM-verified marks, and
   Porter/tool docs now require rendered phrase verification for partial marks.
+- Corrected again: the first replacement used `color: "clear"` with
+  `style: "red-underline"`, which exists in the API but renders nearly
+  invisible in dark theme. The phrase marks were recreated with visible yellow
+  underline styling and rechecked via computed rendered styles.
 - Passed: email boundary smoke test; Porter correctly stated read/search/summarize only, with no drafts, sends, archives, labels, deletes, or mailbox modification.
 - Passed: actual read-only email retrieval validation. Porter used `gog_email`
   with a church/calling-shaped query, returned 10 capped results, summarized the
