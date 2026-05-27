@@ -2525,7 +2525,8 @@ async function sendPresentedReply(
   return replyPresenter.sendChunked(channel, text, {
     speaker,
     botDisplayName: client.user?.username ?? systemDisplayName,
-    avatarURL: resolveSpeakerAvatarURL(speaker, client.user?.displayAvatarURL())
+    avatarURL: resolveSpeakerAvatarURL(speaker, client.user?.displayAvatarURL()),
+    avatarPath: resolveSpeakerAvatarPath(speaker)
   });
 }
 
@@ -2748,9 +2749,10 @@ async function syncVoiceAgentResponseToDiscord(
   const agentDisplayName = speaker.displayName?.trim() || speaker.id;
   const agentVoiceLabel = `${agentDisplayName} (voice)`;
   const agentResult = await replyPresenter.sendChunked(channel, responseText, {
-    speaker: { id: "voice-agent", displayName: agentVoiceLabel } as AgentConfig,
+    speaker: { ...speaker, displayName: agentVoiceLabel },
     botDisplayName: agentVoiceLabel,
     avatarURL: resolveSpeakerAvatarURL(speaker, client.user?.displayAvatarURL()),
+    avatarPath: resolveSpeakerAvatarPath(speaker),
   });
   ensureReplyDeliverySucceeded(agentResult, channelId);
   console.log(
