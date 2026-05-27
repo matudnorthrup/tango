@@ -188,6 +188,37 @@ describe("createReplyPresenter", () => {
     }
   });
 
+  it("refreshes an existing per-agent webhook with a local avatar file", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-avatar-"));
+    const avatarPath = path.join(tempDir, "porter.png");
+    fs.writeFileSync(avatarPath, Buffer.from("local-avatar"));
+    const webhook = createWebhook("Tango Replies - porter");
+    const channel = createWebhookChannel(webhook, [webhook]);
+    const presenter = createReplyPresenter({ systemDisplayName: "Tango" });
+
+    try {
+      const result = await presenter.sendChunked(channel, "still here", {
+        speaker: createAgent({
+          id: "porter",
+          type: "lds-companion",
+          displayName: "Porter",
+          avatarPath,
+        }),
+        botDisplayName: "Tango",
+        avatarPath,
+      });
+
+      expect(result.delivery).toBe("webhook");
+      expect(channel.createWebhook).not.toHaveBeenCalled();
+      expect(webhook.edit).toHaveBeenCalledWith({
+        name: "Tango Replies - porter",
+        avatar: `data:image/png;base64,${Buffer.from("local-avatar").toString("base64")}`,
+      });
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("uses the parent channel webhook when sending into a thread", async () => {
     const webhook = createWebhook();
     const parent = createWebhookChannel(webhook);
