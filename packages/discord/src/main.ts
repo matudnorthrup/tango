@@ -4828,6 +4828,16 @@ function tangoCommandPayload(): RESTPostAPIApplicationCommandsJSONBody {
     )
     .addSubcommand((subcommand) =>
       subcommand
+        .setName("new")
+        .setDescription("Start a fresh session in this channel (clears provider continuity)")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("stop")
+        .setDescription("Stop the active generation in this channel")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
         .setName("replay")
         .setDescription("Replay a dead-letter entry")
         .addIntegerOption((option) =>
@@ -5564,6 +5574,53 @@ async function handleReplayCommand(interaction: ChatInputCommandInteraction): Pr
   }
 }
 
+async function handleNewCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const channelId = interaction.channelId;
+  const channel = interaction.channel;
+  const routingChannelId =
+    channel && "isThread" in channel && typeof channel.isThread === "function" && channel.isThread()
+      ? ((channel as { parentId?: string | null }).parentId ?? channelId)
+      : channelId;
+  const channelKey = `discord:${routingChannelId}`;
+  const route = sessionManager.route(channelKey) ?? sessionManager.route("discord:default");
+
+  if (!route) {
+    await interaction.reply({ content: "No session found for this channel.", ephemeral: true });
+    return;
+  }
+
+  storage.resetSession(route.sessionId, resetOptionsFromMode("continuity"));
+  clearProviderContinuityCacheForSession(route.sessionId);
+
+  await interaction.reply({
+    content: `Fresh session started for \`${route.sessionId}\`. Next message will be a cold start.`,
+    ephemeral: true
+  });
+}
+
+async function handleStopCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const channelId = interaction.channelId;
+  const channel = interaction.channel;
+  const isThread = channel && "isThread" in channel && typeof channel.isThread === "function" && channel.isThread();
+  const threadId = isThread ? channelId : undefined;
+  const parentChannelId = isThread
+    ? ((channel as { parentId?: string | null }).parentId ?? channelId)
+    : channelId;
+
+  try {
+    await tangoRouter.resetConversation(parentChannelId, threadId);
+    await interaction.reply({
+      content: "Stopped. The active generation has been cancelled.",
+      ephemeral: true
+    });
+  } catch (err) {
+    await interaction.reply({
+      content: `Stop failed: ${err instanceof Error ? err.message : String(err)}`,
+      ephemeral: true
+    });
+  }
+}
+
 async function handleSessionResetCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const sessionId = interaction.options.getString("id", true).trim();
   const mode = (interaction.options.getString("mode") ?? "continuity") as
@@ -5711,6 +5768,16 @@ async function handleTangoCommand(interaction: ChatInputCommandInteraction): Pro
 
   if (group === "session" && subcommand === "snapshot") {
     await handleSessionSnapshotCommand(interaction);
+    return;
+  }
+
+  if (subcommand === "new") {
+    await handleNewCommand(interaction);
+    return;
+  }
+
+  if (subcommand === "stop") {
+    await handleStopCommand(interaction);
     return;
   }
 
@@ -5863,9 +5930,11 @@ async function handleMessage(
   const accessAgent = naturalRoute?.systemCommand ? (systemAgent ?? targetAgent) : targetAgent;
   const accessPolicy = resolveAccessPolicy(accessAgent, defaultAccessPolicy);
   const routingChannelId = resolveRoutingChannelId(message);
+  const threadChannelId = message.channelId !== routingChannelId ? message.channelId : undefined;
   const access = evaluateAccess(
     {
       channelId: routingChannelId,
+      threadChannelId,
       userId: message.author.id,
       mentioned: hasMentionForBot(message)
     },
