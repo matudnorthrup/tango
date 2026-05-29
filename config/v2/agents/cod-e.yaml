@@ -26,6 +26,11 @@ memory:
 discord:
   default_channel_id: "1509320762287456457"
 
+access:
+  mode: allowlist
+  allowlist_channel_ids:
+    - "1509320762287456457"
+
 provider:
   default: claude-oauth
   reasoning_effort: high
