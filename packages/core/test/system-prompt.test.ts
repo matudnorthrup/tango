@@ -84,6 +84,47 @@ describe("assembleAgentPrompt", () => {
     expect(prompt).not.toContain("shared agents");
   });
 
+  it("uses per-agent USER.md when present instead of shared USER.md", () => {
+    const agentsDir = createAgentsDir();
+    const agentDir = path.join(agentsDir, "assistants", "cod-e");
+    fs.mkdirSync(agentDir, { recursive: true });
+
+    fs.writeFileSync(path.join(agentsDir, "shared", "RULES.md"), "shared rules");
+    fs.writeFileSync(path.join(agentsDir, "shared", "USER.md"), "shared user");
+    fs.writeFileSync(path.join(agentDir, "soul.md"), "cod-e soul");
+    fs.writeFileSync(path.join(agentDir, "USER.md"), "cod-e user profile");
+    fs.writeFileSync(path.join(agentDir, "knowledge.md"), "cod-e knowledge");
+
+    const prompt = assembleAgentPrompt(agentDir, {
+      agentsRootDir: agentsDir,
+    });
+
+    expect(prompt).toContain("cod-e soul");
+    expect(prompt).toContain("shared rules");
+    expect(prompt).toContain("cod-e user profile");
+    expect(prompt).not.toContain("shared user");
+    expect(prompt).toContain("cod-e knowledge");
+  });
+
+  it("uses per-agent RULES.md when present instead of shared RULES.md", () => {
+    const agentsDir = createAgentsDir();
+    const agentDir = path.join(agentsDir, "assistants", "strict-agent");
+    fs.mkdirSync(agentDir, { recursive: true });
+
+    fs.writeFileSync(path.join(agentsDir, "shared", "RULES.md"), "shared rules");
+    fs.writeFileSync(path.join(agentsDir, "shared", "USER.md"), "shared user");
+    fs.writeFileSync(path.join(agentDir, "soul.md"), "strict soul");
+    fs.writeFileSync(path.join(agentDir, "RULES.md"), "agent-specific rules");
+
+    const prompt = assembleAgentPrompt(agentDir, {
+      agentsRootDir: agentsDir,
+    });
+
+    expect(prompt).toContain("agent-specific rules");
+    expect(prompt).not.toContain("shared rules");
+    expect(prompt).toContain("shared user");
+  });
+
   it("appends profile overlay prompt sections after the base prompt", () => {
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "watson");

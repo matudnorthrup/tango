@@ -114,12 +114,14 @@ export function traceAgentPrompt(
     sections,
   });
 
-  // ── Shared files from agents/ root ──────────────────────────────
+  // ── Shared files from agents/ root (per-agent override wins) ────
   const sharedFiles = ["RULES.md", "USER.md"];
   for (const filename of sharedFiles) {
+    const agentOverride = path.join(agentDir, filename);
+    const hasOverride = fs.existsSync(agentOverride);
     appendFileSection({
-      filePath: path.join(sharedDir, filename),
-      kind: "shared",
+      filePath: hasOverride ? agentOverride : path.join(sharedDir, filename),
+      kind: hasOverride ? "base" : "shared",
       label: filename,
       sections,
     });
