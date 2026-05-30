@@ -3,7 +3,7 @@
 **Status:** Discovery complete
 **Date:** 2026-05-19
 **Owner:** CoS
-**Related docs:** `docs/projects/victor-as-cos.md`, `docs/projects/victor-cos-stage3-persistent-bridge.md`
+**Related docs:** `docs/projects/victor-operations-chief-redesign.md`, `docs/guides/cos-pm-architecture.md`
 
 ## Summary
 

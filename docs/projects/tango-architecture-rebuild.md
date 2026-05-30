@@ -55,7 +55,7 @@ The physical deletion cleanup tracked in TGO-247/TGO-248/TGO-262 is implemented 
 
 Tango's layered orchestration (turn executor, worker dispatch, intent classifier, narration guards, concise mode, memory compaction) has become a source of recurring failures. Over the past week, ~20 bug fixes shipped across these layers without resolving the underlying quality issue: the system is hostile to analytical/nuanced questions and increasingly unreliable for transactional ones.
 
-The root cause is architectural: each layer was built to solve one problem (concise mode for brevity, workers for tool scoping, narration guards for dispatch leakage, compaction for context limits) but their interaction creates emergent failure modes that are expensive to debug and brittle to fix. The `deep-thinking-bypass.md` spec documented five compounding quality-killing layers — this rebuild addresses the root cause instead of working around it.
+The root cause is architectural: each layer was built to solve one problem (concise mode for brevity, workers for tool scoping, narration guards for dispatch leakage, compaction for context limits) but their interaction creates emergent failure modes that are expensive to debug and brittle to fix. The Deep-Thinking Escape Hatch discovery documented five compounding quality-killing layers, and this rebuild addresses the root cause instead of working around it.
 
 **Decision:** Replace the agent runtime/orchestration layer with a thin router over Claude Code using MCP tools. Keep the components that work well. Externalize memory as an MCP server in the Atlas family (`atlas:memory`). Codex fallback is deferred to a later phase; in the interim, MCP migration enables a manual Codex workaround during provider outages.
 

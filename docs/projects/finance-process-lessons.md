@@ -51,9 +51,11 @@ Captured from the April 2026 full financial review session.
 - SB draw splits use the same mechanism — but require a real transfer to exist first.
 - There is no DELETE endpoint in the Lunch Money v1 API — bad transactions must be deleted manually in the UI.
 
-## Daily Brief (Pending Victor)
+## Daily Brief
 
-- Spec written at `docs/projects/daily-brief-architecture.md`.
+- Durable daily-brief input guidance now lives at
+  `docs/guides/daily-brief-data-inputs.md`; active implementation status
+  belongs in Linear.
 - Finance and email channels should stop posting directly to Discord — those jobs should write to domain logs in Obsidian instead.
 - Morning brief job runs at 5:15am, posts to personal channel and daily note.
 

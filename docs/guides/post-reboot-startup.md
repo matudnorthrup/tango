@@ -102,13 +102,9 @@ scripts/pm-audit.sh
 Once everything is up, CoS can respawn any PMs that were in flight pre-reboot.
 
 **Known pending work (as of 2026-04-22 ~7:45am):**
-- **Victor-as-CoS PM** — was in discovery. Brief saved at `docs/projects/victor-cos-pm-brief.md`. Respawn with:
-  ```bash
-  tmux new-session -d -s TANGO-PM-victor-cos -c /Users/devinnorthrup/GitHub/tango
-  tmux send-keys -t TANGO-PM-victor-cos 'claude --dangerously-skip-permissions --append-system-prompt "$(cat docs/guides/pm-role-prompt.md)"' C-m
-  sleep 12
-  scripts/send-tmux-message.sh TANGO-PM-victor-cos docs/projects/victor-cos-pm-brief.md
-  ```
+- Historical Victor-as-CoS discovery has moved to Linear and durable CoS/PM
+  guides. Do not respawn from a repo project brief; create or reopen Linear work
+  first, then launch a PM from the current Linear context.
 
 ## 10. Schedule window awareness (if reboot was long)
 

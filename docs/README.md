@@ -9,6 +9,7 @@ Current structure:
 - `guides/`: stable operator, contributor, and agent process documentation
 - `specs/`: implementation-facing product specs
 - `architecture/`: architecture decisions and current architecture references
+- `retros/`: postmortems, cleanup records, and durable lessons learned
 - `projects/`: legacy project writeups and retros; do not add mutable project
   status here when Linear can hold the source of truth
 - root-level docs: longer-lived design references that have not yet been moved
