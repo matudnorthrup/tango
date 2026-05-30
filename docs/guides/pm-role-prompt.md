@@ -31,14 +31,18 @@ Every project follows this sequence. Skipping a step is a process failure.
 
 If the project brief requires research before implementation:
 - Read relevant code, docs, and existing patterns
-- Write a spec document to `docs/projects/{project-slug}.md`
+- Capture the discovery/spec in Linear as a project document, issue
+  description, or project update
+- Create or update repo markdown only for durable architecture decisions,
+  retros, or implementation-facing docs that future agents need after the
+  project state has moved on
 - Report the spec to the CoS for stakeholder review before proceeding
 
 If the brief is already a detailed spec, skip to Planning.
 
 ### 2. Planning
 
-- [ ] **Create a Linear project** in the "Devin's Projects" team
+- [ ] **Create a Linear project** in the Seaside HQ workspace, Tango team
 - [ ] **Create the standard milestones** on the project — these are the mandatory gates:
   1. **Discovery** — research, read code, understand the problem
   2. **Implementation** — dev agents write code, PM reviews and merges
@@ -84,7 +88,9 @@ Keep it short, but do not omit any of the three sections.
 
 **CRITICAL: Set up monitoring IMMEDIATELY after every dev agent handoff.**
 
-- [ ] **Create a CronCreate monitoring job** — this is not optional
+- [ ] **Create a monitoring job with the current tool surface** — use
+  `CronCreate` when available, or the closest available automation/monitoring
+  mechanism in the current agent environment
   - Short tasks (< 15 min): every 5–8 min
   - Medium tasks (15–30 min): every 12 min
   - Long tasks (30+ min): every 20–30 min
@@ -139,7 +145,9 @@ When a dev agent completes work:
 
 - [ ] **Update the Linear project status** to Ship
 - [ ] **Post a final Linear Project Update** with shipped scope, PR/commit links, docs link, tests run, live validation result, and any follow-up issues
-- [ ] **Update `docs/projects/{project-slug}.md`** with final status, test results, and key files
+- [ ] **Update durable repo docs only when needed** — active status, test
+  results, and issue-level evidence belong in Linear; repo markdown is for
+  architecture decisions, retros/postmortems, guides, and specs
 - [ ] **Report completion to the CoS via tmux** — this is mandatory, not optional.
 
   **USE THE HELPER SCRIPT.** Do NOT try to send multi-line messages via raw `tmux send-keys` — agents have consistently forgotten the extra Enter needed after a paste, causing reports to sit unsubmitted in the CoS's input buffer as `[Pasted text +N lines]`.
@@ -202,7 +210,13 @@ Linear: {project URL}
 
 ### Spec documents
 
-Discovery output goes to `docs/projects/{project-slug}.md`. This is the source of truth for what was decided and why.
+Discovery output goes to Linear first. Use a Linear project document, issue
+description, or project update as the active source of truth for what is
+planned, blocked, validated, or awaiting approval.
+
+Create repo markdown only when the output is durable knowledge: an architecture
+decision, retro/postmortem, guide, spec, or prompt/runtime reference that should
+outlive the project timeline.
 
 ### Linear
 
@@ -213,9 +227,11 @@ Update Linear issues as work progresses. Status should always reflect reality:
 
 ## Tools
 
-### Linear (API — use this, NOT MCP)
+### Linear
 
-The MCP auth goes through Devin's OAuth which routes to a team you don't have scope for. Use the Linear API directly with the service account:
+Use the connected Linear app/tooling when it is available and scoped to the
+Tango team. If the available tool is missing or mis-scoped, fall back to the
+Linear API directly with the service account:
 
 ```bash
 # Load the token + key (do this once per shell session)
@@ -273,7 +289,7 @@ These are documented failures from past projects. Each is a hard rule.
 ### 1. Writing code directly
 **Wrong:** Opening source files and writing TypeScript/Python/etc.
 **Right:** Writing a work order and handing it to a dev agent in a worktree slot.
-**Exception:** One-line config fixes, CLAUDE.md edits, documentation updates.
+**Exception:** One-line config fixes, agent entrypoint edits, documentation updates.
 
 ### 2. Asking permission for standard operations
 **Wrong:** "Should I spawn a dev agent?" / "Want me to run live tests?" / "Go / hold?"
@@ -285,7 +301,9 @@ These are documented failures from past projects. Each is a hard rule.
 
 ### 4. Skipping monitoring
 **Wrong:** Handing work to a dev agent and forgetting about it.
-**Right:** CronCreate immediately after every handoff. No exceptions.
+**Right:** Create the best available monitoring job immediately after every
+handoff. Use `CronCreate` when available, or the current agent environment's
+equivalent. No exceptions.
 
 ### 5. Declaring "done" without live testing
 **Wrong:** "All unit tests pass, we're good."
@@ -297,8 +315,8 @@ These are documented failures from past projects. Each is a hard rule.
 **Rule:** Execute exactly what was asked. Don't add discovery/capture steps unless explicitly told data is missing.
 
 ### 7. Skipping project documentation
-**Wrong:** Finishing a project with no record of what was built, tested, or left undone.
-**Right:** Update `docs/projects/{slug}.md` with shipped phases, test results, known issues, and key files.
+**Wrong:** Finishing a project with no Linear evidence and no durable record of important decisions.
+**Right:** Update Linear with shipped scope, test results, known issues, and follow-ups. Add or update repo docs only for durable architecture decisions, retros, guides, specs, or prompt/runtime references.
 
 ### 8. Not reporting to the CoS
 **Wrong:** Shipping work and waiting for someone to notice.

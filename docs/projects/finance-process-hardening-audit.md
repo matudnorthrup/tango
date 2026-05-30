@@ -245,6 +245,10 @@ The current system is close, but the control loop is incomplete. The next harden
 - Corrected stale Lunch Money tool guidance that still suggested
   `status=unreviewed`; finance review and tool docs now require
   `status=uncleared` for the review inbox.
+- Standardized finance review Obsidian metadata on broad `types: [[Record]]`
+  plus explicit fields (`record_kind: finance_review`, `review_phase`,
+  `dry_run`) instead of using narrow schema types such as `[[Financial Review]]`
+  or missing generic types such as `[[Review]]`.
 
 ## Validation 2026-05-24
 

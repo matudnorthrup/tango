@@ -192,7 +192,7 @@ function buildProfileOptions(profile?: string): { profile: string } | undefined 
 
 function createProviders(): Map<string, ChatProvider> {
   const defaultModel = process.env.CLAUDE_MODEL?.trim();
-  const resolvedDefaultModel = defaultModel && defaultModel.length > 0 ? defaultModel : "sonnet";
+  const resolvedDefaultModel = defaultModel && defaultModel.length > 0 ? defaultModel : "claude-sonnet-4-6";
   const claudeEffort = process.env.CLAUDE_EFFORT?.trim() || "medium";
   const claudeSecondaryEffort = process.env.CLAUDE_SECONDARY_EFFORT?.trim() || claudeEffort;
   const claudeHarnessEffort = process.env.CLAUDE_HARNESS_EFFORT?.trim() || claudeEffort;

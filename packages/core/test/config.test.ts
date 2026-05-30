@@ -269,7 +269,7 @@ describe("loadAgentConfigs", () => {
         "type: operations",
         "provider:",
         "  default: claude-oauth",
-        "  model: claude-opus-4-6",
+        "  model: claude-opus-4-8",
         "  reasoning_effort: max",
         "  fallback:",
         "    - codex"
@@ -279,7 +279,7 @@ describe("loadAgentConfigs", () => {
     const agents = loadAgentConfigs(dir);
     expect(agents[0]?.provider).toEqual({
       default: "claude-oauth",
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-8",
       reasoningEffort: "max",
       fallback: ["codex"],
     });

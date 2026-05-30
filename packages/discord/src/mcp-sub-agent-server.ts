@@ -36,7 +36,7 @@ const debug = (...args: unknown[]): void => {
   console.error("[mcp-subagents]", ...args);
 };
 
-const DEFAULT_CLAUDE_SUB_AGENT_MODEL = "haiku";
+const DEFAULT_CLAUDE_SUB_AGENT_MODEL = "claude-haiku-4-5-20251001";
 const DEFAULT_CODEX_SUB_AGENT_MODEL = "gpt-5.4-mini";
 const DEFAULT_SUB_AGENT_RETRY_LIMIT = 1;
 const WEB_SEARCH_TOOL_ALIASES = new Set([

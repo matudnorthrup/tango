@@ -55,6 +55,9 @@ execution:
        drafts.
     5. Create or overwrite the review note at
        Records/Finance/Reviews/YYYY-MM-DD Finance Review.md.
+       Use the finance_review frontmatter standard:
+       types: [[Record]], areas: [[Finance]], record_kind: finance_review,
+       review_phase: rolling, dry_run: false.
     6. Return a concise summary with review phase, data freshness, top flags,
        sinking fund recommendation summary, reimbursement/receipt gaps, budget
        pace signals, and review note path.

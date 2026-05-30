@@ -48,7 +48,7 @@ export interface V2AgentConfig {
   };
   voice?: {
     callSigns: string[];
-    kokoroVoice: string;
+    kokoroVoice?: string;
     defaultChannelId: string;
     defaultPromptAgent?: string;
     smokeTestChannelId?: string;
@@ -144,7 +144,7 @@ const rawV2AgentConfigSchema = z.object({
   }),
   voice: z.object({
     call_signs: z.array(z.string().min(1)).min(1),
-    kokoro_voice: z.string().min(1),
+    kokoro_voice: z.string().min(1).optional(),
     default_channel_id: z.string().min(1),
     default_prompt_agent: z.string().min(1).optional(),
     smoke_test_channel_id: z.string().min(1).optional(),

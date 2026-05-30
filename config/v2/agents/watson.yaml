@@ -71,7 +71,7 @@ memory:
 voice:
   call_signs:
     - Watson
-  kokoro_voice: am_adam
+  kokoro_voice: bm_george
   default_channel_id: "1480419548212498442"
   smoke_test_channel_id: "1488248022335881390"
 

@@ -13,9 +13,13 @@ interface CliOptions {
   dbPath?: string;
   reportPath: string;
   summaryJsonPath: string;
+  cleanupPlanPath: string;
+  cleanupPlanJsonPath: string;
   statePath: string;
   maxExamples: number;
   skipIndex: boolean;
+  cleanupPlan: boolean;
+  applySafeCleanup: boolean;
   writeLog: boolean;
   json: boolean;
 }
@@ -66,6 +70,7 @@ interface DailyCheckResult {
   status: "ok";
   summary: string;
   reportPath: string | null;
+  cleanupPlanPath: string | null;
   logPath: string | null;
   firstRun: boolean;
   counts: {
@@ -76,6 +81,17 @@ interface DailyCheckResult {
     flagged: number;
     newReview: number;
     knownReview: number;
+  };
+  cleanup: CleanupPlanSummary | null;
+}
+
+interface CleanupPlanSummary {
+  counts: {
+    total: number;
+    safeAutoFix: number;
+    safeApplied: number;
+    agentReview: number;
+    humanJudgment: number;
   };
 }
 
@@ -93,6 +109,8 @@ async function main(): Promise<void> {
   const dbPath = path.resolve(expandHome(options.dbPath ?? DEFAULT_DB_PATH));
   const reportPath = path.resolve(options.reportPath);
   const summaryJsonPath = path.resolve(options.summaryJsonPath);
+  const cleanupPlanPath = path.resolve(options.cleanupPlanPath);
+  const cleanupPlanJsonPath = path.resolve(options.cleanupPlanJsonPath);
   const statePath = path.resolve(options.statePath);
   const logPath = options.writeLog
     ? path.join(vaultPath, "Records", "Jobs", "Vault", `${stamp.month}.md`)
@@ -118,6 +136,36 @@ async function main(): Promise<void> {
     "--max-examples",
     String(options.maxExamples),
   ]);
+
+  let cleanupPlan: CleanupPlanSummary | null = null;
+  if (options.cleanupPlan) {
+    runCleanupPlan({
+      vaultPath,
+      summaryJsonPath,
+      cleanupPlanPath,
+      cleanupPlanJsonPath,
+      applySafe: options.applySafeCleanup,
+    });
+    cleanupPlan = summarizeCleanupPlan(readJson<CleanupPlanSummary>(cleanupPlanJsonPath));
+
+    if (cleanupPlan.counts.safeApplied > 0) {
+      if (!options.skipIndex) {
+        runNpmScript("memory:index:obsidian", ["--db-path", dbPath]);
+      }
+      runNpmScript("vault:audit", [
+        "--vault-path",
+        vaultPath,
+        "--db-path",
+        dbPath,
+        "--output-path",
+        reportPath,
+        "--summary-json",
+        summaryJsonPath,
+        "--max-examples",
+        String(options.maxExamples),
+      ]);
+    }
+  }
 
   const auditSummary = readJson<AuditSummary>(summaryJsonPath);
   const previousState = readJsonIfExists<DailyCheckState>(statePath);
@@ -157,6 +205,8 @@ async function main(): Promise<void> {
       newReviewCount: newReviewFindings.length,
       knownReviewCount,
       summary,
+      cleanupPlan,
+      cleanupPlanPath: options.cleanupPlan ? cleanupPlanPath : null,
     });
   }
 
@@ -179,6 +229,7 @@ async function main(): Promise<void> {
     status: "ok",
     summary,
     reportPath: auditSummary.reportPath,
+    cleanupPlanPath: options.cleanupPlan ? cleanupPlanPath : null,
     logPath,
     firstRun,
     counts: {
@@ -190,6 +241,7 @@ async function main(): Promise<void> {
       newReview: newReviewFindings.length,
       knownReview: knownReviewCount,
     },
+    cleanup: cleanupPlan,
   };
 
   if (options.json) {
@@ -198,6 +250,7 @@ async function main(): Promise<void> {
     console.log(summary);
     if (logPath) console.log(`Vault job log: ${logPath}`);
     if (auditSummary.reportPath) console.log(`Vault audit report: ${auditSummary.reportPath}`);
+    if (options.cleanupPlan) console.log(`Vault cleanup plan: ${cleanupPlanPath}`);
   }
 }
 
@@ -208,9 +261,13 @@ function parseArgs(args: string[]): CliOptions {
     dbPath: process.env.TANGO_DB_PATH,
     reportPath: path.join(DEFAULT_OUTPUT_DIR, `vault-audit-${today}.md`),
     summaryJsonPath: path.join(DEFAULT_OUTPUT_DIR, `vault-audit-${today}.json`),
+    cleanupPlanPath: path.join(DEFAULT_OUTPUT_DIR, `vault-cleanup-plan-${today}.md`),
+    cleanupPlanJsonPath: path.join(DEFAULT_OUTPUT_DIR, `vault-cleanup-plan-${today}.json`),
     statePath: DEFAULT_STATE_PATH,
     maxExamples: 25,
     skipIndex: false,
+    cleanupPlan: true,
+    applySafeCleanup: false,
     writeLog: true,
     json: false,
   };
@@ -246,6 +303,18 @@ function parseArgs(args: string[]): CliOptions {
         options.summaryJsonPath = next;
         index += 1;
         break;
+      case "--cleanup-plan":
+      case "--cleanup-plan-path":
+        if (!next) throw new Error(`${arg} requires a value`);
+        options.cleanupPlanPath = next;
+        index += 1;
+        break;
+      case "--cleanup-plan-json":
+      case "--cleanup-plan-json-path":
+        if (!next) throw new Error(`${arg} requires a value`);
+        options.cleanupPlanJsonPath = next;
+        index += 1;
+        break;
       case "--state":
       case "--state-path":
         if (!next) throw new Error(`${arg} requires a value`);
@@ -259,6 +328,16 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--skip-index":
         options.skipIndex = true;
+        break;
+      case "--no-cleanup-plan":
+        options.cleanupPlan = false;
+        break;
+      case "--apply-safe":
+      case "--apply-safe-cleanup":
+        options.applySafeCleanup = true;
+        break;
+      case "--no-apply-safe-cleanup":
+        options.applySafeCleanup = false;
         break;
       case "--no-log":
       case "--no-write-log":
@@ -296,7 +375,7 @@ function ensureVaultJobLog(filePath: string, stamp: ZonedTimestamp): void {
     '  - "[[Record]]"',
     "areas:",
     '  - "[[Personal]]"',
-    '  - "[[OpenClaw]]"',
+    '  - "[[Tango]]"',
     "source_kind: log",
     "---",
     "",
@@ -315,6 +394,8 @@ function appendVaultJobLog(input: {
   newReviewCount: number;
   knownReviewCount: number;
   summary: string;
+  cleanupPlan: CleanupPlanSummary | null;
+  cleanupPlanPath: string | null;
 }): void {
   const lines = [
     "",
@@ -323,6 +404,7 @@ function appendVaultJobLog(input: {
     `**Status:** ${statusLine(input.auditSummary, input.flaggedFindings.length, input.newReviewCount)}`,
     `**Report:** \`${input.reportPath}\``,
     `**Summary:** ${input.summary}`,
+    ...formatCleanupPlanSummary(input.cleanupPlan, input.cleanupPlanPath),
     "",
     "**Flagged:**",
     ...formatFlaggedLines(input.flaggedFindings, input.stamp.date),
@@ -377,6 +459,19 @@ function formatFlaggedLines(findings: AuditFinding[], date: string): string[] {
     const location = finding.relativePath ? ` in \`${finding.relativePath}\`` : "";
     return `- [ ] Review vault audit ${finding.severity}: ${finding.message}${location} — ${date}`;
   });
+}
+
+function formatCleanupPlanSummary(
+  cleanupPlan: CleanupPlanSummary | null,
+  cleanupPlanPath: string | null,
+): string[] {
+  if (!cleanupPlan || !cleanupPlanPath) return [];
+  return [
+    `**Cleanup Plan:** \`${cleanupPlanPath}\``,
+    `**Cleanup Summary:** ${cleanupPlan.counts.safeApplied} safe fix(es) applied; ` +
+      `${cleanupPlan.counts.agentReview} agent review item(s); ` +
+      `${cleanupPlan.counts.humanJudgment} human judgment item(s).`,
+  ];
 }
 
 function formatKnownReviewLines(findings: AuditFinding[], knownReviewCount: number): string[] {
@@ -435,8 +530,34 @@ function runNpmScript(script: string, scriptArgs: string[]): void {
   }
 }
 
+function runCleanupPlan(input: {
+  vaultPath: string;
+  summaryJsonPath: string;
+  cleanupPlanPath: string;
+  cleanupPlanJsonPath: string;
+  applySafe: boolean;
+}): void {
+  runNpmScript("vault:cleanup-plan", [
+    "--vault-path",
+    input.vaultPath,
+    "--summary-json",
+    input.summaryJsonPath,
+    "--output-path",
+    input.cleanupPlanPath,
+    "--output-json",
+    input.cleanupPlanJsonPath,
+    ...(input.applySafe ? ["--apply-safe"] : []),
+  ]);
+}
+
 function readJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
+}
+
+function summarizeCleanupPlan(plan: CleanupPlanSummary): CleanupPlanSummary {
+  return {
+    counts: plan.counts,
+  };
 }
 
 function readJsonIfExists<T>(filePath: string): T | null {
@@ -499,9 +620,14 @@ Options:
   --db-path <path>         Tango SQLite path (default: active Tango profile DB)
   --report-path <path>     Markdown audit report path
   --summary-json <path>    JSON audit summary path
+  --cleanup-plan <path>    Markdown cleanup plan path
+  --cleanup-plan-json <p>  JSON cleanup plan path
   --state-path <path>      Daily novelty state path (default: data/state/vault-daily-check.json)
   --max-examples <n>       Max examples per finding section (default: 25)
   --skip-index             Do not refresh Atlas before/after the audit
+  --no-cleanup-plan        Do not classify audit findings into a cleanup plan
+  --apply-safe-cleanup     Apply deterministic safe fixes from the cleanup plan
+  --no-apply-safe-cleanup  Keep cleanup plan in report-only mode (default)
   --no-write-log           Do not append Records/Jobs/Vault/YYYY-MM.md
   --json                   Print machine-readable result JSON
 `);

@@ -500,7 +500,7 @@ Plus **at least one STT backend**:
 - `SESSIONS_DIR` — Directory for JSONL session files (default: `~/.tango/voice/sessions`)
 
 **TTS (at least one recommended):**
-- `TTS_BACKEND` — Primary backend: `kokoro`, `chatterbox`, or `elevenlabs` (default: `elevenlabs`)
+- `TTS_BACKEND` — Primary backend: `kokoro`, `chatterbox`, or `elevenlabs` (default: `kokoro`)
 - `TTS_FALLBACK_BACKEND` — Fallback backend if primary fails
 - `TTS_PRIMARY_RETRY_MS` — Retry primary after this many ms (default: `30000`)
 - `KOKORO_URL` — Kokoro TTS server URL (default: `http://127.0.0.1:8880`)

@@ -292,6 +292,7 @@ function auditNotes(
 ): Finding[] {
   const findings: Finding[] = [];
   const duplicateTitleMap = new Map<string, NoteRecord[]>();
+  const categoryUsageMap = new Map<string, NoteRecord[]>();
 
   for (const note of notes) {
     const normalizedTitle = normalizeTitle(note.title);
@@ -403,8 +404,14 @@ function auditNotes(
             severity: "review",
             filePath: note.filePath,
             message: `Category schema note is missing: [[${linkTarget}]].`,
-            suggestion: `Create _Schema/Categories/${linkTarget}.md or update the note to use an approved category.`,
+            suggestion: "Remove the category or migrate it to an area, collection, field, or body link.",
           });
+        }
+
+        if (field === "categories") {
+          const existing = categoryUsageMap.get(linkTarget) ?? [];
+          existing.push(note);
+          categoryUsageMap.set(linkTarget, existing);
         }
 
         if (field === "collections" && !schema.noteTargets.has(linkTarget)) {
@@ -462,6 +469,16 @@ function auditNotes(
       message: `Possible duplicate title: ${normalizedTitle}`,
       detail: titleNotes.map((note) => note.relativePath).join("\n"),
       suggestion: "Review whether these are true duplicates, related notes, or intentionally separate records.",
+    });
+  }
+
+  for (const [category, categoryNotes] of categoryUsageMap.entries()) {
+    findings.push({
+      code: "categories.deprecated",
+      severity: "review",
+      message: `Deprecated category is still used: [[${category}]] (${categoryNotes.length} note(s)).`,
+      detail: categoryNotes.slice(0, 10).map((note) => note.relativePath).join("\n"),
+      suggestion: "Migrate the grouping to areas, collections, explicit fields, or body links; then remove categories from those notes.",
     });
   }
 
@@ -654,7 +671,7 @@ function renderReport(input: {
 
   lines.push("## Tag Summary");
   lines.push("");
-  lines.push("Frontmatter tags are cleanup candidates under the vault design. Inline hashtags are summarized for visibility only because many are source/log content such as Slack channels or social posts.");
+  lines.push("Frontmatter tags and categories are cleanup candidates under the vault design. Inline hashtags are summarized for visibility only because many are source/log content such as Slack channels or social posts.");
   lines.push("");
   lines.push("### Frontmatter Tags");
   lines.push("");
@@ -699,7 +716,7 @@ function renderReport(input: {
   lines.push("");
   lines.push("1. Review warnings first, especially broken frontmatter and missing Atlas source files.");
   lines.push("2. Confirm which schema types and areas should be added before editing notes in bulk.");
-  lines.push("3. Review frontmatter tags and migrate useful meaning into types, areas, categories, or links.");
+  lines.push("3. Review frontmatter tags/categories and migrate useful meaning into types, areas, collections, fields, or links.");
   lines.push("4. Review folder reconciliation candidates by folder, starting with the smallest folders.");
   lines.push("5. Make one small migration batch, then run this audit again.");
   lines.push("6. Refresh the Obsidian index after approved moves or edits.");
@@ -897,7 +914,7 @@ function auditFrontmatterTags(note: NoteRecord): Finding[] {
       filePath: note.filePath,
       message: "Frontmatter tags field is not a clean YAML list of strings.",
       detail: extracted.invalidReason,
-      suggestion: "Migrate any useful meaning into types, areas, categories, or direct links, then remove tags.",
+      suggestion: "Migrate any useful meaning into types, areas, collections, fields, or direct links, then remove tags.",
     });
   }
 
@@ -918,7 +935,7 @@ function auditFrontmatterTags(note: NoteRecord): Finding[] {
     filePath: note.filePath,
     message: "Frontmatter tags are present even though tags are deprecated in the vault design.",
     detail: uniqueTags.map((tag) => `#${tag}`).join(", "),
-    suggestion: "Migrate durable meaning to types, areas, categories, or direct links, then remove tags.",
+    suggestion: "Migrate durable meaning to types, areas, collections, fields, or direct links, then remove tags.",
   });
 
   const duplicateTags = duplicatedValues(normalizedTags);
@@ -940,7 +957,7 @@ function auditFrontmatterTags(note: NoteRecord): Finding[] {
       code: "tags.duplicate_properties",
       severity: "review",
       filePath: note.filePath,
-      message: "Frontmatter tags duplicate types, areas, or categories.",
+      message: "Frontmatter tags duplicate types, areas, categories, or collections.",
       detail: overlappingTags.map((tag) => `#${tag}`).join(", "),
       suggestion: "Keep the structured property and remove the tag.",
     });

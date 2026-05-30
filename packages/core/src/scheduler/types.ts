@@ -61,7 +61,7 @@ export interface ScheduleExecutionConfig {
 export interface ScheduleProviderConfig {
   /** Provider override (default: inherit from worker) */
   default?: string;
-  /** Model override (e.g., claude-haiku-4-5 for cheap jobs) */
+  /** Model override (e.g., claude-haiku-4-5-20251001 for cheap jobs) */
   model?: string;
   /** Reasoning effort override (provider-normalized by the runtime) */
   reasoningEffort?: ProviderReasoningEffort;

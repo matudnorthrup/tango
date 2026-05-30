@@ -65,7 +65,7 @@ Creates a fully-configured dev slot:
 
 Agent launch flags:
 - **Codex**: `codex --model gpt-5.4 --dangerously-bypass-approvals-and-sandbox`
-- **Claude Code**: `claude --dangerously-skip-permissions --model claude-opus-4-6 --effort max`
+- **Claude Code**: `claude --dangerously-skip-permissions --model claude-opus-4-8 --effort max`
 
 ### `scripts/dev/list.sh`
 

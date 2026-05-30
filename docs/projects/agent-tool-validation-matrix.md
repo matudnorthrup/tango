@@ -91,7 +91,7 @@ Systematic validation of every MCP tool on every v2 agent using the test harness
 
 | Tool | Test Prompt | Result | Response Excerpt | Notes |
 |------|-------------|--------|-----------------|-------|
-| memory_search | "What do you know about my family situation?" | **PASS** | [redacted], [redacted], separation details, iMessage analysis project | Correct context recalled |
+| memory_search | "What do you know about my family situation?" | **PASS** | Private family/separation context and iMessage analysis project | Correct context recalled without retaining raw private details in this matrix |
 | memory_add | (implicit via post-turn extraction) | SKIP | | Tested via post-turn side effects |
 | pinned_fact_get | "What are my pinned facts?" | **PASS** | "No pinned facts in any scope" | Correct empty state response |
 

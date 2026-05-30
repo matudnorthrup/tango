@@ -79,6 +79,7 @@ agent display names, schedules, or private knowledge.
 - Overview: [`docs/about.md`](./docs/about.md)
 - Docs index: [`docs/README.md`](./docs/README.md)
 - Setup guide: [`docs/guides/setup.md`](./docs/guides/setup.md)
+- Agent operating model: [`docs/guides/agent-operating-model.md`](./docs/guides/agent-operating-model.md)
 - Public launch guide: [`docs/guides/public-launch.md`](./docs/guides/public-launch.md)
 - Profile/config model: [`docs/guides/profile-model.md`](./docs/guides/profile-model.md)
 - Agent structure: [`docs/guides/agents-structure.md`](./docs/guides/agents-structure.md)

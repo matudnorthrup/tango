@@ -86,6 +86,26 @@ Records/Finance/Reviews/YYYY-MM Finance Close.md
 
 Use `--overwrite` so reruns repair the same artifact.
 
+Use broad record-style frontmatter. Do not create a special schema type for
+each finance job or review variant; folder path, `areas`, and these explicit
+fields carry the specific meaning:
+
+```yaml
+---
+date: YYYY-MM-DD
+types:
+  - "[[Record]]"
+areas:
+  - "[[Finance]]"
+record_kind: finance_review
+review_phase: rolling
+dry_run: false
+---
+```
+
+For dry runs, set `dry_run: true`. For close-prep or close, set
+`review_phase` to `close_prep` or `close`.
+
 Record:
 - confirmed date
 - review phase

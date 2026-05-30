@@ -20,7 +20,7 @@ const execAsync = promisify(execCb);
 const restartCooldownUntil: Partial<Record<TtsBackend, number>> = {};
 
 export function getTtsBackend(): TtsBackend {
-  return runtimeBackendOverride ?? (parseBackend(config.ttsBackend) || 'elevenlabs');
+  return runtimeBackendOverride ?? (parseBackend(config.ttsBackend) || 'kokoro');
 }
 
 export function setTtsBackend(backend: TtsBackend): void {

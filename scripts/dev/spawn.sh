@@ -223,7 +223,7 @@ case "$agent_label" in
     launch_command="codex --model gpt-5.4 --dangerously-bypass-approvals-and-sandbox"
     ;;
   claude-code)
-    launch_command="claude --dangerously-skip-permissions --model claude-opus-4-6 --effort max"
+    launch_command="claude --dangerously-skip-permissions --model claude-opus-4-8 --effort max"
     ;;
 esac
 

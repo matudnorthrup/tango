@@ -43,7 +43,7 @@ Lightweight agent for quick, throwaway questions. No persistence, no memory writ
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Name | Charlie | Stakeholder decision. Required close word migration. |
-| Voice | af_aoede | Distinct from existing agents (Watson: am_adam, Sierra: af_heart, Juliet: af_bella) |
+| Voice | af_aoede | Distinct from existing agents (Watson: bm_george, Sierra: af_heart, Juliet: af_bella) |
 | Memory | Read-only MCP, extraction disabled | Can read user context but never writes. Soul prompt explicitly prohibits memory_add/memory_reflect. |
 | Context | 8K tokens, 50% reset threshold, 4hr idle timeout | Aggressive cleanup for ephemeral use |
 | Reasoning | Low | Quick answers don't need deep reasoning |

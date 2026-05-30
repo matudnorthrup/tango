@@ -50,6 +50,9 @@ execution:
        explicitly carried forward.
     5. Create or overwrite the review note at
        Records/Finance/Reviews/YYYY-MM-DD Finance Review.md.
+       Use the finance_review frontmatter standard:
+       types: [[Record]], areas: [[Finance]], record_kind: finance_review,
+       review_phase: close_prep, dry_run: false.
     6. Return a concise summary with close blockers, true-up recommendations,
        unresolved reimbursements, budget target changes to consider, and review
        note path.

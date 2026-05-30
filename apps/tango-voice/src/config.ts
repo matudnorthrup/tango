@@ -87,7 +87,7 @@ export const config = {
   tangoVoiceAgentId: process.env['TANGO_VOICE_AGENT_ID'] || 'main',
   tangoVoiceTimeoutMs: parseIntWithFallback(process.env['TANGO_VOICE_TIMEOUT_MS'], 0), // 0 = no client timeout; server watchdog is authoritative
   tangoVoiceMaxRetries: Math.max(0, parseIntWithFallback(process.env['TANGO_VOICE_MAX_RETRIES'], 2)),
-  ttsBackend: process.env['TTS_BACKEND'] || 'elevenlabs',
+  ttsBackend: process.env['TTS_BACKEND'] || 'kokoro',
   ttsFallbackBackend: process.env['TTS_FALLBACK_BACKEND'] || '',
   ttsPrimaryRetryMs: parseInt(process.env['TTS_PRIMARY_RETRY_MS'] || '30000', 10),
   elevenLabsApiKey: process.env['ELEVENLABS_API_KEY'] || '',

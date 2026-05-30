@@ -44,6 +44,9 @@ execution:
     - Do not overwrite the canonical Finance Review note.
     - If you write an Obsidian note, write only:
       Records/Finance/Reviews/YYYY-MM-DD Finance Review Dry Run.md
+      Use the finance_review frontmatter standard:
+      types: [[Record]], areas: [[Finance]], record_kind: finance_review,
+      review_phase: rolling, dry_run: true.
 
     Return a concise summary with review phase, data freshness, any refreshes
     performed, top flags, sinking fund recommendations, reimbursement/receipt

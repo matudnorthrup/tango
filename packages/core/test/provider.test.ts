@@ -169,7 +169,7 @@ describe("buildClaudeCliArgs", () => {
     const args = buildClaudeCliArgs(
       {
         prompt: "think it through",
-        model: "claude-opus-4-6",
+        model: "claude-opus-4-8",
         reasoningEffort: "xhigh",
       },
       { defaultModel: "claude-sonnet-4-6", defaultReasoningEffort: "medium" }
@@ -183,7 +183,7 @@ describe("buildClaudeCliArgs", () => {
       "--tools",
       "",
       "--model",
-      "claude-opus-4-6",
+      "claude-opus-4-8",
       "--effort",
       "max",
       "think it through"

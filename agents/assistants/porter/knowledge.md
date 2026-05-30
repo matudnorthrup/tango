@@ -12,8 +12,8 @@
 ## Product Decisions
 
 - Agent name: Porter.
-- Discord channel: `#porter` (`1508531125243478176`).
-- Smoke-test channel: `#porter-test` (`1508531126321549455`).
+- Discord channel: `#porter` (real ID belongs in profile config).
+- Smoke-test channel: `#porter-test` (real ID belongs in profile config).
 - Email is read-only for MVP. Porter can search and summarize relevant email but
   must not draft, send, archive, label, delete, or modify messages.
 - Gospel Library marking and linking is MVP-critical.

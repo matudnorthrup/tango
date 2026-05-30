@@ -148,6 +148,49 @@ describe("loadV2AgentConfig", () => {
       },
     });
   });
+
+  it("allows voice configs to use the app-level Kokoro default", () => {
+    const tempDir = createTempDir("tango-v2-default-voice-");
+    const configPath = path.join(tempDir, "default-voice.yaml");
+    fs.writeFileSync(
+      configPath,
+      [
+        "id: default-voice",
+        "display_name: Default Voice",
+        "type: test",
+        "system_prompt_file: agents/assistants/default-voice/soul.md",
+        "mcp_servers:",
+        "  - name: memory",
+        "    command: node",
+        "runtime:",
+        "  mode: persistent",
+        "  provider: claude-code-v2",
+        "  model: claude-sonnet-4-6",
+        "  reasoning_effort: medium",
+        "  idle_timeout_hours: 24",
+        "  context_reset_threshold: 0.8",
+        "memory:",
+        "  post_turn_extraction: enabled",
+        "  extraction_model: claude-haiku-4-5",
+        "  importance_threshold: 0.4",
+        "  scheduled_reflection: enabled",
+        "discord:",
+        "  default_channel_id: \"123\"",
+        "voice:",
+        "  call_signs:",
+        "    - Default Voice",
+        "  default_channel_id: \"123\"",
+      ].join("\n"),
+    );
+
+    const config = loadV2AgentConfig(configPath);
+
+    expect(config.voice).toMatchObject({
+      callSigns: ["Default Voice"],
+      defaultChannelId: "123",
+    });
+    expect(config.voice?.kokoroVoice).toBeUndefined();
+  });
 });
 
 describe("isV2RuntimeEnabled", () => {

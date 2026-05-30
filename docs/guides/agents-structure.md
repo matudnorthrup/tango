@@ -211,7 +211,8 @@ Update these when the structure changes:
 - `agents/tools/README.md`
 - `agents/skills/README.md`
 - `README.md` if the repo layout or onboarding guidance changed
-- `CLAUDE.md` if implementation conventions changed
+- `docs/guides/agent-operating-model.md`, `AGENTS.md`, and `CLAUDE.md` if
+  implementation or agent-operating conventions changed
 
 ## Anti-Patterns
 

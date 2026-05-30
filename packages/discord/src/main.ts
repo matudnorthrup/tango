@@ -268,7 +268,7 @@ const envSchema = z.object({
     .optional()
     .transform((value) => {
       const normalized = value?.trim();
-      return normalized && normalized.length > 0 ? normalized : "sonnet";
+      return normalized && normalized.length > 0 ? normalized : "claude-sonnet-4-6";
     }),
   CLAUDE_EFFORT: z.enum(["low", "medium", "high", "max", "xhigh"]).default("medium"),
   CLAUDE_SECONDARY_MODEL: z
@@ -1039,9 +1039,11 @@ registerDeterministicHandler("vault-daily-check", async (_ctx) => {
   const result = JSON.parse(rawResult) as {
     summary?: string;
     reportPath?: string | null;
+    cleanupPlanPath?: string | null;
     logPath?: string | null;
     firstRun?: boolean;
     counts?: Record<string, unknown>;
+    cleanup?: Record<string, unknown> | null;
   };
 
   return {
@@ -1049,9 +1051,11 @@ registerDeterministicHandler("vault-daily-check", async (_ctx) => {
     summary: result.summary ?? "Vault daily check completed",
     data: {
       reportPath: result.reportPath,
+      cleanupPlanPath: result.cleanupPlanPath,
       logPath: result.logPath,
       firstRun: result.firstRun,
       counts: result.counts,
+      cleanup: result.cleanup,
     },
   };
 });

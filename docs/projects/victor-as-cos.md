@@ -114,7 +114,7 @@ execution:
   timeout_seconds: 60
 
 provider:
-  model: haiku
+  model: claude-haiku-4-5-20251001
 
 delivery:
   channel_id: "100000000000001004"
