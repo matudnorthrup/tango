@@ -64,7 +64,6 @@ import {
   loadMemoryEvalConfig,
   loadSessionConfigs,
   loadScheduleConfigs,
-  loadV2AgentConfig,
   renderMemoryEvalDiscordSummary,
   renderMemoryEvalMarkdownReport,
   buildRuntimePathEnv,
@@ -578,21 +577,9 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
   configDir: string;
   timeoutMs: number;
 }): Map<string, { config: V2AgentConfig; runtimeConfig: AgentRuntimeConfig }> {
-  const agentsDir = resolveConfiguredPath("config/v2/agents");
-  if (!fs.existsSync(agentsDir)) {
-    return new Map();
-  }
-
   const configs = new Map<string, { config: V2AgentConfig; runtimeConfig: AgentRuntimeConfig }>();
-  for (const entry of fs.readdirSync(agentsDir)) {
-    if (!entry.endsWith(".yaml")) {
-      continue;
-    }
-
-    const configPath = path.join(agentsDir, entry);
-
+  for (const config of loadLayeredV2AgentConfigs(input.configDir).values()) {
     try {
-      const config = loadV2AgentConfig(configPath);
       if (!isV2RuntimeEnabled(config)) {
         continue;
       }
@@ -628,7 +615,7 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
       });
     } catch (error) {
       console.warn(
-        `[tango-voice] failed to load v2 agent config ${configPath}: ${
+        `[tango-voice] failed to load v2 agent runtime config for ${config.id}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
