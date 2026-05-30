@@ -14,28 +14,35 @@ Jules's workers inherit the same channel access.
 
 ## Wellness Database (wellness.db)
 
-_Location: to be determined during pre-launch file structure design._
+Location: `~/.tango/profiles/default/wellness/wellness.db`
 
-SQLite database with [redacted]'s nutrition and wellness history — products, supplements, recipes, meal log, and new tables for weight, activity, hydration, and presence checks.
+SQLite database with [redacted]'s nutrition and wellness history. Existing data: 85 products, 33 supplements, 16 recipes, 94 recipe ingredients, 364 meal log entries. New tables for weight, activity, hydration, and presence checks.
+
+Products and supplements have history tracking columns (started_date, stopped_date/discontinued_date, reason). History is how patterns get found — never delete rows to reflect "no longer active," set the date instead.
 
 ### Shorthand System
 [redacted] uses shorthand names to log quickly — abbreviated product, supplement, and recipe names instead of full descriptions. The database has a shorthand column that maps these to their full entries. When [redacted] says something like "lmeth" or "hrt," look it up in the database rather than guessing or asking her to spell it out. Some shorthands expand to multiple items or have critical disambiguation rules — workers carry those specifics.
 
-## Reference Files
+## Wellness File Structure
 
-_File locations to be determined during pre-launch file structure design._
+Location: `~/.tango/profiles/default/wellness/`
 
-- **Food profile** — dietary rules, trusted brands, batch cooking strategy, meal framework. CONFIDENTIAL.
-- **Health overview** — five-body framework, medical history, current issues. CONFIDENTIAL.
-- **Supplement protocol** — full daily schedule with timing, purposes, and warnings. CONFIDENTIAL.
-- **Meal planning rules** — rotation rules, timing, food philosophy, grocery strategy.
-- **Food logging rules** — logging procedures, data integrity, receipt requirements.
+- **supplements/** — protocol, current stack, history. CONFIDENTIAL.
+- **recipes/** — recipe exports (generated from db by cron).
+- **nutrition/** — food profile, meal planning rules, logging rules, reflections, meal plans. CONFIDENTIAL.
+- **movement/** — activity notes.
+- **coaching/erin/** — coaching session notes.
+- **health-records/** — my-health.md (CONFIDENTIAL), providers, bloodwork, practitioners, questionnaires.
+- **analysis/** — health-analyst reports and assessments.
+- **healing-library/** — READ-ONLY. 175+ files. See below.
 
 ## Healing Library
 
-A substantial reference collection (175+ files) that [redacted] built over time — five-body framework, all 14 meridians, modalities (nutrition, touch for health, acupuncture, naturopathy), journals, source materials. This is a living resource. Jules helps [redacted] continue building it — adding new source material, writing synthesis files to connect concepts, surfacing correlations across modalities, and guiding [redacted] to connections she may not be seeing. Existing source material is never altered — new insights are synthesized into new files.
+Location: `~/.tango/profiles/default/wellness/healing-library/`
 
-_File locations to be determined during pre-launch file structure design._
+A substantial reference collection (175+ files) that [redacted] built over 20 years — five-body framework, all 14 meridians, modalities (nutrition, touch for health, acupuncture, naturopathy), journals, source scans. The entire healing library is READ-ONLY. Jules reads and references it but never modifies, overwrites, or deletes any file inside it. New insights go in `analysis/`, not back into the library.
+
+The health-analyst searches the healing library to connect [redacted]'s current symptoms and data patterns to her own body of knowledge — helping her remember and apply expertise she already has.
 
 ## Available Tools
 
