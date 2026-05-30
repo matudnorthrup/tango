@@ -274,6 +274,39 @@ describe("loadUnifiedAgentConfigs", () => {
     });
   });
 
+  it("excludes disabled v2 configs from the unified registry and does not fall back to legacy with the same id", () => {
+    const root = createTempDir("tango-unified-v2-disabled-");
+    const defaultsDir = path.join(root, "config", "defaults");
+    writeFile(
+      path.join(defaultsDir, "agents", "alpha.yaml"),
+      [
+        "id: alpha",
+        "type: legacy-type",
+        "display_name: Legacy Alpha",
+        "provider:",
+        "  default: claude-oauth",
+      ].join("\n"),
+    );
+    writeFile(
+      path.join(defaultsDir, "agents", "dispatch.yaml"),
+      [
+        "id: dispatch",
+        "type: router",
+        "provider:",
+        "  default: claude-oauth",
+      ].join("\n"),
+    );
+    writeV2Agent(root, "alpha", [
+      "enabled: false",
+    ]);
+
+    const unifiedIds = loadUnifiedAgentConfigs(defaultsDir, { repoRoot: root })
+      .map((agent) => agent.id)
+      .sort();
+
+    expect(unifiedIds).toEqual(["dispatch"]);
+  });
+
   it("generates legacy configs for v2-only agents", () => {
     const root = createTempDir("tango-unified-v2-only-");
     const defaultsDir = path.join(root, "config", "defaults");
@@ -336,21 +369,21 @@ describe("loadUnifiedAgentConfigs", () => {
     expect(unifiedIds).toContain("dispatch");
   });
 
-  it("uses current repo v2 configs for v2 agents and keeps dispatch legacy-only", () => {
+  it("keeps current repo personal v2 configs as disabled templates and loads dispatch only", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     const v2Dir = path.join(repoRoot, "config", "v2", "agents");
 
     const unifiedConfigs = loadUnifiedAgentConfigs(defaultsDir, { repoRoot });
     const v2Configs = loadAllV2AgentConfigs(v2Dir);
-    const v2Ids = new Set(v2Configs.keys());
     const unifiedById = new Map(unifiedConfigs.map((agent) => [agent.id, agent]));
 
-    expect([...unifiedById.keys()].sort()).toEqual(
-      ["dispatch", ...v2Ids].sort(),
+    expect([...v2Configs.keys()].sort()).toEqual(
+      ["charlie", "foxtrot", "juliet", "malibu", "porter", "sierra", "victor", "watson"],
     );
-    for (const [id, v2Config] of v2Configs) {
-      expect(unifiedById.get(id)).toEqual(v2ToLegacyAgentConfig(v2Config, { repoRoot }));
+    for (const v2Config of v2Configs.values()) {
+      expect(v2Config.enabled).toBe(false);
     }
+    expect([...unifiedById.keys()].sort()).toEqual(["dispatch"]);
     expect(unifiedById.get("dispatch")).toMatchObject({
       id: "dispatch",
       type: "router",
