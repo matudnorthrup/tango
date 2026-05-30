@@ -1,4 +1,5 @@
 id: victor
+enabled: false
 display_name: Victor
 type: operations
 

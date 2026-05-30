@@ -1,4 +1,5 @@
 id: porter
+enabled: false
 display_name: Porter
 type: lds-companion
 

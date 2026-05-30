@@ -1,4 +1,5 @@
 id: juliet
+enabled: false
 display_name: Juliet
 type: mental-health
 

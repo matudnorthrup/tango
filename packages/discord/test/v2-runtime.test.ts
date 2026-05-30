@@ -17,6 +17,7 @@ function createV2Config(
   agentId: string,
   overrides: Partial<V2AgentConfig["runtime"]> = {},
   memoryOverrides: Partial<V2AgentConfig["memory"]> = {},
+  configOverrides: Partial<V2AgentConfig> = {},
 ): V2AgentConfig {
   return {
     id: agentId,
@@ -49,6 +50,7 @@ function createV2Config(
     discord: {
       defaultChannelId: "123",
     },
+    ...configOverrides,
   };
 }
 
@@ -149,6 +151,7 @@ describe("buildV2RuntimeConfigs", () => {
     const configs = new Map<string, V2AgentConfig>([
       ["malibu", createV2Config("malibu", { provider: "claude-code-v2", reasoningEffort: "xhigh" })],
       ["victor", createV2Config("victor", { provider: "legacy" })],
+      ["watson", createV2Config("watson", { provider: "claude-code-v2" }, {}, { enabled: false })],
     ]);
 
     const enabledAgents = buildV2EnabledAgentSet(configs);

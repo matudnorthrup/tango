@@ -17,6 +17,7 @@ export type V2FeatureToggle = "enabled" | "disabled";
 
 export interface V2AgentConfig {
   id: string;
+  enabled?: boolean;
   displayName: string;
   type: string;
   avatarURL?: string;
@@ -105,6 +106,7 @@ const legacyProviderSchema = z.object({
 
 const rawV2AgentConfigSchema = z.object({
   id: z.string().min(1),
+  enabled: z.boolean().optional(),
   display_name: z.string().min(1),
   type: z.string().min(1),
   avatar_url: z.string().url().optional(),
@@ -219,6 +221,7 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
 
   return {
     id: parsed.id,
+    enabled: parsed.enabled,
     displayName: parsed.display_name,
     type: parsed.type,
     avatarURL: parsed.avatar_url,
@@ -408,5 +411,9 @@ export function loadLayeredV2AgentConfigs(configDir?: string): Map<string, V2Age
 }
 
 export function isV2RuntimeEnabled(config: V2AgentConfig): boolean {
-  return config.runtime.provider === "claude-code-v2";
+  return isV2AgentEnabled(config) && config.runtime.provider === "claude-code-v2";
+}
+
+export function isV2AgentEnabled(config: V2AgentConfig): boolean {
+  return config.enabled !== false;
 }

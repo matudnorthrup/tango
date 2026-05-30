@@ -1,4 +1,5 @@
 id: malibu
+enabled: false
 display_name: Malibu
 type: wellness
 
