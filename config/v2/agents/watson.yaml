@@ -1,4 +1,5 @@
 id: watson
+enabled: false
 display_name: Watson
 type: personal
 

@@ -1,4 +1,5 @@
 id: charlie
+enabled: false
 display_name: Charlie
 type: quick
 

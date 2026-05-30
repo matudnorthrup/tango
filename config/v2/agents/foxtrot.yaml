@@ -1,4 +1,5 @@
 id: foxtrot
+enabled: false
 display_name: Foxtrot
 type: finance
 avatar_url: https://cdn.discordapp.com/attachments/1503463067034587216/1503746001574297641/foxtrot.png

@@ -12,7 +12,7 @@ import path from "node:path";
 import { assembleAgentPrompt } from "./system-prompt.js";
 import type { AgentConfig } from "./types.js";
 import type { V2AgentConfig } from "./v2-config-loader.js";
-import { loadLayeredV2AgentConfigs } from "./v2-config-loader.js";
+import { isV2AgentEnabled, loadLayeredV2AgentConfigs } from "./v2-config-loader.js";
 import { loadAgentConfigs } from "./config.js";
 
 function resolveV2PromptFile(
@@ -137,10 +137,10 @@ export function loadUnifiedAgentConfigs(
   options: { repoRoot?: string } = {},
 ): AgentConfig[] {
   const v2Configs = loadLayeredV2AgentConfigs(configDir);
-  const v2AgentConfigs = [...v2Configs.values()].map((v2Config) =>
-    v2ToLegacyAgentConfig(v2Config, options),
-  );
-  const v2Ids = new Set(v2AgentConfigs.map((config) => config.id));
+  const v2Ids = new Set(v2Configs.keys());
+  const v2AgentConfigs = [...v2Configs.values()]
+    .filter(isV2AgentEnabled)
+    .map((v2Config) => v2ToLegacyAgentConfig(v2Config, options));
   const legacyOnlyConfigs = loadAgentConfigs(configDir).filter((config) => !v2Ids.has(config.id));
 
   return [...legacyOnlyConfigs, ...v2AgentConfigs];

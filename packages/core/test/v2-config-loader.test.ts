@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  isV2AgentEnabled,
   isV2RuntimeEnabled,
   loadAllV2AgentConfigs,
   loadLayeredV2AgentConfigs,
@@ -31,6 +32,7 @@ describe("loadV2AgentConfig", () => {
 
     expect(config).toMatchObject({
       id: "malibu",
+      enabled: false,
       displayName: "Malibu",
       type: "wellness",
       systemPromptFile: "agents/assistants/malibu/soul.md",
@@ -149,7 +151,7 @@ describe("loadV2AgentConfig", () => {
 });
 
 describe("isV2RuntimeEnabled", () => {
-  it("returns false for legacy configs and true for claude-code-v2 configs", () => {
+  it("returns false for legacy or disabled configs and true for enabled claude-code-v2 configs", () => {
     const tempDir = createTempDir("tango-v2-config-");
 
     const legacyPath = path.join(tempDir, "legacy-agent.yaml");
@@ -210,6 +212,39 @@ describe("isV2RuntimeEnabled", () => {
       ].join("\n"),
     );
     expect(isV2RuntimeEnabled(loadV2AgentConfig(v2Path))).toBe(true);
+
+    const disabledPath = path.join(tempDir, "disabled-agent.yaml");
+    fs.writeFileSync(
+      disabledPath,
+      [
+        "id: disabled-agent",
+        "enabled: false",
+        "display_name: Disabled Agent",
+        "type: test",
+        "system_prompt_file: agents/assistants/test-agent/soul.md",
+        "mcp_servers:",
+        "  - name: memory",
+        "    command: node",
+        "runtime:",
+        "  mode: persistent",
+        "  provider: claude-code-v2",
+        "  fallback: codex",
+        "  model: claude-sonnet-4-6",
+        "  reasoning_effort: medium",
+        "  idle_timeout_hours: 24",
+        "  context_reset_threshold: 0.8",
+        "memory:",
+        "  post_turn_extraction: enabled",
+        "  extraction_model: claude-haiku-4-5",
+        "  importance_threshold: 0.4",
+        "  scheduled_reflection: enabled",
+        "discord:",
+        "  default_channel_id: \"123\"",
+      ].join("\n"),
+    );
+    const disabledConfig = loadV2AgentConfig(disabledPath);
+    expect(isV2AgentEnabled(disabledConfig)).toBe(false);
+    expect(isV2RuntimeEnabled(disabledConfig)).toBe(false);
   });
 });
 
@@ -307,6 +342,7 @@ describe("loadLayeredV2AgentConfigs", () => {
         path.join(resolvedRepoRoot, "config", "v2", "agents", "alpha.yaml"),
         [
           "id: alpha",
+          "enabled: false",
           "display_name: Alpha",
           "type: test",
           "system_prompt_file: agents/assistants/alpha/soul.md",
@@ -348,6 +384,7 @@ describe("loadLayeredV2AgentConfigs", () => {
         path.join(profileV2Dir, "alpha.yaml"),
         [
           "id: alpha",
+          "enabled: true",
           "voice:",
           "  default_channel_id: \"profile-channel\"",
           "  smoke_test_channel_id: \"profile-smoke\"",
@@ -361,6 +398,7 @@ describe("loadLayeredV2AgentConfigs", () => {
 
       expect(configs.get("alpha")).toMatchObject({
         id: "alpha",
+        enabled: true,
         displayName: "Alpha",
         runtime: {
           provider: "claude-code-v2",

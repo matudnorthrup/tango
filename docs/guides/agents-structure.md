@@ -149,6 +149,7 @@ Prompt assets live with the agents. Runtime configuration stays centralized unde
 ### `config/v2/agents/*.yaml`
 
 Use for assistant runtime wiring:
+- `enabled: false` for committed templates or private agents that should parse but not load into runtime/routing by default
 - runtime mode/model/fallback
 - MCP servers and tool allowlists
 - Discord/voice routing
@@ -160,6 +161,12 @@ V2 agent config is the source of truth for assistants. Current registry
 consumers still receive an `AgentConfig` shape, but it is generated from v2 at
 boot.
 
+Disabled V2 agents are kept as templates only: they are excluded from the V2
+runtime map, the legacy agent registry bridge, voice runtime loading, routing,
+access reports, and capability reports. A profile can intentionally opt in by
+adding a matching `~/.tango/profiles/<profile>/config/v2/agents/<id>.yaml`
+override with `enabled: true`.
+
 ### `config/defaults/agents/dispatch.yaml`
 
 Use only for legacy-only system agents that do not have a v2 runtime yet.
@@ -169,7 +176,7 @@ Today that means `dispatch`. Do not add new assistant configs here.
 
 1. Create `agents/assistants/<id>/soul.md`
 2. Add `knowledge.md` if the assistant needs assistant-specific facts
-3. Add `config/v2/agents/<id>.yaml` with `system_prompt_file`, MCP servers, voice/Discord routing, provider, tools, orchestration, and response metadata
+3. Add `config/v2/agents/<id>.yaml` with `enabled: true` or omit `enabled`, plus `system_prompt_file`, MCP servers, voice/Discord routing, provider, tools, orchestration, and response metadata
 4. Add or update any session routing in `config/defaults/sessions/*.yaml`
 5. Add governance principal and permissions for any tools it can call
 
