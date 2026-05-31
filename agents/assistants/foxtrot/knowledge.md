@@ -21,6 +21,14 @@ The `lunch_money` tool wraps the Lunch Money API.
 - Receipt files live at `Records/Finance/Receipts/{Retailer}/` in Obsidian
 - Use the receipt_logging skill format for file structure
 - For reimbursable receipts, add a ## Reimbursement Tracking section using receipt_registry
+- Before saying no receipt exists or asking Devin for itemized split amounts,
+  run `receipt_registry lookup_receipts` with the Lunch Money transaction ID
+  when available, otherwise amount/date/merchant/store/item clues. If the
+  receipt has item rows, use those rows for the split.
+- When an itemized receipt has subtotal and tax fields, sum the relevant item
+  rows by Devin's category decision and allocate tax proportionally so the split
+  totals match the Lunch Money transaction. Only ask for amounts if the receipt
+  lacks item rows or the category ownership is still ambiguous.
 
 ## Categorization Rules
 

@@ -31,6 +31,7 @@ import {
   detectReimbursementGaps,
   generateMonthlyLedger,
   listReimbursementCandidates,
+  lookupReceiptRecords,
   reconcileUniversalReimbursements,
   resolveDefaultMemo,
   resolveVendorConfig,
@@ -996,6 +997,12 @@ export function createReceiptRegistryTools(): AgentTool[] {
         "Structured receipt and reimbursement tracking for cataloged Obsidian receipt notes.",
         "",
         "Actions:",
+        "  lookup_receipts",
+        "    Find cataloged receipt notes by Lunch Money transaction id, amount, date, merchant/vendor, or text query.",
+        "    Returns receipt metadata, linked Lunch Money transactions, item rows, and category notes when present.",
+        "    Use this before saying no receipt exists or asking the user for itemized split amounts.",
+        "    Optional params: transaction_id, amount, date or transaction_date, merchant, query, max_results.",
+        "",
         "  list_walmart_delivery_candidates",
         "    List Walmart receipt notes that include a delivery driver tip and are still missing reimbursement submission state.",
         "    By default this verifies the candidate list against live Ramp reimbursement history before returning anything as pending.",
@@ -1047,6 +1054,7 @@ export function createReceiptRegistryTools(): AgentTool[] {
           action: {
             type: "string",
             enum: [
+              "lookup_receipts",
               "list_walmart_delivery_candidates",
               "backfill_walmart_delivery_candidates",
               "reconcile_walmart_reimbursements",
@@ -1068,6 +1076,10 @@ export function createReceiptRegistryTools(): AgentTool[] {
             type: "string",
             description: "For list/backfill/reconcile actions: optional upper date bound in YYYY-MM-DD format.",
           },
+          date: {
+            type: "string",
+            description: "For lookup_receipts: receipt date in YYYY-MM-DD format.",
+          },
           include_submitted: {
             type: "boolean",
             description: "For list/backfill actions: include already-submitted or reimbursed notes.",
@@ -1086,11 +1098,23 @@ export function createReceiptRegistryTools(): AgentTool[] {
           },
           merchant: {
             type: "string",
-            description: "For check_submission_dedup: merchant or payee name when note_path is omitted.",
+            description: "For lookup_receipts or check_submission_dedup: merchant or payee name.",
+          },
+          transaction_id: {
+            type: "string",
+            description: "For lookup_receipts: Lunch Money transaction id linked from a receipt note.",
           },
           transaction_date: {
             type: "string",
-            description: "For check_submission_dedup: transaction date in YYYY-MM-DD format when note_path is omitted.",
+            description: "For lookup_receipts or check_submission_dedup: transaction date in YYYY-MM-DD format.",
+          },
+          query: {
+            type: "string",
+            description: "For lookup_receipts: text to match in receipt metadata, linked transactions, store details, or item rows.",
+          },
+          max_results: {
+            type: "number",
+            description: "For lookup_receipts: maximum receipt matches to return. Defaults to 10.",
           },
           month: {
             type: "string",
@@ -1155,6 +1179,31 @@ export function createReceiptRegistryTools(): AgentTool[] {
         const includeSubmitted = input.include_submitted === true;
         const verifyWithRamp = input.verify_with_ramp !== false;
         switch (action) {
+          case "lookup_receipts": {
+            const transactionId =
+              typeof input.transaction_id === "string" || typeof input.transaction_id === "number"
+                ? String(input.transaction_id)
+                : undefined;
+            const date =
+              typeof input.date === "string"
+                ? input.date
+                : typeof input.transaction_date === "string"
+                  ? input.transaction_date
+                  : undefined;
+            const results = lookupReceiptRecords({
+              transactionId,
+              amount: typeof input.amount === "number" ? input.amount : undefined,
+              date,
+              merchant: typeof input.merchant === "string" ? input.merchant : vendor,
+              query: typeof input.query === "string" ? input.query : undefined,
+              maxResults: typeof input.max_results === "number" ? input.max_results : undefined,
+            });
+
+            return {
+              results,
+              count: results.length,
+            };
+          }
           case "list_walmart_delivery_candidates": {
             const localResults = listWalmartDeliveryCandidates({
               since,

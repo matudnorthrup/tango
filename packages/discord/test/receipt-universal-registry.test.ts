@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  lookupReceiptRecords,
   reconcileUniversalReimbursements,
   upsertReimbursementTracking,
 } from "../src/receipt-universal-registry.js";
@@ -31,6 +32,73 @@ afterEach(() => {
 });
 
 describe("receipt universal registry", () => {
+  it("looks up itemized receipts by linked Lunch Money transaction id", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-receipt-lookup-home-"));
+    cleanupDirs.push(tempHome);
+    process.env.TANGO_HOME = tempHome;
+    process.env.TANGO_PROFILE = "test";
+
+    const receiptDir = path.join(tempHome, "profiles", "test", "data", "receipts", "Walmart");
+    fs.mkdirSync(receiptDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(receiptDir, "2026-05-21 Walmart Store Purchase TC6140-2026-0983-8550-124.md"),
+      [
+        "# Walmart Store Purchase - May 21, 2026",
+        "",
+        "- **Date:** 2026-05-21",
+        "- **Store:** Lindon Supercenter - 585 N State St, Lindon, UT 84042",
+        "- **TC#:** 6140-2026-0983-8550-124",
+        "- **Subtotal:** $50.19",
+        "- **Tax:** $3.51",
+        "- **Total:** $53.70",
+        "",
+        "## Items",
+        "",
+        "| Item | Qty | Price |",
+        "|------|-----|-------|",
+        "| George Men's Solid Black Slim Necktie | 1 | $10.00 |",
+        "| Mens Primry Color Synthetic Player Jersey | 1 | $33.00 |",
+        "| Great Value Whole Strawberries 16 oz (Frozen) | 1 | $2.86 |",
+        "",
+        "## Category Notes",
+        "",
+        "- Necktie, Jersey -> Clothing & Accessories",
+        "- Frozen strawberries -> Groceries",
+        "",
+        "## Linked Transactions",
+        "",
+        "- Lunch Money TXN 2403517923: $53.70 (Walmart, Chase Sapphire - uncleared)",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const matches = lookupReceiptRecords({
+      transactionId: "2403517923",
+      rootDir: path.join(tempHome, "profiles", "test", "data", "receipts"),
+    });
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.reasons).toContain("linked_transaction_id");
+    expect(matches[0]?.record.fields.Store).toContain("Lindon Supercenter");
+    expect(matches[0]?.record.linkedTransactions).toEqual([
+      expect.objectContaining({
+        id: "2403517923",
+        amount: 53.7,
+      }),
+    ]);
+    expect(matches[0]?.record.lineItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        item: "George Men's Solid Black Slim Necktie",
+        price: 10,
+      }),
+      expect.objectContaining({
+        item: "Mens Primry Color Synthetic Player Jersey",
+        price: 33,
+      }),
+    ]));
+    expect(matches[0]?.record.categoryNotes).toContain("Frozen strawberries -> Groceries");
+  });
+
   it("repairs reimbursement frontmatter when upserting tracking state", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-universal-receipts-"));
     cleanupDirs.push(tempDir);

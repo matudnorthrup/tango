@@ -67,6 +67,41 @@ export interface UniversalReceiptRecord {
   reimbursement: ReceiptReimbursementState;
 }
 
+export interface ReceiptLineItem {
+  item: string;
+  quantity?: string;
+  price?: number;
+  raw: string;
+}
+
+export interface LinkedReceiptTransaction {
+  id: string;
+  amount?: number;
+  description?: string;
+  raw: string;
+}
+
+export interface ReceiptLookupInput {
+  transactionId?: string | number;
+  amount?: number;
+  date?: string;
+  merchant?: string;
+  query?: string;
+  rootDir?: string;
+  maxResults?: number;
+}
+
+export interface ReceiptLookupMatch {
+  score: number;
+  reasons: string[];
+  record: UniversalReceiptRecord & {
+    fields: Record<string, string>;
+    linkedTransactions: LinkedReceiptTransaction[];
+    lineItems: ReceiptLineItem[];
+    categoryNotes: string[];
+  };
+}
+
 export interface UpsertReimbursementTrackingInput {
   notePath: string;
   vendor?: string;
@@ -776,6 +811,20 @@ function extractBulletValue(markdown: string, labels: string[]): string | undefi
   return undefined;
 }
 
+function parseReceiptMetadataFields(markdown: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const rawLine of markdown.replace(/\r\n/gu, "\n").split("\n")) {
+    const match = /^\s*-\s+(?:\*\*)?([^:*]+):(?:\*\*)?\s+(.+?)\s*$/u.exec(rawLine);
+    const rawKey = match?.[1]?.trim();
+    const rawValue = match?.[2]?.trim();
+    if (!rawKey || !rawValue) {
+      continue;
+    }
+    result[rawKey] = rawValue;
+  }
+  return result;
+}
+
 function extractDateValue(markdown: string): string | undefined {
   const raw = extractBulletValue(markdown, ["Date", "Transaction Date", "Paid On", "Payment Date"]);
   if (!raw) {
@@ -816,6 +865,111 @@ function parseWalmartTipAmount(markdown: string): number | undefined {
     }
   }
   return undefined;
+}
+
+function extractMarkdownSectionLines(markdown: string, heading: string): string[] {
+  const lines = markdown.replace(/\r\n/gu, "\n").split("\n");
+  const headingPattern = new RegExp(`^##\\s+${escapeRegex(heading)}\\s*$`, "iu");
+  const startIndex = lines.findIndex((line) => headingPattern.test(line.trim()));
+  if (startIndex < 0) {
+    return [];
+  }
+
+  const sectionLines: string[] = [];
+  for (const line of lines.slice(startIndex + 1)) {
+    if (/^##\s+/u.test(line.trim())) {
+      break;
+    }
+    sectionLines.push(line);
+  }
+  return sectionLines;
+}
+
+function splitMarkdownTableRow(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
+    return null;
+  }
+  return trimmed.slice(1, -1).split("|").map((cell) => cell.trim());
+}
+
+function isMarkdownSeparatorRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/u.test(cell.trim()));
+}
+
+function parseReceiptLineItems(markdown: string): ReceiptLineItem[] {
+  const rows = extractMarkdownSectionLines(markdown, "Items")
+    .map(splitMarkdownTableRow)
+    .filter((row): row is string[] => row !== null);
+  const header = rows.find((row) => !isMarkdownSeparatorRow(row));
+  if (!header) {
+    return [];
+  }
+
+  const headerIndex = rows.indexOf(header);
+  const headers = header.map((cell) => normalizeKey(cell));
+  const itemIndex = headers.findIndex((cell) =>
+    cell === "item" || cell === "name" || cell === "description"
+  );
+  const quantityIndex = headers.findIndex((cell) => cell === "qty" || cell === "quantity");
+  const priceIndex = headers.findIndex((cell) =>
+    cell === "price" || cell === "amount" || cell === "total"
+  );
+
+  if (itemIndex < 0) {
+    return [];
+  }
+
+  return rows
+    .slice(headerIndex + 1)
+    .filter((row) => !isMarkdownSeparatorRow(row))
+    .map((row) => {
+      const item = row[itemIndex]?.trim() ?? "";
+      if (!item) {
+        return null;
+      }
+      const price = priceIndex >= 0 ? parseCurrency(row[priceIndex]) : undefined;
+      const lineItem: ReceiptLineItem = {
+        item,
+        raw: `| ${row.join(" | ")} |`,
+      };
+      const quantity = quantityIndex >= 0 ? row[quantityIndex]?.trim() : undefined;
+      if (quantity) {
+        lineItem.quantity = quantity;
+      }
+      if (price != null) {
+        lineItem.price = price;
+      }
+      return lineItem;
+    })
+    .filter((item): item is ReceiptLineItem => item !== null);
+}
+
+function parseReceiptCategoryNotes(markdown: string): string[] {
+  return extractMarkdownSectionLines(markdown, "Category Notes")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/^[-*]\s+/u, "").trim())
+    .filter((line) => line.length > 0);
+}
+
+function parseLinkedReceiptTransactions(markdown: string): LinkedReceiptTransaction[] {
+  const transactions: LinkedReceiptTransaction[] = [];
+  for (const rawLine of markdown.replace(/\r\n/gu, "\n").split("\n")) {
+    const line = rawLine.trim();
+    const match = /^\s*(?:[-*]\s*)?(?:Lunch Money\s+)?TXN\s+(\d+)\s*:?\s*(?:\$([0-9.,]+))?\s*(?:\((.*?)\))?\s*$/iu.exec(line);
+    const id = match?.[1];
+    if (!id) {
+      continue;
+    }
+    transactions.push({
+      id,
+      amount: parseCurrency(match?.[2]),
+      description: match?.[3]?.trim(),
+      raw: line,
+    });
+  }
+  return transactions;
 }
 
 function buildMerchantCandidates(input: {
@@ -995,6 +1149,115 @@ export function loadAllReceiptRecords(rootDir = resolveDefaultReceiptRoot()): Un
     .sort((left, right) =>
       `${right.date ?? ""}::${left.noteName}`.localeCompare(`${left.date ?? ""}::${right.noteName}`)
     );
+}
+
+export function lookupReceiptRecords(input: ReceiptLookupInput = {}): ReceiptLookupMatch[] {
+  const transactionId = String(input.transactionId ?? "").trim();
+  const date = input.date ? parseFlexibleDateToIso(input.date) ?? input.date.trim() : undefined;
+  const merchantKey = normalizeKey(input.merchant);
+  const queryTokens = normalizeKey(input.query)
+    .split(/\s+/u)
+    .filter((token) => token.length > 1);
+  const maxResults = Math.max(1, Math.min(50, Math.trunc(input.maxResults ?? 10)));
+  const hasFilters = Boolean(
+    transactionId
+      || input.amount != null
+      || date
+      || merchantKey
+      || queryTokens.length > 0,
+  );
+
+  return loadAllReceiptRecords(input.rootDir)
+    .map((record) => {
+      const markdown = fs.readFileSync(record.filePath, "utf8");
+      const fields = parseReceiptMetadataFields(markdown);
+      const linkedTransactions = parseLinkedReceiptTransactions(markdown);
+      const lineItems = parseReceiptLineItems(markdown);
+      const categoryNotes = parseReceiptCategoryNotes(markdown);
+      const normalizedHaystack = normalizeKey([
+        record.title,
+        record.noteName,
+        record.receiptDir,
+        record.merchant,
+        ...Object.entries(fields).flatMap(([key, value]) => [key, value]),
+        markdown,
+      ].join(" "));
+
+      if (transactionId && !linkedTransactions.some((transaction) => transaction.id === transactionId)) {
+        return null;
+      }
+      if (date && record.date !== date) {
+        return null;
+      }
+      if (input.amount != null) {
+        const matchesAmount =
+          amountsMatch(record.total, input.amount)
+          || linkedTransactions.some((transaction) => amountsMatch(transaction.amount, input.amount));
+        if (!matchesAmount) {
+          return null;
+        }
+      }
+      if (merchantKey && !normalizedHaystack.includes(merchantKey)) {
+        return null;
+      }
+      if (queryTokens.length > 0 && !queryTokens.every((token) => normalizedHaystack.includes(token))) {
+        return null;
+      }
+
+      let score = hasFilters ? 0 : 1;
+      const reasons: string[] = [];
+      if (transactionId) {
+        score += 100;
+        reasons.push("linked_transaction_id");
+      }
+      if (input.amount != null && amountsMatch(record.total, input.amount)) {
+        score += 30;
+        reasons.push("receipt_total");
+      }
+      if (
+        input.amount != null
+        && linkedTransactions.some((transaction) => amountsMatch(transaction.amount, input.amount))
+      ) {
+        score += 35;
+        reasons.push("linked_transaction_amount");
+      }
+      if (date) {
+        score += 20;
+        reasons.push("receipt_date");
+      }
+      if (merchantKey) {
+        score += 15;
+        reasons.push("merchant_or_note_text");
+      }
+      if (queryTokens.length > 0) {
+        score += 10;
+        reasons.push("query_text");
+      }
+      if (!hasFilters) {
+        reasons.push("recent_receipt");
+      }
+
+      return {
+        score,
+        reasons,
+        record: {
+          ...record,
+          fields,
+          linkedTransactions,
+          lineItems,
+          categoryNotes,
+        },
+      } satisfies ReceiptLookupMatch;
+    })
+    .filter((match): match is ReceiptLookupMatch => match !== null)
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return right.score - left.score;
+      }
+      return `${right.record.date ?? ""}::${right.record.noteName}`
+        .localeCompare(`${left.record.date ?? ""}::${left.record.noteName}`);
+    })
+    .slice(0, maxResults);
 }
 
 function isReimbursementCandidate(record: UniversalReceiptRecord): boolean {

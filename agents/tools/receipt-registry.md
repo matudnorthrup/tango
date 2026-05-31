@@ -6,6 +6,8 @@ Structured access to cataloged receipt reimbursement state for Watson.
 
 Use this tool instead of ad hoc note parsing when you need to:
 
+- find itemized receipt notes by Lunch Money transaction ID, amount, date,
+  merchant, or store/item text
 - find pending reimbursement candidates across configured vendors
 - build a reimbursement ledger for a review window
 - detect missing/stale reimbursement tracking fields
@@ -18,6 +20,32 @@ source of truth for whether a Ramp reimbursement is pending. They are context
 only. If this tool cannot verify the state, report the item as unverified.
 
 ## Actions
+
+### `lookup_receipts`
+
+Finds cataloged receipt notes by linked Lunch Money transaction ID, amount,
+date, merchant/vendor, or text query. Use this before saying no receipt exists,
+before asking the user for itemized split amounts, and when a user references a
+store/location/item from an earlier review.
+
+Optional params:
+
+- `transaction_id`
+- `amount`
+- `date` or `transaction_date`
+- `merchant`
+- `query`
+- `max_results`
+
+Useful fields in the response:
+
+- `record.filePath`
+- `record.date`
+- `record.total`
+- `record.fields`
+- `record.linkedTransactions`
+- `record.lineItems`
+- `record.categoryNotes`
 
 ### `list_reimbursement_candidates`
 
@@ -188,12 +216,16 @@ Optional fields:
 
 ### Finance review / close prep
 
-1. Run `detect_gaps`.
-2. Run `generate_monthly_ledger`.
-3. Run `list_reimbursement_candidates`.
-4. For Walmart delivery tips, run `list_walmart_delivery_candidates`.
-5. Reconcile before making any confident stale/pending/submitted claim.
-6. If verification fails, say `unverified`; do not fill gaps with guesses.
+1. Run `lookup_receipts` for retailer transactions that have a transaction ID,
+   amount/date/store clue, or user-mentioned item before asking for amounts.
+   If item rows plus subtotal/tax are present, compute item-group totals and
+   allocate tax proportionally so the split sums to the transaction total.
+2. Run `detect_gaps`.
+3. Run `generate_monthly_ledger`.
+4. Run `list_reimbursement_candidates`.
+5. For Walmart delivery tips, run `list_walmart_delivery_candidates`.
+6. Reconcile before making any confident stale/pending/submitted claim.
+7. If verification fails, say `unverified`; do not fill gaps with guesses.
 
 ### Ramp submission
 

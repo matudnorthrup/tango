@@ -169,6 +169,14 @@ Check Lunch Money for uncleared/uncategorized transactions:
 - any uncleared transaction older than 48 hours
 - any uncategorized transaction regardless of age
 
+For retailer transactions that may have itemized receipts, run
+`receipt_registry lookup_receipts` using the Lunch Money transaction ID when
+available, otherwise amount/date/merchant/store clues. If the receipt has item
+rows, use those item rows for split amounts instead of asking the user to
+provide amounts. When the receipt includes subtotal and tax fields, allocate
+tax proportionally across the category/item groups so the split totals match
+the Lunch Money transaction.
+
 For a `rolling` review, report the backlog and suggested decisions. For
 `close_prep` and `close`, unresolved transaction backlog is a close blocker
 unless explicitly carried forward.
@@ -234,6 +242,9 @@ Obsidian Base view is a human-facing display, not an authoritative source for
 agent decisions, because stale frontmatter or path issues can hide valid notes.
 
 Required structured checks:
+- Run `receipt_registry lookup_receipts` for retailer transactions with linked
+  transaction IDs or likely receipt notes before saying no receipt exists or
+  asking for itemized split amounts.
 - Run `receipt_registry detect_gaps` for the review window or recent lookback.
 - Run `receipt_registry generate_monthly_ledger` for the current month or
   requested review range.
