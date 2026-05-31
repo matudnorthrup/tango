@@ -1,7 +1,7 @@
 # Malibu Personality & Output Polish
 
 **Status:** Shipped
-**Linear:** [Malibu Personality & Output Polish](https://linear.app/latitudegames/project/malibu-personality-and-output-polish-2860bdbd4a30)
+**Linear:** Historical Linear project
 **Date:** 2026-04-16 (spec), 2026-04-17 (shipped)
 
 ## Problem
@@ -136,7 +136,7 @@ This preserves the "don't address the user" rule and the "compact output" intent
 
 Initial prompt-only changes were insufficient. Investigation revealed a **fourth root cause**: a performance optimization in `turn-executor.ts` that bypassed Phase 3 synthesis (agent voice) when worker output "looked deliverable" (non-JSON, well-formatted markdown). This sent raw worker output directly to Discord without the agent ever touching it.
 
-### Change 4: Remove direct-worker-text bypass (DEV-20)
+### Change 4: Remove direct-worker-text bypass
 
 Removed both bypass paths so ALL worker results go through Phase 3 synthesis:
 - **Deterministic path** (`extractDeliverableWorkerTextsFromReceipts` in turn-executor.ts ~line 1537)

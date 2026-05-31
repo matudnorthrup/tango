@@ -548,6 +548,43 @@ describe("SessionLifecycleManager", () => {
     expect(session?.messageCount).toBe(0);
   });
 
+  it("does not hard reset from aggregate Claude Code modelUsage across multiple turns", async () => {
+    const pool = new MockRuntimePool();
+    const runtime1 = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime1.queueResponse(createResponse("First reply", {
+      sessionId: "session-1",
+      metadata: {
+        raw: {
+          num_turns: 22,
+          modelUsage: {
+            "claude-sonnet-4-20250514": {
+              inputTokens: 26,
+              outputTokens: 12604,
+              cacheReadInputTokens: 676482,
+              cacheCreationInputTokens: 75222,
+              contextWindow: 200000,
+            },
+          },
+        },
+      },
+    }));
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      {
+        contextResetThreshold: 0.80,
+      },
+    );
+
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+    const session = manager.getSession("conversation-1");
+
+    expect(pool.closeCalls).toHaveLength(0);
+    expect(pool.getOrCreateCalls).toHaveLength(1);
+    expect(session?.messageCount).toBe(1);
+    expect(session?.sessionId).toBe("session-1");
+  });
+
   it("does not reset when modelUsage context fraction is below the threshold", async () => {
     const pool = new MockRuntimePool();
     const runtime1 = pool.enqueueRuntime(new MockRuntime("runtime-1"));

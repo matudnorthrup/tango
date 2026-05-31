@@ -2,8 +2,8 @@ id: project:porter
 type: project
 agent: porter
 channels:
-  - discord:1508531125243478176
-  - discord:1508531126321549455
+  - discord:100000000000000006
+  - discord:100000000000001006
 orchestrator_continuity: stateless
 memory:
   max_context_tokens: 16000

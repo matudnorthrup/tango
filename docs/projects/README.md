@@ -6,10 +6,10 @@ the source of truth for active work.
 Do not add active project plans, approval gates, issue breakdowns, validation
 evidence, or mutable status updates here. Put that state in Linear.
 
-Repo project notes should now be limited to durable retros, postmortems, and
-historical writeups that are still useful after the active project has closed.
-When a project note becomes a current design reference, move the durable part to
-`docs/specs/` or `docs/architecture/`.
+Repo project notes should now be limited to historical writeups that are still
+useful after the active project has closed. Retros and postmortems belong in
+`docs/retros/`. When a project note becomes a current design reference, move
+the durable part to `docs/specs/` or `docs/architecture/`.
 
 Migration record:
 

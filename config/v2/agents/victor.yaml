@@ -44,16 +44,16 @@ voice:
   call_signs:
     - Victor
   kokoro_voice: am_liam
-  default_channel_id: "1480579160056397958"
-  smoke_test_channel_id: "1488248024990875698"
+  default_channel_id: "100000000000000004"
+  smoke_test_channel_id: "100000000000001004"
 
 # Discord routing
 discord:
-  default_channel_id: "1480579160056397958"
-  smoke_test_channel_id: "1488248024990875698"
+  default_channel_id: "100000000000000004"
+  smoke_test_channel_id: "100000000000001004"
 
 # Legacy registry fields
-avatar_url: https://cdn.discordapp.com/avatars/1480581855450497277/cb5e0df0a5857352c71e9fd660f29a23.webp
+avatar_url: https://example.com/tango/avatars/victor.png
 default_project: operations
 response_mode: concise
 

@@ -86,4 +86,4 @@ UPDATE workouts SET date = '2026-03-31' WHERE id = 27;
 ## Linear
 
 - Project: Malibu Timezone Fix
-- Issues: DEV-31 (Discovery, Done), DEV-32–34 (Implementation), DEV-35 (Validation)
+- Issues: historical discovery, implementation, and validation records

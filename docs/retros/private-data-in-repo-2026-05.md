@@ -1,4 +1,4 @@
-# Retro: Private Data Committed to Repo
+# Private Data Committed to Repo Retro
 
 **Date:** 2026-05-01
 **Severity:** High — personal data exposed in shared repository

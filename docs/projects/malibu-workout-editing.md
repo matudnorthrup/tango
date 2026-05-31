@@ -40,7 +40,7 @@ Added "Managing routines" section with full SQL examples for:
 
 ## Test Results
 
-Live tested on slot bot (slot 1, smoke test thread 1494819934784716870):
+Live tested on slot bot in a smoke-test thread:
 
 1. **Query routine (PASS):** "What exercises are in Push Day A?" → workout-recorder dispatched, 1 SQL call, replied
 2. **Edit routine (PASS):** "Add lateral raises to Push Day A as the last exercise" → workout-recorder dispatched, 2 SQL calls (lookup + write, both readOnly=no), replied
@@ -53,7 +53,7 @@ Live tested on slot bot (slot 1, smoke test thread 1494819934784716870):
 
 ## Linear
 
-- Project: Malibu Workout Routine Editing (DEV-21 through DEV-25, all Done)
+- Project: Malibu Workout Routine Editing
 
 ## Key Files
 

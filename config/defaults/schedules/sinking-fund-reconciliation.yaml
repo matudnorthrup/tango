@@ -31,7 +31,7 @@ provider:
   model: claude-sonnet-4-6
 
 delivery:
-  channel_id: "1503463044112580798"
+  channel_id: "100000000000000005"
   agent_id: foxtrot
 
 completion:

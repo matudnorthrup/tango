@@ -21,6 +21,6 @@ legacy:
   commands:
     - node ~/.tango/tools/nutrition-coach/scripts/nutrition-helper.js recipe "<name>"
   read_paths:
-    - ~/.tango/profiles/default/notes/recipes/*.md
+    - ~/.tango/profiles/<profile>/notes/recipes/*.md
   write_paths:
     - none (legacy flow was read-only)

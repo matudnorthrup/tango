@@ -5,8 +5,8 @@
 **Linear:** [Watson Finance Agent Split](https://linear.app/seaside-hq/project/watson-finance-agent-split-81d28292037c)
 **Date:** 2026-05-11
 **Agent name:** Foxtrot (changed from Ledger during stakeholder review)
-**Discord channel:** `#foxtrot` (ID: `1503463044112580798`) — new channel, not the old `topics.finance`
-**Smoke test channel:** `#foxtrot-test` (ID: `1503463067034587216`)
+**Discord channel:** `#foxtrot` — new channel, not the old `topics.finance`
+**Smoke test channel:** `#foxtrot-test`
 
 ## Problem
 

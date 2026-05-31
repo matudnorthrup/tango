@@ -13,8 +13,22 @@ import type { V2AgentConfig } from "../src/v2-config-loader.js";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const tempDirs: string[] = [];
+const originalEnv = { ...process.env };
 
 afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
+    }
+  }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -372,6 +386,7 @@ describe("loadUnifiedAgentConfigs", () => {
   it("keeps current repo personal v2 configs as disabled templates and loads dispatch only", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     const v2Dir = path.join(repoRoot, "config", "v2", "agents");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
 
     const unifiedConfigs = loadUnifiedAgentConfigs(defaultsDir, { repoRoot });
     const v2Configs = loadAllV2AgentConfigs(v2Dir);

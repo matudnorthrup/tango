@@ -2,4 +2,4 @@ id: smoke-testing-foxtrot
 type: project
 agent: foxtrot
 channels:
-  - "discord:1503463067034587216"
+  - "discord:100000000000001005"

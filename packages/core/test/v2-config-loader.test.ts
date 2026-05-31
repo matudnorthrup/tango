@@ -54,12 +54,12 @@ describe("loadV2AgentConfig", () => {
       voice: {
         callSigns: ["Malibu", "Malibooth", "Coach Malibu"],
         kokoroVoice: "am_puck",
-        defaultChannelId: "1480419549403942913",
-        smokeTestChannelId: "1488248020821606492",
+        defaultChannelId: "100000000000000002",
+        smokeTestChannelId: "100000000000001002",
       },
       discord: {
-        defaultChannelId: "1480419549403942913",
-        smokeTestChannelId: "1488248020821606492",
+        defaultChannelId: "100000000000000002",
+        smokeTestChannelId: "100000000000001002",
       },
     });
     expect(config.mcpServers.length).toBeGreaterThanOrEqual(5);
@@ -115,12 +115,12 @@ describe("loadV2AgentConfig", () => {
       voice: {
         callSigns: ["Porter", "Brother Porter"],
         kokoroVoice: "am_liam",
-        defaultChannelId: "1508531125243478176",
-        smokeTestChannelId: "1508531126321549455",
+        defaultChannelId: "100000000000000006",
+        smokeTestChannelId: "100000000000001006",
       },
       discord: {
-        defaultChannelId: "1508531125243478176",
-        smokeTestChannelId: "1508531126321549455",
+        defaultChannelId: "100000000000000006",
+        smokeTestChannelId: "100000000000001006",
       },
     });
 

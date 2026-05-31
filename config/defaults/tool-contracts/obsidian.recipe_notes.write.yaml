@@ -22,9 +22,9 @@ output_fields:
   - updated
 legacy:
   read_paths:
-    - ~/.tango/profiles/default/notes/recipes/*.md
-    - ~/.tango/profiles/default/notes/templates/Recipe Template.md
+    - ~/.tango/profiles/<profile>/notes/recipes/*.md
+    - ~/.tango/profiles/<profile>/notes/templates/Recipe Template.md
   write_paths:
-    - ~/.tango/profiles/default/notes/recipes/<Recipe Name>.md
+    - ~/.tango/profiles/<profile>/notes/recipes/<Recipe Name>.md
   notes:
     - Legacy recipe writes were Markdown note edits, not a deterministic CLI.

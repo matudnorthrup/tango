@@ -191,6 +191,13 @@ function extractContextUsageFraction(
 function computeFractionFromModelUsage(
   metadata: Record<string, unknown>,
 ): number | undefined {
+  const turnCount =
+    findNumericField(metadata, "num_turns") ??
+    findNumericField(metadata, "numTurns");
+  if (turnCount !== undefined && turnCount > 1) {
+    return undefined;
+  }
+
   // Search for modelUsage anywhere in the metadata tree (it lives in raw/providerMetadata).
   const modelUsage = findModelUsage(metadata);
   if (!modelUsage) {
@@ -220,6 +227,38 @@ function computeFractionFromModelUsage(
   }
 
   return totalTokens / contextWindow;
+}
+
+function findNumericField(
+  value: unknown,
+  fieldName: string,
+  seen = new Set<object>(),
+): number | undefined {
+  const record = asRecord(value);
+  if (!record || seen.has(record)) {
+    return undefined;
+  }
+  seen.add(record);
+
+  const direct = record[fieldName];
+  if (typeof direct === "number" && Number.isFinite(direct)) {
+    return direct;
+  }
+
+  for (const child of Object.values(record)) {
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        const found = findNumericField(item, fieldName, seen);
+        if (found !== undefined) return found;
+      }
+      continue;
+    }
+
+    const found = findNumericField(child, fieldName, seen);
+    if (found !== undefined) return found;
+  }
+
+  return undefined;
 }
 
 function findModelUsage(

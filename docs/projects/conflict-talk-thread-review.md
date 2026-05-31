@@ -10,16 +10,16 @@ Stakeholder reported the "Conflict Talk" thread (in the "projects" category) had
 
 ## Threads Reviewed
 
-The "Conflict Talk" thread is actually **two threads** in the same Discord channel (`1480419557565796353`, the "projects" category channel):
+The "Conflict Talk" thread is actually **two threads** in the same Discord projects-category channel:
 
-1. **History Books thread** (channel `1495415258410389596`) — started as voice conversation via `project:latitude` session, later continued as text via `topic:6571d32a`
-2. **Conflict and Disagreement thread** (channel `1495477838449475754`) — text conversation via `topic:cb2d28b8`, slug `conflict-and-disagreement`
+1. **History Books thread** — started as voice conversation via `project:latitude` session, later continued as text via `topic:6571d32a`
+2. **Conflict and Disagreement thread** — text conversation via `topic:cb2d28b8`, slug `conflict-and-disagreement`
 
 Both conversations happened on 2026-04-19. All interactions were with Watson.
 
 ## Timeline of Failures
 
-### Thread 1: History Books (channel 1495415258410389596)
+### Thread 1: History Books
 
 | Time | Msg ID | What happened | User saw |
 |------|--------|---------------|----------|
@@ -32,7 +32,7 @@ Both conversations happened on 2026-04-19. All interactions were with Watson.
 | 16:46 | 1980 | User types "can you try again? you never responded to my last message" — session has changed to `topic:6571d32a` (new topic session, NOT the original `project:latitude` voice session) | (inbound) |
 | 16:47 | 1981 | Watson successfully updates the note with new book recommendations | Normal response |
 
-### Thread 2: Conflict and Disagreement (channel 1495477838449475754)
+### Thread 2: Conflict and Disagreement
 
 | Time | Msg ID | What happened | User saw |
 |------|--------|---------------|----------|
@@ -119,4 +119,4 @@ Before creating a new Obsidian note, the personal-assistant worker should check 
 - `packages/discord/src/turn-executor.ts` — narration guard logic (lines 799-1226)
 - `docs/projects/silent-message-failures.md` — related but different failure class
 - `docs/projects/reply-in-context-bug.md` — related session isolation fix
-- Obsidian vault: `/Users/devinnorthrup/Documents/main/` — two duplicate LDS talk notes exist
+- Private Obsidian vault — two duplicate LDS talk notes exist

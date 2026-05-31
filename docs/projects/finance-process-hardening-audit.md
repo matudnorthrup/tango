@@ -261,7 +261,7 @@ The current system is close, but the control loop is incomplete. The next harden
 Live validation:
 
 - First trigger of `manual-test-weekly-finance-review` exposed stale active-profile overrides: the schedule still routed to Watson and timed out after 300s.
-- Active profile schedule overrides under `~/.tango/profiles/default/config/schedules/` were repaired to route finance jobs to Foxtrot and use the updated finance prompts.
+- Active profile schedule overrides were repaired to route finance jobs to Foxtrot and use the updated finance prompts.
 - Second trigger routed correctly to Foxtrot, loaded finance tools, read `References/Finance/Budget Targets.md`, queried Lunch Money by category ID, and created `Records/Finance/Reviews/2026-05-24 Weekly Finance Review.md`.
 - The second trigger still hit the 300s V2 timeout after the Obsidian write, so the Discord/scheduler return path did not complete. The generated review content was materially useful and surfaced real flags: Gas & Charging over target, Insurance target outdated, missing House/Recreation SB contributions, ambiguous Vehicles SB contribution, and uncleared transaction backlog.
 - After increasing the weekly review timeout to 600s and restarting the bot, a third trigger completed successfully in 195s. It returned through the scheduler, used `obsidian create ... --overwrite`, and updated `Records/Finance/Reviews/2026-05-24 Weekly Finance Review.md`.
