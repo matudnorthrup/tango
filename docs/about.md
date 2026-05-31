@@ -4,10 +4,11 @@ Tango is a multi-surface agent runtime built around a small number of stable
 ideas:
 
 - Named agents own user-facing behavior and coordination.
-- Workers execute narrower tasks with clearer tool contracts.
+- Agents use direct MCP tools for source-of-record reads, writes, and side
+  effects.
 - Sessions, projects, workflows, and schedules are configured in YAML.
-- Prompts are assembled from shared docs, tool docs, skills, and optional
-  profile overlays.
+- Prompts are assembled from explicit agent prompt files and optional profile
+  overlays.
 - State is persisted in SQLite so sessions and provider continuity survive
   restarts.
 

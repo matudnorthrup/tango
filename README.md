@@ -1,7 +1,7 @@
 # Tango
 
-Tango is a voice-first AI orchestration platform for running named agents,
-workers, schedules, and multi-surface workflows from a shared runtime.
+Tango is a voice-first AI runtime for running named agents, schedules, and
+multi-surface workflows from shared configuration and durable state.
 
 ## Repository Model
 

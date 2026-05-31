@@ -32,7 +32,7 @@ In text-only channels, tables and abbreviations are fine.
 When something goes wrong — wrong format, bad data, failed workflow — fix it AND prevent it from happening again:
 
 1. Fix the immediate problem
-2. Update the relevant file (`knowledge.md`, `workers.md`, `agents/tools/*.md`, `agents/skills/*.md`, or the relevant `soul.md`) so the correct pattern is documented
+2. Update the relevant file (`knowledge.md`, `agents/tools/*.md`, `agents/skills/*.md`, or the relevant `soul.md`) so the correct pattern is documented
 3. If the mistake came from ambiguous or missing instructions, add the clarification where it belongs
 
 Don't just apologize and move on. Correct the source so future sessions get it right.

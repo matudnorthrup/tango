@@ -67,12 +67,6 @@ provider:
 tools:
   mode: off
 
-orchestration:
-  worker_ids:
-    - operations-assistant
-    - note-librarian
-  write_confirmation: on-ambiguity
-
 deterministic_routing:
   enabled: true
   confidence_threshold: 0.8
