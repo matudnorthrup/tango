@@ -97,6 +97,52 @@ describe("receipt universal registry", () => {
       }),
     ]));
     expect(matches[0]?.record.categoryNotes).toContain("Frozen strawberries -> Groceries");
+    expect(matches[0]?.lunchMoneyNote).toContain("Items:\n- George Men's Solid Black Slim Necktie - $10.00");
+    expect(matches[0]?.lunchMoneyNote).toContain("- Great Value Whole Strawberries 16 oz (Frozen) - $2.86");
+    expect(matches[0]?.lunchMoneyNote).toContain("Total: $53.70");
+    expect(matches[0]?.lunchMoneyNote).toContain(
+      "Categories: Necktie, Jersey -> Clothing & Accessories; Frozen strawberries -> Groceries",
+    );
+    expect(matches[0]?.lunchMoneyNote.trim().split("\n").at(-1)).toBe(
+      "Receipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%2F2026-05-21%20Walmart%20Store%20Purchase%20TC6140-2026-0983-8550-124.md",
+    );
+  });
+
+  it("builds receipt-backed Lunch Money notes even when item rows are missing", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-receipt-summary-note-home-"));
+    cleanupDirs.push(tempHome);
+    process.env.TANGO_HOME = tempHome;
+    process.env.TANGO_PROFILE = "test";
+
+    const receiptDir = path.join(tempHome, "profiles", "test", "data", "receipts", "Amazon");
+    fs.mkdirSync(receiptDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(receiptDir, "2026-05-22 Amazon Order 123.md"),
+      [
+        "# Amazon Order 123",
+        "",
+        "- **Date:** 2026-05-22",
+        "- **Merchant:** Amazon",
+        "- **Total:** $42.19",
+        "",
+        "## Linked Transactions",
+        "",
+        "- Lunch Money TXN 2403518000: $42.19 (Amazon, Chase Sapphire - uncleared)",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const matches = lookupReceiptRecords({
+      transactionId: "2403518000",
+      rootDir: path.join(tempHome, "profiles", "test", "data", "receipts"),
+    });
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.lunchMoneyNote).toContain("Summary: Amazon Order 123; merchant Amazon");
+    expect(matches[0]?.lunchMoneyNote).toContain("Total: $42.19");
+    expect(matches[0]?.lunchMoneyNote.trim().split("\n").at(-1)).toBe(
+      "Receipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FAmazon%2F2026-05-22%20Amazon%20Order%20123.md",
+    );
   });
 
   it("repairs reimbursement frontmatter when upserting tracking state", () => {

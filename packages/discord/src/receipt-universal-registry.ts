@@ -18,6 +18,7 @@ import type {
 const REIMBURSEMENT_SECTION_HEADING = "## Reimbursement Tracking";
 const REIMBURSEMENT_CONFIG_ENV = "TANGO_REIMBURSEMENT_CONFIG_PATH";
 const CURRENT_MONTH_KEY = new Date().toISOString().slice(0, 7);
+const LUNCH_MONEY_RECEIPT_NOTE_MAX_ITEMS = 20;
 
 export interface ReimbursementCategoryConfig {
   memo?: string;
@@ -81,6 +82,13 @@ export interface LinkedReceiptTransaction {
   raw: string;
 }
 
+export interface ReceiptLookupRecord extends UniversalReceiptRecord {
+  fields: Record<string, string>;
+  linkedTransactions: LinkedReceiptTransaction[];
+  lineItems: ReceiptLineItem[];
+  categoryNotes: string[];
+}
+
 export interface ReceiptLookupInput {
   transactionId?: string | number;
   amount?: number;
@@ -94,12 +102,8 @@ export interface ReceiptLookupInput {
 export interface ReceiptLookupMatch {
   score: number;
   reasons: string[];
-  record: UniversalReceiptRecord & {
-    fields: Record<string, string>;
-    linkedTransactions: LinkedReceiptTransaction[];
-    lineItems: ReceiptLineItem[];
-    categoryNotes: string[];
-  };
+  lunchMoneyNote: string;
+  record: ReceiptLookupRecord;
 }
 
 export interface UpsertReimbursementTrackingInput {
@@ -798,6 +802,62 @@ function buildNoteName(filePath: string): string {
   return path.relative(resolveNoteNameBaseDir(filePath), filePath).replace(/\\/gu, "/");
 }
 
+function buildVaultRelativeReceiptPath(filePath: string): string {
+  const normalizedPath = path.resolve(filePath);
+  if (normalizedPath.startsWith(`${LEGACY_VAULT_ROOT}${path.sep}`)) {
+    return path.relative(LEGACY_VAULT_ROOT, normalizedPath).replace(/\\/gu, "/");
+  }
+
+  const noteName = buildNoteName(filePath);
+  if (noteName.startsWith("Records/")) {
+    return noteName;
+  }
+
+  return `Records/Finance/Receipts/${noteName}`;
+}
+
+function buildObsidianReceiptUrl(filePath: string): string {
+  return `obsidian://open?vault=main&file=${encodeURIComponent(buildVaultRelativeReceiptPath(filePath))}`;
+}
+
+function formatReceiptLineItemForLunchMoney(item: ReceiptLineItem): string {
+  const quantity = item.quantity?.trim();
+  const quantityText = quantity && quantity !== "1" ? ` x${quantity}` : "";
+  const priceText = item.price != null ? ` - ${formatCurrency(item.price)}` : "";
+  return `- ${item.item}${quantityText}${priceText}`;
+}
+
+function buildLunchMoneyReceiptNote(record: ReceiptLookupRecord): string {
+  const lines: string[] = [];
+  const visibleLineItems = record.lineItems.slice(0, LUNCH_MONEY_RECEIPT_NOTE_MAX_ITEMS);
+
+  if (visibleLineItems.length > 0) {
+    lines.push("Items:");
+    lines.push(...visibleLineItems.map(formatReceiptLineItemForLunchMoney));
+    const hiddenItemCount = record.lineItems.length - visibleLineItems.length;
+    if (hiddenItemCount > 0) {
+      lines.push(`- ${hiddenItemCount} more item(s); see receipt for full itemization`);
+    }
+  } else {
+    const summaryParts = [record.title.trim()];
+    if (record.merchant && record.merchant !== record.title) {
+      summaryParts.push(`merchant ${record.merchant}`);
+    }
+    lines.push(`Summary: ${summaryParts.filter((part) => part.length > 0).join("; ")}`);
+  }
+
+  const total = record.total != null ? formatCurrency(record.total) : undefined;
+  if (total) {
+    lines.push(`Total: ${total}`);
+  }
+  if (record.categoryNotes.length > 0) {
+    lines.push(`Categories: ${record.categoryNotes.join("; ")}`);
+  }
+
+  lines.push(`Receipt: ${buildObsidianReceiptUrl(record.filePath)}`);
+  return lines.join("\n");
+}
+
 function extractBulletValue(markdown: string, labels: string[]): string | undefined {
   for (const label of labels) {
     const boldPattern = new RegExp(`^-\\s+\\*\\*${escapeRegex(label)}:\\*\\*\\s+(.+)$`, "imu");
@@ -1237,16 +1297,19 @@ export function lookupReceiptRecords(input: ReceiptLookupInput = {}): ReceiptLoo
         reasons.push("recent_receipt");
       }
 
+      const detailedRecord: ReceiptLookupRecord = {
+        ...record,
+        fields,
+        linkedTransactions,
+        lineItems,
+        categoryNotes,
+      };
+
       return {
         score,
         reasons,
-        record: {
-          ...record,
-          fields,
-          linkedTransactions,
-          lineItems,
-          categoryNotes,
-        },
+        lunchMoneyNote: buildLunchMoneyReceiptNote(detailedRecord),
+        record: detailedRecord,
       } satisfies ReceiptLookupMatch;
     })
     .filter((match): match is ReceiptLookupMatch => match !== null)
