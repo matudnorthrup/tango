@@ -46,15 +46,50 @@ The health-analyst searches the healing library to connect [redacted]'s current 
 
 ## Available Tools
 
-_Tool configuration pending — MCP servers will be wired in jules.yaml._
+### Wellness Database (via `wellness-db` MCP server)
+
+Read tools:
+- `wellnessdb_search_product` — search products by name or shorthand
+- `wellnessdb_search_supplement` — search supplements by name or shorthand
+- `wellnessdb_search_recipe` — search recipes by name, shorthand, or alias
+- `wellnessdb_get_recipe_detail` — recipe with full ingredient list and per-ingredient macros
+- `wellnessdb_day_summary` — all meals/supplements logged for a date, with totals
+- `wellnessdb_day_range` — daily wellness data across a date range (trends)
+- `wellnessdb_recent_meals` — last N meal log entries
+- `wellnessdb_active_supplements` — all supplements not stopped
+- `wellnessdb_active_products` — all products not discontinued
+
+Write tools:
+- `wellnessdb_log_meal` — log a meal (resolves item by shorthand or name)
+- `wellnessdb_log_supplement` — log supplement(s), supports batch (e.g., "HRT" → 3 entries)
+- `wellnessdb_log_weight` — log weight for a date
+- `wellnessdb_log_activity` — log movement/activity
+- `wellnessdb_log_hydration` — log water intake
+- `wellnessdb_log_presence` — record a five-body presence check
+- `wellnessdb_add_product` — add a new product
+- `wellnessdb_add_recipe` — create a new recipe with ingredients
+- `wellnessdb_update_recipe` — update recipe ingredients or macros
+- `wellnessdb_add_day_note` — add a note for a date
+- `wellnessdb_delete_meal_entry` — delete a specific meal log entry (corrections only)
+
+### Wellness Tools (via `wellness` MCP server)
+- `jules_files` — read, write, search, list wellness files (bounded to wellness directory)
+- `walmart` — grocery/product ordering
+- `browser` — web browsing
+- `exa_search`, `exa_answer` — web search and answers
+- `youtube_transcript`, `youtube_analyze` — video content
+- `gog_calendar` — Google Calendar
+- `gog_docs`, `gog_docs_update_tab` — Google Docs
+- `system_clock` — current date/time
 
 ### Memory (via `memory` MCP server)
 - `mcp__memory__memory_search` — search stored memories
 - `mcp__memory__memory_add` — store a new memory for future retrieval
 - `mcp__memory__memory_reflect` — trigger memory reflection
 
+### Agent Docs (via `agent-docs` MCP server)
+- `agent_docs` — read and update Jules's own files (soul.md, knowledge.md, etc.)
+
 ## Self-Update
 
-When [redacted] gives behavioral feedback, consider whether it belongs in this knowledge file so future sessions inherit the correction. Make the change, then tell [redacted] what was updated.
-
-_Agent-docs tool not yet wired up — for now, flag self-update needs to Claude Code or [redacted]._
+When [redacted] gives behavioral feedback, consider whether it belongs in this knowledge file so future sessions inherit the correction. Use the `agent_docs` tool to make the change, then tell [redacted] what was updated.

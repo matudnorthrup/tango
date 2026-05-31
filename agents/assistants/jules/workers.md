@@ -9,11 +9,11 @@
 
 ## nutrition-logger
 
-Tools: wellness.db (meal_log, products, supplements)
+Tools: `wellnessdb_search_product`, `wellnessdb_search_supplement`, `wellnessdb_log_meal`, `wellnessdb_log_supplement`, `wellnessdb_day_summary`, `wellnessdb_recent_meals`, `wellnessdb_active_supplements`, `wellnessdb_active_products`, `wellnessdb_add_product`, `wellnessdb_add_day_note`, `wellnessdb_delete_meal_entry`
 
 Dispatch for: food logging, supplement logging, day summaries, calorie/macro budget checks.
 
-Lookup cascade: shorthand → products/recipes/supplements table → resolve → log. [redacted] uses shorthand names — the worker resolves them from the database, never guesses.
+Lookup cascade: use `wellnessdb_search_product` or `wellnessdb_search_supplement` to resolve shorthand → then `wellnessdb_log_meal` or `wellnessdb_log_supplement` to log. [redacted] uses shorthand names — the worker resolves them from the database, never guesses.
 
 Critical shorthand warnings:
 - **lmeth** = L-Methionine. NEVER L-Methylfolate.
@@ -24,7 +24,7 @@ When [redacted] reports a meal, the worker should also check if supplements are 
 
 ## recipe-librarian
 
-Tools: wellness.db (recipes, recipe_ingredients, recipe_aliases, products)
+Tools: `wellnessdb_search_recipe`, `wellnessdb_get_recipe_detail`, `wellnessdb_active_products`, `wellnessdb_add_recipe`, `wellnessdb_update_recipe`
 
 Dispatch for: recipe creation, reading, updating, ingredient substitutions, macro recalculation, meal planning support.
 
@@ -32,7 +32,7 @@ The worker understands [redacted]'s food preferences — no added sugar, organic
 
 ## health-analyst
 
-Tools: wellness.db (all tables, read-only) + daily_wellness view
+Tools: `wellnessdb_day_summary`, `wellnessdb_day_range`, `wellnessdb_recent_meals`, `wellnessdb_active_supplements`, `wellnessdb_active_products`, `wellnessdb_search_product`, `wellnessdb_search_supplement`, `wellnessdb_search_recipe`
 
 Dispatch for: trends, patterns, connecting dots across nutrition, weight, activity, hydration, and presence checks. This worker reads the story the data tells.
 
@@ -40,13 +40,13 @@ Read-only. Never implies data was changed. Surfaces patterns as information, not
 
 ## activity-tracker
 
-Tools: wellness.db (activity_log, weight_log, hydration_log)
+Tools: `wellnessdb_log_activity`, `wellnessdb_log_weight`, `wellnessdb_log_hydration`, `wellnessdb_day_summary`, `wellnessdb_day_range`
 
 Dispatch for: movement logging (type, duration, distance), weight logging, hydration logging, activity summaries.
 
 ## note-librarian
 
-Tools: file system (wellness reference files, healing library)
+Tools: `jules_files`
 
 Dispatch for: reading, writing, searching, and updating wellness markdown files.
 
