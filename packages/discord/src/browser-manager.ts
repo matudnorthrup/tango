@@ -48,6 +48,11 @@ const CDP_CONNECT_TIMEOUT_MS = 15_000;
 const PAGE_READY_TIMEOUT_MS = 10_000;
 const RAMP_DRAFT_FIELD_TIMEOUT_MS = 120_000;
 const RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS = 60_000;
+const RAMP_GOOGLE_LOGIN_TIMEOUT_MS = 60_000;
+const RAMP_GOOGLE_ACCOUNT_EMAIL =
+  process.env.TANGO_RAMP_GOOGLE_ACCOUNT_EMAIL?.trim()
+  || process.env.TANGO_WORK_GOOGLE_ACCOUNT_EMAIL?.trim()
+  || "devin@latitude.io";
 
 export interface WalmartHistoryCandidate {
   orderId: string;
@@ -2253,15 +2258,95 @@ export class BrowserManager {
   }
 
   private async assertRampPageAuthenticated(page: Page, action: string): Promise<void> {
+    if (!(await this.rampPageLooksSignedOut(page))) {
+      return;
+    }
+
+    const authenticated = await this.tryRampGoogleLogin(page, action);
+    if (authenticated || !(await this.rampPageLooksSignedOut(page))) {
+      return;
+    }
+
+    throw new Error(
+      `Ramp authentication is required to ${action}. Automatic Google login did not complete; sign in to Ramp in the managed Brave profile and retry.`,
+    );
+  }
+
+  private async rampPageLooksSignedOut(page: Page): Promise<boolean> {
     const [title, body] = await Promise.all([
       page.title().catch(() => ""),
       page.locator("body").innerText().catch(() => ""),
     ]);
-    if (rampPageLooksSignedOut({ url: page.url(), title, text: body })) {
-      throw new Error(
-        `Ramp authentication is required to ${action}. Sign in to Ramp in the managed Brave profile and retry.`,
-      );
+    return rampPageLooksSignedOut({ url: page.url(), title, text: body });
+  }
+
+  private async waitForRampPageAuthenticated(page: Page, timeoutMs = RAMP_GOOGLE_LOGIN_TIMEOUT_MS): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!(await this.rampPageLooksSignedOut(page))) {
+        return true;
+      }
+      await page.waitForTimeout(1_000);
     }
+    return false;
+  }
+
+  private async openRampGoogleLogin(page: Page): Promise<Page | null> {
+    const candidates = [
+      page.getByRole("button", { name: /(?:continue|sign in|log in|login) with google/iu }).first(),
+      page.getByText(/(?:continue|sign in|log in|login) with google/iu).first(),
+      page.locator("button, [role='button'], a").filter({ hasText: /google/iu }).first(),
+    ];
+
+    for (const candidate of candidates) {
+      if ((await candidate.count().catch(() => 0)) === 0) {
+        continue;
+      }
+      if (!(await candidate.isVisible().catch(() => false))) {
+        continue;
+      }
+      const popupPromise = page.waitForEvent("popup", { timeout: 5_000 }).catch(() => null);
+      await candidate.click({ timeout: 10_000 });
+      return (await popupPromise) ?? page;
+    }
+
+    return null;
+  }
+
+  private async selectRampGoogleAccount(loginPage: Page): Promise<boolean> {
+    await loginPage.waitForLoadState("domcontentloaded", { timeout: 30_000 }).catch(() => undefined);
+    const account = loginPage.getByText(new RegExp(escapeRegex(RAMP_GOOGLE_ACCOUNT_EMAIL), "iu")).first();
+    try {
+      await account.waitFor({ state: "visible", timeout: 20_000 });
+      await account.click({ timeout: 10_000 });
+      return true;
+    } catch (error) {
+      debug(
+        `Ramp Google login account '${RAMP_GOOGLE_ACCOUNT_EMAIL}' was not selectable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  private async tryRampGoogleLogin(page: Page, action: string): Promise<boolean> {
+    const loginPage = await this.openRampGoogleLogin(page).catch((error) => {
+      debug(`Could not open Ramp Google login while trying to ${action}: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    });
+    if (!loginPage) {
+      return false;
+    }
+
+    const accountSelected = await this.selectRampGoogleAccount(loginPage);
+    if (!accountSelected) {
+      return false;
+    }
+
+    if (loginPage !== page) {
+      await loginPage.waitForEvent("close", { timeout: RAMP_GOOGLE_LOGIN_TIMEOUT_MS }).catch(() => undefined);
+    }
+    await page.waitForLoadState("domcontentloaded", { timeout: 30_000 }).catch(() => undefined);
+    return this.waitForRampPageAuthenticated(page);
   }
 
   private async assertRampReimbursementStillDraft(page: Page, action: string): Promise<void> {
