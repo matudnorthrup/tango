@@ -85,15 +85,6 @@ provider:
 tools:
   mode: off
 
-orchestration:
-  worker_ids:
-    - health-analyst
-    - nutrition-logger
-    - recipe-librarian
-    - workout-recorder
-    - note-librarian
-  write_confirmation: on-ambiguity
-
 deterministic_routing:
   enabled: true
   project_scope: wellness

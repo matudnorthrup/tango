@@ -76,11 +76,15 @@ Put here:
 
 Do not put here:
 - generic tool usage docs
-- reusable workflow patterns needed by multiple workers
+- reusable workflow patterns needed by multiple agents or tools
 
-### Legacy `workers.md`
+### Retired `workers.md`
 
-`workers.md` was the old dispatch roster for the worker-agent architecture. V2 system prompt assembly does not load it. New work should give the assistant direct MCP access and put any needed operating guidance in `soul.md`, `knowledge.md`, or a focused skill doc.
+`workers.md` was the old dispatch roster for the worker-agent architecture.
+V2 system prompt assembly does not load it, and repo assistant `workers.md`
+files have been removed. New work should give the assistant direct MCP access
+and put any needed operating guidance in `soul.md`, `knowledge.md`, or a
+focused skill doc.
 
 ### `agents/tools/*.md`
 
@@ -176,7 +180,7 @@ Today that means `dispatch`. Do not add new assistant configs here.
 
 1. Create `agents/assistants/<id>/soul.md`
 2. Add `knowledge.md` if the assistant needs assistant-specific facts
-3. Add `config/v2/agents/<id>.yaml` with `enabled: true` or omit `enabled`, plus `system_prompt_file`, MCP servers, voice/Discord routing, provider, tools, orchestration, and response metadata
+3. Add `config/v2/agents/<id>.yaml` with `enabled: true` or omit `enabled`, plus `system_prompt_file`, MCP servers, voice/Discord routing, provider, tools, and response metadata
 4. Add or update any session routing in `config/defaults/sessions/*.yaml`
 5. Add governance principal and permissions for any tools it can call
 
@@ -219,5 +223,6 @@ Update these when the structure changes:
 - Putting reusable workflow logic into tool docs
 - Burying assistant-specific preferences inside shared skill docs
 - Putting worker dispatch instructions into `knowledge.md`
+- Creating new `workers.md` files for V2 agents
 - Adding a new tool without adding it to the V2 agent's MCP allowlist
 - Creating prompt assets outside `agents/` without a deliberate runtime reason
