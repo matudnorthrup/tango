@@ -56,6 +56,11 @@ V2 prompts are assembled at runtime from safe repo prompt assets:
 - shared rules and user context that belong in the repo
 - v2 agent config defaults
 
+Legacy assistant `workers.md` files were retired with the worker-dispatch
+architecture and are not part of V2 prompt assembly. Durable operating guidance
+belongs in loaded prompt files, focused skills, or explicit future prompt
+includes.
+
 Private persona overlays, user-specific knowledge, real channel IDs, and local
 runtime state belong in profile-owned paths under `~/.tango/profiles/`, not in
 tracked repo defaults.

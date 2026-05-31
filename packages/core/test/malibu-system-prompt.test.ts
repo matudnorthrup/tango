@@ -22,7 +22,6 @@ describe("assembleSoulPrompt", () => {
     const rules = readRepoFile("agents/shared/RULES.md");
     const user = readRepoFile("agents/shared/USER.md");
     const knowledge = readRepoFile("agents/assistants/malibu/knowledge.md");
-    const workers = readRepoFile("agents/assistants/malibu/workers.md");
     const fatsecretTool = readRepoFile("agents/tools/fatsecret.md");
     const atlasTool = readRepoFile("agents/tools/atlas-sql.md");
 
@@ -36,7 +35,8 @@ describe("assembleSoulPrompt", () => {
     expect(prompt).toContain(rules);
     expect(prompt).toContain(user);
     expect(prompt).toContain(knowledge);
-    expect(prompt).not.toContain(firstNonEmptyLine(workers));
+    expect(prompt).not.toContain("dispatch_worker");
+    expect(prompt).not.toContain("<worker-dispatch");
     expect(prompt).not.toContain(firstNonEmptyLine(fatsecretTool));
     expect(prompt).not.toContain(firstNonEmptyLine(atlasTool));
   });

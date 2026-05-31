@@ -80,10 +80,8 @@ describe("loadV2AgentConfig", () => {
       tools: {
         mode: "off",
       },
-      orchestration: {
-        workerIds: ["operations-assistant", "note-librarian"],
-      },
     });
+    expect(config.orchestration).toBeUndefined();
 
     const serverNames = config.mcpServers.map((server) => server.name);
     expect(serverNames).toEqual(expect.arrayContaining(["memory", "linear", "obsidian"]));
