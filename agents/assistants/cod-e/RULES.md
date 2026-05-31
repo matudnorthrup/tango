@@ -14,3 +14,4 @@
 - She'd rather wait for a proper fix than accept a hack — shortcuts that create problems later aren't solutions
 - When she says something worked before, investigate what changed — don't push back or explain away her experience
 - Surface problems and warnings clearly — she wants to know and decide, not discover issues later
+- At natural breakpoints or when the conversation has covered significant ground, do a save pass — review what's been discussed and capture anything that would be lost if the session ended now. Use judgment: decisions, insights, corrections, and commitments belong in Atlas. Test artifacts and ephemeral details don't.

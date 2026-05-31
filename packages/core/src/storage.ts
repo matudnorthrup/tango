@@ -673,6 +673,23 @@ export interface ObsidianIndexUpsertInput {
   lastIndexedAt?: string | null;
 }
 
+export interface PendingSessionSaveRecord {
+  conversationKey: string;
+  sessionId: string;
+  agentId: string;
+  requestedByUserId: string;
+  trigger: string;
+  requestedAt: string;
+}
+
+export interface PendingSessionSaveUpsertInput {
+  conversationKey: string;
+  sessionId: string;
+  agentId: string;
+  requestedByUserId: string;
+  trigger?: string;
+}
+
 export interface PinnedFactUpsertInput {
   scope: PinnedFactScope;
   scopeId?: string | null;
@@ -1763,7 +1780,34 @@ const MIGRATIONS: Migration[] = [
         ('worker:activity-tracker', 'wellnessdb_log_hydration', 'write', 'Wellness wellness.db hydration logging'),
         ('agent:wellness', 'wellnessdb_log_presence', 'write', 'Wellness direct presence check logging');
     `,
-  }
+  },
+  {
+    version: 37,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('email_thread_brief', 'email', 'Email Thread Brief', 'read'),
+        ('email_search', 'email', 'Email Search', 'read'),
+        ('email_inbox_scan', 'email', 'Email Inbox Scan', 'read'),
+        ('email_draft_create', 'email', 'Email Draft Create', 'write'),
+        ('email_thread_archive', 'email', 'Email Thread Archive', 'write');
+    `,
+  },
+  {
+    version: 38,
+    sql: `
+      CREATE TABLE IF NOT EXISTS pending_session_saves (
+        conversation_key TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        requested_by_user_id TEXT NOT NULL,
+        trigger TEXT NOT NULL DEFAULT 'slash_command',
+        requested_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_pending_session_saves_session_id
+        ON pending_session_saves(session_id);
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
@@ -5857,6 +5901,94 @@ export class TangoStorage {
       .prepare(`SELECT COUNT(*) AS cnt FROM voice_turn_receipts WHERE status = 'processing'`)
       .get() as { cnt: number } | undefined;
     return row?.cnt ?? 0;
+  }
+
+  upsertPendingSessionSave(input: PendingSessionSaveUpsertInput): PendingSessionSaveRecord {
+    const conversationKey = input.conversationKey.trim();
+    const sessionId = input.sessionId.trim();
+    const agentId = input.agentId.trim();
+    const requestedByUserId = input.requestedByUserId.trim();
+    const trigger = input.trigger?.trim() || "slash_command";
+
+    if (!conversationKey || !sessionId || !agentId || !requestedByUserId) {
+      throw new Error(
+        "conversationKey, sessionId, agentId, and requestedByUserId are required for pending session save.",
+      );
+    }
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO pending_session_saves (
+            conversation_key,
+            session_id,
+            agent_id,
+            requested_by_user_id,
+            trigger,
+            requested_at
+          )
+          VALUES (?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(conversation_key) DO UPDATE SET
+            session_id = excluded.session_id,
+            agent_id = excluded.agent_id,
+            requested_by_user_id = excluded.requested_by_user_id,
+            trigger = excluded.trigger,
+            requested_at = datetime('now')
+        `,
+      )
+      .run(conversationKey, sessionId, agentId, requestedByUserId, trigger);
+
+    const record = this.getPendingSessionSave(conversationKey);
+    if (!record) {
+      throw new Error(`Failed to upsert pending session save for '${conversationKey}'.`);
+    }
+
+    return record;
+  }
+
+  getPendingSessionSave(conversationKey: string): PendingSessionSaveRecord | null {
+    const normalizedKey = conversationKey.trim();
+    if (!normalizedKey) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            conversation_key AS conversationKey,
+            session_id AS sessionId,
+            agent_id AS agentId,
+            requested_by_user_id AS requestedByUserId,
+            trigger,
+            requested_at AS requestedAt
+          FROM pending_session_saves
+          WHERE conversation_key = ?
+          LIMIT 1
+        `,
+      )
+      .get(normalizedKey) as PendingSessionSaveRecord | undefined;
+
+    return row ?? null;
+  }
+
+  deletePendingSessionSave(conversationKey: string): boolean {
+    const result = this.db
+      .prepare(
+        `
+          DELETE FROM pending_session_saves
+          WHERE conversation_key = ?
+        `,
+      )
+      .run(conversationKey.trim());
+    return toSafeNumber(result.changes) > 0;
+  }
+
+  countPendingSessionSaves(): number {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS count FROM pending_session_saves`)
+      .get() as { count: number | bigint } | undefined;
+    return toSafeNumber(row?.count ?? 0);
   }
 
   private getUserVersion(): number {
