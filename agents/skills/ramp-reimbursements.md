@@ -94,6 +94,7 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
    - use `skip_dedup_check: true` only when intentionally re-submitting something that the automatic dedup gate would otherwise block
    - do not use generic `browser` actions in the normal submission path
    - if a draft already exists but has wrong or missing fields, use `ramp_reimbursement repair_ramp_reimbursement_draft` instead of creating another draft
+   - if draft preparation reports that a Ramp draft was created but field filling failed, extract the draft URL and immediately call `repair_ramp_reimbursement_draft` once with the same expected amount, date, merchant, memo, and evidence path; do not ask Devin to fill fields manually unless the repair attempt also fails with a specific verifier/authentication blocker
 5. Return the draft URL and a review checklist:
    - merchant
    - amount
