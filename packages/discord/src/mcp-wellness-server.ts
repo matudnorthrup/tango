@@ -45,6 +45,7 @@ import { createMemoryTools } from "./memory-agent-tools.js";
 import { createLinearTools } from "./linear-agent-tools.js";
 import { createSlackTools } from "./slack-tools.js";
 import { createYouTubeTools } from "./youtube-agent-tools.js";
+import { createWellnessDbTools, wellnessDbToolLooksReadOnly } from "./wellness-db-tools.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { GovernanceChecker, resolveDatabasePath } from "@tango/core";
 import type { AgentTool, AccessLevel } from "@tango/core";
@@ -109,6 +110,7 @@ const allTools: AgentTool[] = [
   ...createLinearTools(),
   ...createSlackTools(),
   ...createYouTubeTools(),
+  ...createWellnessDbTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -351,6 +353,9 @@ function inferRequestedAccessLevel(
       return gospelLibraryActionLooksMutating(action) ? "write" : "read";
     }
     default:
+      if (name.startsWith("wellnessdb_")) {
+        return wellnessDbToolLooksReadOnly(name) ? "read" : "write";
+      }
       return (governance?.getToolAccessType(name) ?? "read") as AccessLevel;
   }
 }
