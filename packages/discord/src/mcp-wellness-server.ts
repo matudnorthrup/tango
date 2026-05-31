@@ -31,6 +31,7 @@ import {
   createHealthTools,
   createWorkoutTools,
   createRecipeTools,
+  createWellnessFilesTools,
 } from "./wellness-agent-tools.js";
 import { createAllPersonalTools } from "./personal-agent-tools.js";
 import { createAllResearchTools } from "./research-agent-tools.js";
@@ -95,6 +96,7 @@ const allTools: AgentTool[] = [
   ...createHealthTools(),
   ...createWorkoutTools(),
   ...createRecipeTools(),
+  ...createWellnessFilesTools(),
   ...createAllPersonalTools(),
   ...createAllResearchTools(),
   ...createBrowserTools(),
@@ -331,6 +333,10 @@ function inferRequestedAccessLevel(
       return action.startsWith("history_") || action === "queue_list" ? "read" : "write";
     }
     case "file_ops": {
+      const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
+      return action === "list" || action === "read" ? "read" : "write";
+    }
+    case "wellness_files": {
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return action === "list" || action === "read" ? "read" : "write";
     }

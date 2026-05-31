@@ -1695,6 +1695,18 @@ const MIGRATIONS: Migration[] = [
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_reflect');
     `,
+  },
+  {
+    version: 35,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('wellness_files', 'wellness', 'Wellness Wellness Files', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:note-librarian', 'wellness_files', 'write', 'bounded wellness workspace file access'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:note-librarian')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'wellness_files');
+    `,
   }
 ];
 
