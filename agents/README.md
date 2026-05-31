@@ -18,4 +18,4 @@ Current convention:
 Runtime wiring:
 
 - `config/v2/agents/<agent-id>.yaml` declares `system_prompt_file`, MCP servers, model/runtime settings, memory, and Discord/voice routing.
-- Tango V2 assembles prompts from `soul.md`, `agents/shared/RULES.md`, `agents/shared/USER.md`, and optional `knowledge.md`. Legacy worker dispatch prompt files are not loaded.
+- Tango V2 assembles prompts from `soul.md`, `agents/shared/RULES.md`, `agents/shared/USER.md`, and optional `knowledge.md`. Legacy worker-dispatch prompt files have been retired and should not be created for new agents.

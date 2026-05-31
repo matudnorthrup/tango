@@ -71,11 +71,6 @@ tools:
     - memory_add
     - memory_reflect
 
-orchestration:
-  worker_ids:
-    - note-librarian
-  write_confirmation: on-ambiguity
-
 deterministic_routing:
   enabled: true
   confidence_threshold: 0.8

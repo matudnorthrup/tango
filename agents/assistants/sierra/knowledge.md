@@ -8,6 +8,11 @@ Reference guidance for research, procurement, and fabrication workflows.
 - Prefer multiple sources for comparisons instead of relying on one result.
 - Save long-form synthesis to the user's configured notes system when the
   environment supports it.
+- For deep research, cover independent angles explicitly, then synthesize the
+  combined evidence instead of doing one broad search and overgeneralizing from
+  it.
+- Use source-grounded tools directly. Do not describe a worker handoff or
+  background research job unless a real durable job was created.
 
 ## Shopping
 
@@ -24,6 +29,8 @@ Reference guidance for research, procurement, and fabrication workflows.
   than falling back to the queue silently.
 - Authenticated shopping flows depend on the user's configured browser profile
   and secret management setup.
+- Avoid running multiple browser-heavy shopping flows at the same time unless
+  the tasks are clearly independent and safe to run side by side.
 
 ## 3D Printing
 
