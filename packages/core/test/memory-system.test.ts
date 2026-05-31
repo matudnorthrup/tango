@@ -127,6 +127,54 @@ describe("memory-system", () => {
     expect(result.trace.recentMessages).toHaveLength(2);
   });
 
+  it("preserves detailed content from the latest turns during full-history warm start", () => {
+    const longAgenda = [
+      "Review record created. Here is the close agenda.",
+      "Older setup details ".repeat(25),
+      "| Whirlpool door bin $47.88 | Receipts note suggests Home Improvement (OEM fridge part). Move from Devin's Spending? |",
+      "More finance agenda details ".repeat(25),
+    ].join(" ");
+
+    const result = assembleSessionMemoryPrompt({
+      sessionId: "foxtrot",
+      agentId: "foxtrot",
+      currentUserPrompt: "The door bin is Home Improvement.",
+      memoryConfig: {
+        maxContextTokens: 4000,
+      },
+      messages: [
+        message({
+          id: 1,
+          sessionId: "foxtrot",
+          agentId: "foxtrot",
+          direction: "inbound",
+          content: "Please walk us through the close.",
+        }),
+        message({
+          id: 2,
+          sessionId: "foxtrot",
+          agentId: "foxtrot",
+          direction: "outbound",
+          content: longAgenda,
+        }),
+        message({
+          id: 3,
+          sessionId: "foxtrot",
+          agentId: "foxtrot",
+          direction: "inbound",
+          content: "The door bin is Home Improvement.",
+        }),
+      ],
+      summaries: [],
+      memories: [],
+      pinnedFacts: [],
+    });
+
+    expect(result.usedFullHistory).toBe(true);
+    expect(result.prompt).toContain("Whirlpool door bin $47.88");
+    expect(result.prompt).toContain("The door bin is Home Improvement.");
+  });
+
   it("includes active context when full-history bypass skips retrieval", () => {
     const result = assembleSessionMemoryPrompt({
       sessionId: "tango-default",

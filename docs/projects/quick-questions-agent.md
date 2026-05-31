@@ -22,8 +22,8 @@ Lightweight agent for quick, throwaway questions. No persistence, no memory writ
 - Merged to main: commit `54877be`
 
 ### Discord Setup
-- `#charlie` channel: `1499163931636138135` (Agents category)
-- `#charlie-test` channel: `1499163946643493025` (test-channels category)
+- `#charlie` channel in the agents category
+- `#charlie-test` channel in the test-channels category
 
 ## Test Results
 

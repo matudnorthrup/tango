@@ -60,6 +60,10 @@ const STOP_WORDS = new Set([
   "your",
 ]);
 
+const DEFAULT_MESSAGE_CONTEXT_CHARS = 360;
+const DETAILED_RECENT_MESSAGE_COUNT = 6;
+const DETAILED_RECENT_MESSAGE_CHARS = 1400;
+
 export interface NormalizedSessionMemoryConfig {
   maxContextTokens: number;
   zones: {
@@ -471,7 +475,13 @@ export function assembleSessionMemoryPrompt(
   const pinnedLines = pinnedSelection.lines;
   const activeContextSelection = selectActiveContextItems(input.activeContextItems ?? [], now);
 
-  const fullHistoryLines = recentMessages.map(formatMessageLine);
+  const detailedStartIndex = Math.max(0, recentMessages.length - DETAILED_RECENT_MESSAGE_COUNT);
+  const fullHistoryLines = recentMessages.map((message, index) =>
+    formatMessageLine(
+      message,
+      index >= detailedStartIndex ? DETAILED_RECENT_MESSAGE_CHARS : DEFAULT_MESSAGE_CONTEXT_CHARS,
+    )
+  );
   const fullHistoryNote = "Recent history fits in budget. Summary and retrieval zones were skipped.";
   const fullHistoryPrompt = renderMemoryPrompt({
     sessionId: input.sessionId,
@@ -783,18 +793,23 @@ function selectRecentMessages(
   let usedTokens = 0;
 
   for (const message of [...messages].reverse()) {
-    const line = formatMessageLine(message);
+    const maxChars =
+      selectedMessages.length < DETAILED_RECENT_MESSAGE_COUNT
+        ? DETAILED_RECENT_MESSAGE_CHARS
+        : DEFAULT_MESSAGE_CONTEXT_CHARS;
+    const line = formatMessageLine(message, maxChars);
     const lineTokens = estimateTokenCount(line);
     if (selectedLines.length > 0 && usedTokens + lineTokens > tokenBudget) {
       continue;
     }
 
     if (selectedLines.length === 0 && lineTokens > tokenBudget) {
+      const truncatedCharLimit = Math.max(tokenBudget * 4, 80);
       selectedMessages.push({
         ...message,
-        content: truncateText(message.content, Math.max(tokenBudget * 4, 80)),
+        content: truncateText(message.content, truncatedCharLimit),
       });
-      selectedLines.push(formatMessageLine(selectedMessages[0]!));
+      selectedLines.push(formatMessageLine(selectedMessages[0]!, truncatedCharLimit));
       break;
     }
 
@@ -1116,9 +1131,12 @@ function formatActiveContextLine(item: ActiveContextItemRecord): string {
   return `- [${item.kind}]${title} ${truncateText(item.summary, 260)}${facts}${refs}`.trimEnd();
 }
 
-function formatMessageLine(message: Pick<StoredMessageRecord, "direction" | "content" | "createdAt">): string {
+function formatMessageLine(
+  message: Pick<StoredMessageRecord, "direction" | "content" | "createdAt">,
+  maxChars = DEFAULT_MESSAGE_CONTEXT_CHARS,
+): string {
   const speaker = message.direction === "inbound" ? "user" : "assistant";
-  return `- [${speaker} at ${message.createdAt}] ${truncateText(message.content, 360)}`;
+  return `- [${speaker} at ${message.createdAt}] ${truncateText(message.content, maxChars)}`;
 }
 
 function normalizeWhitespace(text: string): string {

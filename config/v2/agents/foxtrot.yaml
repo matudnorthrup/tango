@@ -2,7 +2,7 @@ id: foxtrot
 enabled: false
 display_name: Foxtrot
 type: finance
-avatar_url: https://cdn.discordapp.com/attachments/1503463067034587216/1503746001574297641/foxtrot.png
+avatar_url: https://example.com/tango/avatars/foxtrot.png
 
 system_prompt_file: agents/assistants/foxtrot/soul.md
 
@@ -70,12 +70,12 @@ voice:
   call_signs:
     - Foxtrot
   kokoro_voice: am_echo
-  default_channel_id: "1503463044112580798"
-  smoke_test_channel_id: "1503463067034587216"
+  default_channel_id: "100000000000000005"
+  smoke_test_channel_id: "100000000000001005"
 
 discord:
-  default_channel_id: "1503463044112580798"
-  smoke_test_channel_id: "1503463067034587216"
+  default_channel_id: "100000000000000005"
+  smoke_test_channel_id: "100000000000001005"
 
 # Legacy registry fields
 default_project: finance

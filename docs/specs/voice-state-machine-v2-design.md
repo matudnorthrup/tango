@@ -1,6 +1,9 @@
 # Voice State Machine — V2 Design
 
-This document describes the target architecture for the Tango voice pipeline. It is a forward-looking design spec meant to guide the rewrite, not a description of the current system. For the current system, see `docs/voice-state-machine.md`.
+This document describes the target architecture for the Tango voice pipeline. It
+is a forward-looking design spec meant to guide the rewrite, not a description
+of the current system. For the current system, see
+[`../architecture/voice-pipeline-state-machine.md`](../architecture/voice-pipeline-state-machine.md).
 
 ---
 

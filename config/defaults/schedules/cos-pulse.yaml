@@ -24,7 +24,8 @@ execution:
        tmux list-sessions -F '#{session_name}' 2>/dev/null | grep TANGO-PM || echo "no-pm-sessions"
 
     2. Worktree slots:
-       /Users/devinnorthrup/GitHub/tango/scripts/dev/list.sh 2>/dev/null || echo "list-unavailable"
+       repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+       "$repo_root/scripts/dev/list.sh" 2>/dev/null || echo "list-unavailable"
 
     3. Bot health:
        tmux capture-pane -t tango:discord -p -S -5 2>/dev/null || echo "bot-session-missing"

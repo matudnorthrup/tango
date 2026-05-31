@@ -30,7 +30,7 @@ Workouts remain unchanged (always 24h lookback, single request).
 
 ## Key Files
 
-- `~/clawd/skills/health-data/scripts/health-tcp-pull.sh` — the rewritten script
+- external health-data `health-tcp-pull.sh` — the rewritten script
 - `~/Library/LaunchAgents/com.tango.health-tcp-pull.plist` — launchd job (unchanged, still runs every 15 min with default args)
 
 ## Test Results

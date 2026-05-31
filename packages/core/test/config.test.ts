@@ -188,8 +188,8 @@ describe("loadSessionConfigs", () => {
       type: "project",
       agent: "porter",
       channels: [
-        "discord:1508531125243478176",
-        "discord:1508531126321549455",
+        "discord:100000000000000006",
+        "discord:100000000000001006",
       ],
     });
   });

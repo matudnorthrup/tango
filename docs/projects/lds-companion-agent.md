@@ -36,12 +36,12 @@ Legacy `config/defaults/agents/{id}.yaml` is not required for new agents because
 
 Porter is now configured through the v2 runtime, and the live Discord bot has been restarted with Porter present in routing.
 
-Relevant vault references exist:
+Relevant private vault references exist:
 
-- `/Users/devinnorthrup/Documents/main/References/Gospel Library Scripture Linking API.md`
-- `/Users/devinnorthrup/Documents/main/References/Scripture Marking System.md`
-- `/Users/devinnorthrup/Documents/main/_Schema/Templates/Sacrament Meeting Template.md`
-- `/Users/devinnorthrup/Documents/main/Young Men Lesson 2026-04-26.md`
+- Gospel Library scripture-linking API notes
+- scripture marking system notes
+- sacrament meeting template notes
+- a current lesson-prep note
 
 The scripture-linking note documents an authenticated Gospel Library notes API flow for creating reference annotations between scripture verses and lesson content. Tango now wraps that flow in a dedicated `gospel_library` MCP tool.
 
@@ -60,8 +60,8 @@ The sacrament meeting template is usable but sparse. The conducting protocol not
 
 ## Discord Channels
 
-- Default channel: `#porter` (`1508531125243478176`)
-- Smoke-test channel: `#porter-test` (`1508531126321549455`)
+- Default channel: `#porter`
+- Smoke-test channel: `#porter-test`
 
 ## Theology And Source Policy
 
@@ -207,7 +207,7 @@ Current validation results:
 - Passed: main build and restart.
 - Passed: focused core regression suite: prompt assembly, config, v2 config loader, and storage tests.
 - Passed: focused Discord regression suite: MCP tool metadata, v2 runtime, Tango router, and voice runtime routing tests.
-- Passed: Porter routed in `#porter-test` thread `1508541908140425307`.
+- Passed: Porter routed in a `#porter-test` thread.
 - Passed: scripture-study response on Alma 32:21.
 - Passed: talk outline using Alma 32:21 plus an additional LDS source.
 - Passed: sacrament meeting conducting outline using the Obsidian sacrament meeting template.
@@ -245,8 +245,6 @@ Current validation results:
   performed no writes. Passing record: `5650`.
 - Passed: lesson-plan-specific smoke test after adding source-quotation guardrails and a v2 internal worker-markup suppression guard. Porter fetched and verified source text, then produced the lesson without leaking internal handoff markup. Passing record: `5533`.
 - Passed: operational cleanup. Removed the stale slot 2 worktree/branch for
-  `codex/porter-companion-agent` after preserving a backup archive at
-  `~/.tango/backups/porter-slot2-dirty-files-20260525-163136.tgz`.
-- Passed: main bot was rebuilt and restarted from the pinned repo path
-  `/Users/devinnorthrup/GitHub/tango`; exactly one Discord bot process remained
-  after cleanup.
+  `codex/porter-companion-agent` after preserving a private backup archive.
+- Passed: main bot was rebuilt and restarted from the pinned Tango repo
+  worktree; exactly one Discord bot process remained after cleanup.

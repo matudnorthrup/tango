@@ -230,20 +230,9 @@ Update Linear issues as work progresses. Status should always reflect reality:
 ### Linear
 
 Use the connected Linear app/tooling when it is available and scoped to the
-Tango team. If the available tool is missing or mis-scoped, fall back to the
-Linear API directly with the service account:
-
-```bash
-# Load the token + key (do this once per shell session)
-export OP_SERVICE_ACCOUNT_TOKEN=$(grep OP_SERVICE_ACCOUNT_TOKEN /Users/devinnorthrup/GitHub/tango/.env | cut -d= -f2-)
-export LINEAR_KEY=$(op read "op://Watson/Linear Seaside-HQ Tango API Key/credential")
-
-# Then use curl with GraphQL
-curl -s -X POST https://api.linear.app/graphql \
-  -H "Content-Type: application/json" \
-  -H "Authorization: $LINEAR_KEY" \
-  -d '{"query":"..."}'
-```
+Tango team. If the available tool is missing or mis-scoped, stop and record the
+limitation rather than pasting service-account, API-key, or credential-vault
+snippets into repo docs.
 
 **Team info:**
 - Team: "Tango"

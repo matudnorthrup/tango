@@ -49,16 +49,16 @@ voice:
   call_signs:
     - Charlie
   kokoro_voice: af_aoede
-  default_channel_id: "1499163931636138135"
-  smoke_test_channel_id: "1499163946643493025"
+  default_channel_id: "100000000000000008"
+  smoke_test_channel_id: "100000000000001008"
 
 # Discord routing
 discord:
-  default_channel_id: "1499163931636138135"
-  smoke_test_channel_id: "1499163946643493025"
+  default_channel_id: "100000000000000008"
+  smoke_test_channel_id: "100000000000001008"
 
 # Legacy registry fields
-avatar_url: https://cdn.discordapp.com/attachments/1481033494531407903/1499485746753568878/Gemini_Generated_Image_87yxn887yxn887yx.png
+avatar_url: https://example.com/tango/avatars/charlie.png
 default_project: personal
 response_mode: concise
 
