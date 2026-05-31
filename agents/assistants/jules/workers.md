@@ -1,5 +1,7 @@
 # Jules Workers
 
+> **NOT LOADED IN V2.** V2 loads only `soul.md`, shared `RULES.md` / `USER.md`, and `knowledge.md`. Jules calls `wellness-db` MCP tools directly on the assistant — no worker subprocess. This file is a **migration source** until content is decomposed into loaded files as **written instructions** (not MCP tools). Shared workflows may also live in `agents/skills/*.md` — reference or inline, never auto-load or register as tools. See `~/clawd/bugs/D-293-piper-research-references.md` § night MT evolution + skills boundary briefings.
+
 ## Dispatch Rules
 
 - Workers handle structured tasks — database queries, file operations, data logging. Jules synthesizes their output into her own voice.

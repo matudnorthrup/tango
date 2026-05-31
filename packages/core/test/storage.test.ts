@@ -1838,4 +1838,45 @@ describe("TangoStorage", () => {
 
     storage.close();
   });
+
+  it("upserts, retrieves, deletes, and counts pending session saves", () => {
+    const { storage } = createStorage();
+
+    expect(storage.countPendingSessionSaves()).toBe(0);
+    expect(storage.getPendingSessionSave("channel:123")).toBeNull();
+
+    const created = storage.upsertPendingSessionSave({
+      conversationKey: "channel:123",
+      sessionId: "cod-e",
+      agentId: "cod-e",
+      requestedByUserId: "user-1",
+      trigger: "slash_command",
+    });
+
+    expect(created.conversationKey).toBe("channel:123");
+    expect(created.sessionId).toBe("cod-e");
+    expect(created.agentId).toBe("cod-e");
+    expect(created.requestedByUserId).toBe("user-1");
+    expect(created.trigger).toBe("slash_command");
+    expect(created.requestedAt).toMatch(/^\d{4}-\d{2}-\d{2}/);
+    expect(storage.countPendingSessionSaves()).toBe(1);
+
+    const updated = storage.upsertPendingSessionSave({
+      conversationKey: "channel:123",
+      sessionId: "topic:abc",
+      agentId: "cod-e",
+      requestedByUserId: "user-2",
+      trigger: "slash_command",
+    });
+
+    expect(updated.sessionId).toBe("topic:abc");
+    expect(updated.requestedByUserId).toBe("user-2");
+    expect(storage.countPendingSessionSaves()).toBe(1);
+
+    expect(storage.deletePendingSessionSave("channel:123")).toBe(true);
+    expect(storage.deletePendingSessionSave("channel:123")).toBe(false);
+    expect(storage.countPendingSessionSaves()).toBe(0);
+
+    storage.close();
+  });
 });

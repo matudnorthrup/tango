@@ -119,7 +119,7 @@ export class TangoRouter {
     return threadId ? `thread:${threadId}` : `channel:${channelId}`;
   }
 
-  /** Force reset a conversation */
+  /** Force reset a conversation (new provider session on next message). */
   async resetConversation(channelId: string, threadId?: string): Promise<void> {
     const conversationKey = this.getConversationKey(channelId, threadId);
     const session = this.lifecycleManager.getSession(conversationKey);
@@ -130,6 +130,12 @@ export class TangoRouter {
 
     const agentConfig = this.resolveAgentConfig(session.agentId);
     await this.lifecycleManager.resetSession(conversationKey, agentConfig);
+  }
+
+  /** Abort an in-flight generation without rotating the provider session. */
+  async abortConversation(channelId: string, threadId?: string): Promise<boolean> {
+    const conversationKey = this.getConversationKey(channelId, threadId);
+    return await this.lifecycleManager.abortActiveRun(conversationKey);
   }
 
   /** Shut down all runtimes */

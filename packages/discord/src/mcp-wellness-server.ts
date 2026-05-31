@@ -46,6 +46,7 @@ import { createLinearTools } from "./linear-agent-tools.js";
 import { createSlackTools } from "./slack-tools.js";
 import { createYouTubeTools } from "./youtube-agent-tools.js";
 import { createWellnessDbTools, wellnessDbToolLooksReadOnly } from "./wellness-db-tools.js";
+import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agent-tools.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { GovernanceChecker, resolveDatabasePath } from "@tango/core";
 import type { AgentTool, AccessLevel } from "@tango/core";
@@ -111,6 +112,7 @@ const allTools: AgentTool[] = [
   ...createSlackTools(),
   ...createYouTubeTools(),
   ...createWellnessDbTools(),
+  ...createEmailAgentTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -355,6 +357,9 @@ function inferRequestedAccessLevel(
     default:
       if (name.startsWith("wellnessdb_")) {
         return wellnessDbToolLooksReadOnly(name) ? "read" : "write";
+      }
+      if (name.startsWith("email_")) {
+        return emailAgentToolLooksReadOnly(name) ? "read" : "write";
       }
       return (governance?.getToolAccessType(name) ?? "read") as AccessLevel;
   }
