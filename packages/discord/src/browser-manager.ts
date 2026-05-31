@@ -46,6 +46,8 @@ const debug = (...args: unknown[]) => {
 
 const CDP_CONNECT_TIMEOUT_MS = 15_000;
 const PAGE_READY_TIMEOUT_MS = 10_000;
+const RAMP_DRAFT_FIELD_TIMEOUT_MS = 120_000;
+const RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS = 60_000;
 
 export interface WalmartHistoryCandidate {
   orderId: string;
@@ -1917,6 +1919,58 @@ export class BrowserManager {
     return text.replace(/\s+/gu, " ").trim() || undefined;
   }
 
+  private async describeRampDraftPage(page: Page): Promise<string> {
+    const visibleFields = await page.evaluate(() =>
+      [...document.querySelectorAll("input, textarea, [contenteditable='true'], [role='textbox']")]
+        .filter((el) => !!(el instanceof HTMLElement && (el.offsetWidth || el.offsetHeight || el.getClientRects().length)))
+        .map((el) => ({
+          tag: el.tagName.toLowerCase(),
+          type: el.getAttribute("type"),
+          name: el.getAttribute("name"),
+          aria: el.getAttribute("aria-label"),
+          placeholder: el.getAttribute("placeholder"),
+          text: (el.textContent ?? "").replace(/\s+/gu, " ").trim().slice(0, 80),
+        }))
+        .slice(0, 20),
+    ).catch(() => []);
+    const body = await page.locator("body").innerText({ timeout: 2_000 })
+      .then((text) => text.replace(/\s+/gu, " ").trim().slice(0, 500))
+      .catch(() => "");
+    return `url=${page.url()}; visibleFields=${JSON.stringify(visibleFields)}; body='${body}'`;
+  }
+
+  private async waitForRampDraftLocator(
+    page: Page,
+    locator: Locator,
+    label: string,
+    timeoutMs = RAMP_DRAFT_FIELD_TIMEOUT_MS,
+  ): Promise<void> {
+    try {
+      await locator.waitFor({ state: "visible", timeout: timeoutMs });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Ramp ${label} field did not become visible within ${timeoutMs}ms. ${await this.describeRampDraftPage(page)}. Original error: ${message}`,
+      );
+    }
+  }
+
+  private async waitForRampDraftFormFields(page: Page, timeoutMs = RAMP_DRAFT_FIELD_TIMEOUT_MS): Promise<{
+    amountInput: Locator;
+    dateInput: Locator;
+    memoInput: Locator;
+  }> {
+    const startedAt = Date.now();
+    const remaining = () => Math.max(5_000, timeoutMs - (Date.now() - startedAt));
+    const amountInput = page.locator('input[name="amount"]').first();
+    const dateInput = page.locator('input[name="transaction_date"]').first();
+
+    await this.waitForRampDraftLocator(page, amountInput, "amount", remaining());
+    await this.waitForRampDraftLocator(page, dateInput, "transaction date", remaining());
+    const memoInput = await this.findRampMemoField(page, remaining());
+    return { amountInput, dateInput, memoInput };
+  }
+
   private async findRampMemoField(page: Page, timeoutMs = 30_000): Promise<Locator> {
     const candidates = [
       page.locator('input[name="Memo" i], textarea[name="Memo" i]').first(),
@@ -1942,25 +1996,23 @@ export class BrowserManager {
       await page.waitForTimeout(500);
     }
 
-    const visibleFields = await page.evaluate(() =>
-      [...document.querySelectorAll("input, textarea, [contenteditable='true'], [role='textbox']")]
-        .filter((el) => !!(el instanceof HTMLElement && (el.offsetWidth || el.offsetHeight || el.getClientRects().length)))
-        .map((el) => ({
-          tag: el.tagName.toLowerCase(),
-          type: el.getAttribute("type"),
-          name: el.getAttribute("name"),
-          aria: el.getAttribute("aria-label"),
-          placeholder: el.getAttribute("placeholder"),
-          text: (el.textContent ?? "").replace(/\s+/gu, " ").trim().slice(0, 80),
-        }))
-        .slice(0, 20),
-    ).catch(() => []);
-    throw new Error(`Ramp memo field was not found. Visible fields: ${JSON.stringify(visibleFields)}`);
+    throw new Error(`Ramp memo field was not found. ${await this.describeRampDraftPage(page)}`);
   }
 
   private async fillRampTextField(locator: Locator, value: string): Promise<void> {
-    await locator.fill(value);
+    await locator.fill(value, { timeout: RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS });
     await locator.press("Tab").catch(() => undefined);
+    await this.blurRampField(locator);
+  }
+
+  private async blurRampField(locator: Locator): Promise<void> {
+    await locator.evaluate((el) => {
+      if (!(el instanceof HTMLElement)) {
+        return;
+      }
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.blur();
+    }).catch(() => undefined);
   }
 
   private async readRampTextField(locator: Locator): Promise<string> {
@@ -1979,7 +2031,7 @@ export class BrowserManager {
     let currentValue = await this.readRampTextField(memoInput);
     if (currentValue.trim() !== memo.trim()) {
       await this.fillRampTextField(memoInput, memo);
-      await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
+      await this.blurRampField(memoInput);
       await page.waitForTimeout(250);
       currentValue = await this.readRampTextField(memoInput);
     }
@@ -1991,18 +2043,20 @@ export class BrowserManager {
   private async fillRampDateField(page: Page, transactionDate: string): Promise<void> {
     const dateInput = page.locator('input[name="transaction_date"]').first();
     const expectedDate = formatRampTransactionDate(transactionDate);
-    await dateInput.click();
+    await this.waitForRampDraftLocator(page, dateInput, "transaction date");
+    await dateInput.click({ timeout: RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS });
     await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
     await page.keyboard.press("Backspace");
     await page.keyboard.type(expectedDate);
     await page.keyboard.press("Tab").catch(() => undefined);
-    await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
+    await this.blurRampField(dateInput);
     await page.waitForTimeout(500);
     const currentValue = await dateInput.inputValue().catch(() => "");
     if (!rampDateTextMatchesInput(currentValue, transactionDate)) {
-      await dateInput.fill(expectedDate);
+      await this.waitForRampDraftLocator(page, dateInput, "transaction date", RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS);
+      await dateInput.fill(expectedDate, { timeout: RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS });
       await dateInput.press("Tab").catch(() => undefined);
-      await page.locator("body").click({ position: { x: 20, y: 20 } }).catch(() => undefined);
+      await this.blurRampField(dateInput);
       await page.waitForTimeout(500);
     }
   }
@@ -2014,7 +2068,9 @@ export class BrowserManager {
   }): Promise<void> {
     const amountInput = page.locator('input[name="amount"]').first();
     const dateInput = page.locator('input[name="transaction_date"]').first();
-    const memoInput = await this.findRampMemoField(page);
+    await this.waitForRampDraftLocator(page, amountInput, "amount", RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS);
+    await this.waitForRampDraftLocator(page, dateInput, "transaction date", RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS);
+    const memoInput = await this.findRampMemoField(page, RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS);
     const amountValue = await amountInput.inputValue();
     const dateValue = await dateInput.inputValue();
     const memoValue = await this.readRampTextField(memoInput);
@@ -2038,14 +2094,18 @@ export class BrowserManager {
     memo: string;
     merchant?: string;
   }): Promise<void> {
-    await page.locator('input[name="amount"]').waitFor({ state: "visible", timeout: 60_000 });
-    await this.findRampMemoField(page, 30_000);
+    const fields = await this.waitForRampDraftFormFields(page);
     // Ramp shows a processing overlay while analyzing the receipt; wait for inputs to become actionable.
-    await page
-      .locator('input[name="amount"]')
-      .click({ timeout: 60_000, trial: true })
+    await fields.amountInput
+      .click({ timeout: RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS, trial: true })
       .catch(() => undefined);
-    await page.locator('input[name="amount"]').fill(input.amount.toFixed(2));
+    await fields.dateInput
+      .click({ timeout: RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS, trial: true })
+      .catch(() => undefined);
+    await fields.memoInput
+      .click({ timeout: RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS, trial: true })
+      .catch(() => undefined);
+    await fields.amountInput.fill(input.amount.toFixed(2), { timeout: RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS });
     await this.fillRampDateField(page, input.transactionDate);
     await this.fillRampMemoField(page, input.memo);
     await page.waitForTimeout(1_000);
@@ -2219,9 +2279,17 @@ export class BrowserManager {
       .count()
       .catch(() => 0);
     if (submitButtonCount === 0) {
-      throw new Error(
-        `${action} refused because Ramp no longer exposes a draft Submit button; the page is not in reviewable draft state.`,
-      );
+      const draftUrl = /\/draft(?:[/?#]|$)/u.test(page.url());
+      const editableFieldVisible = await page
+        .locator('input[name="amount"], input[name="transaction_date"]')
+        .first()
+        .isVisible()
+        .catch(() => false);
+      if (!draftUrl && !editableFieldVisible) {
+        throw new Error(
+          `${action} refused because Ramp does not show a draft URL, editable fields, or Submit button; the page is not in reviewable draft state. ${await this.describeRampDraftPage(page)}`,
+        );
+      }
     }
   }
 
