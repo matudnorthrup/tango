@@ -93,6 +93,9 @@ export interface AgentConfig {
     defaultChannelId?: string;
     smokeTestChannelId?: string;
   };
+  discord?: {
+    typingTokenEnv?: string;
+  };
   responseMode?: "concise" | "explain";
   access?: {
     mode?: AccessMode;

@@ -2,6 +2,7 @@ id: jules
 enabled: true
 display_name: Jules
 type: wellness
+avatar_url: https://cdn.discordapp.com/avatars/1510427843090452502/b0ddd0c9a49c98bd9478c0d7d98ad700.webp
 
 system_prompt_file: agents/assistants/jules/soul.md
 
@@ -14,6 +15,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
     env:
       ALLOWED_TOOL_IDS: "agent_docs"
+  - name: wellness
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "wellness"]
+    env:
+      ALLOWED_TOOL_IDS: "nutrition_log_items,fatsecret_api,health_query,workout_sql,recipe_list,recipe_read,recipe_write,health_morning,system_clock,jules_files,walmart,location_read,browser,exa_search,exa_answer,youtube_transcript,youtube_analyze,gog_calendar,gog_docs,gog_docs_update_tab"
   # - name: wellness-db
   #   command: node
   #   args: ["packages/core/dist/mcp-proxy.js", "wellness-db"]
@@ -47,6 +53,7 @@ memory:
 
 discord:
   default_channel_id: "1469955798007283803"
+  typing_token_env: JULES_DISCORD_TOKEN
 
 access:
   mode: allowlist
