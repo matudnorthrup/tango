@@ -21,7 +21,10 @@ cd "$ROOT"
 TMP_FILES=$(mktemp)
 trap 'rm -f "$TMP_FILES"' EXIT
 
-git ls-files '*.md' 'config/**/*.yaml' 'config/**/*.json' > "$TMP_FILES"
+git ls-files --cached --others --exclude-standard -- \
+  '*.md' \
+  'config/**/*.yaml' \
+  'config/**/*.json' > "$TMP_FILES"
 
 hard_failures=0
 warnings=0
@@ -63,7 +66,9 @@ if [[ -e docs/projects/imessage-analysis ]]; then
   hard_fail "ignored private workspace exists at docs/projects/imessage-analysis"
 fi
 
-tracked_context=$(git ls-files 'agents/assistants/*/context' 'agents/assistants/*/context/**')
+tracked_context=$(git ls-files --cached --others --exclude-standard -- \
+  'agents/assistants/*/context' \
+  'agents/assistants/*/context/**')
 if [[ -n "$tracked_context" ]]; then
   printf '%s\n' "$tracked_context"
   hard_fail "tracked agent context files must live in the profile layer"
@@ -75,12 +80,13 @@ fi
 
 show_matches \
   "Private family/legal names or facts" \
-  'Dolly|Kalepo|DV arrest|no-contact order|domestic violence|household conflict'
+  'Dolly|Kalepo|DV arrest|no-contact order|domestic violence|household conflict' \
+  'docs/retros/private-data-in-repo-2026-05.md'
 
 show_matches \
   "Machine-local paths" \
   '/Users/devinnorthrup|~/clawd|~/.tango/profiles/default' \
-  'docs/guides/setup.md|docs/guides/parallel-dev.md|docs/guides/post-reboot-startup.md|docs/projects/retro-private-data-in-repo.md'
+  'docs/guides/setup.md|docs/guides/parallel-dev.md|docs/guides/post-reboot-startup.md|docs/retros/private-data-in-repo-2026-05.md'
 
 real_ids=$(xargs rg -n '[0-9]{16,20}' < "$TMP_FILES" 2>/dev/null | rg -v '1000000000000' || true)
 if [[ -n "$real_ids" ]]; then

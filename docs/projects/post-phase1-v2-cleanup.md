@@ -21,8 +21,8 @@ Addressed 5 issues surfaced after Phase 1 (all agents on v2) shipped. 4 of 5 res
 - **Commit**: `38a1f79`
 
 ### P3: Atlas:memory database empty — FIXED
-- **Root cause**: Migration script defaulted to `data/tango.sqlite` (repo dir, 0 rows) instead of `~/.tango/profiles/default/data/tango.sqlite` (3,276 rows).
-- **Fix**: Re-ran migration with `--source-db ~/.tango/profiles/default/data/tango.sqlite`. 3,276 memories migrated. Session summaries had expected UNIQUE constraint failures (duplicate session_id/agent_id pairs); 25 unique summaries migrated.
+- **Root cause**: Migration script defaulted to a repo-local SQLite path with 0 rows instead of the active profile database with 3,276 rows.
+- **Fix**: Re-ran migration against the active profile database. 3,276 memories migrated. Session summaries had expected UNIQUE constraint failures (duplicate session_id/agent_id pairs); 25 unique summaries migrated.
 
 ### P4: Sierra/Victor smoke test channels — BLOCKED
 - All `smoke_test_channel_id` and `default_channel_id` values in Sierra/Victor configs are placeholder IDs (e.g., `100000000000001003`). These don't map to real Discord channels.

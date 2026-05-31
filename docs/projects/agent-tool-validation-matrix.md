@@ -53,7 +53,7 @@ Systematic validation of every MCP tool on every v2 agent using the test harness
 | ramp_reimbursement | "Check Ramp for pending submissions" | **PASS** | Reported available actions: submit, replace receipt, capture evidence | Write-only tool by design — no read/list |
 | browser | "Look up latest Apple stock price" | **PASS** | AAPL $266.17, full stats, Tim Cook transition news | Real-time data |
 | onepassword | (skip — security sensitive) | SKIP | | Don't invoke password manager in test |
-| linear | "Show me open Tango issues" | **PASS** | Returned DEV-14 and DEV-10 (Ramp-related) | Queried correct workspace |
+| linear | "Show me open Tango issues" | **PASS** | Returned open historical Ramp-related issues | Queried correct workspace |
 | imessage | "Show me my recent iMessages" | **PASS** | 10 recent conversations with contacts and timestamps | Real iMessage data |
 | slack | "Check my latest Slack messages" | **PASS** | Full digest across #eng, #ai, #production, etc. | 24h of activity summarized |
 

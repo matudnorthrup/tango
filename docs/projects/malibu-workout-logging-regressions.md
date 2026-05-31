@@ -57,7 +57,7 @@ Analyzed conversation messages 1781-1822 from the wellness session. Found 5 issu
 
 ## Test Results
 
-Live tested on slot bot (slot 1, thread 1494825524059570277):
+Live tested on slot bot in a smoke-test thread:
 - "Swap rear delt fly for prone single arm rear delt fly in Pull Day B" → dispatched to **workout-recorder** (not recipe-librarian), 4 SQL calls, replied successfully
 
 ## Phase 2: Write Guard Bug (URGENT)
@@ -81,7 +81,7 @@ Live tested on slot bot (slot 1, thread 1494825524059570277):
 
 ## Linear
 
-- Project: Malibu Workout Logging Regressions (DEV-26 through DEV-30)
+- Project: Malibu Workout Logging Regressions
 
 ## Key Files
 

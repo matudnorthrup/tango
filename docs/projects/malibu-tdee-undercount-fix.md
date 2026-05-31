@@ -33,7 +33,7 @@ The TDEE formula itself is correct (`basal + active`). The health-query.js scrip
 
 ## Proposed Fix
 
-### File: `~/clawd/skills/health-data/scripts/health-query.js`
+### File: external health-data `health-query.js`
 
 **Function `getBasalCal()` (lines 178-201):** Remove the Watch-first source filter. Always aggregate all sources for `basal_energy_burned`. Keep the `< 1000` fallback to `TYPICAL_BASAL` (1,744) as a safety net.
 
@@ -77,11 +77,11 @@ Active energy Watch filtering is fine — the main Watch source covers 99% of ac
 
 ## Scope
 
-- 1 file: `~/clawd/skills/health-data/scripts/health-query.js` (outside Tango repo)
+- 1 external health-data script outside the Tango repo
 - No build or restart needed — the health_query tool calls this script directly
 - No prompt changes
 
 ## Linear
 
 - Project: Malibu TDEE Undercount Fix
-- Issues: DEV-36 (Discovery, Done), DEV-37 (Implementation), DEV-38 (Validation)
+- Issues: historical discovery, implementation, and validation records

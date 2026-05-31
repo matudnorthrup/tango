@@ -56,7 +56,7 @@ All 7 phases merged to main across 4 commits:
 
 ## What's broken — pick up in Ramp Submission Automation Hardening
 
-**Linear project:** [Ramp Submission Automation Hardening](https://linear.app/latitudegames/project/ramp-submission-automation-hardening-fdcb472f6d94)
+**Linear project:** Ramp Submission Automation Hardening
 
 ### 1. Stale browser state on retry
 When `submitRampReimbursement` fails and Watson retries, the browser page is on a wrong URL (old draft, `/home`, or `/drafts`). The retry navigates to `/new` but `.catch(() => undefined)` swallows navigation failures. Evidence upload then happens on whatever page the browser is actually on, and `waitForURL(/draft/)` matches an old draft URL instead of creating a new one.
@@ -85,7 +85,7 @@ Watson retries Ramp submissions indefinitely when they fail, creating more stale
 **Fix:** Add a retry counter to `submitRampReimbursement` — max 2 attempts, then throw a clear error for Watson to report.
 
 ### 5. Smoke test channel access
-Watson's per-agent allowlist didn't include the smoke test parent channel. Fixed by adding `~/.tango/profiles/default/config/sessions/smoke-testing.yaml` with `discord:1488248022335881390`. This is a config-level fix, not a code fix.
+Watson's per-agent allowlist didn't include the smoke test parent channel. Fixed by adding a profile session override for smoke testing. This is a config-level fix, not a code fix.
 
 ## Live test results (2026-04-16)
 
@@ -111,7 +111,7 @@ Venmo and Maid in Newport were submitted manually by Devin after Watson failed.
 - `config/defaults/reimbursement-config.yaml` — vendor/category/memo config
 - `agents/skills/ramp-reimbursements.md` — Watson skill with dedup + memo guidance
 - `agents/skills/receipt-logging.md` — receipt template with universal tracking section
-- `~/.tango/profiles/default/config/sessions/smoke-testing.yaml` — smoke test channel access
+- profile-owned smoke-testing session override — smoke test channel access
 
 ## Commits
 

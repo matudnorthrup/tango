@@ -44,16 +44,16 @@ voice:
   call_signs:
     - Juliet
   kokoro_voice: af_bella
-  default_channel_id: "1495415367118618766"
-  smoke_test_channel_id: "1495415369043673189"
+  default_channel_id: "100000000000000007"
+  smoke_test_channel_id: "100000000000001007"
 
 # Discord routing
 discord:
-  default_channel_id: "1495415367118618766"
-  smoke_test_channel_id: "1495415369043673189"
+  default_channel_id: "100000000000000007"
+  smoke_test_channel_id: "100000000000001007"
 
 # Legacy registry fields
-avatar_url: https://cdn.discordapp.com/attachments/1481033494531407903/1499485747890229399/Gemini_Generated_Image_bvxs5wbvxs5wbvxs.png
+avatar_url: https://example.com/tango/avatars/juliet.png
 default_project: mental-health
 response_mode: explain
 

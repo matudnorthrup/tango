@@ -65,13 +65,13 @@ voice:
     - Porter
     - Brother Porter
   kokoro_voice: am_liam
-  default_channel_id: "1508531125243478176"
-  smoke_test_channel_id: "1508531126321549455"
+  default_channel_id: "100000000000000006"
+  smoke_test_channel_id: "100000000000001006"
 
 # Discord routing
 discord:
-  default_channel_id: "1508531125243478176"
-  smoke_test_channel_id: "1508531126321549455"
+  default_channel_id: "100000000000000006"
+  smoke_test_channel_id: "100000000000001006"
 
 # Legacy registry fields
 avatar_path: agents/assistants/porter/avatar.png

@@ -10,10 +10,8 @@ Current structure:
 - `specs/`: implementation-facing product specs
 - `architecture/`: architecture decisions and current architecture references
 - `retros/`: postmortems, cleanup records, and durable lessons learned
-- `projects/`: legacy project writeups and retros; do not add mutable project
+- `projects/`: legacy project writeups; do not add mutable project
   status here when Linear can hold the source of truth
-- root-level docs: longer-lived design references that have not yet been moved
-  into `architecture/`
 
 Retention policy:
 
@@ -28,8 +26,10 @@ Start here:
 
 - Project overview: [`about.md`](./about.md)
 - Setup guide: [`guides/setup.md`](./guides/setup.md)
+- Architecture index: [`architecture/README.md`](./architecture/README.md)
 - Agent operating model: [`guides/agent-operating-model.md`](./guides/agent-operating-model.md)
 - Public launch guide: [`guides/public-launch.md`](./guides/public-launch.md)
 - Profile/config model: [`guides/profile-model.md`](./guides/profile-model.md)
 - Agent structure: [`guides/agents-structure.md`](./guides/agents-structure.md)
 - Tool integration guide: [`guides/adding-tools.md`](./guides/adding-tools.md)
+- Retros index: [`retros/README.md`](./retros/README.md)

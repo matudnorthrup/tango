@@ -20,7 +20,7 @@ output_fields:
   - updated_at
 legacy:
   read_paths:
-    - ~/.tango/profiles/default/notes/recipes/*.md
+    - ~/.tango/profiles/<profile>/notes/recipes/*.md
   write_paths:
     - none (legacy recipe persistence was Markdown-only)
   notes:

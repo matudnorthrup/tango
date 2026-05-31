@@ -67,7 +67,7 @@ Example: `TANGO-PM-ramp-hardening`
 ### Launch command
 ```bash
 # Create tmux session
-tmux new-session -d -s TANGO-PM-{slug} -c /Users/devinnorthrup/GitHub/tango
+tmux new-session -d -s TANGO-PM-{slug} -c "$(git rev-parse --show-toplevel)"
 
 # Launch Claude Code with PM role appended to default system prompt
 tmux send-keys -t TANGO-PM-{slug} \

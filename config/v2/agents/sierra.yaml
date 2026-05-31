@@ -94,16 +94,16 @@ voice:
   call_signs:
     - Sierra
   kokoro_voice: af_heart
-  default_channel_id: "1480419550804578344"
-  smoke_test_channel_id: "1488248024076648599"
+  default_channel_id: "100000000000000003"
+  smoke_test_channel_id: "100000000000001003"
 
 # Discord routing
 discord:
-  default_channel_id: "1480419550804578344"
-  smoke_test_channel_id: "1488248024076648599"
+  default_channel_id: "100000000000000003"
+  smoke_test_channel_id: "100000000000001003"
 
 # Legacy registry fields
-avatar_url: https://cdn.discordapp.com/avatars/1480558437502025750/f5bda507de881e739d0db4bb5262f8c2.webp
+avatar_url: https://example.com/tango/avatars/sierra.png
 default_project: personal
 response_mode: concise
 
