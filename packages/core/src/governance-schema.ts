@@ -269,6 +269,7 @@ export const GOVERNANCE_SEED = `
     ('browser', 'shared', 'Browser Automation', 'write'),
     ('slack', 'shared', 'Slack Workspace Read', 'read'),
     ('file_ops', 'research', 'File Operations', 'write'),
+    ('jules_files', 'wellness', 'Jules Wellness Files', 'write'),
     ('agent_docs', 'tango', 'Agent Documentation', 'write'),
     ('tango_shell', 'tango', 'Tango Shell', 'write'),
     ('tango_file', 'tango', 'Tango File Editor', 'write'),
@@ -360,6 +361,7 @@ export const GOVERNANCE_SEED = `
   -- note-librarian — shared file-backed Obsidian access
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:note-librarian', 'obsidian', 'write', 'shared Obsidian note access'),
+    ('worker:note-librarian', 'jules_files', 'write', 'bounded wellness workspace file access'),
     ('worker:note-librarian', 'memory_search', 'read', 'memory lookup while resolving notes'),
     ('worker:note-librarian', 'memory_add', 'write', 'memory capture for durable note context'),
     ('worker:note-librarian', 'memory_reflect', 'write', 'memory reflection for durable note context');

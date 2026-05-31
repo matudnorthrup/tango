@@ -56,6 +56,7 @@ export interface V2AgentConfig {
   discord: {
     defaultChannelId: string;
     smokeTestChannelId?: string;
+    typingTokenEnv?: string;
   };
   defaultTopic?: string;
   defaultProject?: string;
@@ -152,6 +153,7 @@ const rawV2AgentConfigSchema = z.object({
   discord: z.object({
     default_channel_id: z.string().min(1),
     smoke_test_channel_id: z.string().min(1).optional(),
+    typing_token_env: z.string().min(1).optional(),
   }),
   default_topic: z.string().min(1).optional(),
   default_project: z.string().min(1).optional(),
@@ -262,6 +264,7 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
     discord: {
       defaultChannelId: parsed.discord.default_channel_id,
       smokeTestChannelId: parsed.discord.smoke_test_channel_id,
+      typingTokenEnv: parsed.discord.typing_token_env,
     },
     defaultTopic: parsed.default_topic,
     defaultProject: parsed.default_project,

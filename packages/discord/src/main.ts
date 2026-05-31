@@ -149,6 +149,10 @@ import {
   resolveSpeakerDisplayName,
   type PresentedReplyResult,
 } from "./reply-presentation.js";
+import {
+  createAgentTypingPresenter,
+  resolveAgentTypingToken,
+} from "./agent-typing-presenter.js";
 import { resolveVoiceWatermarkTarget } from "./voice-watermarks.js";
 import { IMessageListener, type IMessageInboundMessage } from "./imessage-listener.js";
 import { parseNaturalTextRoute, type NaturalTextSystemCommand } from "./natural-routing.js";
@@ -462,6 +466,16 @@ const voiceTangoRouter = voiceV2AgentRuntimeConfigs.size > 0
 const scheduleConfigs = loadScheduleConfigs(configDir);
 const memoryEvalConfig = loadMemoryEvalConfig(configDir);
 const agentRegistry = new AgentRegistry(agentConfigs);
+const agentTypingPresenter = createAgentTypingPresenter({
+  resolveAgentTypingToken(agentId) {
+    return resolveAgentTypingToken(agentRegistry.get(agentId));
+  },
+  logger: {
+    warn(message: string): void {
+      console.warn(message);
+    },
+  },
+});
 const voiceTargets = new VoiceTargetDirectory(configDir);
 const projectDirectory = new ProjectDirectory(configDir);
 const systemAgent = agentRegistry.get("dispatch") ?? null;
@@ -3016,32 +3030,13 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
   );
 
   // Show "typing..." in the Discord text channel while the voice turn processes.
-  // Discord's indicator lasts ~10s, so we repeat every 8s.
-  let voiceTypingInterval: ReturnType<typeof setInterval> | undefined;
-  if (resolvedVoiceSyncChannelId) {
-    void (async () => {
-      try {
-        const typingChannel = await client.channels.fetch(resolvedVoiceSyncChannelId);
-        if (typingChannel && typingChannel.isTextBased()) {
-          const tc = typingChannel as { sendTyping?: () => Promise<void> };
-          if (typeof tc.sendTyping === "function") {
-            await tc.sendTyping().catch(() => {/* typing indicator is best-effort */});
-            voiceTypingInterval = setInterval(() => {
-              tc.sendTyping?.().catch(() => {/* ignore */});
-            }, 8_000);
-          }
-        }
-      } catch {
-        // Non-fatal — typing indicator is cosmetic
-      }
-    })();
-  }
+  // Discord's indicator lasts ~10s, so we repeat every 8s via per-agent REST typing.
+  const voiceTypingSession = resolvedVoiceSyncChannelId
+    ? agentTypingPresenter.start(targetAgent.id, resolvedVoiceSyncChannelId)
+    : null;
 
   const clearVoiceTyping = (): void => {
-    if (voiceTypingInterval) {
-      clearInterval(voiceTypingInterval);
-      voiceTypingInterval = undefined;
-    }
+    voiceTypingSession?.stop();
   };
 
   const syncVoiceAgentResponse = (responseText: string): void => {
@@ -6088,14 +6083,7 @@ async function handleMessage(
   // Victor manual-console bridge: route to VICTOR-COS only when explicitly enabled.
   if (targetAgent.id === "victor" && isVictorManualConsoleBridgeActive()) {
     const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
-    const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
-    let typingInterval: ReturnType<typeof setInterval> | undefined;
-    if (typeof maybeTypingChannel.sendTyping === "function") {
-      await maybeTypingChannel.sendTyping().catch(() => {/* typing indicator is best-effort */});
-      typingInterval = setInterval(() => {
-        maybeTypingChannel.sendTyping?.().catch(() => {});
-      }, 8_000);
-    }
+    const typingSession = agentTypingPresenter.start(targetAgent.id, message.channelId);
 
     try {
       const bridgeMessage: VictorBridgeMessage = {
@@ -6147,22 +6135,13 @@ async function handleMessage(
       );
       // Fall through to normal v2 path
     } finally {
-      if (typingInterval) {
-        clearInterval(typingInterval);
-      }
+      typingSession.stop();
     }
   }
 
   if (v2EnabledAgents.has(targetAgent.id)) {
     const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
-    const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
-    let typingInterval: ReturnType<typeof setInterval> | undefined;
-    if (typeof maybeTypingChannel.sendTyping === "function") {
-      await maybeTypingChannel.sendTyping().catch(() => {/* typing indicator is best-effort */});
-      typingInterval = setInterval(() => {
-        maybeTypingChannel.sendTyping?.().catch(() => {/* ignore */});
-      }, 8_000);
-    }
+    const typingSession = agentTypingPresenter.start(targetAgent.id, message.channelId);
 
     try {
       const warmStartPrompt = await buildWarmStartContextPrompt({
@@ -6282,7 +6261,7 @@ async function handleMessage(
       );
       return;
     } finally {
-      if (typingInterval) clearInterval(typingInterval);
+      typingSession.stop();
       cleanupAttachments(attachmentResult.tempDir);
     }
   }
