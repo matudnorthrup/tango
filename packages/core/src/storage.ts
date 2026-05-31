@@ -1707,6 +1707,62 @@ const MIGRATIONS: Migration[] = [
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:note-librarian')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'jules_files');
     `,
+  },
+  {
+    version: 36,
+    sql: `
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      VALUES ('agent:jules', 'agent', 'user:owner', 'Jules');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      VALUES ('worker:activity-tracker', 'worker', 'agent:jules', 'Activity Tracker');
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('wellnessdb_search_product', 'wellness-db', 'Wellness DB Product Search', 'read'),
+        ('wellnessdb_search_supplement', 'wellness-db', 'Wellness DB Supplement Search', 'read'),
+        ('wellnessdb_search_recipe', 'wellness-db', 'Wellness DB Recipe Search', 'read'),
+        ('wellnessdb_get_recipe_detail', 'wellness-db', 'Wellness DB Recipe Detail', 'read'),
+        ('wellnessdb_day_summary', 'wellness-db', 'Wellness DB Day Summary', 'read'),
+        ('wellnessdb_day_range', 'wellness-db', 'Wellness DB Day Range', 'read'),
+        ('wellnessdb_recent_meals', 'wellness-db', 'Wellness DB Recent Meals', 'read'),
+        ('wellnessdb_active_supplements', 'wellness-db', 'Wellness DB Active Supplements', 'read'),
+        ('wellnessdb_active_products', 'wellness-db', 'Wellness DB Active Products', 'read'),
+        ('wellnessdb_log_meal', 'wellness-db', 'Wellness DB Log Meal', 'write'),
+        ('wellnessdb_log_supplement', 'wellness-db', 'Wellness DB Log Supplement', 'write'),
+        ('wellnessdb_log_weight', 'wellness-db', 'Wellness DB Log Weight', 'write'),
+        ('wellnessdb_log_activity', 'wellness-db', 'Wellness DB Log Activity', 'write'),
+        ('wellnessdb_log_hydration', 'wellness-db', 'Wellness DB Log Hydration', 'write'),
+        ('wellnessdb_log_presence', 'wellness-db', 'Wellness DB Log Presence', 'write'),
+        ('wellnessdb_add_product', 'wellness-db', 'Wellness DB Add Product', 'write'),
+        ('wellnessdb_add_recipe', 'wellness-db', 'Wellness DB Add Recipe', 'write'),
+        ('wellnessdb_update_recipe', 'wellness-db', 'Wellness DB Update Recipe', 'write'),
+        ('wellnessdb_add_day_note', 'wellness-db', 'Wellness DB Add Day Note', 'write'),
+        ('wellnessdb_delete_meal_entry', 'wellness-db', 'Wellness DB Delete Meal Entry', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:nutrition-logger', 'wellnessdb_search_product', 'read', 'Jules wellness.db lookup'),
+        ('worker:nutrition-logger', 'wellnessdb_search_supplement', 'read', 'Jules wellness.db lookup'),
+        ('worker:nutrition-logger', 'wellnessdb_day_summary', 'read', 'Jules wellness.db day summary'),
+        ('worker:nutrition-logger', 'wellnessdb_recent_meals', 'read', 'Jules wellness.db recent meals'),
+        ('worker:nutrition-logger', 'wellnessdb_active_supplements', 'read', 'Jules wellness.db active supplements'),
+        ('worker:nutrition-logger', 'wellnessdb_active_products', 'read', 'Jules wellness.db active products'),
+        ('worker:nutrition-logger', 'wellnessdb_log_meal', 'write', 'Jules wellness.db meal logging'),
+        ('worker:nutrition-logger', 'wellnessdb_log_supplement', 'write', 'Jules wellness.db supplement logging'),
+        ('worker:nutrition-logger', 'wellnessdb_add_product', 'write', 'Jules wellness.db product creation'),
+        ('worker:nutrition-logger', 'wellnessdb_add_day_note', 'write', 'Jules wellness.db day notes'),
+        ('worker:nutrition-logger', 'wellnessdb_delete_meal_entry', 'write', 'Jules wellness.db meal corrections'),
+        ('worker:recipe-librarian', 'wellnessdb_search_recipe', 'read', 'Jules wellness.db recipe lookup'),
+        ('worker:recipe-librarian', 'wellnessdb_get_recipe_detail', 'read', 'Jules wellness.db recipe detail'),
+        ('worker:recipe-librarian', 'wellnessdb_active_products', 'read', 'Jules wellness.db active products'),
+        ('worker:recipe-librarian', 'wellnessdb_add_recipe', 'write', 'Jules wellness.db recipe creation'),
+        ('worker:recipe-librarian', 'wellnessdb_update_recipe', 'write', 'Jules wellness.db recipe updates'),
+        ('worker:health-analyst', 'wellnessdb_day_summary', 'read', 'Jules wellness.db day summary'),
+        ('worker:health-analyst', 'wellnessdb_day_range', 'read', 'Jules wellness.db trend analysis'),
+        ('worker:activity-tracker', 'wellnessdb_log_weight', 'write', 'Jules wellness.db weight logging'),
+        ('worker:activity-tracker', 'wellnessdb_log_activity', 'write', 'Jules wellness.db activity logging'),
+        ('worker:activity-tracker', 'wellnessdb_log_hydration', 'write', 'Jules wellness.db hydration logging'),
+        ('agent:jules', 'wellnessdb_log_presence', 'write', 'Jules direct presence check logging');
+    `,
   }
 ];
 
