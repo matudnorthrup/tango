@@ -38,6 +38,15 @@ For writes:
 
 - Lunch Money uses `status=uncleared` for transactions not yet reviewed by this
   workflow. Do not use `status=unreviewed`; it is not a Lunch Money status.
+- For receipt-backed spending, run `receipt_registry lookup_receipts` and copy
+  the returned `lunchMoneyNote` into the Lunch Money transaction or split note
+  when it matches the transaction.
+- Receipt-backed notes must put the purchased items or summary first and the
+  Obsidian receipt link last. Do not write notes that are only `Receipt`, only
+  a URL, or an unexplained category label.
+- Do not leave generic `Devin Spending` notes on receipt-backed transactions
+  when item details are available. If the category is truly Devin Spending, the
+  note still needs to say what was purchased and why that category is supported.
 - Split amounts are dollar strings, not cents.
 - Transaction updates require a top-level `transaction` wrapper. Splits use
   `PUT /transactions/:id` with a top-level `split` array.

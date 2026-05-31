@@ -39,6 +39,8 @@ Optional params:
 
 Useful fields in the response:
 
+- `lunchMoneyNote` - ready-to-copy transaction note with item summary first and
+  the Obsidian receipt link last
 - `record.filePath`
 - `record.date`
 - `record.total`
@@ -220,6 +222,8 @@ Optional fields:
    amount/date/store clue, or user-mentioned item before asking for amounts.
    If item rows plus subtotal/tax are present, compute item-group totals and
    allocate tax proportionally so the split sums to the transaction total.
+   When updating Lunch Money notes for a matched receipt, copy the returned
+   `lunchMoneyNote` instead of inventing a note or writing only the receipt URL.
 2. Run `detect_gaps`.
 3. Run `generate_monthly_ledger`.
 4. Run `list_reimbursement_candidates`.

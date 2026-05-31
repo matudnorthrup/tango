@@ -110,6 +110,7 @@ describe("personal-agent-tools receipt registry", () => {
       count: 1,
       results: [
         expect.objectContaining({
+          lunchMoneyNote: expect.stringContaining("Items:\n- George Men's Solid Black Slim Necktie - $10.00"),
           reasons: expect.arrayContaining(["linked_transaction_id"]),
           record: expect.objectContaining({
             fields: expect.objectContaining({

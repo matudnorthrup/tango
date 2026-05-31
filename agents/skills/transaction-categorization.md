@@ -59,6 +59,10 @@ These vendors span multiple categories and ALWAYS need human review:
 - **Subway / Chipotle / Similar restaurants** — could be personal or work reimbursement
 
 For Amazon and Walmart: use the `amazon_orders` or `walmart_orders` skill to look up what was in the order via browser. Then use `receipt_logging` to create an Obsidian receipt. The receipt tells you whether to categorize directly or split.
+If a receipt note already exists, use `receipt_registry lookup_receipts` before
+opening the retailer site. Matched receipts return `lunchMoneyNote`; copy that
+value into the Lunch Money note so item details are visible in Lunch Money and
+the Obsidian receipt link remains the final line.
 
 Special Walmart rule:
 - If a cataloged Walmart delivery receipt shows a reimbursable driver tip, split the driver tip to **Latitude Reimbursements** and the remaining grocery merchandise to **Groceries** (plus any other non-grocery item categories present in the receipt).
@@ -69,6 +73,30 @@ For Costco: use the browser to look up the order on costco.com (order history). 
 For Venmo: use `gog_email` to search Gmail for the Venmo payment confirmation email matching the amount and approximate date. The email contains the recipient and payment note — use those to determine the category. Create a receipt via `receipt_logging` at `Records/Finance/Receipts/Venmo/`.
 
 For restaurants (Subway, Chipotle, etc.): ask the user whether it was personal or a work lunch.
+
+## Lunch Money note policy
+
+For receipt-backed transactions and splits:
+
+- Put the itemized purchase summary first.
+- Put category notes or split rationale after the items when useful.
+- Put the Obsidian receipt link as the final line.
+- Do not use notes that only say `Receipt`, only include a URL, or only repeat
+  a category label such as `Devin Spending`.
+- If the category is `Devin Spending`, include the purchased item details and
+  the evidence basis. If the evidence is ambiguous, leave it uncleared or ask
+  the user instead of silently assigning Devin Spending.
+
+Preferred receipt-backed note format:
+
+```text
+Items:
+- George Men's Solid Black Slim Necktie - $10.00
+- Mens Primry Color Synthetic Player Jersey - $33.00
+Total: $53.70
+Categories: Necktie, Jersey -> Clothing & Accessories; Frozen strawberries -> Groceries
+Receipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%2F...
+```
 
 ## Step 4: Transaction splits
 
@@ -86,8 +114,8 @@ Lunch Money split via API (use `PUT` on the parent transaction with a `split` ar
   "endpoint": "/transactions/{id}",
   "body": {
     "split": [
-      { "amount": 48.94, "category_id": 2413616, "notes": "Groceries" },
-      { "amount": 20.28, "category_id": 2413620, "notes": "Home Improvement - hookboards" }
+      { "amount": 48.94, "category_id": 2413616, "notes": "Items:\n- Great Value Whole Strawberries 16 oz (Frozen) - $2.86\n- Other grocery items - $46.08\nTotal: $48.94\nReceipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%2F..." },
+      { "amount": 20.28, "category_id": 2413620, "notes": "Items:\n- Hookboards - $20.28\nTotal: $20.28\nReceipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%2F..." }
     ]
   }
 }
