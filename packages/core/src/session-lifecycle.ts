@@ -6,6 +6,7 @@ import type {
   RuntimeState,
   SendOptions,
 } from "./agent-runtime.js";
+import { isRuntimeAbortedError } from "./agent-runtime.js";
 import type { RuntimePool } from "./runtime-pool.js";
 
 const CLOSED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -385,6 +386,8 @@ export class SessionLifecycleManager {
       throw new Error(`Failed to acquire runtime for conversation '${conversationKey}'.`);
     }
 
+    this.ensureRuntimeSessionBound(runtime, session.sessionId);
+
     session.state = "active";
 
     let response: RuntimeResponse;
@@ -395,6 +398,11 @@ export class SessionLifecycleManager {
       );
       response = await runtime.send(message, effectiveOptions);
     } catch (error) {
+      if (isRuntimeAbortedError(error)) {
+        session.state = "idle";
+        session.sessionId = this.getRuntimeSessionId(runtime) ?? session.sessionId;
+        throw error;
+      }
       session.state = "error";
       throw error;
     }
@@ -433,6 +441,26 @@ export class SessionLifecycleManager {
 
   async resetSession(conversationKey: string, agentConfig: AgentRuntimeConfig): Promise<void> {
     await this.recreateRuntime(conversationKey, agentConfig, {});
+  }
+
+  async abortActiveRun(conversationKey: string): Promise<boolean> {
+    const session = this.sessions.get(conversationKey);
+    const runtime = this.pool.get(conversationKey);
+    if (!runtime) {
+      return false;
+    }
+
+    const preservedSessionId = this.getRuntimeSessionId(runtime) ?? session?.sessionId;
+    const aborted = runtime.abortActiveRun?.() ?? false;
+
+    if (session && (aborted || session.state === "active" || session.state === "spawning")) {
+      session.state = "idle";
+      if (preservedSessionId) {
+        session.sessionId = preservedSessionId;
+      }
+    }
+
+    return aborted;
   }
 
   async closeSession(conversationKey: string): Promise<void> {
@@ -520,6 +548,23 @@ export class SessionLifecycleManager {
     }
 
     runtime.resumeSession(sessionId);
+  }
+
+  private ensureRuntimeSessionBound(
+    runtime: AgentRuntime,
+    sessionId: string | undefined,
+  ): void {
+    const boundSessionId = sessionId?.trim();
+    if (!boundSessionId) {
+      return;
+    }
+
+    const runtimeSessionId = this.getRuntimeSessionId(runtime)?.trim();
+    if (runtimeSessionId === boundSessionId) {
+      return;
+    }
+
+    this.restoreRuntimeSession(runtime, boundSessionId);
   }
 
   private getRuntimeSessionId(runtime: AgentRuntime): string | undefined {

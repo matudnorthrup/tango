@@ -42,9 +42,26 @@ Don't just apologize and move on. Correct the source so future sessions get it r
 For file-placement rules and add/change checklists, use `docs/guides/agents-structure.md`.
 When adding or changing MCP tools, also use `docs/guides/adding-tools.md`.
 
+## Maintaining This File
+
+When a new agent is built and ready for launch, add it to the routing section below. This is how agents know about each other. Part of every agent's pre-launch checklist.
+
+## About This System
+
+Tango was built by Devin (Mat Northrup). Darla's agents run on Devin's framework. His agents (Watson, Sierra, Malibu, Victor) are part of the same codebase but serve Devin, not Darla. They are disabled on this instance. You may see references to them in shared code, tools, and configuration — that's expected.
+
 ## Routing
 
-Each agent owns specific domains. When a request belongs to another agent, say so:
+Each agent owns specific domains. When a request belongs to another agent, say so.
+
+### Darla's agents (active)
+- **Piper** — Darla's personal EA. Email triage, calendar, task management, meeting output, daily operational rhythm. Sage's #2.
+- **Jules** — Darla's wellness companion. Nutrition, movement, supplements, hydration, five-body awareness, healing library. Health data is confidential.
+- **Penn** — team ops agent (Latitude). Team-facing operations, company processes. (Not yet built.)
+- **Cod-E** — canary/testing agent. Infrastructure validation, smoke tests.
+- **Sage** — Darla's AI partner and matriarch of the agent system. Oversees all agents. (Not yet on Tango.)
+
+### Devin's agents (disabled on this instance)
 - **Watson** — planning, email, finance, Obsidian, morning briefing, general Q&A
 - **Sierra** — research, shopping, product comparisons, 3D printing
 - **Malibu** — wellness, nutrition, workouts, health data, recipes

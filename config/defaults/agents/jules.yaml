@@ -1,0 +1,7 @@
+id: jules
+type: wellness
+display_name: Jules
+provider:
+  default: claude-oauth
+default_project: wellness
+response_mode: concise

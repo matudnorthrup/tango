@@ -173,6 +173,61 @@ describe("ClaudeCodeAdapter", () => {
     expect(fs.existsSync(mcpConfigPath!)).toBe(false);
   });
 
+  it("preserves session id when an active run is aborted", async () => {
+    const firstChild = new MockChildProcess();
+    const abortedChild = new MockChildProcess();
+    const resumedChild = new MockChildProcess();
+    spawnMock
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          firstChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: false,
+              result: "First response",
+              session_id: "session-abc",
+            }) + "\n",
+          );
+          firstChild.close(0, null);
+        });
+        return firstChild;
+      })
+      .mockImplementationOnce(() => abortedChild)
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          resumedChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: false,
+              result: "Third response",
+              session_id: "session-abc",
+            }) + "\n",
+          );
+          resumedChild.close(0, null);
+        });
+        return resumedChild;
+      });
+
+    const adapter = new ClaudeCodeAdapter();
+    await adapter.initialize(createConfig());
+
+    await adapter.send("First message");
+    expect(adapter.getSessionId?.()).toBe("session-abc");
+
+    const abortedSend = adapter.send("Second message");
+    queueMicrotask(() => {
+      adapter.abortActiveRun();
+    });
+    await expect(abortedSend).rejects.toMatchObject({ aborted: true });
+    expect(adapter.getSessionId?.()).toBe("session-abc");
+
+    await adapter.send("Third message");
+    const thirdCall = spawnMock.mock.calls[2] as [string, string[]];
+    expect(thirdCall[1]).toEqual(expect.arrayContaining(["--resume", "session-abc"]));
+
+    await adapter.teardown();
+  });
+
   it("uses --resume for subsequent sends after receiving a session id", async () => {
     const firstChild = new MockChildProcess();
     const secondChild = new MockChildProcess();

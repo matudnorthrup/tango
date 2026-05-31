@@ -78,7 +78,7 @@ function escapeHtml(value: string): string {
     .replace(/'/gu, "&#39;");
 }
 
-function decodeHtmlEntities(value: string): string {
+export function decodeHtmlEntities(value: string): string {
   return value
     .replace(/&nbsp;/giu, " ")
     .replace(/&amp;/giu, "&")
@@ -88,7 +88,7 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&#39;/giu, "'");
 }
 
-function stripHtmlToText(value: string): string {
+export function stripHtmlToText(value: string): string {
   return decodeHtmlEntities(
     value
       .replace(/<style[\s\S]*?<\/style>/giu, " ")

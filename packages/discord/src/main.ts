@@ -84,6 +84,7 @@ import {
   runMemoryEvalBenchmarks,
   assembleV2SystemPrompt,
   contactsSyncHandler,
+  isRuntimeAbortedError,
   isV2RuntimeEnabled,
   type V2AgentConfig,
 } from "@tango/core";
@@ -149,6 +150,10 @@ import {
   resolveSpeakerDisplayName,
   type PresentedReplyResult,
 } from "./reply-presentation.js";
+import {
+  createAgentTypingPresenter,
+  resolveAgentTypingToken,
+} from "./agent-typing-presenter.js";
 import { resolveVoiceWatermarkTarget } from "./voice-watermarks.js";
 import { IMessageListener, type IMessageInboundMessage } from "./imessage-listener.js";
 import { parseNaturalTextRoute, type NaturalTextSystemCommand } from "./natural-routing.js";
@@ -176,6 +181,10 @@ import {
   resetBotNickname,
   shouldInitializeSlotMode,
 } from "./slot-mode.js";
+import {
+  buildSendContextWithOptionalSavePass,
+  buildV2ConversationKey,
+} from "./session-ops.js";
 import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
 import { AtlasMemoryClient } from "./atlas-memory-client.js";
 import { TangoRouter } from "./tango-router.js";
@@ -462,6 +471,16 @@ const voiceTangoRouter = voiceV2AgentRuntimeConfigs.size > 0
 const scheduleConfigs = loadScheduleConfigs(configDir);
 const memoryEvalConfig = loadMemoryEvalConfig(configDir);
 const agentRegistry = new AgentRegistry(agentConfigs);
+const agentTypingPresenter = createAgentTypingPresenter({
+  resolveAgentTypingToken(agentId) {
+    return resolveAgentTypingToken(agentRegistry.get(agentId));
+  },
+  logger: {
+    warn(message: string): void {
+      console.warn(message);
+    },
+  },
+});
 const voiceTargets = new VoiceTargetDirectory(configDir);
 const projectDirectory = new ProjectDirectory(configDir);
 const systemAgent = agentRegistry.get("dispatch") ?? null;
@@ -3016,32 +3035,13 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
   );
 
   // Show "typing..." in the Discord text channel while the voice turn processes.
-  // Discord's indicator lasts ~10s, so we repeat every 8s.
-  let voiceTypingInterval: ReturnType<typeof setInterval> | undefined;
-  if (resolvedVoiceSyncChannelId) {
-    void (async () => {
-      try {
-        const typingChannel = await client.channels.fetch(resolvedVoiceSyncChannelId);
-        if (typingChannel && typingChannel.isTextBased()) {
-          const tc = typingChannel as { sendTyping?: () => Promise<void> };
-          if (typeof tc.sendTyping === "function") {
-            await tc.sendTyping().catch(() => {/* typing indicator is best-effort */});
-            voiceTypingInterval = setInterval(() => {
-              tc.sendTyping?.().catch(() => {/* ignore */});
-            }, 8_000);
-          }
-        }
-      } catch {
-        // Non-fatal — typing indicator is cosmetic
-      }
-    })();
-  }
+  // Discord's indicator lasts ~10s, so we repeat every 8s via per-agent REST typing.
+  const voiceTypingSession = resolvedVoiceSyncChannelId
+    ? agentTypingPresenter.start(targetAgent.id, resolvedVoiceSyncChannelId)
+    : null;
 
   const clearVoiceTyping = (): void => {
-    if (voiceTypingInterval) {
-      clearInterval(voiceTypingInterval);
-      voiceTypingInterval = undefined;
-    }
+    voiceTypingSession?.stop();
   };
 
   const syncVoiceAgentResponse = (responseText: string): void => {
@@ -4828,6 +4828,21 @@ function tangoCommandPayload(): RESTPostAPIApplicationCommandsJSONBody {
     )
     .addSubcommand((subcommand) =>
       subcommand
+        .setName("new")
+        .setDescription("Start a fresh session in this channel (clears provider continuity)")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("stop")
+        .setDescription("Stop the active generation in this channel")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("save")
+        .setDescription("Request a save pass on the next message in this channel")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
         .setName("replay")
         .setDescription("Replay a dead-letter entry")
         .addIntegerOption((option) =>
@@ -5564,6 +5579,127 @@ async function handleReplayCommand(interaction: ChatInputCommandInteraction): Pr
   }
 }
 
+async function handleNewCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const { routingChannelId, threadId, route } = resolveSlashCommandContext(interaction);
+
+  if (!route) {
+    await interaction.reply({ content: "No session found for this channel.", ephemeral: true });
+    return;
+  }
+
+  storage.resetSession(route.sessionId, resetOptionsFromMode("continuity"));
+  clearProviderContinuityCacheForSession(route.sessionId);
+
+  if (route.agentId && v2EnabledAgents.has(route.agentId)) {
+    await tangoRouter.resetConversation(routingChannelId, threadId);
+  }
+
+  const scopeLabel = threadId
+    ? `thread \`${threadId}\``
+    : `channel \`${routingChannelId}\``;
+
+  await interaction.reply({
+    content: [
+      `Fresh context started for ${scopeLabel}.`,
+      "Next message uses a new Claude session.",
+      "Tango message history remains available for warm-start.",
+    ].join(" "),
+    ephemeral: true,
+  });
+}
+
+async function handleStopCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const { routingChannelId, threadId } = resolveSlashCommandContext(interaction);
+
+  try {
+    const aborted = await tangoRouter.abortConversation(routingChannelId, threadId);
+    await interaction.reply({
+      content: aborted
+        ? "Stopped. The active generation was cancelled; your session is unchanged."
+        : "Nothing was running to stop.",
+      ephemeral: true,
+    });
+  } catch (err) {
+    await interaction.reply({
+      content: `Stop failed: ${err instanceof Error ? err.message : String(err)}`,
+      ephemeral: true,
+    });
+  }
+}
+
+async function handleSaveCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const { routingChannelId, threadId, route } = resolveSlashCommandContext(interaction);
+
+  if (!route) {
+    await interaction.reply({ content: "No session found for this channel.", ephemeral: true });
+    return;
+  }
+
+  const conversationKey = buildV2ConversationKey(routingChannelId, threadId);
+  storage.upsertPendingSessionSave({
+    conversationKey,
+    sessionId: route.sessionId,
+    agentId: route.agentId,
+    requestedByUserId: interaction.user.id,
+    trigger: "slash_command",
+  });
+
+  const scopeLabel = threadId
+    ? `thread \`${threadId}\``
+    : `channel \`${routingChannelId}\``;
+
+  console.log(
+    `[tango-discord] pending session save upsert conversation=${conversationKey} session=${route.sessionId} agent=${route.agentId} user=${interaction.user.id}`,
+  );
+
+  await interaction.reply({
+    content: [
+      `Save pass queued for ${scopeLabel}.`,
+      "Your next message will ask the agent to review this conversation and capture durable items to Atlas.",
+      "The agent should confirm what was saved.",
+    ].join(" "),
+    ephemeral: true,
+  });
+}
+
+function resolveSlashCommandContext(interaction: ChatInputCommandInteraction): {
+  routingChannelId: string;
+  threadId?: string;
+  channelKey: string;
+  route: ReturnType<SessionManager["route"]>;
+} {
+  const channelId = interaction.channelId;
+  const channel = interaction.channel;
+  const isThread = channel && "isThread" in channel && typeof channel.isThread === "function" && channel.isThread();
+  const routingChannelId = isThread
+    ? ((channel as { parentId?: string | null }).parentId ?? channelId)
+    : channelId;
+  const threadId = isThread ? channelId : undefined;
+  const channelKey = `discord:${routingChannelId}`;
+  let route = sessionManager.route(channelKey) ?? sessionManager.route("discord:default");
+
+  if (route && threadId) {
+    try {
+      const threadSession = storage.getThreadSession(threadId);
+      if (threadSession) {
+        route = applyThreadSessionRoute(route, threadSession);
+      }
+    } catch (error) {
+      console.error(
+        "[tango-discord] Failed to resolve thread session for slash command:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  return {
+    routingChannelId,
+    ...(threadId ? { threadId } : {}),
+    channelKey,
+    route,
+  };
+}
+
 async function handleSessionResetCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const sessionId = interaction.options.getString("id", true).trim();
   const mode = (interaction.options.getString("mode") ?? "continuity") as
@@ -5711,6 +5847,21 @@ async function handleTangoCommand(interaction: ChatInputCommandInteraction): Pro
 
   if (group === "session" && subcommand === "snapshot") {
     await handleSessionSnapshotCommand(interaction);
+    return;
+  }
+
+  if (subcommand === "new") {
+    await handleNewCommand(interaction);
+    return;
+  }
+
+  if (subcommand === "stop") {
+    await handleStopCommand(interaction);
+    return;
+  }
+
+  if (subcommand === "save") {
+    await handleSaveCommand(interaction);
     return;
   }
 
@@ -5863,9 +6014,11 @@ async function handleMessage(
   const accessAgent = naturalRoute?.systemCommand ? (systemAgent ?? targetAgent) : targetAgent;
   const accessPolicy = resolveAccessPolicy(accessAgent, defaultAccessPolicy);
   const routingChannelId = resolveRoutingChannelId(message);
+  const threadChannelId = message.channelId !== routingChannelId ? message.channelId : undefined;
   const access = evaluateAccess(
     {
       channelId: routingChannelId,
+      threadChannelId,
       userId: message.author.id,
       mentioned: hasMentionForBot(message)
     },
@@ -6019,14 +6172,7 @@ async function handleMessage(
   // Victor manual-console bridge: route to VICTOR-COS only when explicitly enabled.
   if (targetAgent.id === "victor" && isVictorManualConsoleBridgeActive()) {
     const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
-    const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
-    let typingInterval: ReturnType<typeof setInterval> | undefined;
-    if (typeof maybeTypingChannel.sendTyping === "function") {
-      await maybeTypingChannel.sendTyping().catch(() => {/* typing indicator is best-effort */});
-      typingInterval = setInterval(() => {
-        maybeTypingChannel.sendTyping?.().catch(() => {});
-      }, 8_000);
-    }
+    const typingSession = agentTypingPresenter.start(targetAgent.id, message.channelId);
 
     try {
       const bridgeMessage: VictorBridgeMessage = {
@@ -6078,37 +6224,42 @@ async function handleMessage(
       );
       // Fall through to normal v2 path
     } finally {
-      if (typingInterval) {
-        clearInterval(typingInterval);
-      }
+      typingSession.stop();
     }
   }
 
   if (v2EnabledAgents.has(targetAgent.id)) {
     const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
-    const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
-    let typingInterval: ReturnType<typeof setInterval> | undefined;
-    if (typeof maybeTypingChannel.sendTyping === "function") {
-      await maybeTypingChannel.sendTyping().catch(() => {/* typing indicator is best-effort */});
-      typingInterval = setInterval(() => {
-        maybeTypingChannel.sendTyping?.().catch(() => {/* ignore */});
-      }, 8_000);
-    }
+    const typingSession = agentTypingPresenter.start(targetAgent.id, message.channelId);
 
     try {
+      const conversationKey = buildV2ConversationKey(routingChannelId, threadId);
+      const pendingSave = storage.getPendingSessionSave(conversationKey);
+      const hasPendingSavePass =
+        pendingSave !== null
+        && pendingSave.sessionId === promptRoute.sessionId
+        && pendingSave.agentId === targetAgent.id;
+
+      if (hasPendingSavePass) {
+        console.log(
+          `[tango-discord] injecting pending session save pass conversation=${conversationKey} session=${promptRoute.sessionId} agent=${targetAgent.id}`,
+        );
+      }
+
       const warmStartPrompt = await buildWarmStartContextPrompt({
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
         currentUserPrompt: prompt,
         discordChannelId: threadId ?? routingChannelId,
       });
+      const sendContext = buildSendContextWithOptionalSavePass(warmStartPrompt, hasPendingSavePass);
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
           channelId: routingChannelId,
           ...(threadId ? { threadId } : {}),
           agentId: targetAgent.id,
-          sendOptions: warmStartPrompt ? { context: warmStartPrompt } : undefined,
+          sendOptions: sendContext ? { context: sendContext } : undefined,
         },
         {
           v2EnabledAgents,
@@ -6211,9 +6362,17 @@ async function handleMessage(
       console.log(
         `[tango-discord] v2 reply session=${promptRoute.sessionId} agent=${targetAgent.id} conversation=${v2Result.conversationKey} ms=${v2Result.response.durationMs} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks}`,
       );
+
+      if (hasPendingSavePass && !runtimeError) {
+        const cleared = storage.deletePendingSessionSave(conversationKey);
+        console.log(
+          `[tango-discord] fulfilled pending session save conversation=${conversationKey} cleared=${cleared}`,
+        );
+      }
+
       return;
     } finally {
-      if (typingInterval) clearInterval(typingInterval);
+      typingSession.stop();
       cleanupAttachments(attachmentResult.tempDir);
     }
   }
@@ -6712,6 +6871,9 @@ client.on("messageCreate", async (message) => {
     try {
       await handleMessage(message);
     } catch (error) {
+      if (isRuntimeAbortedError(error)) {
+        return;
+      }
       const errorText = error instanceof Error ? error.message : String(error);
       console.error(`[tango-discord] handleMessage failed for ${message.author.username} in ${message.channelId}: ${errorText}`);
       try {
