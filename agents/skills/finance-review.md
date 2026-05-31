@@ -177,6 +177,11 @@ provide amounts. When the receipt includes subtotal and tax fields, allocate
 tax proportionally across the category/item groups so the split totals match
 the Lunch Money transaction.
 
+When a matched receipt backs a Lunch Money transaction or split, use the
+returned `lunchMoneyNote` for the Lunch Money note. Do not replace it with only
+`Receipt`, only a URL, or an unexplained category label. The note should show
+item details first and keep the Obsidian receipt link as the final line.
+
 For a `rolling` review, report the backlog and suggested decisions. For
 `close_prep` and `close`, unresolved transaction backlog is a close blocker
 unless explicitly carried forward.
@@ -245,6 +250,9 @@ Required structured checks:
 - Run `receipt_registry lookup_receipts` for retailer transactions with linked
   transaction IDs or likely receipt notes before saying no receipt exists or
   asking for itemized split amounts.
+- For matched retailer receipts, copy `lunchMoneyNote` into Lunch Money when
+  updating the transaction or split note so future reviews can inspect purchase
+  contents without opening Obsidian.
 - Run `receipt_registry detect_gaps` for the review window or recent lookback.
 - Run `receipt_registry generate_monthly_ledger` for the current month or
   requested review range.

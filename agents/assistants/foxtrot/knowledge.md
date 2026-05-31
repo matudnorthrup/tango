@@ -25,6 +25,14 @@ The `lunch_money` tool wraps the Lunch Money API.
   run `receipt_registry lookup_receipts` with the Lunch Money transaction ID
   when available, otherwise amount/date/merchant/store/item clues. If the
   receipt has item rows, use those rows for the split.
+- When `lookup_receipts` matches a Lunch Money transaction, use its
+  `lunchMoneyNote` value for the Lunch Money transaction or split note. The
+  note must show purchased items or summary first and keep the Obsidian receipt
+  link as the final line.
+- Do not leave receipt-backed Lunch Money notes as only `Receipt`, only a URL,
+  or an unexplained category label such as `Devin Spending`. If the category is
+  truly Devin Spending, include the item details and evidence basis; if it is
+  ambiguous, leave it for review instead of guessing.
 - When an itemized receipt has subtotal and tax fields, sum the relevant item
   rows by Devin's category decision and allocate tax proportionally so the split
   totals match the Lunch Money transaction. Only ask for amounts if the receipt
