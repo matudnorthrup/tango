@@ -1,3 +1,20 @@
+export class RuntimeAbortedError extends Error {
+  readonly aborted = true;
+
+  constructor(message = "Runtime request aborted.") {
+    super(message);
+    this.name = "RuntimeAbortedError";
+  }
+}
+
+export function isRuntimeAbortedError(error: unknown): error is RuntimeAbortedError {
+  return error instanceof RuntimeAbortedError
+    || (typeof error === "object"
+      && error !== null
+      && "aborted" in error
+      && (error as { aborted?: unknown }).aborted === true);
+}
+
 export interface AgentRuntime {
   readonly id: string;
   readonly type: "claude-code" | "codex";
@@ -7,6 +24,8 @@ export interface AgentRuntime {
   initialize(config: AgentRuntimeConfig): Promise<void>;
   teardown(): Promise<void>;
   healthCheck(): Promise<boolean>;
+  /** Kill an in-flight request without clearing the provider session. */
+  abortActiveRun?(): boolean;
 }
 
 export interface AgentRuntimeConfig {
