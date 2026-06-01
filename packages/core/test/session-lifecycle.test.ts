@@ -236,24 +236,39 @@ describe("SessionLifecycleManager", () => {
       "conversation-1",
       createConfig(),
       "hello",
-      { context: "Warm-start context A", timeout: 1_000 },
+      {
+        context: "Warm-start context A",
+        currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:08:18.000Z",
+        timeout: 1_000,
+      },
     );
     await manager.sendMessage(
       "conversation-1",
       createConfig(),
       "again",
-      { context: "Warm-start context B", timeout: 2_000 },
+      {
+        context: "Warm-start context B",
+        currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:09:18.000Z",
+        timeout: 2_000,
+      },
     );
 
     expect(runtime.send).toHaveBeenNthCalledWith(
       1,
       "hello",
-      { context: "Warm-start context A", timeout: 1_000 },
+      {
+        context: "Warm-start context A",
+        currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:08:18.000Z",
+        timeout: 1_000,
+      },
     );
     expect(runtime.send).toHaveBeenNthCalledWith(
       2,
       "again",
-      { timeout: 2_000 },
+      {
+        currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:09:18.000Z",
+        timeout: 2_000,
+      },
     );
   });
 

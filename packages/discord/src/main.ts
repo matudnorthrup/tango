@@ -67,6 +67,7 @@ import {
   renderMemoryEvalDiscordSummary,
   renderMemoryEvalMarkdownReport,
   buildRuntimePathEnv,
+  buildCurrentTurnMetadataPrompt,
   resolveConfigDir,
   resolveConfiguredPath,
   resolveDatabasePath,
@@ -3170,6 +3171,11 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     voiceWarmStartPrompt,
     VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
   ].filter(Boolean).join("\n\n");
+  const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt({
+    timestamp: turnInput.messageTimestamp,
+    timestampSource: turnInput.messageTimestampSource,
+    config: v2AgentConfig.currentTurnMetadata,
+  });
 
   return dispatchVoiceTurnByRuntime({
     transcript: turnInput.transcript,
@@ -3181,6 +3187,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     tangoRouter: voiceTangoRouter,
     sendOptions: {
       context: voiceContext || undefined,
+      currentTurnMetadataPrompt,
     },
     mapRouterResult: async (routeResult): Promise<VoiceTurnResult> => {
       const baseTurnResult = buildVoiceRouterResult({
@@ -3197,6 +3204,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
           });
       const latencyMs = Date.now() - startedAt;
       const response = routeResult.response;
+      const runtimeMetadata = asRecord(response.metadata);
 
       const outboundMessageId = writeMessage({
         sessionId: turnInput.sessionId,
@@ -3222,6 +3230,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
           providerUsedFailover: false,
           conversationKey: routeResult.conversationKey,
           toolsUsed: response.toolsUsed ?? [],
+          runtimeMetadata: response.metadata ?? null,
         }
       });
 
@@ -3246,6 +3255,11 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
           responseMode,
           runtime: "v2",
           toolsUsed: response.toolsUsed ?? [],
+          runtimeExitCode: metadataNumber(runtimeMetadata, "exitCode") ?? null,
+          runtimeSignal: metadataString(runtimeMetadata, "signal") ?? null,
+          runtimeStderr: metadataString(runtimeMetadata, "stderr") ?? null,
+          currentTurnMetadataIncluded: metadataBoolean(runtimeMetadata, "currentTurnMetadataIncluded") ?? false,
+          currentTurnMetadataChars: metadataNumber(runtimeMetadata, "currentTurnMetadataChars") ?? null,
         },
         rawResponse: null,
       });
@@ -6086,6 +6100,7 @@ async function handleMessage(
 
   if (v2EnabledAgents.has(targetAgent.id)) {
     const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
+    const v2AgentConfig = v2Configs.get(targetAgent.id);
     const maybeTypingChannel = message.channel as { sendTyping?: () => Promise<void> };
     let typingInterval: ReturnType<typeof setInterval> | undefined;
     if (typeof maybeTypingChannel.sendTyping === "function") {
@@ -6102,13 +6117,21 @@ async function handleMessage(
         currentUserPrompt: prompt,
         discordChannelId: threadId ?? routingChannelId,
       });
+      const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt({
+        timestamp: message.createdAt,
+        timestampSource: "discord-sent",
+        config: v2AgentConfig?.currentTurnMetadata,
+      });
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
           channelId: routingChannelId,
           ...(threadId ? { threadId } : {}),
           agentId: targetAgent.id,
-          sendOptions: warmStartPrompt ? { context: warmStartPrompt } : undefined,
+          sendOptions: {
+            ...(warmStartPrompt ? { context: warmStartPrompt } : {}),
+            currentTurnMetadataPrompt,
+          },
         },
         {
           v2EnabledAgents,

@@ -35,6 +35,7 @@ export interface McpServerConfig {
 
 export interface SendOptions {
   context?: string;
+  currentTurnMetadataPrompt?: string;
   timeout?: number;
   onChunk?: (chunk: string) => void;
 }
