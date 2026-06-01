@@ -1,6 +1,6 @@
 # Tango V2 Runtime Architecture
 
-Last updated: 2026-05-30
+Last updated: 2026-06-01
 
 ## Purpose
 
@@ -64,6 +64,22 @@ includes.
 Private persona overlays, user-specific knowledge, real channel IDs, and local
 runtime state belong in profile-owned paths under `~/.tango/profiles/`, not in
 tracked repo defaults.
+
+Current-turn metadata is injected at ingress, immediately before the user
+message, not through a tool call and not through warm-start memory. The metadata
+uses UTC as the stored timestamp backbone, then renders local calendar day,
+date, time, timezone, UTC timestamp, and timestamp source for the provider. The
+timezone resolution order is:
+
+1. v2 agent `current_turn_metadata.timezone`
+2. `TANGO_TIME_ZONE`
+3. `TZ`
+4. `America/Los_Angeles`
+
+Agents can also set `current_turn_metadata.time_format` to `12h` or `24h`.
+Because this prompt block travels through `SendOptions.currentTurnMetadataPrompt`
+instead of `SendOptions.context`, resumed provider sessions still get fresh
+turn metadata while avoiding repeated warm-start context.
 
 ## Memory Model
 

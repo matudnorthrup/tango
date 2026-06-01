@@ -3,6 +3,7 @@ import path from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
 import { resolveConfigLayers } from "./config-layering.js";
+import type { CurrentTurnMetadataConfig } from "./current-turn-metadata.js";
 import { resolveConfiguredPath } from "./runtime-paths.js";
 import type {
   AccessMode,
@@ -60,6 +61,7 @@ export interface V2AgentConfig {
   defaultTopic?: string;
   defaultProject?: string;
   responseMode?: "concise" | "explain";
+  currentTurnMetadata?: CurrentTurnMetadataConfig;
   legacyProvider?: {
     default: string;
     model?: string;
@@ -156,6 +158,11 @@ const rawV2AgentConfigSchema = z.object({
   default_topic: z.string().min(1).optional(),
   default_project: z.string().min(1).optional(),
   response_mode: z.enum(["concise", "explain"]).optional(),
+  current_turn_metadata: z.object({
+    timezone: z.string().min(1).optional(),
+    locale: z.string().min(1).optional(),
+    time_format: z.enum(["12h", "24h"]).optional(),
+  }).optional(),
   provider: legacyProviderSchema.optional(),
   tools: z.object({
     mode: z.enum(["off", "default", "allowlist"]).optional(),
@@ -266,6 +273,13 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
     defaultTopic: parsed.default_topic,
     defaultProject: parsed.default_project,
     responseMode: parsed.response_mode,
+    currentTurnMetadata: parsed.current_turn_metadata
+      ? {
+          timeZone: parsed.current_turn_metadata.timezone,
+          locale: parsed.current_turn_metadata.locale,
+          timeFormat: parsed.current_turn_metadata.time_format,
+        }
+      : undefined,
     legacyProvider: parsed.provider
       ? {
           default: parsed.provider.default,

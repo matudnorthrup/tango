@@ -2,6 +2,7 @@ import type {
   AgentRuntimeConfig,
   ColdStartContextBuilder,
   RuntimeResponse,
+  SendOptions,
   V2AgentConfig,
 } from "@tango/core";
 import {
@@ -20,10 +21,7 @@ export interface FeatureFlaggedRouteRequest {
   channelId: string;
   threadId?: string;
   agentId: string;
-  sendOptions?: {
-    context?: string;
-    timeout?: number;
-  };
+  sendOptions?: SendOptions;
 }
 
 export interface FeatureFlaggedRouteResult {
