@@ -218,6 +218,63 @@ describe("ClaudeCodeAdapter", () => {
     await adapter.teardown();
   });
 
+  it("injects current-turn metadata into resumed prompts without changing the system prompt", async () => {
+    const firstChild = new MockChildProcess();
+    const secondChild = new MockChildProcess();
+    spawnMock
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          firstChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: false,
+              result: "First response",
+              session_id: "session-abc",
+            }) + "\n",
+          );
+          firstChild.close(0, null);
+        });
+        return firstChild;
+      })
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          secondChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: false,
+              result: "Second response",
+              session_id: "session-abc",
+            }) + "\n",
+          );
+          secondChild.close(0, null);
+        });
+        return secondChild;
+      });
+
+    const adapter = new ClaudeCodeAdapter();
+    await adapter.initialize(createConfig());
+
+    await adapter.send("First message");
+    const response = await adapter.send("Second message", {
+      currentTurnMetadataPrompt: [
+        "Current user message metadata:",
+        "- local_date: Saturday, May 30, 2026",
+        "- timestamp_utc: 2026-05-31T04:08:18.000Z",
+      ].join("\n"),
+    });
+
+    const [, secondArgs] = spawnMock.mock.calls[1] as [string, string[]];
+    expect(secondArgs).toEqual(expect.arrayContaining(["--resume", "session-abc"]));
+    expect(getFlagValue(secondArgs, "--append-system-prompt")).toBe("You are the runtime.");
+    expect(secondChild.stdinText).toContain("Current user message metadata:");
+    expect(secondChild.stdinText).toContain("Second message");
+    expect(response.metadata).toMatchObject({
+      currentTurnMetadataIncluded: true,
+    });
+
+    await adapter.teardown();
+  });
+
   it("falls back to secondary Claude on authentication failure and keeps that session command", async () => {
     const primaryChild = new MockChildProcess();
     const secondaryFirstChild = new MockChildProcess();

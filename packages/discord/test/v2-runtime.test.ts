@@ -100,6 +100,7 @@ describe("routeV2MessageIfEnabled", () => {
         agentId: "malibu",
         sendOptions: {
           context: "warm-start context",
+          currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:08:18.000Z",
           timeout: 45_000,
         },
       },
@@ -121,6 +122,7 @@ describe("routeV2MessageIfEnabled", () => {
       agentId: "malibu",
       sendOptions: {
         context: "warm-start context",
+        currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:08:18.000Z",
         timeout: 45_000,
       },
     });

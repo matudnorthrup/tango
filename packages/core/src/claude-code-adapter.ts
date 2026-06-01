@@ -310,6 +310,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     const startedAt = Date.now();
     const timeoutMs = options.timeout ?? this.config.runtimePreferences.timeout ?? DEFAULT_SEND_TIMEOUT_MS;
     const attempts = this.buildCommandAttempts();
+    const currentTurnMetadataChars = options.currentTurnMetadataPrompt?.trim().length ?? 0;
 
     for (const [attemptIndex, attempt] of attempts.entries()) {
       const hasFallbackAttempt = attemptIndex < attempts.length - 1;
@@ -334,6 +335,12 @@ export class ClaudeCodeAdapter implements AgentRuntime {
         exitCode: execution.code,
         signal: execution.signal ?? undefined,
         command: attempt.command,
+        ...(currentTurnMetadataChars > 0
+          ? {
+              currentTurnMetadataIncluded: true,
+              currentTurnMetadataChars,
+            }
+          : {}),
         ...(execution.stderr.trim().length > 0 ? { stderr: execution.stderr.trim() } : {}),
       };
 
@@ -445,6 +452,9 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     }
     if (options.context?.trim()) {
       sections.push(`Context:\n${options.context.trim()}`);
+    }
+    if (options.currentTurnMetadataPrompt?.trim()) {
+      sections.push(options.currentTurnMetadataPrompt.trim());
     }
     sections.push(message);
     return sections.join("\n\n");

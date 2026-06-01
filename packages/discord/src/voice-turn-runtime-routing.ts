@@ -1,6 +1,7 @@
 import {
   isV2RuntimeEnabled,
   type RuntimeResponse,
+  type SendOptions,
   type V2AgentConfig,
 } from "@tango/core";
 import type { VoiceTurnResult } from "@tango/voice";
@@ -82,7 +83,7 @@ export async function dispatchVoiceTurnByRuntime<T>(input: {
   tangoRouter?: Pick<TangoRouter, "routeMessage"> | null;
   mapRouterResult: (routeResult: RouteResult) => Promise<T> | T;
   onRouterError?: (error: unknown) => Promise<T> | T;
-  sendOptions?: { context?: string };
+  sendOptions?: SendOptions;
   timeoutMs?: number;
 }): Promise<T> {
   if (!input.v2AgentConfig || !isV2RuntimeEnabled(input.v2AgentConfig)) {

@@ -117,6 +117,7 @@ describe("dispatchVoiceTurnByRuntime", () => {
       mapRouterResult: () => "v2",
       sendOptions: {
         context: "Use spoken language only.",
+        currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:08:18.000Z",
       },
     });
 
@@ -127,6 +128,7 @@ describe("dispatchVoiceTurnByRuntime", () => {
       sendOptions: {
         timeout: VOICE_V2_ROUTER_TIMEOUT_MS,
         context: "Use spoken language only.",
+        currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:08:18.000Z",
       },
     });
   });
