@@ -40,6 +40,7 @@ export interface V2AgentConfig {
     reasoningEffort: ProviderReasoningEffort;
     idleTimeoutHours: number;
     contextResetThreshold: number;
+    timeoutSeconds?: number;
   };
   memory: {
     postTurnExtraction: V2FeatureToggle;
@@ -137,6 +138,7 @@ const rawV2AgentConfigSchema = z.object({
     reasoning_effort: providerReasoningEffortSchema,
     idle_timeout_hours: z.number().positive(),
     context_reset_threshold: z.number().min(0).max(1),
+    timeout_seconds: z.number().int().positive().optional(),
   }),
   memory: z.object({
     post_turn_extraction: featureToggleSchema,
@@ -250,6 +252,7 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
       reasoningEffort: parsed.runtime.reasoning_effort,
       idleTimeoutHours: parsed.runtime.idle_timeout_hours,
       contextResetThreshold: parsed.runtime.context_reset_threshold,
+      timeoutSeconds: parsed.runtime.timeout_seconds,
     },
     memory: {
       postTurnExtraction: parsed.memory.post_turn_extraction,

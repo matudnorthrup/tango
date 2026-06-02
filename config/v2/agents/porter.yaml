@@ -51,6 +51,7 @@ runtime:
   reasoning_effort: high
   idle_timeout_hours: 24
   context_reset_threshold: 0.80
+  timeout_seconds: 2700
 
 # Memory configuration
 memory:

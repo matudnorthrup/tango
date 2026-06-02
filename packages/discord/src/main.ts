@@ -187,6 +187,7 @@ import {
   createV2PostTurnHook,
   formatMemories,
   formatPinnedFacts,
+  resolveV2RuntimeTimeoutMs,
   routeV2MessageIfEnabled,
   shutdownV2Runtime,
 } from "./v2-runtime.js";
@@ -610,7 +611,7 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
           runtimePreferences: {
             model: config.runtime.model,
             reasoningEffort: normalizeRuntimeReasoningEffort(config.runtime.reasoningEffort),
-            timeout: input.timeoutMs,
+            timeout: resolveV2RuntimeTimeoutMs(config, input.timeoutMs),
           },
         },
       });
