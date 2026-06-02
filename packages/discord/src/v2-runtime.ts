@@ -37,6 +37,8 @@ export interface FeatureFlaggedRouter {
 
 type ReasoningEffort = NonNullable<AgentRuntimeConfig["runtimePreferences"]["reasoningEffort"]>;
 
+const DEFAULT_V2_RUNTIME_TIMEOUT_MS = 900_000;
+
 export function buildV2EnabledAgentSet(
   v2Configs: ReadonlyMap<string, V2AgentConfig>,
 ): Set<string> {
@@ -69,12 +71,19 @@ export function buildV2RuntimeConfigs(
       runtimePreferences: {
         model: v2Config.runtime.model,
         reasoningEffort: normalizeRuntimeReasoningEffort(v2Config.runtime.reasoningEffort),
-        timeout: 900_000,
+        timeout: resolveV2RuntimeTimeoutMs(v2Config, DEFAULT_V2_RUNTIME_TIMEOUT_MS),
       },
     });
   }
 
   return runtimeConfigs;
+}
+
+export function resolveV2RuntimeTimeoutMs(
+  config: V2AgentConfig,
+  defaultTimeoutMs: number,
+): number {
+  return config.runtime.timeoutSeconds ? config.runtime.timeoutSeconds * 1000 : defaultTimeoutMs;
 }
 
 export function createAtlasColdStartContextBuilder(
