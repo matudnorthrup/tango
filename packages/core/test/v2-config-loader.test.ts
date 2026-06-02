@@ -109,6 +109,7 @@ describe("loadV2AgentConfig", () => {
       runtime: {
         provider: "claude-code-v2",
         reasoningEffort: "high",
+        timeoutSeconds: 2700,
       },
       voice: {
         callSigns: ["Porter", "Brother Porter"],
@@ -441,6 +442,7 @@ describe("loadLayeredV2AgentConfigs", () => {
           "  reasoning_effort: medium",
           "  idle_timeout_hours: 24",
           "  context_reset_threshold: 0.8",
+          "  timeout_seconds: 1800",
           "memory:",
           "  post_turn_extraction: enabled",
           "  extraction_model: claude-haiku-4-5",
@@ -486,6 +488,7 @@ describe("loadLayeredV2AgentConfigs", () => {
         displayName: "Alpha",
         runtime: {
           provider: "claude-code-v2",
+          timeoutSeconds: 1800,
         },
         voice: {
           callSigns: ["Alpha"],

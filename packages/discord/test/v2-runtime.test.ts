@@ -170,6 +170,21 @@ describe("buildV2RuntimeConfigs", () => {
       },
     });
   });
+
+  it("uses a configured per-agent timeout when one is present", () => {
+    const configs = new Map<string, V2AgentConfig>([
+      ["porter", createV2Config("porter", { provider: "claude-code-v2", timeoutSeconds: 2700 })],
+    ]);
+
+    const runtimeConfigs = buildV2RuntimeConfigs(configs, { repoRoot });
+
+    expect(runtimeConfigs.get("porter")).toMatchObject({
+      agentId: "porter",
+      runtimePreferences: {
+        timeout: 2_700_000,
+      },
+    });
+  });
 });
 
 describe("createAtlasColdStartContextBuilder", () => {
