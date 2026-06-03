@@ -16,6 +16,7 @@ export * from "./apple-vision-ocr.js";
 export * from "./config.js";
 export * from "./context-packet.js";
 export * from "./current-turn-metadata.js";
+export * from "./turn-briefing.js";
 export * from "./chatgpt-migrated.js";
 export * from "./claude-code-adapter.js";
 export * from "./execution-trace.js";

@@ -82,6 +82,7 @@ import {
   renderMemoryEvalMarkdownReport,
   buildRuntimePathEnv,
   buildCurrentTurnMetadataPrompt,
+  buildTurnBriefingPrompt,
   resolveConfigDir,
   resolveConfiguredPath,
   resolveDatabasePath,
@@ -206,6 +207,13 @@ import {
   routeV2MessageIfEnabled,
   shutdownV2Runtime,
 } from "./v2-runtime.js";
+import {
+  buildStateFilePointer,
+  conversationKeyFor,
+  refreshProjectHeadOnTurn,
+  renderProjectStateBlock,
+  resolveStateVaultRoot,
+} from "./project-state.js";
 import {
   buildVoiceRouterErrorResult,
   buildVoiceRouterResult,
@@ -513,7 +521,11 @@ const tangoRouter = new TangoRouter({
     idleTimeoutHours: 24,
     contextResetThreshold: 0.80,
   },
-  buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient, { attachmentStore }),
+  buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient, {
+    projectStateProvider: (conversationKey) =>
+      renderProjectStateBlock(storage, conversationKey, { vaultRoot: resolveStateVaultRoot() }),
+    attachmentStore,
+  }),
   onPostTurn: createV2PostTurnHook({
     v2Configs,
     atlasMemoryClient,
@@ -3330,6 +3342,14 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     timestampSource: turnInput.messageTimestampSource,
     config: v2AgentConfig.currentTurnMetadata,
   });
+  const voiceConversationKey = conversationKeyFor(voiceRouterChannelId, voiceRouterThreadId);
+  const voiceStateFilePointer = buildStateFilePointer(storage, voiceConversationKey, {
+    vaultRoot: resolveStateVaultRoot(),
+  });
+  const voiceTurnBriefingPrompt = buildTurnBriefingPrompt({
+    ...(voiceStateFilePointer ? { stateFile: voiceStateFilePointer } : {}),
+    searchFirst: Boolean(voiceStateFilePointer) || process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
+  });
 
   return dispatchVoiceTurnByRuntime({
     transcript: turnInput.transcript,
@@ -3342,6 +3362,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     sendOptions: {
       context: voiceContext || undefined,
       currentTurnMetadataPrompt,
+      ...(voiceTurnBriefingPrompt ? { turnBriefingPrompt: voiceTurnBriefingPrompt } : {}),
     },
     mapRouterResult: async (routeResult): Promise<VoiceTurnResult> => {
       const baseTurnResult = buildVoiceRouterResult({
@@ -6326,6 +6347,18 @@ async function handleMessage(
         timestampSource: "discord-sent",
         config: v2AgentConfig?.currentTurnMetadata,
       });
+      // Per-turn briefing ("whisper") survives provider-session resume. It emits
+      // the project state-file pointer when this conversation is bound to a
+      // project arc; otherwise it stays silent unless search-first is flag-on,
+      // so non-project conversations are behavior-unchanged.
+      const briefingConversationKey = conversationKeyFor(routingChannelId, threadId);
+      const stateFilePointer = buildStateFilePointer(storage, briefingConversationKey, {
+        vaultRoot: resolveStateVaultRoot(),
+      });
+      const turnBriefingPrompt = buildTurnBriefingPrompt({
+        ...(stateFilePointer ? { stateFile: stateFilePointer } : {}),
+        searchFirst: Boolean(stateFilePointer) || process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
+      });
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
@@ -6335,6 +6368,7 @@ async function handleMessage(
           sendOptions: {
             ...(warmStartPrompt ? { context: warmStartPrompt } : {}),
             currentTurnMetadataPrompt,
+            ...(turnBriefingPrompt ? { turnBriefingPrompt } : {}),
           },
         },
         {
@@ -6351,6 +6385,9 @@ async function handleMessage(
       const providerMetadata = asRecord(runtimeMetadata?.providerMetadata);
       const providerUsage = asRecord(providerMetadata?.usage);
       const providerSessionId = metadataString(runtimeMetadata, "sessionId") ?? null;
+      // Save bookkeeping: keep the project head's session chain current (no-op
+      // unless this conversation is bound to a project arc).
+      refreshProjectHeadOnTurn(storage, briefingConversationKey, providerSessionId);
       const runtimeModel =
         v2Result.response.model
         ?? metadataString(providerMetadata, "model")
