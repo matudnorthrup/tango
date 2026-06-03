@@ -255,6 +255,7 @@ async function executeDeterministic(
     status: result.status,
     durationMs: Date.now() - startTime,
     summary: result.summary,
+    metadata: result.data,
   };
 }
 

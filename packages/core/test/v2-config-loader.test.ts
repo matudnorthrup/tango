@@ -407,6 +407,22 @@ describe("loadAllV2AgentConfigs", () => {
       },
     });
   });
+
+  it("exposes read-only attachment tools to every repo v2 agent", () => {
+    const configs = loadAllV2AgentConfigs(path.join(repoRoot, "config", "v2", "agents"));
+    expect(configs.size).toBeGreaterThan(0);
+
+    for (const config of configs.values()) {
+      const attachmentServer = config.mcpServers.find((server) => server.name === "attachments");
+      expect(attachmentServer).toMatchObject({
+        command: "node",
+        args: ["packages/core/dist/mcp-proxy.js", "attachments"],
+        env: {
+          ALLOWED_TOOL_IDS: "attachment_search,attachment_read,attachment_status",
+        },
+      });
+    }
+  });
 });
 
 describe("loadLayeredV2AgentConfigs", () => {

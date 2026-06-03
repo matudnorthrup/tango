@@ -11,6 +11,11 @@ mcp_servers:
   - name: memory
     command: node
     args: ["packages/atlas-memory/dist/index.js"]
+  - name: attachments
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "attachments"]
+    env:
+      ALLOWED_TOOL_IDS: "attachment_search,attachment_read,attachment_status"
   - name: linear
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "linear"]

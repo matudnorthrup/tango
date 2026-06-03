@@ -41,6 +41,7 @@ import { createDevTools } from "./tango-dev-tools.js";
 import { createDiscordManageTools } from "./discord-manage-tools.js";
 import { createOnePasswordTools } from "./onepassword-agent-tools.js";
 import { createMemoryTools } from "./memory-agent-tools.js";
+import { createAttachmentTools } from "./attachment-agent-tools.js";
 import { createLinearTools } from "./linear-agent-tools.js";
 import { createSlackTools } from "./slack-tools.js";
 import { createYouTubeTools } from "./youtube-agent-tools.js";
@@ -104,6 +105,7 @@ const allTools: AgentTool[] = [
   ...createDiscordManageTools({ storage: threadSessionStorage }),
   ...createOnePasswordTools(),
   ...createMemoryTools(),
+  ...createAttachmentTools(),
   ...createLinearTools(),
   ...createSlackTools(),
   ...createYouTubeTools(),
@@ -326,6 +328,8 @@ function inferRequestedAccessLevel(
       return isReadOnlyIMessageCommand(args.command) ? "read" : "write";
     case "linear":
       return looksLikeLinearReadQuery(args.query) ? "read" : "write";
+    case "attachment_reprocess":
+      return "write";
     case "walmart": {
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return action.startsWith("history_") || action === "queue_list" ? "read" : "write";
