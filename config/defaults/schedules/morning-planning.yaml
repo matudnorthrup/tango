@@ -46,17 +46,23 @@ execution:
     - Get today's calendar events from both accounts (--all for
       non-primary calendars)
 
-    **Step 3: Fill in the daily note.**
-    Update ~/Documents/main/Planning/Daily/YYYY-MM-DD.md:
-    - "## Today's Priorities" — top 3-5 tasks based on brief flags,
+    **Step 3: Fill in generated daily-note sections only.**
+    Read ~/Documents/main/Planning/Daily/YYYY-MM-DD.md immediately before writing.
+    Use the Obsidian `section` command to update only these sections:
+    - "Today's Priorities" — top 3-5 tasks based on brief flags,
       carryovers, and calendar. Include dates in format: task—YYYY-MM-DD
-    - "## Stretch (if capacity)" — lower priority items
-    - "## Routines" — keep exactly as template:
+    - "Stretch (if capacity)" — lower priority items
+    - "Routines" — keep exactly as template:
       - [ ] Slack saved items (Morning)
       - [ ] Check/Update Linear (Afternoon)
       - [ ] Discord and Reddit (Afternoon)
     - If the brief has flagged/urgent items, note them in priorities
       with action recommendation
+
+    Do NOT use `create --overwrite` on an existing daily note. Preserve
+    these human-owned sections exactly: "Unscheduled Work I Did Today",
+    "Notes", "Interstitial Log", "Energy Reflection", and "Notes from
+    Last Night".
 
     **Filtering rules — do NOT surface these as priorities:**
     - Domain renewals: these are handled through other monitoring channels

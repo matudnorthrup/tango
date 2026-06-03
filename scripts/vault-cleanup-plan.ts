@@ -204,7 +204,7 @@ function buildCleanupPlan(input: {
       filePath: path.join(input.vaultPath, group.relativePath),
       findingCodes: uniqueValues(group.findings.map((finding) => finding.code)),
       findingMessages: group.findings.map((finding) => finding.message),
-      recommendedAction: "Add `types: [[Brief]]` and/or `areas: [[Personal]]` when those fields are missing.",
+      recommendedAction: "Add YAML list values for `types` (`[[Brief]]`) and/or `areas` (`[[Personal]]`) when those fields are missing.",
       appliedChanges: result.appliedChanges,
     });
   }
@@ -397,7 +397,7 @@ function applyGeneratedBriefFrontmatterFix(vaultPath: string, relativePath: stri
       "types:",
       '  - "[[Brief]]"',
     ]);
-    appliedChanges.push("Added `types: [[Brief]]`.");
+    appliedChanges.push("Added `types` list value `[[Brief]]`.");
   }
 
   if (!frontmatterHasField(frontmatter, "areas")) {
@@ -405,7 +405,7 @@ function applyGeneratedBriefFrontmatterFix(vaultPath: string, relativePath: stri
       "areas:",
       '  - "[[Personal]]"',
     ]);
-    appliedChanges.push("Added `areas: [[Personal]]`.");
+    appliedChanges.push("Added `areas` list value `[[Personal]]`.");
   }
 
   if (appliedChanges.length === 0) {

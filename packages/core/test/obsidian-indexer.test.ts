@@ -109,4 +109,34 @@ describe("obsidian indexer", () => {
 
     storage.close();
   });
+
+  it("does not prune unrelated index entries when refreshing one file", async () => {
+    const { storage, vaultDir } = createFixture();
+    const planningDir = path.join(vaultDir, "Planning");
+    fs.mkdirSync(planningDir, { recursive: true });
+
+    const firstNotePath = path.join(planningDir, "First.md");
+    const secondNotePath = path.join(planningDir, "Second.md");
+    fs.writeFileSync(firstNotePath, "# First\n\nOriginal first note with enough body text to become one indexed memory.", "utf8");
+    fs.writeFileSync(secondNotePath, "# Second\n\nSecond note should stay indexed with enough body text to become one indexed memory.", "utf8");
+
+    const firstRun = await indexObsidianVault({
+      storage,
+      paths: [vaultDir],
+    });
+    expect(firstRun.indexedFileCount).toBe(2);
+
+    fs.writeFileSync(firstNotePath, "# First\n\nUpdated first note with enough body text to become one indexed memory.", "utf8");
+
+    const secondRun = await indexObsidianVault({
+      storage,
+      paths: [firstNotePath],
+    });
+    expect(secondRun.indexedFileCount).toBe(1);
+    expect(secondRun.removedFileCount).toBe(0);
+    expect(storage.getObsidianIndexEntry(secondNotePath)).not.toBeNull();
+    expect(storage.listMemories({ source: "obsidian", limit: 10 })).toHaveLength(2);
+
+    storage.close();
+  });
 });

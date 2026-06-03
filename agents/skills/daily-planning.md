@@ -53,8 +53,8 @@ After response, propose a time-blocked agenda filling gaps around existing event
 1. Present the COMPLETE time-blocked agenda for confirmation.
 2. Check for conflicts using the Calendar Classification and Conflict Check rules below.
 3. Create calendar blocks for ALL agreed tasks (personal tasks → personal account, work tasks → work account). **Time blocks live on the calendar, not the daily note.**
-4. Update the daily note: Primary Tasks and Stretch Tasks only — task names with estimates and area tags, no time-of-day information. Do NOT add a time block table or schedule grid to the daily note.
-5. Handle deferrals — if tasks are pushed to a specific future day, create or update that day's daily note with the task under Primary Tasks.
+4. Update the daily note using targeted `section` writes only: `Today's Priorities` and `Stretch (if capacity)` — task names with estimates and area tags, no time-of-day information. Do NOT use `create --overwrite`, and do NOT add a time block table or schedule grid to the daily note.
+5. Handle deferrals — if tasks are pushed to a specific future day, create or update that day's daily note with the task under `Today's Priorities`.
 
 ## Evening Check-in
 
@@ -110,9 +110,11 @@ Time estimate in parentheses, area link at end. Consistent across daily notes, w
 
 File: `Planning/Daily/YYYY-MM-DD.md`
 
-Sections in order: In Progress, Primary Tasks, Stretch Tasks, Unscheduled work I did today, Energy Reflection, Notes. Ends with `![[Daily.base]]`.
+Sections in order: Today's Priorities, Stretch (if capacity), Routines, Unscheduled Work I Did Today, Notes, Interstitial Log. Ends with `![[Daily.base]]` when the template includes it.
 
 Frontmatter must include `morning_review_completed` and `evening_review_completed` booleans. Set the appropriate one to `true` when starting the corresponding workflow.
+
+The daily-note sections `Notes`, `Interstitial Log`, `Unscheduled Work I Did Today`, `Energy Reflection`, and `Notes from Last Night` are human-owned. Never replace them with a full-note rewrite. Append only when explicitly asked to add an entry.
 
 ## Philosophy
 
