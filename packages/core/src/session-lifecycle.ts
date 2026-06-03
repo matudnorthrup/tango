@@ -48,6 +48,7 @@ export interface ColdStartContext {
   pinnedFacts: string;
   recentMessages: string;
   relevantMemories: string;
+  attachmentDirectories?: string;
 }
 
 export type ColdStartContextBuilder = (
@@ -86,6 +87,7 @@ function formatColdStartContext(context: ColdStartContext): string | undefined {
     { heading: "Pinned facts", content: normalizeTextBlock(context.pinnedFacts) },
     { heading: "Recent conversation", content: normalizeTextBlock(context.recentMessages) },
     { heading: "Relevant memories", content: normalizeTextBlock(context.relevantMemories) },
+    { heading: "Attachment directories", content: normalizeTextBlock(context.attachmentDirectories ?? "") },
   ].filter((section): section is { heading: string; content: string } => Boolean(section.content));
 
   if (sections.length === 0) {
