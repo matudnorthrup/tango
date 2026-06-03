@@ -515,6 +515,58 @@ describe("TangoStorage", () => {
     storage.close();
   });
 
+  it("creates, partially updates, and lists project_state heads", () => {
+    const { storage } = createStorage();
+
+    const created = storage.upsertProjectState({
+      projectId: "project:italy-trip",
+      title: "Italy Motorcycle Trip",
+      status: "active",
+      quickRead: "Planning the June route; [redacted] flight decision open.",
+      obsidianPath: "Italy Motorcycle Trip June 2026.md",
+      templateId: "trip",
+      leadAgentId: "sierra",
+    });
+    expect(created.projectId).toBe("project:italy-trip");
+    expect(created.title).toBe("Italy Motorcycle Trip");
+    expect(created.quickRead).toContain("[redacted]");
+    expect(created.lastSavedAt).toBeNull();
+
+    // Partial update: only status + quickRead change; title/path/agent preserved.
+    const updated = storage.upsertProjectState({
+      projectId: "project:italy-trip",
+      status: "planning",
+      quickRead: "Locked +2 days; Tre Cime gravel loop added.",
+      markSaved: true,
+    });
+    expect(updated.status).toBe("planning");
+    expect(updated.title).toBe("Italy Motorcycle Trip");
+    expect(updated.obsidianPath).toBe("Italy Motorcycle Trip June 2026.md");
+    expect(updated.leadAgentId).toBe("sierra");
+    expect(updated.quickRead).toContain("Tre Cime");
+    expect(updated.lastSavedAt).not.toBeNull();
+
+    // prevSessionId set on save powers session chaining; status preserved.
+    const chained = storage.upsertProjectState({
+      projectId: "project:italy-trip",
+      prevSessionId: "session-abc-123",
+    });
+    expect(chained.prevSessionId).toBe("session-abc-123");
+    expect(chained.status).toBe("planning");
+
+    storage.upsertProjectState({ projectId: "project:pnw", title: "PNW Loop", status: "active" });
+
+    expect(storage.getProjectState("project:italy-trip")?.title).toBe("Italy Motorcycle Trip");
+    expect(storage.getProjectState("missing")).toBeUndefined();
+
+    expect(storage.listProjectStates({ status: "active" }).map((p) => p.projectId)).toEqual([
+      "project:pnw",
+    ]);
+    expect(storage.listProjectStates({}).length).toBe(2);
+
+    storage.close();
+  });
+
   it("tracks obsidian index entries and can replace file-scoped memories", () => {
     const { storage } = createStorage();
 

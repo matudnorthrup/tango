@@ -149,12 +149,28 @@ section and an `## Open Items` section. The rest of the body evolves freely —
 honoring [redacted]'s "messy at first, refined over time." The contract enforces the
 *header + anchors*, not the whole document.
 
-### 5.3 Sync model
-- DB head is written on every save and on agent state updates; cheap to read on
-  every turn and every reseed.
-- Markdown body is the narrative of record; the head's `quick_read` is a
-  projection/summary of it. On save, the agent updates the body and refreshes the
-  head; a reconciler keeps `obsidian_path`/`status` consistent.
+**Machine-consumed contract (as built, Slice 1).** The reseed reads, from the
+linked body, exactly:
+- frontmatter `status:` scalar → reseed/head status (wikilink/quotes stripped);
+- the `## Quick Read` section body → the current-state summary;
+- `- ` / `* ` bullets under `## Open Items` → the open-items list.
+Everything else in the body is free narrative. A body missing these anchors still
+works — the reseed falls back to the head's stored `quick_read`.
+
+### 5.3 Sync model (as built, Slice 1)
+- **Head** (`project_state`) is keyed by the runtime `conversationKey`
+  (`thread:{id}` / `channel:{id}`). Mapping a Tango `project:{id}` onto this key
+  is a tracked refinement (§11).
+- **Whisper** (every turn) reads only the head → a cheap pointer (path, title,
+  status). No file I/O on the hot path.
+- **Reseed** (cold-start / rotation) reads the head *and* the linked body live,
+  so a rotated session re-orients on the current narrative (body overrides the
+  head's cached `quick_read`; missing file → head fallback).
+- **Per-turn save bookkeeping** stamps the head's `prev_session_id` + `updated_at`
+  (session chaining), no-op unless a head exists.
+- **Linking** a conversation to a body: `scripts/link-project-state.ts`
+  (`--key thread:ID --path note.md ...`). Auto-link on first agent write and a
+  `/tango project link` command are tracked refinements.
 - The body's frontmatter and the head cross-reference (`project_id` ↔
   `obsidian_path`).
 
