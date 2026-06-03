@@ -83,6 +83,21 @@ describe("parseClaudePrintJson", () => {
       "Failed to parse Claude CLI JSON output"
     );
   });
+
+  it("extracts peak per-call context occupancy and window from the message stream", () => {
+    // Two internal model calls; occupancy = input + cache_read + cache_creation
+    // per call. The peak (call 2 = 91012) is the true high-water occupancy, not
+    // the cross-call sum that modelUsage would report.
+    const stream = [
+      { type: "assistant", message: { content: [{ type: "text", text: "working" }], usage: { input_tokens: 9, cache_read_input_tokens: 0, cache_creation_input_tokens: 35742, output_tokens: 7 } } },
+      { type: "assistant", message: { content: [{ type: "text", text: "done" }], usage: { input_tokens: 12, cache_read_input_tokens: 90000, cache_creation_input_tokens: 1000, output_tokens: 20 } } },
+      { type: "result", is_error: false, result: "done", session_id: "abc", num_turns: 2, modelUsage: { "claude-haiku-4-5": { inputTokens: 21, outputTokens: 27, cacheReadInputTokens: 90000, cacheCreationInputTokens: 36742, contextWindow: 200000 } } },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+
+    const parsed = parseClaudePrintJson(stream);
+    expect(parsed.metadata?.contextOccupancyTokens).toBe(91012);
+    expect(parsed.metadata?.contextWindowTokens).toBe(200000);
+  });
 });
 
 describe("buildClaudeCliArgs", () => {

@@ -68,6 +68,7 @@ import {
   renderMemoryEvalMarkdownReport,
   buildRuntimePathEnv,
   buildCurrentTurnMetadataPrompt,
+  buildTurnBriefingPrompt,
   resolveConfigDir,
   resolveConfiguredPath,
   resolveDatabasePath,
@@ -3177,6 +3178,9 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     timestampSource: turnInput.messageTimestampSource,
     config: v2AgentConfig.currentTurnMetadata,
   });
+  const voiceTurnBriefingPrompt = buildTurnBriefingPrompt({
+    searchFirst: process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
+  });
 
   return dispatchVoiceTurnByRuntime({
     transcript: turnInput.transcript,
@@ -3189,6 +3193,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     sendOptions: {
       context: voiceContext || undefined,
       currentTurnMetadataPrompt,
+      ...(voiceTurnBriefingPrompt ? { turnBriefingPrompt: voiceTurnBriefingPrompt } : {}),
     },
     mapRouterResult: async (routeResult): Promise<VoiceTurnResult> => {
       const baseTurnResult = buildVoiceRouterResult({
@@ -6123,6 +6128,12 @@ async function handleMessage(
         timestampSource: "discord-sent",
         config: v2AgentConfig?.currentTurnMetadata,
       });
+      // Per-turn briefing ("whisper") survives provider-session resume. v1 emits
+      // nothing unless a state pointer is present (Slice 1.5) or search-first is
+      // flag-enabled, so all-agent behavior is unchanged until the spine lands.
+      const turnBriefingPrompt = buildTurnBriefingPrompt({
+        searchFirst: process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
+      });
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
@@ -6132,6 +6143,7 @@ async function handleMessage(
           sendOptions: {
             ...(warmStartPrompt ? { context: warmStartPrompt } : {}),
             currentTurnMetadataPrompt,
+            ...(turnBriefingPrompt ? { turnBriefingPrompt } : {}),
           },
         },
         {
