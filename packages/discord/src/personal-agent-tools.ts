@@ -309,8 +309,8 @@ export function createCalendarTools(overrides?: PersonalToolPaths): AgentTool[] 
 
 const OBSIDIAN_SEARCH_MAX_MATCHES = 50;
 const OBSIDIAN_SEARCH_TIMEOUT_MS = 30_000;
-const OBSIDIAN_VALUE_FLAGS = new Set(["--vault", "--key", "--value"]);
-const OBSIDIAN_BOOLEAN_FLAGS = new Set(["--append", "--overwrite", "--edit", "--print", "--delete"]);
+const OBSIDIAN_VALUE_FLAGS = new Set(["--vault", "--key", "--value", "--restore"]);
+const OBSIDIAN_BOOLEAN_FLAGS = new Set(["--append", "--overwrite", "--edit", "--print", "--delete", "--force"]);
 
 type ObsidianParsedCommand = {
   command: string;
@@ -521,6 +521,103 @@ async function searchObsidianVaultContent(vaultRoot: string, term: string): Prom
   return matches;
 }
 
+// ---------------------------------------------------------------------------
+// Obsidian governance (Unified Memory System, Slice 2)
+//   - source-vs-working protection: notes with source_kind: source|reference are
+//     read-only source material; agents may not mutate them without --force.
+//   - versioning: notes with `versioned: true` get a prior-version snapshot under
+//     <vault>/.versions/<note>/<timestamp>.md before any mutation.
+// Notes without these frontmatter flags are unaffected (existing behavior).
+// ---------------------------------------------------------------------------
+const READONLY_SOURCE_KINDS = new Set(["source", "reference"]);
+
+interface NoteGovernance {
+  sourceKind?: string;
+  versioned: boolean;
+  readonly: boolean;
+}
+
+function readNoteGovernance(content: string): NoteGovernance {
+  const frontmatter = parseNoteFrontmatter(content);
+  const rawKind = frontmatter.data.source_kind;
+  const sourceKind = typeof rawKind === "string" ? rawKind.trim().toLowerCase() : undefined;
+  const versionedRaw = frontmatter.data.versioned;
+  const versioned = versionedRaw === true || versionedRaw === "true";
+  return {
+    ...(sourceKind ? { sourceKind } : {}),
+    versioned,
+    readonly: sourceKind ? READONLY_SOURCE_KINDS.has(sourceKind) : false,
+  };
+}
+
+function vaultRelative(vaultRoot: string, target: string): string {
+  return path.relative(vaultRoot, target).split(path.sep).join("/");
+}
+
+// Write-time schema validation (Slice 2.3), scoped to memory-system "governed"
+// notes — state files (state_managed) and source-classified notes (source_kind).
+// The broad vault stays under the existing daily audit; this enforces the
+// schema up front only for the docs that opt into the contract.
+const REQUIRED_FRONTMATTER_FIELDS = ["date", "types", "areas"] as const;
+
+function missingGovernedFrontmatter(content: string): string[] {
+  const { data } = parseNoteFrontmatter(content);
+  const governed = data.state_managed === true
+    || data.state_managed === "true"
+    || typeof data.source_kind === "string";
+  if (!governed) return [];
+  return REQUIRED_FRONTMATTER_FIELDS.filter((field) => {
+    const value = data[field];
+    if (value == null) return true;
+    if (Array.isArray(value)) return value.length === 0;
+    if (typeof value === "string") return value.trim().length === 0;
+    return false;
+  });
+}
+
+async function snapshotNoteVersion(
+  vaultRoot: string,
+  notePath: string,
+  content: string,
+): Promise<string> {
+  const relNoExt = vaultRelative(vaultRoot, notePath).replace(/\.md$/iu, "");
+  const stamp = new Date().toISOString().replace(/[:.]/gu, "-");
+  const versionDir = path.join(vaultRoot, ".versions", relNoExt);
+  await fs.mkdir(versionDir, { recursive: true });
+  const versionPath = path.join(versionDir, `${stamp}.md`);
+  await fs.writeFile(versionPath, content, "utf8");
+  return vaultRelative(vaultRoot, versionPath);
+}
+
+/**
+ * Guard + version an existing note before a mutating op. No-op when the note
+ * does not exist. Throws on read-only source material unless `force` is set;
+ * snapshots a prior version when the note opts into versioning.
+ */
+async function guardAndVersionExistingNote(
+  vaultRoot: string,
+  notePath: string,
+  options: { force: boolean; operation: string },
+): Promise<void> {
+  let content: string;
+  try {
+    content = await fs.readFile(notePath, "utf8");
+  } catch {
+    return;
+  }
+  const governance = readNoteGovernance(content);
+  if (governance.readonly && !options.force) {
+    throw new Error(
+      `Refusing to ${options.operation} '${vaultRelative(vaultRoot, notePath)}': `
+      + `source_kind='${governance.sourceKind}' marks this as read-only source material. `
+      + "Source data must not be modified. If this is truly intended, re-issue the command with --force.",
+    );
+  }
+  if (governance.versioned) {
+    await snapshotNoteVersion(vaultRoot, notePath, content);
+  }
+}
+
 export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] {
   void overrides;
 
@@ -552,6 +649,16 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
         "",
         "  move '<source>' '<dest>' --vault main",
         "    Move/rename a note.",
+        "",
+        "  versions '<note name>' --vault main [--restore <timestamp>]",
+        "    List prior versions of a versioned note (newest first), or restore one.",
+        "",
+        "Governance (source protection + versioning):",
+        "  Notes with frontmatter source_kind: source | reference are READ-ONLY source",
+        "    material — create --overwrite/--append, frontmatter edits, move, and delete",
+        "    are refused. Add --force only when you genuinely intend to modify source data.",
+        "  Notes with frontmatter versioned: true get a prior-version snapshot before any",
+        "    mutation; use 'versions' to list/restore. (canonical/working notes stay editable.)",
         "",
         "For bulk search/read, use shell commands against the configured notes root directly.",
         "",
@@ -586,6 +693,7 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
               ? String(parsed.flags.get("--vault"))
               : undefined,
           );
+          const forceWrite = parsed.flags.get("--force") === true;
 
           switch (parsed.command) {
             case "print": {
@@ -633,6 +741,7 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
               }
 
               if (shouldAppend) {
+                await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "append to" });
                 await fs.appendFile(notePath, content, "utf8");
                 return formatToolResult(`Appended ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`);
               }
@@ -641,6 +750,17 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
                 throw new Error(`Note already exists: ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`);
               }
 
+              if (exists) {
+                await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "overwrite" });
+              }
+              const missingFields = missingGovernedFrontmatter(content);
+              if (missingFields.length > 0) {
+                throw new Error(
+                  `Refusing to write governed note '${vaultRelative(vaultRoot, notePath)}': `
+                  + `missing required frontmatter [${missingFields.join(", ")}]. `
+                  + "State files and source-classified notes must include date, types, and areas.",
+                );
+              }
               await fs.writeFile(notePath, content, "utf8");
               return formatToolResult(
                 `${exists ? "Overwrote" : "Created"} ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`,
@@ -672,6 +792,7 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
                   throw new Error("frontmatter --delete requires --key");
                 }
                 delete frontmatter.data[key];
+                await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "edit frontmatter of" });
                 await fs.writeFile(notePath, serializeNoteFrontmatter(frontmatter), "utf8");
                 return formatToolResult(`Deleted frontmatter key '${key}'`);
               }
@@ -684,6 +805,7 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
                   throw new Error("frontmatter --edit requires --key and --value");
                 }
                 frontmatter.data[key] = value;
+                await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "edit frontmatter of" });
                 await fs.writeFile(notePath, serializeNoteFrontmatter(frontmatter), "utf8");
                 return formatToolResult(`Updated frontmatter key '${key}'`);
               }
@@ -703,6 +825,7 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
               const destPath = ensureVaultRelativePath(vaultRoot, parsed.positionals[1]!, {
                 ensureMarkdownExtension: true,
               });
+              await guardAndVersionExistingNote(vaultRoot, sourcePath, { force: forceWrite, operation: "move" });
               await fs.mkdir(path.dirname(destPath), { recursive: true });
               await fs.rename(sourcePath, destPath);
               return formatToolResult(
@@ -737,8 +860,45 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
               const notePath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
                 ensureMarkdownExtension: true,
               });
+              await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "delete" });
               await fs.unlink(notePath);
               return formatToolResult(`Deleted ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`);
+            }
+
+            case "versions": {
+              requirePositionalArguments(
+                parsed.positionals,
+                1,
+                "Usage: versions '<note name>' --vault main [--restore <timestamp>]",
+              );
+              const notePath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
+                ensureMarkdownExtension: true,
+              });
+              const relNoExt = vaultRelative(vaultRoot, notePath).replace(/\.md$/iu, "");
+              const versionDir = path.join(vaultRoot, ".versions", relNoExt);
+              const restoreStamp = typeof parsed.flags.get("--restore") === "string"
+                ? String(parsed.flags.get("--restore"))
+                : undefined;
+
+              if (restoreStamp) {
+                const versionContent = await fs.readFile(path.join(versionDir, `${restoreStamp}.md`), "utf8");
+                // Snapshot current content first so a restore is itself reversible.
+                await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "restore over" });
+                await fs.writeFile(notePath, versionContent, "utf8");
+                return formatToolResult(`Restored ${vaultRelative(vaultRoot, notePath)} from version ${restoreStamp}`);
+              }
+
+              let entries: string[] = [];
+              try {
+                entries = (await fs.readdir(versionDir))
+                  .filter((file) => file.endsWith(".md"))
+                  .map((file) => file.replace(/\.md$/iu, ""))
+                  .sort()
+                  .reverse();
+              } catch {
+                entries = [];
+              }
+              return formatToolResult(entries.length > 0 ? entries.join("\n") : "(no prior versions)");
             }
 
             default:

@@ -44,6 +44,16 @@ export interface ProviderResponseMetadata {
   durationApiMs?: number;
   totalCostUsd?: number;
   usage?: ProviderUsageMetrics;
+  /**
+   * Peak single-call prompt size across the turn's internal model calls
+   * (max over assistant messages of input + cache_read + cache_creation tokens).
+   * Unlike `modelUsage`, which SUMS token counts across every internal call
+   * (and so balloons far past the window on tool-heavy turns), this reflects the
+   * true high-water context-window occupancy — bounded by the window.
+   */
+  contextOccupancyTokens?: number;
+  /** Model context window size in tokens (from modelUsage.contextWindow). */
+  contextWindowTokens?: number;
 }
 
 export type ProviderToolMode = "off" | "default" | "allowlist";
@@ -427,6 +437,11 @@ export function parseClaudePrintJson(stdout: string): ProviderResponse {
   let providerSessionId: string | undefined;
   let responseText: string | undefined;
   let resultPayload: z.infer<typeof claudeResultSchema> | undefined;
+  // Context-window occupancy is the PEAK single-call prompt size across the
+  // turn's internal model calls — not the cross-call sum in modelUsage.
+  let peakOccupancyTokens = 0;
+  let contextWindowTokens: number | undefined;
+  const numField = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
   for (const line of lines) {
     let parsed: unknown;
@@ -452,6 +467,25 @@ export function parseClaudePrintJson(stdout: string): ProviderResponse {
           if (part?.type === "text" && typeof part.text === "string" && part.text.trim().length > 0) {
             responseText = part.text.trim();
           }
+        }
+        // Per-call prompt size = input + cache_read + cache_creation. Track the
+        // peak across internal calls as the true window-occupancy high-water mark.
+        const usage = asRecord(message?.usage);
+        if (usage) {
+          const occupancy =
+            numField(usage.input_tokens)
+            + numField(usage.cache_read_input_tokens)
+            + numField(usage.cache_creation_input_tokens);
+          if (occupancy > peakOccupancyTokens) peakOccupancyTokens = occupancy;
+        }
+      }
+
+      if (eventType === "result") {
+        const modelUsage = asRecord(record.modelUsage);
+        if (modelUsage) {
+          const firstModel = asRecord(Object.values(modelUsage)[0]);
+          const cw = firstModel?.contextWindow;
+          if (typeof cw === "number" && cw > 0) contextWindowTokens = cw;
         }
       }
     }
@@ -481,10 +515,23 @@ export function parseClaudePrintJson(stdout: string): ProviderResponse {
     throw new Error("Claude CLI returned an empty response");
   }
 
+  const baseMetadata = resultPayload ? extractClaudeMetadata(resultPayload) : undefined;
+  const occupancyMetadata =
+    peakOccupancyTokens > 0 || contextWindowTokens !== undefined
+      ? {
+          ...(peakOccupancyTokens > 0 ? { contextOccupancyTokens: peakOccupancyTokens } : {}),
+          ...(contextWindowTokens !== undefined ? { contextWindowTokens } : {}),
+        }
+      : undefined;
+  const metadata: ProviderResponseMetadata | undefined =
+    baseMetadata || occupancyMetadata
+      ? { ...(baseMetadata ?? {}), ...(occupancyMetadata ?? {}) }
+      : undefined;
+
   return {
     text: responseText,
     providerSessionId,
-    metadata: resultPayload ? extractClaudeMetadata(resultPayload) : undefined,
+    metadata,
     toolCalls: extractProviderToolCalls({ events }),
     raw: resultPayload ?? { events }
   };
