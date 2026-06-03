@@ -78,6 +78,96 @@ describe("personal-agent-tools obsidian", () => {
     expect(fs.readFileSync(notePath, "utf8")).toBe("replacement");
   });
 
+  it("blocks daily note overwrites that would erase protected human-owned sections", async () => {
+    const { tool, vaultDir } = setupObsidianTool();
+    const noteName = "Planning/Daily/2026-06-02";
+    const notePath = path.join(vaultDir, "Planning", "Daily", "2026-06-02.md");
+    const existingContent = [
+      "---",
+      "date: 2026-06-02",
+      "---",
+      "## Today's Priorities",
+      "- [ ] Existing generated priority",
+      "",
+      "## Notes",
+      "- Manual note that must survive",
+      "",
+      "## Interstitial Log",
+      "<!-- Quick entries as you move through the day -->",
+      "- 05:12 — Manual log entry that must survive",
+      "",
+    ].join("\n");
+    fs.mkdirSync(path.dirname(notePath), { recursive: true });
+    fs.writeFileSync(notePath, existingContent, "utf8");
+
+    const staleReplacement = [
+      "---",
+      "date: 2026-06-02",
+      "---",
+      "## Today's Priorities",
+      "- [ ] Replacement priority",
+      "",
+      "## Notes",
+      "-",
+      "",
+      "## Interstitial Log",
+      "<!-- Quick entries as you move through the day -->",
+      "-",
+      "",
+    ].join("\n");
+
+    const result = await tool.handler({
+      command: `create '${noteName}' --vault main --overwrite`,
+      content: staleReplacement,
+    });
+
+    expect(result.result).toContain("Refusing to overwrite daily note");
+    expect(result.result).toContain("protected section 'Notes'");
+    expect(fs.readFileSync(notePath, "utf8")).toBe(existingContent);
+  });
+
+  it("updates one daily note section without changing protected sections", async () => {
+    const { tool, vaultDir } = setupObsidianTool();
+    const noteName = "Planning/Daily/2026-06-02";
+    const notePath = path.join(vaultDir, "Planning", "Daily", "2026-06-02.md");
+    fs.mkdirSync(path.dirname(notePath), { recursive: true });
+    fs.writeFileSync(
+      notePath,
+      [
+        "---",
+        "date: 2026-06-02",
+        "---",
+        "## Today's Priorities",
+        "- [ ] Old generated priority",
+        "",
+        "## Stretch (if capacity)",
+        "-",
+        "",
+        "## Notes",
+        "- Manual note that must survive",
+        "",
+        "## Interstitial Log",
+        "<!-- Quick entries as you move through the day -->",
+        "- 05:12 — Manual log entry that must survive",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    await expect(tool.handler({
+      command: `section '${noteName}' --vault main --heading "Today's Priorities"`,
+      content: "- [ ] New generated priority (1hr) [[Personal]]",
+    })).resolves.toEqual({
+      result: "Updated section 'Today's Priorities' in Planning/Daily/2026-06-02.md",
+    });
+
+    const updated = fs.readFileSync(notePath, "utf8");
+    expect(updated).toContain("## Today's Priorities\n- [ ] New generated priority (1hr) [[Personal]]");
+    expect(updated).not.toContain("Old generated priority");
+    expect(updated).toContain("- Manual note that must survive");
+    expect(updated).toContain("- 05:12 — Manual log entry that must survive");
+  });
+
   it("prints decoded notes from Obsidian app URL targets", async () => {
     const { tool, vaultDir } = setupObsidianTool();
     const content = "# Devinn's Note Name\n\nNested note content.";
@@ -172,6 +262,20 @@ describe("personal-agent-tools obsidian", () => {
       result: "Updated frontmatter key 'status'",
     });
     expect(fs.readFileSync(notePath, "utf8")).toContain("status: active");
+
+    await expect(tool.handler({
+      command: "frontmatter 'Records/Health' --vault main --edit --key 'areas' --value '[[Health]]'",
+    })).resolves.toEqual({
+      result: "Updated frontmatter key 'areas'",
+    });
+    expect(fs.readFileSync(notePath, "utf8")).toContain("areas:\n  - '[[Health]]'");
+
+    await expect(tool.handler({
+      command: "frontmatter 'Records/Health' --vault main --edit --key 'types' --value '[\"[[Record]]\", \"[[Health Daily]]\"]'",
+    })).resolves.toEqual({
+      result: "Updated frontmatter key 'types'",
+    });
+    expect(fs.readFileSync(notePath, "utf8")).toContain("types:\n  - '[[Record]]'\n  - '[[Health Daily]]'");
 
     await expect(tool.handler({
       command: "frontmatter 'Records/Health' --vault main --delete --key 'date'",

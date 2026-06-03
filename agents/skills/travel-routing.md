@@ -40,8 +40,10 @@ This workflow assumes the user's primary road-trip vehicle is a diesel truck. Ev
 2. Route comparison: generate 2-4 options via OSRM, document distance/time/fuel availability/passes
 3. Fuel gap analysis: identify legs > 150 miles between diesel stations (critical for rural NV/UT/OR)
 4. Build itinerary: departure times, fuel stops with prices, meal stops, overnight lodging
-5. Create Obsidian trip doc using the `obsidian` tool
+5. Create Obsidian trip doc using the `obsidian` tool and the `obsidian_note_conventions` frontmatter standard
 6. Validate: all distances via OSRM, fuel range covers every leg with 50+ mile cushion
+
+Trip planning notes should use YAML-list wikilink frontmatter. Use `types` with a `[[Project Plan]]` list item, choose the best approved `areas` value, and use `collections` for the finite trip or trip hub. Do not use `areas: Travel`; travel is a collection concept, not an approved area.
 
 **Lodging:** Check loyalty programs (Marriott Bonvoy, Hilton Honors, Best Western Rewards). Direct hotel sites beat OTAs for loyalty rates. Non-smoking, mobile check-in preferred.
 

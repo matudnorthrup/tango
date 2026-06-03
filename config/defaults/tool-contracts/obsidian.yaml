@@ -31,3 +31,6 @@ legacy:
     - ~/Documents/main
   notes:
     - Accepts note titles, vault-relative paths, and obsidian://open URLs with file/path query parameters.
+    - New structured notes require date, types, and areas frontmatter.
+    - types, areas, collections, and categories frontmatter values must be YAML lists of wikilinks.
+    - Use collections for finite trips, events, and initiatives; do not use Travel, Projects, or Work as areas.

@@ -4,18 +4,40 @@ Reusable conventions for reading and writing notes in the main Obsidian vault.
 
 ## Writing notes
 
-- **Always read before writing.** Print the note first so you have the full current content. Write back the complete note — `--overwrite` replaces the entire file.
-- **Always use `--overwrite` when updating an existing note.** Without it, `create` silently does nothing if the note already exists. No error, no output — the write is just dropped.
+- **Always read before writing.** Print the note first so you have the full current content.
 - **Always use the `content` parameter** for note body text. Never put content inline in the command string via `--content '...'` — apostrophes and special characters break the shell quoting.
 - Prefer updating an existing note before creating a new one.
 - Do not create new folders unless the task explicitly requires it.
 - Preserve the note's existing structure, sections, and frontmatter style when editing. Don't reorganize what you weren't asked to change.
+- For existing daily notes, **do not use `create --overwrite`**. Use the `section` command for generated planning sections and the `frontmatter` command for metadata fields.
+- For non-daily notes, use `create --overwrite` only after reading the note and preserving all current content that should remain.
+- Treat daily-note sections `Notes`, `Interstitial Log`, `Unscheduled Work I Did Today`, `Energy Reflection`, and `Notes from Last Night` as human-owned. Never replace them. Append only when explicitly asked to add a new entry.
 
 ## Frontmatter
 
 - New structured notes should include frontmatter: `date`, `areas`, and `types` at minimum.
-- Common `areas` values: `Family`, `Finance`, `Health`, `Home`, `Personal`, `Projects`, `Travel`, `Work`.
+- `types`, `areas`, and `collections` must be YAML lists of wikilinks. Never write these as scalar strings.
+- Use approved area schema values from `_Schema/Areas/`: `3D Printing`, `Church`, `Family`, `Finance`, `Health`, `Home`, `Latitude`, `Legal`, `Nofo`, `Personal`, `Tango`.
+- Do not use `Travel`, `Projects`, or `Work` as areas. Use a specific approved area, and use `collections` for finite trips, events, initiatives, or bundles that cut across areas.
+- Do not add `tags` or `categories` to new notes unless Devin explicitly asks for that workflow. Categories are deprecated; collections are the preferred cross-cutting grouping field.
 - Frontmatter goes between `---` delimiters at the top of `.md` files only. Never add `---` delimiters to `.base` files.
+
+Current default pattern:
+
+```yaml
+---
+date: YYYY-MM-DD
+types:
+  - "[[Project Plan]]"
+areas:
+  - "[[Personal]]"
+collections:
+  - "[[Hub Note]]"
+source_kind: canonical
+---
+```
+
+For trip planning notes, use `types` with a `[[Project Plan]]` list item, choose the best approved area, and add the trip or planning hub under `collections`. For example, motorcycle trip notes should use `areas` with a `[[Personal]]` list item and `collections` with a `[[Motorcycle Adventures — Master Plan]]` list item, not `areas: Travel`.
 
 ## Tasks
 
