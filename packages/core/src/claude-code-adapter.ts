@@ -456,6 +456,13 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     if (options.currentTurnMetadataPrompt?.trim()) {
       sections.push(options.currentTurnMetadataPrompt.trim());
     }
+    // Per-turn briefing ("whisper") is appended after metadata and before the
+    // message. It is intentionally NOT gated by resume state: it is delivered on
+    // every turn so resumed sessions still get state pointers / search-first /
+    // context signals (warm-start `context` is dropped on resume).
+    if (options.turnBriefingPrompt?.trim()) {
+      sections.push(options.turnBriefingPrompt.trim());
+    }
     sections.push(message);
     return sections.join("\n\n");
   }

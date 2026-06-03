@@ -36,6 +36,13 @@ export interface McpServerConfig {
 export interface SendOptions {
   context?: string;
   currentTurnMetadataPrompt?: string;
+  /**
+   * Per-turn behavioral briefing ("whisper"). Unlike `context`, this is NOT
+   * stripped on resumed provider sessions (see omitContextForResumedRuntime),
+   * so it reaches the model on every turn — the channel for state-file
+   * pointers, search-first reminders, and context-usage signals.
+   */
+  turnBriefingPrompt?: string;
   timeout?: number;
   onChunk?: (chunk: string) => void;
 }
