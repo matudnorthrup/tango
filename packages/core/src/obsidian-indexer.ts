@@ -54,6 +54,11 @@ export interface ObsidianIndexResult {
   removedFiles: RemovedObsidianFile[];
 }
 
+type PruneScope = {
+  path: string;
+  kind: "directory" | "file";
+};
+
 function resolveDefaultVaultPath(): string {
   const configured = process.env.TANGO_OBSIDIAN_VAULT?.trim();
   if (configured && configured.length > 0) {
@@ -77,11 +82,13 @@ export async function indexObsidianVault(
   input: ObsidianIndexInput
 ): Promise<ObsidianIndexResult> {
   const nowIso = (input.now ?? new Date()).toISOString();
-  const files = collectEligibleFiles(input.paths ?? [resolveDefaultVaultPath()], {
+  const inputPaths = input.paths ?? [resolveDefaultVaultPath()];
+  const files = collectEligibleFiles(inputPaths, {
     includeClippings: input.includeClippings === true,
     includeAiTranscripts: input.includeAiTranscripts === true,
     excludePrefixes: input.excludePrefixes ?? [],
   });
+  const pruneScopes = resolvePruneScopes(inputPaths);
   const indexedEntries = input.storage.listObsidianIndexEntries(50_000);
   const indexedByPath = new Map(indexedEntries.map((entry) => [entry.filePath, entry]));
   const liveFiles = new Set(files);
@@ -150,6 +157,7 @@ export async function indexObsidianVault(
 
   for (const entry of indexedEntries) {
     if (liveFiles.has(entry.filePath)) continue;
+    if (!isFileInPruneScopes(entry.filePath, pruneScopes)) continue;
 
     if (input.dryRun) {
       result.removedFileCount += 1;
@@ -175,6 +183,29 @@ export async function indexObsidianVault(
   }
 
   return result;
+}
+
+function resolvePruneScopes(inputs: string[]): PruneScope[] {
+  return inputs.map((inputPath) => {
+    const resolved = path.resolve(expandHome(inputPath));
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+      return { path: resolved, kind: "directory" };
+    }
+    return { path: resolved, kind: "file" };
+  });
+}
+
+function isFileInPruneScopes(filePath: string, scopes: PruneScope[]): boolean {
+  const resolvedFilePath = path.resolve(filePath);
+  return scopes.some((scope) => {
+    if (scope.kind === "file") {
+      return resolvedFilePath === scope.path;
+    }
+
+    const relativePath = path.relative(scope.path, resolvedFilePath);
+    return relativePath.length === 0
+      || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+  });
 }
 
 function collectEligibleFiles(

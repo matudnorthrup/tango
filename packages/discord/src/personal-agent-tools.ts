@@ -309,8 +309,16 @@ export function createCalendarTools(overrides?: PersonalToolPaths): AgentTool[] 
 
 const OBSIDIAN_SEARCH_MAX_MATCHES = 50;
 const OBSIDIAN_SEARCH_TIMEOUT_MS = 30_000;
-const OBSIDIAN_VALUE_FLAGS = new Set(["--vault", "--key", "--value", "--restore"]);
+const OBSIDIAN_VALUE_FLAGS = new Set(["--vault", "--key", "--value", "--restore", "--heading"]);
 const OBSIDIAN_BOOLEAN_FLAGS = new Set(["--append", "--overwrite", "--edit", "--print", "--delete", "--force"]);
+const OBSIDIAN_LIST_WIKILINK_FRONTMATTER_KEYS = new Set(["types", "areas", "collections", "categories"]);
+const DAILY_NOTE_PROTECTED_SECTIONS = [
+  "Notes",
+  "Interstitial Log",
+  "Unscheduled Work I Did Today",
+  "Energy Reflection",
+  "Notes from Last Night",
+] as const;
 
 type ObsidianParsedCommand = {
   command: string;
@@ -449,6 +457,149 @@ function serializeNoteFrontmatter(frontmatter: ObsidianFrontmatter): string {
   return frontmatter.body.length > 0
     ? `---\n${yamlText}\n---\n${frontmatter.body}`
     : `---\n${yamlText}\n---\n`;
+}
+
+function parseFrontmatterEditValue(key: string, value: string): unknown {
+  if (!OBSIDIAN_LIST_WIKILINK_FRONTMATTER_KEYS.has(key)) {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+  if (/^\[\[.+\]\]$/u.test(trimmed)) {
+    return [trimmed];
+  }
+
+  const parsed = tryParseYamlValue(trimmed);
+  const rawValues = Array.isArray(parsed)
+    ? parsed
+    : trimmed.includes(",")
+      ? trimmed.split(",")
+      : [typeof parsed === "string" ? parsed : trimmed];
+
+  return rawValues.map((item) => normalizeFrontmatterWikilinkValue(String(item)));
+}
+
+function tryParseYamlValue(value: string): unknown {
+  try {
+    return yaml.load(value, { schema: yaml.JSON_SCHEMA });
+  } catch {
+    return value;
+  }
+}
+
+function normalizeFrontmatterWikilinkValue(value: string): string {
+  const trimmed = value.trim().replace(/^['"]|['"]$/gu, "").trim();
+  if (trimmed.length === 0) {
+    throw new Error("List frontmatter values cannot include empty items");
+  }
+  if (/^\[\[.+\]\]$/u.test(trimmed)) {
+    return trimmed;
+  }
+  return `[[${trimmed}]]`;
+}
+
+function isDailyNotePath(vaultRoot: string, notePath: string): boolean {
+  const relativePath = path.relative(vaultRoot, notePath).split(path.sep).join("/");
+  return /^Planning\/Daily\/\d{4}-\d{2}-\d{2}\.md$/u.test(relativePath);
+}
+
+function validateDailyNoteOverwrite(vaultRoot: string, notePath: string, existing: string, next: string): void {
+  if (!isDailyNotePath(vaultRoot, notePath)) return;
+
+  for (const heading of DAILY_NOTE_PROTECTED_SECTIONS) {
+    const existingSection = extractMarkdownSectionBody(existing, heading);
+    if (existingSection == null || isPlaceholderSection(existingSection)) continue;
+
+    const nextSection = extractMarkdownSectionBody(next, heading);
+    if (nextSection == null) {
+      throw new Error(`Refusing to overwrite daily note: protected section '${heading}' would be removed.`);
+    }
+
+    if (normalizeSectionForComparison(existingSection) !== normalizeSectionForComparison(nextSection)) {
+      throw new Error(
+        `Refusing to overwrite daily note: protected section '${heading}' has existing content that must be preserved. Use the 'section' command for targeted daily-note edits.`,
+      );
+    }
+  }
+}
+
+function extractMarkdownSectionBody(text: string, heading: string): string | null {
+  const lines = text.split(/\r?\n/u);
+  const headingLine = `## ${heading}`;
+  const startIndex = lines.findIndex((line) => line.trim() === headingLine);
+  if (startIndex === -1) return null;
+
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (/^##\s+/u.test(lines[index]?.trim() ?? "")) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  return lines.slice(startIndex + 1, endIndex).join("\n");
+}
+
+function replaceMarkdownSectionBody(text: string, heading: string, body: string): string {
+  const lines = text.split(/\r?\n/u);
+  const headingLine = `## ${heading}`;
+  const startIndex = lines.findIndex((line) => line.trim() === headingLine);
+  const normalizedBody = body.replace(/\s+$/u, "");
+  const bodyLines = normalizedBody.length > 0 ? normalizedBody.split(/\r?\n/u) : [];
+
+  if (startIndex === -1) {
+    const separator = text.endsWith("\n") ? "\n" : "\n\n";
+    return `${text}${separator}${headingLine}\n${normalizedBody}\n`;
+  }
+
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (/^##\s+/u.test(lines[index]?.trim() ?? "")) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  const trailingLines = lines.slice(endIndex);
+  const spacerLines = trailingLines.length > 0 ? [""] : [];
+  const nextLines = [
+    ...lines.slice(0, startIndex + 1),
+    ...bodyLines,
+    ...spacerLines,
+    ...trailingLines,
+  ];
+  return `${nextLines.join("\n").replace(/\s+$/u, "")}\n`;
+}
+
+function appendMarkdownSectionBody(text: string, heading: string, body: string): string {
+  const existingBody = extractMarkdownSectionBody(text, heading);
+  if (existingBody == null || isPlaceholderSection(existingBody)) {
+    return replaceMarkdownSectionBody(text, heading, body);
+  }
+
+  const appendedBody = `${existingBody.replace(/\s+$/u, "")}\n${body.replace(/\s+$/u, "")}`;
+  return replaceMarkdownSectionBody(text, heading, appendedBody);
+}
+
+function isPlaceholderSection(body: string): boolean {
+  const meaningfulLines = body
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^<!--.*-->$/u.test(line));
+
+  return meaningfulLines.length === 0
+    || meaningfulLines.every((line) => line === "-" || line === "- [ ]");
+}
+
+function normalizeSectionForComparison(body: string): string {
+  return body
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/\s+$/u, ""))
+    .join("\n")
+    .trim();
 }
 
 function formatToolResult(value: string): { result: string } {
@@ -641,11 +792,19 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
         "    Create a new note or update an existing one. NEVER create new folders.",
         "    Pass note body via the separate 'content' parameter (NOT --content in the command string).",
         "    --append            Append to existing note instead of failing if it exists.",
-        "    --overwrite         Replace existing note content. REQUIRED when updating an existing note.",
-        "    For daily notes: create 'Planning/Daily/YYYY-MM-DD' --vault main --overwrite",
+        "    --overwrite         Replace existing note content. Use only after reading the note and preserving all current content.",
+        "    Existing daily notes must not be updated with create --overwrite; use section/frontmatter commands instead.",
+        "",
+        "  section '<note name>' --vault main --heading '<heading>' [--append]",
+        "    Replace one markdown ## section body, preserving the rest of the note.",
+        "    Use this for generated daily-note sections like Today's Priorities, Stretch (if capacity), and Routines.",
+        "    --append            Append content inside the section instead of replacing the section body.",
+        "    Protected daily-note sections (Notes, Interstitial Log, Unscheduled Work I Did Today) cannot be replaced once they contain meaningful content.",
         "",
         "  frontmatter '<note name>' --vault main --edit --key '<key>' --value '<value>'",
         "    Modify a single frontmatter key. Also supports --print and --delete --key '<key>'.",
+        "    For types, areas, collections, and categories, --value is stored as a YAML list of wikilinks.",
+        "    Examples: --key areas --value '[[Personal]]' or --key areas --value '[\"[[Personal]]\", \"[[Tango]]\"]'.",
         "",
         "  move '<source>' '<dest>' --vault main",
         "    Move/rename a note.",
@@ -663,8 +822,10 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
         "For bulk search/read, use shell commands against the configured notes root directly.",
         "",
         "Conventions:",
-        "  Frontmatter: date, areas, types (always required for new notes)",
-        "  Areas are installation-specific. Common examples: Family, Health, Home, Personal, Projects, Travel, Work.",
+        "  Frontmatter: date, areas, types (always required for new notes).",
+        "  types, areas, and collections must be YAML lists of wikilinks, never scalar strings.",
+        "  Approved areas: 3D Printing, Church, Family, Finance, Health, Home, Latitude, Legal, Nofo, Personal, Tango.",
+        "  Do not use Travel, Projects, or Work as areas; use collections for finite trips, events, and initiatives.",
         "  Tappable links depend on the local note-link service for this installation",
         "  Task format: - [ ] Task description—YYYY-MM-DD (em-dash + date)",
         "  Key folders: Planning/ (Daily/Weekly), Records/ (Health Daily, Nutrition, Finance), References/",
@@ -674,11 +835,11 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
         properties: {
           command: {
             type: "string",
-            description: "CLI command (everything after 'obsidian-cli'). For writes, omit --content here and use the 'content' parameter instead. Example: \"create 'Planning/Daily/2026-03-13' --vault main --overwrite\"",
+            description: "CLI command (everything after 'obsidian-cli'). For writes, omit --content here and use the 'content' parameter instead. Example: \"section 'Planning/Daily/2026-03-13' --vault main --heading \\\"Today's Priorities\\\"\"",
           },
           content: {
             type: "string",
-            description: "Note body text (markdown). Used with create command — passed directly to obsidian-cli, bypassing shell quoting issues. Always use this instead of --content in the command string.",
+            description: "Note body text (markdown). Used with create and section commands — passed directly to obsidian-cli, bypassing shell quoting issues. Always use this instead of --content in the command string.",
           },
         },
         required: ["command"],
@@ -750,8 +911,11 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
                 throw new Error(`Note already exists: ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`);
               }
 
-              if (exists) {
-                await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "overwrite" });
+              // Validations first (no side effects): daily-note section protection,
+              // then governed-note schema requirements.
+              if (exists && shouldOverwrite) {
+                const existingContent = await fs.readFile(notePath, "utf8");
+                validateDailyNoteOverwrite(vaultRoot, notePath, existingContent, content);
               }
               const missingFields = missingGovernedFrontmatter(content);
               if (missingFields.length > 0) {
@@ -761,9 +925,56 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
                   + "State files and source-classified notes must include date, types, and areas.",
                 );
               }
+              // Source-kind read-only guard + prior-version snapshot (side effect),
+              // only once we're committed to writing.
+              if (exists) {
+                await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "overwrite" });
+              }
               await fs.writeFile(notePath, content, "utf8");
               return formatToolResult(
                 `${exists ? "Overwrote" : "Created"} ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`,
+              );
+            }
+
+            case "section": {
+              requirePositionalArguments(
+                parsed.positionals,
+                1,
+                "Usage: section '<note name>' --vault main --heading '<heading>' [--append]",
+              );
+              const heading = typeof parsed.flags.get("--heading") === "string"
+                ? String(parsed.flags.get("--heading")).trim()
+                : "";
+              if (!heading) {
+                throw new Error("section requires --heading");
+              }
+
+              const notePath = ensureVaultRelativePath(vaultRoot, parsed.positionals[0]!, {
+                ensureMarkdownExtension: true,
+              });
+              const existingContent = await fs.readFile(notePath, "utf8");
+              const content = input.content == null ? "" : String(input.content);
+              const shouldAppend = parsed.flags.get("--append") === true;
+              const nextContent = shouldAppend
+                ? appendMarkdownSectionBody(existingContent, heading, content)
+                : replaceMarkdownSectionBody(existingContent, heading, content);
+
+              if (!shouldAppend && isDailyNotePath(vaultRoot, notePath)) {
+                const protectedHeading = DAILY_NOTE_PROTECTED_SECTIONS.find((section) => section === heading);
+                if (protectedHeading != null) {
+                  validateDailyNoteOverwrite(vaultRoot, notePath, existingContent, nextContent);
+                }
+              }
+
+              if (existingContent === nextContent) {
+                return formatToolResult(
+                  `Section '${heading}' already up to date in ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`,
+                );
+              }
+
+              await fs.writeFile(notePath, nextContent, "utf8");
+              return formatToolResult(
+                `Updated section '${heading}' in ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`,
               );
             }
 
@@ -804,7 +1015,7 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
                 if (!key || value == null) {
                   throw new Error("frontmatter --edit requires --key and --value");
                 }
-                frontmatter.data[key] = value;
+                frontmatter.data[key] = parseFrontmatterEditValue(key, value);
                 await guardAndVersionExistingNote(vaultRoot, notePath, { force: forceWrite, operation: "edit frontmatter of" });
                 await fs.writeFile(notePath, serializeNoteFrontmatter(frontmatter), "utf8");
                 return formatToolResult(`Updated frontmatter key '${key}'`);

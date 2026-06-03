@@ -26,9 +26,15 @@ execution:
     2. Check today's calendar to see what events occurred.
     3. Compare planned tasks vs calendar activity to infer completions.
     4. Fetch tomorrow's calendar to preview what's ahead.
-    5. Update the daily note: mark completed tasks, note carryovers,
-       add an "Energy Reflection" placeholder, and write a brief
-       "Notes from Last Night" section in tomorrow's daily note.
+    5. Update daily notes with targeted `section` or `frontmatter` writes
+       only. Do NOT use `create --overwrite` on an existing daily note.
+       Mark completed tasks only after preserving current section content.
+       Add an "Energy Reflection" placeholder only if the section is empty,
+       and write a brief "Notes from Last Night" section in tomorrow's
+       daily note only after reading it first.
+    6. Preserve human-owned sections exactly unless explicitly appending a
+       new entry: "Unscheduled Work I Did Today", "Notes", "Interstitial
+       Log", "Energy Reflection", and "Notes from Last Night".
 
     Present a concise summary of the day's status and tomorrow's outlook.
   timeout_seconds: 300
