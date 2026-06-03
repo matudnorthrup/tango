@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import type { MemoryRecord, PinnedFactRecord } from "@tango/atlas-memory";
-import type { V2AgentConfig } from "@tango/core";
+import type { AttachmentStore, V2AgentConfig } from "@tango/core";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildV2EnabledAgentSet,
@@ -219,6 +219,82 @@ describe("createAtlasColdStartContextBuilder", () => {
         "- Recent ankle soreness affected training [injury, recent]",
       ].join("\n"),
     });
+  });
+
+  it("includes compact attachment directory context when an attachment store is provided", async () => {
+    const pinnedFactGet = vi.fn().mockResolvedValue([]);
+    const memorySearch = vi.fn().mockResolvedValue([]);
+    const listDirectoriesForContext = vi.fn().mockReturnValue([
+      {
+        attachment: {
+          id: 42,
+          projectId: null,
+          agentId: "watson",
+          sessionId: "session-1",
+          messageId: "message-1",
+          channelId: "channel-1",
+          threadId: "thread-9",
+          userId: "user-1",
+          discordAttachmentId: "discord-attachment-42",
+          fileId: 7,
+          title: "START HERE image",
+          originalFilename: "start-here.png",
+          contentType: "image/png",
+          bytes: 1234,
+          status: "ready",
+          retentionPolicyId: null,
+          metadata: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        directory: {
+          id: 9,
+          attachmentId: 42,
+          schemaVersion: 1,
+          projectId: null,
+          agentId: "watson",
+          sessionId: "session-1",
+          messageId: "message-1",
+          channelId: "channel-1",
+          threadId: "thread-9",
+          userId: "user-1",
+          status: "ready",
+          directory: {
+            title: "START HERE image",
+            summary: "One-page index for Darla image docs.",
+            source: {
+              message_ref: "discord:channel-1:message-1:discord-attachment-42",
+              attachment_ref: "attachment:42",
+            },
+            available_reads: ["attachment_search", "attachment_read"],
+          },
+          metadata: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    const buildColdStartContext = createAtlasColdStartContextBuilder(
+      {
+        pinnedFactGet,
+        memorySearch,
+      },
+      {
+        attachmentStore: { listDirectoriesForContext } as unknown as AttachmentStore,
+      },
+    );
+
+    const result = await buildColdStartContext("thread:thread-9", "watson");
+
+    expect(listDirectoriesForContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "thread-9",
+        directoryStatus: ["ready", "failed"],
+      }),
+    );
+    expect(result.attachmentDirectories).toContain("Relevant attachment directories:");
+    expect(result.attachmentDirectories).toContain("START HERE image");
+    expect(result.attachmentDirectories).toContain("Use attachment_search/attachment_read");
   });
 });
 

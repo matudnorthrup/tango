@@ -1,5 +1,6 @@
 import type {
   AgentRuntimeConfig,
+  AttachmentStore,
   ColdStartContextBuilder,
   RuntimeResponse,
   SendOptions,
@@ -7,6 +8,7 @@ import type {
 } from "@tango/core";
 import {
   assembleV2SystemPrompt,
+  buildAttachmentDirectoryContext,
   isV2RuntimeEnabled,
 } from "@tango/core";
 import type { MemoryRecord, PinnedFactRecord } from "@tango/atlas-memory";
@@ -95,6 +97,7 @@ export function createAtlasColdStartContextBuilder(
      * on where the project stands. See project-state.ts.
      */
     projectStateProvider?: (conversationKey: string) => string | undefined;
+    attachmentStore?: AttachmentStore;
   } = {},
 ): ColdStartContextBuilder {
   return async (conversationKey, agentId) => {
@@ -107,6 +110,14 @@ export function createAtlasColdStartContextBuilder(
         limit: 5,
       }),
     ]);
+    const attachmentContext =
+      options.attachmentStore
+        ? buildAttachmentDirectoryContext({
+            store: options.attachmentStore,
+            conversationKey,
+            agentId,
+          })
+        : null;
 
     const projectBlock = options.projectStateProvider?.(conversationKey);
 
@@ -114,6 +125,7 @@ export function createAtlasColdStartContextBuilder(
       pinnedFacts: formatPinnedFacts([...pinnedFacts, ...agentFacts]),
       recentMessages: projectBlock ? `Project state:\n${projectBlock}` : "",
       relevantMemories: formatMemories(relevantMemories),
+      ...(attachmentContext?.prompt ? { attachmentDirectories: attachmentContext.prompt } : {}),
     };
   };
 }
