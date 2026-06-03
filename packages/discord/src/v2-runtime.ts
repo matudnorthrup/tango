@@ -10,6 +10,7 @@ import {
   assembleV2SystemPrompt,
   buildAttachmentDirectoryContext,
   isV2RuntimeEnabled,
+  resolveTangoProfileAgentPromptDir,
 } from "@tango/core";
 import type { MemoryRecord, PinnedFactRecord } from "@tango/atlas-memory";
 import type { AtlasMemoryClient } from "./atlas-memory-client.js";
@@ -68,6 +69,10 @@ export function buildV2RuntimeConfigs(
       agentId,
       systemPrompt: assembleV2SystemPrompt(v2Config, {
         repoRoot: options.repoRoot,
+        // Parity with the legacy loader: load per-agent profile-owned prompt
+        // overlays (~/.tango/profiles/<p>/prompts/agents/<id>/*.md). Lets
+        // user-specific/private agent knowledge live in the profile, not the repo.
+        overlayDir: resolveTangoProfileAgentPromptDir(agentId),
       }),
       mcpServers: v2Config.mcpServers,
       runtimePreferences: {
