@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MemoryRecord, PinnedFactRecord } from "@tango/atlas-memory";
 import type { AttachmentStore, V2AgentConfig } from "@tango/core";
@@ -184,6 +187,34 @@ describe("buildV2RuntimeConfigs", () => {
         timeout: 2_700_000,
       },
     });
+  });
+
+  it("loads per-agent profile prompt overlays into the system prompt (profile parity)", () => {
+    const homeBackup = process.env.TANGO_HOME;
+    const profileBackup = process.env.TANGO_PROFILE;
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-v2-overlay-"));
+    try {
+      process.env.TANGO_HOME = tmpHome;
+      process.env.TANGO_PROFILE = "test";
+      const overlayDir = path.join(tmpHome, "profiles", "test", "prompts", "agents", "malibu");
+      fs.mkdirSync(overlayDir, { recursive: true });
+      fs.writeFileSync(path.join(overlayDir, "extra.md"), "PROFILE_OVERLAY_MARKER_XYZ", "utf8");
+
+      const configs = new Map<string, V2AgentConfig>([
+        ["malibu", createV2Config("malibu", { provider: "claude-code-v2" })],
+      ]);
+      const runtimeConfigs = buildV2RuntimeConfigs(configs, { repoRoot });
+
+      // The profile-owned overlay is appended to the agent's system prompt,
+      // so private/user-specific knowledge can live in the profile, not the repo.
+      expect(runtimeConfigs.get("malibu")?.systemPrompt).toContain("PROFILE_OVERLAY_MARKER_XYZ");
+    } finally {
+      if (homeBackup === undefined) delete process.env.TANGO_HOME;
+      else process.env.TANGO_HOME = homeBackup;
+      if (profileBackup === undefined) delete process.env.TANGO_PROFILE;
+      else process.env.TANGO_PROFILE = profileBackup;
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
   });
 });
 
