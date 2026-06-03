@@ -258,6 +258,10 @@ export const GOVERNANCE_SEED = `
     ('memory_search', 'shared', 'Memory Search', 'read'),
     ('memory_add', 'shared', 'Memory Add', 'write'),
     ('memory_reflect', 'shared', 'Memory Reflect', 'write'),
+    ('attachment_search', 'attachments', 'Attachment Search', 'read'),
+    ('attachment_read', 'attachments', 'Attachment Read', 'read'),
+    ('attachment_status', 'attachments', 'Attachment Status', 'read'),
+    ('attachment_reprocess', 'attachments', 'Attachment Reprocess', 'write'),
     ('exa_search', 'research', 'EXA Web Search', 'read'),
     ('exa_answer', 'research', 'EXA Answer', 'read'),
     ('printer_command', 'research', 'PrusaLink Printer', 'write'),
@@ -363,6 +367,17 @@ export const GOVERNANCE_SEED = `
     ('worker:note-librarian', 'memory_search', 'read', 'memory lookup while resolving notes'),
     ('worker:note-librarian', 'memory_add', 'write', 'memory capture for durable note context'),
     ('worker:note-librarian', 'memory_reflect', 'write', 'memory reflection for durable note context');
+
+  -- attachment read tools are safe for all current workers
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+  SELECT p.id, tool_ids.tool_id, 'read', 'attachment read tools available to all workers'
+  FROM principals p
+  CROSS JOIN (
+    SELECT 'attachment_search' AS tool_id
+    UNION ALL SELECT 'attachment_read'
+    UNION ALL SELECT 'attachment_status'
+  ) AS tool_ids
+  WHERE p.type = 'worker';
 
   -- dev-assistant (Victor) — uses built-in Claude tools for dev work, MCP for Discord + tango management
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

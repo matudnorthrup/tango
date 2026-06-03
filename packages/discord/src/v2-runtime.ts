@@ -1,5 +1,6 @@
 import type {
   AgentRuntimeConfig,
+  AttachmentStore,
   ColdStartContextBuilder,
   RuntimeResponse,
   SendOptions,
@@ -7,6 +8,7 @@ import type {
 } from "@tango/core";
 import {
   assembleV2SystemPrompt,
+  buildAttachmentDirectoryContext,
   isV2RuntimeEnabled,
 } from "@tango/core";
 import type { MemoryRecord, PinnedFactRecord } from "@tango/atlas-memory";
@@ -88,8 +90,9 @@ export function resolveV2RuntimeTimeoutMs(
 
 export function createAtlasColdStartContextBuilder(
   atlasMemoryClient: Pick<AtlasMemoryClient, "pinnedFactGet" | "memorySearch">,
+  options: { attachmentStore?: AttachmentStore } = {},
 ): ColdStartContextBuilder {
-  return async (_conversationKey, agentId) => {
+  return async (conversationKey, agentId) => {
     const [pinnedFacts, agentFacts, relevantMemories] = await Promise.all([
       atlasMemoryClient.pinnedFactGet({ scope: "global" }),
       atlasMemoryClient.pinnedFactGet({ scope: "agent", scope_id: agentId }),
@@ -99,11 +102,20 @@ export function createAtlasColdStartContextBuilder(
         limit: 5,
       }),
     ]);
+    const attachmentContext =
+      options.attachmentStore
+        ? buildAttachmentDirectoryContext({
+            store: options.attachmentStore,
+            conversationKey,
+            agentId,
+          })
+        : null;
 
     return {
       pinnedFacts: formatPinnedFacts([...pinnedFacts, ...agentFacts]),
       recentMessages: "",
       relevantMemories: formatMemories(relevantMemories),
+      ...(attachmentContext?.prompt ? { attachmentDirectories: attachmentContext.prompt } : {}),
     };
   };
 }
