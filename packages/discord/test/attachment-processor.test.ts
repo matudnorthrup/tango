@@ -162,6 +162,7 @@ describe("processAttachments", () => {
     });
 
     const logical = harness.store.findAttachmentByDiscordAttachmentId("discord-attachment-image");
+    expect(result.promptSuffix).toContain(`Stored as attachment:${logical?.id}`);
     expect(logical).toMatchObject({
       projectId: "project-1",
       agentId: "agent-porter",
@@ -195,7 +196,7 @@ describe("processAttachments", () => {
     ]);
   });
 
-  it("persists non-image attachments without adding prompt lines", async () => {
+  it("persists non-image attachments and points the prompt at attachment tools", async () => {
     const harness = createHarness();
     const pdf = Buffer.from("%PDF-1.7 invoice bytes", "utf8");
     const url = "https://cdn.discord.test/invoice.pdf";
@@ -222,7 +223,6 @@ describe("processAttachments", () => {
       },
     );
 
-    expect(result.promptSuffix).toBe("");
     expect(result.processed).toHaveLength(1);
     expect(result.processed[0]).toMatchObject({
       discordAttachmentId: "discord-attachment-pdf",
@@ -232,13 +232,16 @@ describe("processAttachments", () => {
       durable: true,
     });
     expect(fs.readFileSync(result.processed[0]!.localPath)).toEqual(pdf);
-    expect(harness.store.findAttachmentByDiscordAttachmentId("discord-attachment-pdf")).toMatchObject({
+    const logical = harness.store.findAttachmentByDiscordAttachmentId("discord-attachment-pdf");
+    expect(result.promptSuffix).toContain("invoice.pdf (application/pdf");
+    expect(result.promptSuffix).toContain(`Stored as attachment:${logical?.id}`);
+    expect(result.promptSuffix).toContain("Use attachment_read for extracted text");
+    expect(logical).toMatchObject({
       sessionId: "session-2",
       messageId: "message-2",
       contentType: "application/pdf",
       bytes: pdf.byteLength,
     });
-    const logical = harness.store.findAttachmentByDiscordAttachmentId("discord-attachment-pdf");
     expect(harness.store.listJobs({ attachmentId: logical!.id })).toMatchObject([
       {
         kind: "classify",
