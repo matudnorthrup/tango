@@ -3189,7 +3189,9 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     config: v2AgentConfig.currentTurnMetadata,
   });
   const voiceConversationKey = conversationKeyFor(voiceRouterChannelId, voiceRouterThreadId);
-  const voiceStateFilePointer = buildStateFilePointer(storage, voiceConversationKey);
+  const voiceStateFilePointer = buildStateFilePointer(storage, voiceConversationKey, {
+    vaultRoot: resolveStateVaultRoot(),
+  });
   const voiceTurnBriefingPrompt = buildTurnBriefingPrompt({
     ...(voiceStateFilePointer ? { stateFile: voiceStateFilePointer } : {}),
     searchFirst: Boolean(voiceStateFilePointer) || process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
@@ -6146,7 +6148,9 @@ async function handleMessage(
       // project arc; otherwise it stays silent unless search-first is flag-on,
       // so non-project conversations are behavior-unchanged.
       const briefingConversationKey = conversationKeyFor(routingChannelId, threadId);
-      const stateFilePointer = buildStateFilePointer(storage, briefingConversationKey);
+      const stateFilePointer = buildStateFilePointer(storage, briefingConversationKey, {
+        vaultRoot: resolveStateVaultRoot(),
+      });
       const turnBriefingPrompt = buildTurnBriefingPrompt({
         ...(stateFilePointer ? { stateFile: stateFilePointer } : {}),
         searchFirst: Boolean(stateFilePointer) || process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",

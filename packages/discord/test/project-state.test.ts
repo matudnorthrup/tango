@@ -134,6 +134,28 @@ describe("project-state integration", () => {
     storage.close();
   });
 
+  it("builds a live pointer snapshot (status + Quick Read) from the body when a vault root is given", () => {
+    const storage = createStorage();
+    const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tango-vault-"));
+    tempDirs.push(vaultRoot);
+    fs.writeFileSync(
+      path.join(vaultRoot, "Trip.md"),
+      "---\nstatus: active\n---\n\n## Quick Read\n+2 days confirmed; Tre Cime loop is on.\n",
+    );
+    const key = "thread:x";
+    // Head says "planning"; the live body says "active" and should win.
+    storage.upsertProjectState({ projectId: key, title: "Trip", status: "planning", obsidianPath: "Trip.md" });
+
+    const headOnly = buildStateFilePointer(storage, key);
+    expect(headOnly?.status).toBe("planning");
+    expect(headOnly?.snapshot).toBeUndefined();
+
+    const live = buildStateFilePointer(storage, key, { vaultRoot });
+    expect(live?.status).toBe("active");
+    expect(live?.snapshot).toContain("+2 days confirmed; Tre Cime loop is on.");
+    storage.close();
+  });
+
   it("the cold-start builder injects the project reseed block (end-to-end wiring)", async () => {
     const storage = createStorage();
     const key = "thread:italy";

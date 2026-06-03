@@ -25,7 +25,20 @@ describe("buildTurnBriefingPrompt", () => {
     expect(out).toContain("State file: Projects/Italy Trip.md");
     expect(out).toContain("project: Italy Trip");
     expect(out).toContain("status: active");
-    expect(out).toContain("read it before responding");
+    expect(out).toContain("update it after");
+  });
+
+  it("carries a live state snapshot so resumed turns reflect mid-session updates", () => {
+    const out = buildTurnBriefingPrompt({
+      stateFile: {
+        path: "Projects/Italy Trip.md",
+        status: "planning",
+        snapshot: "+2 days chosen; Tre Cime loop confirmed. Only Cortina lodging left.",
+      },
+      searchFirst: false,
+    });
+    expect(out).toContain("Current state (live, trust this over earlier turns):");
+    expect(out).toContain("Tre Cime loop confirmed");
   });
 
   it("renders context usage as a clamped percentage", () => {

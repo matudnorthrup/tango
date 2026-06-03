@@ -20,6 +20,12 @@ export interface TurnBriefingStateFile {
   project?: string;
   /** Current status (active|planning|waiting|deferred|...). */
   status?: string;
+  /**
+   * A short, LIVE snapshot of current state (e.g. the Quick Read), read from the
+   * body every turn. Carrying it in the whisper means resumed turns reflect
+   * mid-session updates without relying on the agent choosing to re-read.
+   */
+  snapshot?: string;
 }
 
 export interface TurnBriefingInput {
@@ -52,8 +58,13 @@ export function buildTurnBriefingPrompt(input: TurnBriefingInput = {}): string |
     ].filter(Boolean).join(", ");
     lines.push(
       `State file: ${input.stateFile.path.trim()}${meta ? ` (${meta})` : ""} `
-      + `— read it before responding; update it after decisions or status changes.`,
+      + `— update it after decisions or status changes.`,
     );
+    if (input.stateFile.snapshot?.trim()) {
+      lines.push(
+        `Current state (live, trust this over earlier turns): ${input.stateFile.snapshot.trim()}`,
+      );
+    }
   }
 
   if (input.searchFirst !== false) {

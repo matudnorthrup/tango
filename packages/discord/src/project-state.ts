@@ -24,6 +24,17 @@ export interface StateFilePointer {
   path: string;
   project: string;
   status: string;
+  /** Live Quick Read snapshot from the body (when a vault root is supplied). */
+  snapshot?: string;
+}
+
+/** Read the `status:` scalar from a note's YAML frontmatter (wikilink/quotes stripped). */
+function extractFrontmatterStatus(content: string): string | undefined {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(content);
+  if (!fm) return undefined;
+  const m = /^status:\s*(.+?)\s*$/mu.exec(fm[1] ?? "");
+  if (!m) return undefined;
+  return m[1]!.replace(/^["'[\]]+|["'[\]]+$/gu, "").trim() || undefined;
 }
 
 /** Mirror of TangoRouter.getConversationKey — keep in sync. */
@@ -88,12 +99,31 @@ function readStateBody(vaultRoot: string, relativePath: string): string | undefi
 export function buildStateFilePointer(
   storage: StorageReader,
   conversationKey: string,
+  options: { vaultRoot?: string } = {},
 ): StateFilePointer | undefined {
   const head = storage.getProjectState(conversationKey);
   if (!head || !head.obsidianPath?.trim()) {
     return undefined;
   }
-  return { path: head.obsidianPath.trim(), project: head.title, status: head.status };
+  const notePath = head.obsidianPath.trim();
+  let status = head.status;
+  let snapshot: string | undefined;
+
+  // When a vault root is supplied, read a LIVE snapshot from the body so the
+  // per-turn whisper reflects mid-session edits on resumed turns (the agent
+  // should trust this over what it read on an earlier turn).
+  if (options.vaultRoot) {
+    const body = readStateBody(options.vaultRoot, notePath);
+    if (body) {
+      status = extractFrontmatterStatus(body) ?? status;
+      const quickRead = extractSection(body, "Quick Read");
+      if (quickRead) {
+        snapshot = quickRead.length > 400 ? `${quickRead.slice(0, 400)}…` : quickRead;
+      }
+    }
+  }
+
+  return { path: notePath, project: head.title, status, ...(snapshot ? { snapshot } : {}) };
 }
 
 /**
