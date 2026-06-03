@@ -131,9 +131,18 @@ function extractContextUsageFraction(
     return undefined;
   }
 
-  // Try computing from Claude CLI modelUsage (the actual schema).
-  // modelUsage is keyed by model name, each entry has inputTokens,
-  // outputTokens, cacheReadInputTokens, cacheCreationInputTokens, contextWindow.
+  // Prefer the accurate peak-occupancy signal: the largest single internal
+  // model call's prompt size (input + cache_read + cache_creation) divided by
+  // the context window. This is bounded by the window and correct on tool-heavy
+  // multi-turn turns, unlike modelUsage which SUMS token counts across every
+  // internal call and balloons past the window.
+  const occupancyFraction = computeFractionFromOccupancy(metadata);
+  if (occupancyFraction !== undefined) {
+    return occupancyFraction;
+  }
+
+  // Fallback for providers/outputs that don't surface per-call occupancy:
+  // compute from Claude CLI modelUsage (guarded against multi-turn over-count).
   const fraction = computeFractionFromModelUsage(metadata);
   if (fraction !== undefined) {
     return fraction;
@@ -188,6 +197,20 @@ function extractContextUsageFraction(
   };
 
   return visit(metadata);
+}
+
+function computeFractionFromOccupancy(
+  metadata: Record<string, unknown>,
+): number | undefined {
+  const occupancy = findNumericField(metadata, "contextOccupancyTokens");
+  const window = findNumericField(metadata, "contextWindowTokens");
+  if (
+    occupancy !== undefined && occupancy > 0
+    && window !== undefined && window > 0
+  ) {
+    return occupancy / window;
+  }
+  return undefined;
 }
 
 function computeFractionFromModelUsage(

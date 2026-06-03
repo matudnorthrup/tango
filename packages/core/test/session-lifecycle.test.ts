@@ -264,6 +264,7 @@ describe("SessionLifecycleManager", () => {
       {
         context: "Warm-start context A",
         currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:08:18.000Z",
+        turnBriefingPrompt: "Session briefing (act on this every turn):\n- Search first A",
         timeout: 1_000,
       },
     );
@@ -274,6 +275,7 @@ describe("SessionLifecycleManager", () => {
       {
         context: "Warm-start context B",
         currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:09:18.000Z",
+        turnBriefingPrompt: "Session briefing (act on this every turn):\n- Search first B",
         timeout: 2_000,
       },
     );
@@ -284,14 +286,18 @@ describe("SessionLifecycleManager", () => {
       {
         context: "Warm-start context A",
         currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:08:18.000Z",
+        turnBriefingPrompt: "Session briefing (act on this every turn):\n- Search first A",
         timeout: 1_000,
       },
     );
+    // On the resumed turn, warm-start `context` is dropped but the briefing
+    // ("whisper") and current-turn metadata are preserved.
     expect(runtime.send).toHaveBeenNthCalledWith(
       2,
       "again",
       {
         currentTurnMetadataPrompt: "Current user message metadata:\n- timestamp_utc: 2026-05-31T04:09:18.000Z",
+        turnBriefingPrompt: "Session briefing (act on this every turn):\n- Search first B",
         timeout: 2_000,
       },
     );
@@ -623,6 +629,90 @@ describe("SessionLifecycleManager", () => {
     expect(pool.getOrCreateCalls).toHaveLength(1);
     expect(session?.messageCount).toBe(1);
     expect(session?.sessionId).toBe("session-1");
+  });
+
+  it("hard resets when peak-occupancy fraction crosses the threshold", async () => {
+    const pool = new MockRuntimePool();
+    pool.enqueueRuntime(new MockRuntime("runtime-1")).queueResponse(createResponse("First reply", {
+      sessionId: "session-1",
+      metadata: {
+        providerMetadata: { contextOccupancyTokens: 170000, contextWindowTokens: 200000 },
+      },
+    }));
+    pool.enqueueRuntime(new MockRuntime("runtime-2"));
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      { contextResetThreshold: 0.80 },
+    );
+
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+    const session = manager.getSession("conversation-1");
+
+    // 170000 / 200000 = 0.85, above 0.80 threshold
+    expect(pool.closeCalls).toEqual(["conversation-1"]);
+    expect(session?.messageCount).toBe(0);
+  });
+
+  it("prefers peak-occupancy over the inflated modelUsage sum (no false reset)", async () => {
+    const pool = new MockRuntimePool();
+    // modelUsage SUM = 751730/200000 = 3.76 (the over-count bug), but the peak
+    // single-call occupancy is only 90000/200000 = 0.45 — must NOT reset.
+    pool.enqueueRuntime(new MockRuntime("runtime-1")).queueResponse(createResponse("First reply", {
+      sessionId: "session-1",
+      metadata: {
+        raw: {
+          num_turns: 1,
+          modelUsage: {
+            "claude-sonnet-4-20250514": {
+              inputTokens: 26,
+              outputTokens: 12604,
+              cacheReadInputTokens: 676482,
+              cacheCreationInputTokens: 75222,
+              contextWindow: 200000,
+            },
+          },
+        },
+        providerMetadata: { contextOccupancyTokens: 90000, contextWindowTokens: 200000 },
+      },
+    }));
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      { contextResetThreshold: 0.80 },
+    );
+
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+    const session = manager.getSession("conversation-1");
+
+    expect(pool.closeCalls).toHaveLength(0);
+    expect(session?.messageCount).toBe(1);
+  });
+
+  it("resets a genuinely-full multi-turn session via occupancy (old num_turns guard would skip)", async () => {
+    const pool = new MockRuntimePool();
+    pool.enqueueRuntime(new MockRuntime("runtime-1")).queueResponse(createResponse("First reply", {
+      sessionId: "session-1",
+      metadata: {
+        // Many internal turns (the old guard returned undefined and never reset),
+        // but the peak single-call occupancy genuinely fills the window.
+        raw: { num_turns: 22 },
+        providerMetadata: { contextOccupancyTokens: 175000, contextWindowTokens: 200000 },
+      },
+    }));
+    pool.enqueueRuntime(new MockRuntime("runtime-2"));
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      { contextResetThreshold: 0.80 },
+    );
+
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+    const session = manager.getSession("conversation-1");
+
+    // 175000 / 200000 = 0.875, above threshold — fires despite num_turns > 1.
+    expect(pool.closeCalls).toEqual(["conversation-1"]);
+    expect(session?.messageCount).toBe(0);
   });
 
   it("does not reset when modelUsage context fraction is below the threshold", async () => {

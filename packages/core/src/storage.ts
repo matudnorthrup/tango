@@ -583,6 +583,59 @@ export interface ListActiveContextItemsOptions {
   limit?: number;
 }
 
+/**
+ * project_state — the "head" of a project arc's state file (Unified Memory
+ * System, Slice 1). It is the machine-tier source of truth for recall: status,
+ * a short Quick Read, and a pointer to the human-collaborative Obsidian body.
+ * `projectId` is the durable routing key for the arc (e.g. a `project:{id}` or
+ * `topic:{id}` session key).
+ */
+export interface ProjectStateRecord {
+  projectId: string;
+  title: string;
+  status: string;
+  quickRead: string | null;
+  obsidianPath: string | null;
+  templateId: string | null;
+  prevSessionId: string | null;
+  leadAgentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastSavedAt: string | null;
+}
+
+export interface ProjectStateUpsertInput {
+  projectId: string;
+  title?: string;
+  status?: string;
+  quickRead?: string | null;
+  obsidianPath?: string | null;
+  templateId?: string | null;
+  prevSessionId?: string | null;
+  leadAgentId?: string | null;
+  /** When true, stamps last_saved_at = now (an explicit save checkpoint). */
+  markSaved?: boolean;
+}
+
+export interface ListProjectStatesOptions {
+  status?: string;
+  limit?: number;
+}
+
+interface ProjectStateRow {
+  project_id: string;
+  title: string;
+  status: string;
+  quick_read: string | null;
+  obsidian_path: string | null;
+  template_id: string | null;
+  prev_session_id: string | null;
+  lead_agent_id: string | null;
+  created_at: string;
+  updated_at: string;
+  last_saved_at: string | null;
+}
+
 export interface StoredMemoryRecord {
   id: number;
   sessionId: string | null;
@@ -1903,6 +1956,26 @@ const MIGRATIONS: Migration[] = [
       ) AS tool_ids
       WHERE p.type = 'worker';
     `,
+  },
+  {
+    version: 37,
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_state (
+        project_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        quick_read TEXT,
+        obsidian_path TEXT,
+        template_id TEXT,
+        prev_session_id TEXT,
+        lead_agent_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_saved_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_state_status
+        ON project_state(status, updated_at);
+    `,
   }
 ];
 
@@ -2383,6 +2456,118 @@ export class TangoStorage {
       .run(normalizeSqliteTimestamp(now));
 
     return toSafeNumber(result.changes);
+  }
+
+  private rowToProjectState(row: ProjectStateRow): ProjectStateRecord {
+    return {
+      projectId: row.project_id,
+      title: row.title,
+      status: row.status,
+      quickRead: row.quick_read,
+      obsidianPath: row.obsidian_path,
+      templateId: row.template_id,
+      prevSessionId: row.prev_session_id,
+      leadAgentId: row.lead_agent_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      lastSavedAt: row.last_saved_at,
+    };
+  }
+
+  getProjectState(projectId: string): ProjectStateRecord | undefined {
+    const key = projectId.trim();
+    if (key.length === 0) return undefined;
+    const row = this.db
+      .prepare(
+        `SELECT project_id, title, status, quick_read, obsidian_path, template_id,
+                prev_session_id, lead_agent_id, created_at, updated_at, last_saved_at
+         FROM project_state WHERE project_id = ?`
+      )
+      .get(key) as ProjectStateRow | undefined;
+    return row ? this.rowToProjectState(row) : undefined;
+  }
+
+  /**
+   * Insert or partially update a project_state head. On update, only fields that
+   * are explicitly provided are overwritten (undefined = leave unchanged; an
+   * explicit null clears). `markSaved` stamps last_saved_at = now.
+   */
+  upsertProjectState(input: ProjectStateUpsertInput): ProjectStateRecord {
+    const projectId = input.projectId.trim();
+    if (projectId.length === 0) {
+      throw new Error("project_state projectId is required");
+    }
+
+    const existing = this.getProjectState(projectId);
+    if (!existing) {
+      const lastSavedSql = input.markSaved ? "datetime('now')" : "NULL";
+      this.db
+        .prepare(
+          `INSERT INTO project_state (
+             project_id, title, status, quick_read, obsidian_path, template_id,
+             prev_session_id, lead_agent_id, last_saved_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${lastSavedSql})`
+        )
+        .run(
+          projectId,
+          (input.title ?? projectId).trim(),
+          (input.status ?? "active").trim(),
+          input.quickRead ?? null,
+          input.obsidianPath ?? null,
+          input.templateId ?? null,
+          input.prevSessionId ?? null,
+          input.leadAgentId ?? null
+        );
+    } else {
+      const sets: string[] = ["updated_at = datetime('now')"];
+      const values: Array<string | null> = [];
+      const setField = (col: string, value: string | null | undefined) => {
+        if (value !== undefined) {
+          sets.push(`${col} = ?`);
+          values.push(value);
+        }
+      };
+      setField("title", input.title?.trim());
+      setField("status", input.status?.trim());
+      setField("quick_read", input.quickRead);
+      setField("obsidian_path", input.obsidianPath);
+      setField("template_id", input.templateId);
+      setField("prev_session_id", input.prevSessionId);
+      setField("lead_agent_id", input.leadAgentId);
+      if (input.markSaved) {
+        sets.push("last_saved_at = datetime('now')");
+      }
+      values.push(projectId);
+      this.db
+        .prepare(`UPDATE project_state SET ${sets.join(", ")} WHERE project_id = ?`)
+        .run(...values);
+    }
+
+    const saved = this.getProjectState(projectId);
+    if (!saved) {
+      throw new Error("Failed to read upserted project_state");
+    }
+    return saved;
+  }
+
+  listProjectStates(options: ListProjectStatesOptions = {}): ProjectStateRecord[] {
+    const conditions: string[] = [];
+    const values: Array<string | number> = [];
+    if (options.status) {
+      conditions.push("status = ?");
+      values.push(options.status);
+    }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = Number.isFinite(options.limit) ? Math.max(options.limit ?? 50, 1) : 50;
+    values.push(limit);
+    const rows = this.db
+      .prepare(
+        `SELECT project_id, title, status, quick_read, obsidian_path, template_id,
+                prev_session_id, lead_agent_id, created_at, updated_at, last_saved_at
+         FROM project_state ${whereClause} ORDER BY updated_at DESC LIMIT ?`
+      )
+      .all(...values) as unknown as ProjectStateRow[];
+    return rows.map((row) => this.rowToProjectState(row));
   }
 
   insertMemory(input: MemoryInsertInput): number {
