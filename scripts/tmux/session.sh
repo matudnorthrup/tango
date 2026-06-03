@@ -125,7 +125,8 @@ resolve_tango_repo_dir() {
 sync_tmux_service_environment() {
   local session_name="$1"
 
-  if ! tango_service_tmux has-session -t "$session_name" 2>/dev/null; then
+  if ! tango_service_tmux has-session -t "$session_name" 2>/dev/null \
+    && ! tango_service_tmux list-sessions >/dev/null 2>&1; then
     return 0
   fi
 
@@ -160,8 +161,8 @@ slot_tmux_window_exists() {
   local session_name="$1"
   local window_name="$2"
 
-  tmux has-session -t "$session_name" 2>/dev/null \
-    && tmux list-windows -t "$session_name" -F '#{window_name}' 2>/dev/null | grep -qx "$window_name"
+  tango_service_tmux has-session -t "$session_name" 2>/dev/null \
+    && tango_service_tmux list-windows -t "$session_name" -F '#{window_name}' 2>/dev/null | grep -qx "$window_name"
 }
 
 resolve_active_slot_window_name() {

@@ -29,6 +29,7 @@ See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) f
 | `agent-docs.md` | `agent_docs` | Agent self-update | |
 | `latitude-remote.md` | `latitude_run` | Watson / work systems | |
 | `linear.md` | `linear` | Victor / project tracking | |
+| `attachments.md` | `attachment_search`, `attachment_read`, `attachment_status`, `attachment_reprocess` | all agents/workers | |
 | `discord-manage.md` | `discord_manage` | Dev agents | |
 | `tango-dev.md` | `tango_shell`, `tango_file` | Dev agents | |
 

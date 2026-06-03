@@ -19,8 +19,11 @@ import { randomUUID } from "node:crypto";
 import { request as httpRequest, createServer as createHttpServer } from "node:http";
 import {
   AgentRegistry,
+  AttachmentJobWorker,
+  AttachmentStore,
   type AgentRuntimeConfig,
   assembleSessionMemoryPrompt,
+  buildAttachmentDirectoryContext,
   buildDeterministicConversationMemory,
   buildDeterministicConversationSummary,
   auditPromptSnapshotsWithProvider,
@@ -29,7 +32,12 @@ import {
   createVoyageEmbeddingProviderFromEnv,
   emptyToolTelemetry,
   type AgentConfig,
+  type AttachmentDirectoryContextTrace,
+  type AttachmentLlmFallbackRunner,
+  LLM_VISION_FALLBACK_PROMPT_VERSION,
   buildContextPacket,
+  buildAttachmentLlmFallbackPrompt,
+  buildAttachmentLlmFallbackResultFromProviderOutput,
   type ContextPacket,
   type ChatProvider,
   type EmbeddingProvider,
@@ -52,7 +60,13 @@ import {
   resolveSessionMemoryConfig,
   type SessionMemoryPromptTrace,
   type TopicRecord,
+  formatAttachmentBacklogWatchdogSummary,
+  formatAttachmentRetentionSweepSummary,
+  loadAttachmentRetentionPolicy,
+  runAttachmentBacklogWatchdog,
+  runAttachmentRetentionSweep,
   createBuiltInProviderRegistry,
+  createAttachmentProcessingHandlers,
   resolveProviderCandidates,
   resolveAgentToolPolicy,
   serializeEmbedding,
@@ -71,6 +85,7 @@ import {
   resolveConfigDir,
   resolveConfiguredPath,
   resolveDatabasePath,
+  resolveTangoDataDir,
   loadLayeredV2AgentConfigs,
   renderContextPacket,
   planSessionCompaction,
@@ -219,7 +234,7 @@ if (shouldProvisionSlotMode) {
 type ResponseMode = "concise" | "explain";
 
 interface WarmStartContextDiagnostics {
-  strategy: "session-memory-prompt" | "context-packet" | "none";
+  strategy: "session-memory-prompt" | "context-packet" | "attachment-directory-context" | "none";
   orchestratorContinuityMode: OrchestratorContinuityMode;
   channelSurfaceSupplementalMessages?: number;
   error?: string;
@@ -229,6 +244,10 @@ interface WarmStartContextDiagnostics {
     trace: SessionMemoryPromptTrace;
   };
   contextPacket?: ContextPacket;
+  attachmentDirectoryContext?: {
+    trace: AttachmentDirectoryContextTrace;
+    promptChars: number;
+  };
 }
 
 interface WarmStartContextResult {
@@ -481,6 +500,8 @@ const slotModeAgentTestChannels = agentConfigs
   }));
 const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !== undefined).length;
 const storage = new TangoStorage(dbPath);
+const attachmentStore = new AttachmentStore(storage.getDatabase());
+const attachmentDataDir = resolveTangoDataDir();
 // Manual enablement: flip config/v2/agents/<agent>.yaml runtime.provider to
 // "claude-code-v2" and restart the bot. Keep committed configs on "legacy".
 const v2Configs = loadLayeredV2AgentConfigs(configDir);
@@ -492,7 +513,7 @@ const tangoRouter = new TangoRouter({
     idleTimeoutHours: 24,
     contextResetThreshold: 0.80,
   },
-  buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient),
+  buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient, { attachmentStore }),
   onPostTurn: createV2PostTurnHook({
     v2Configs,
     atlasMemoryClient,
@@ -543,6 +564,13 @@ const providers = createBuiltInProviderRegistry({
     skipGitRepoCheck: true
   }
 });
+const attachmentWorker = new AttachmentJobWorker(
+  attachmentStore,
+  `discord-${process.pid}`,
+  createAttachmentProcessingHandlers({
+    runLlmFallback: createProviderAttachmentLlmFallbackRunner(),
+  }),
+);
 
 const providerSessionByConversation = new Map<string, string>();
 const channelQueues = new Map<string, Promise<void>>();
@@ -557,6 +585,97 @@ function resolveMemoryEvalAuditProvider(): ChatProvider {
   const fallback = providers.values().next().value;
   if (fallback) return fallback;
   throw new Error("No provider available for memory-eval audit.");
+}
+
+function createProviderAttachmentLlmFallbackRunner(): AttachmentLlmFallbackRunner {
+  return async (input) => {
+    const fallbackAgent = resolveAttachmentFallbackAgent(input.attachment.agentId);
+    const sessionId =
+      input.attachment.sessionId?.trim()
+      || buildDefaultSessionKey(fallbackAgent.id);
+    const providerSelection = resolveProviderNamesForTurn({
+      sessionId,
+      agent: fallbackAgent,
+    });
+    const providerNames = appendDefaultVisionFallbackProviders(providerSelection.providerNames);
+    const providerChain = resolveProviderChain(providerNames);
+    const prompt = buildAttachmentLlmFallbackPrompt(input);
+    const startedAt = Date.now();
+
+    const result = await generateWithFailover(
+      providerChain,
+      {
+        prompt,
+        systemPrompt: [
+          "You are Tango's fresh-context attachment vision fallback worker.",
+          "Use only the provided local file path and attachment metadata.",
+          "Return exactly one compact JSON object matching the requested schema.",
+          "Do not include local filesystem paths in the returned JSON.",
+        ].join("\n"),
+        tools: {
+          mode: "allowlist",
+          allowlist: ["Read"],
+        },
+        model: providerSelection.model,
+        reasoningEffort: providerSelection.reasoningEffort ?? "low",
+      },
+      providerRetryLimit,
+    );
+    const response = result.retryResult.response;
+
+    return buildAttachmentLlmFallbackResultFromProviderOutput(response.text, {
+      metadata: compactAttachmentFallbackMetadata({
+        promptVersion: LLM_VISION_FALLBACK_PROMPT_VERSION,
+        providerName: result.providerName,
+        model: response.metadata?.model ?? providerSelection.model ?? null,
+        providerSessionId: response.providerSessionId ?? null,
+        attempts: result.retryResult.attempts,
+        attemptErrors: result.retryResult.attemptErrors,
+        failures: result.failures,
+        usedFailover: result.usedFailover,
+        warmStartUsed: result.warmStartUsed,
+        durationMs: Date.now() - startedAt,
+        providerMetadata: response.metadata ?? null,
+        toolCalls: response.toolCalls?.map((toolCall) => ({
+          name: toolCall.name,
+          serverName: toolCall.serverName,
+          toolName: toolCall.toolName,
+        })) ?? [],
+        promptChars: prompt.length,
+        source: {
+          attachmentId: input.attachment.id,
+          fileId: input.file.id,
+          sha256: input.file.sha256,
+          contentType: input.attachment.contentType ?? input.file.contentType,
+          bytes: input.attachment.bytes ?? input.file.bytes,
+        },
+        previousExtractionId: input.previousExtraction?.id ?? null,
+        fallbackReason: input.reason,
+      }),
+    });
+  };
+}
+
+function resolveAttachmentFallbackAgent(agentId: string | null): AgentConfig {
+  const requested = agentId ? agentRegistry.get(agentId) : null;
+  const fallback = requested ?? systemAgent ?? agentRegistry.get("dispatch") ?? agentConfigs[0];
+  if (!fallback) {
+    throw new Error("No agent is configured for attachment LLM fallback.");
+  }
+  return fallback;
+}
+
+function appendDefaultVisionFallbackProviders(providerNames: string[]): string[] {
+  const defaults = ["claude-oauth", "claude-oauth-secondary", "claude-harness", "codex"];
+  return [...new Set([...providerNames, ...defaults])];
+}
+
+function compactAttachmentFallbackMetadata(
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => value !== undefined),
+  );
 }
 
 function writeMemoryEvalReport(markdown: string, now: Date = new Date()): string {
@@ -636,6 +755,39 @@ registerDeterministicHandler("printer-monitor", printerMonitorHandler);
 registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
 registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
 registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
+registerDeterministicHandler("attachment-retention-sweep", async (ctx) => {
+  const store = new AttachmentStore(ctx.db);
+  const report = runAttachmentRetentionSweep(store, {
+    policy: loadAttachmentRetentionPolicy(configDir),
+    dryRun: false,
+    writeReviewDecisions: true,
+    decidedBy: "schedule:attachment-retention-sweep",
+  });
+
+  return {
+    status: report.evaluated === 0 ? "skipped" : "ok",
+    summary: formatAttachmentRetentionSweepSummary(report),
+    data: { ...report, evaluations: report.evaluations.slice(0, 10) },
+  };
+});
+registerDeterministicHandler("attachment-backlog-watchdog", async (ctx) => {
+  const store = new AttachmentStore(ctx.db);
+  const report = runAttachmentBacklogWatchdog(store, {
+    writeReviewDecisions: true,
+    decidedBy: "schedule:attachment-backlog-watchdog",
+  });
+
+  return {
+    status:
+      report.recoveredStaleLocks === 0
+        && report.failedJobs === 0
+        && report.stuckAttachments.length === 0
+        ? "skipped"
+        : "ok",
+    summary: formatAttachmentBacklogWatchdogSummary(report),
+    data: { ...report },
+  };
+});
 
 let cachedLunchMoneyApiKey: string | null = null;
 const RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN = 3;
@@ -3166,7 +3318,8 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       sessionId: turnInput.sessionId,
       agentId: targetAgent.id,
       currentUserPrompt: turnInput.transcript,
-      discordChannelId: voiceRouterThreadId ?? voiceRouterChannelId,
+      discordChannelId: voiceRouterChannelId,
+      discordThreadId: voiceRouterThreadId,
     });
   const voiceContext = [
     voiceWarmStartPrompt,
@@ -4488,6 +4641,7 @@ async function buildWarmStartContext(input: {
   excludeMessageIds?: number[];
   orchestratorContinuityMode?: OrchestratorContinuityMode;
   discordChannelId?: string | null;
+  discordThreadId?: string | null;
 }): Promise<WarmStartContextResult> {
   try {
     const allMessages = storage.listMessagesForSession(input.sessionId, 5000);
@@ -4504,6 +4658,23 @@ async function buildWarmStartContext(input: {
       channelId: input.discordChannelId,
       agentId: input.agentId,
     });
+    const attachmentContext = buildAttachmentDirectoryContext({
+      store: attachmentStore,
+      conversationKey: input.discordThreadId
+        ? `thread:${input.discordThreadId}`
+        : input.discordChannelId
+          ? `channel:${input.discordChannelId}`
+          : undefined,
+      discordChannelId: input.discordChannelId,
+      agentId: input.agentId,
+      currentUserPrompt: input.currentUserPrompt,
+      recentMessages: messages,
+    });
+    const attachmentPrompt = attachmentContext.prompt.trim();
+    const attachmentDirectoryContext = {
+      trace: attachmentContext.trace,
+      promptChars: attachmentPrompt.length,
+    };
     const sessionConfig = resolveEffectiveSessionConfig(input.sessionId);
     const memoryConfig = resolveSessionMemoryConfig(sessionConfig?.memory);
     const orchestratorContinuityMode = input.orchestratorContinuityMode ?? "provider";
@@ -4535,14 +4706,16 @@ async function buildWarmStartContext(input: {
       storage.touchMemories(memoryPrompt.accessedMemoryIds);
     }
 
-    const prompt = memoryPrompt.prompt.trim();
-    if (prompt.length > 0) {
+    const memoryPromptText = memoryPrompt.prompt.trim();
+    const prompt = joinContextPrompts(memoryPromptText, attachmentPrompt);
+    if (memoryPromptText.length > 0) {
       return {
         prompt,
         diagnostics: {
           strategy: "session-memory-prompt",
           orchestratorContinuityMode,
           channelSurfaceSupplementalMessages: supplementalMessageCount,
+          attachmentDirectoryContext,
           memoryPrompt: {
             estimatedTokens: memoryPrompt.estimatedTokens,
             usedFullHistory: memoryPrompt.usedFullHistory,
@@ -4565,14 +4738,16 @@ async function buildWarmStartContext(input: {
       maxToolOutcomes: 3,
       maxContentCharsPerTurn: 280
     });
-    const fallbackPrompt = renderContextPacket(packet, { maxChars: 2400 }).trim();
+    const fallbackPromptText = renderContextPacket(packet, { maxChars: 2400 }).trim();
+    const fallbackPrompt = joinContextPrompts(fallbackPromptText, attachmentPrompt);
     return fallbackPrompt.length > 0
         ? {
             prompt: fallbackPrompt,
             diagnostics: {
-              strategy: "context-packet",
+              strategy: fallbackPromptText.length > 0 ? "context-packet" : "attachment-directory-context",
               orchestratorContinuityMode,
               channelSurfaceSupplementalMessages: supplementalMessageCount,
+              attachmentDirectoryContext,
               contextPacket: packet,
             },
           }
@@ -4581,6 +4756,7 @@ async function buildWarmStartContext(input: {
               strategy: "none",
               orchestratorContinuityMode,
               channelSurfaceSupplementalMessages: supplementalMessageCount,
+              attachmentDirectoryContext,
             },
           };
   } catch (error) {
@@ -4602,9 +4778,17 @@ async function buildWarmStartContextPrompt(input: {
   currentUserPrompt?: string;
   excludeMessageIds?: number[];
   discordChannelId?: string | null;
+  discordThreadId?: string | null;
 }): Promise<string | undefined> {
   const result = await buildWarmStartContext(input);
   return result.prompt;
+}
+
+function joinContextPrompts(...prompts: Array<string | undefined>): string {
+  return prompts
+    .map((prompt) => prompt?.trim() ?? "")
+    .filter((prompt) => prompt.length > 0)
+    .join("\n\n");
 }
 
 async function maybeEmbedText(
@@ -6008,7 +6192,24 @@ async function handleMessage(
   }
 
   const responseMode = resolveResponseMode(targetAgent, commandParse.responseModeOverride);
-  const attachmentResult = await processAttachments(message.attachments, promptRoute.sessionId);
+  const attachmentResult = await processAttachments(message.attachments, promptRoute.sessionId, {
+    attachmentStore,
+    dataDir: attachmentDataDir,
+    sourceRefs: {
+      agentId: targetAgent.id,
+      localMessageId: inboundMessageId,
+      discordMessageId: message.id,
+      channelId: routingChannelId,
+      threadId: message.channelId !== routingChannelId ? message.channelId : null,
+      userId: message.author.id,
+      projectId: promptRoute.project?.id ?? null,
+      metadata: {
+        channelKey,
+        discordUsername: message.author.username,
+        messageTimestamp: message.createdAt.toISOString(),
+      },
+    },
+  });
   const prompt = buildPromptWithReferent(
     buildPrompt(naturalRoute?.promptText ?? commandParse.promptText, message) + attachmentResult.promptSuffix,
     messageReferent
@@ -6112,12 +6313,14 @@ async function handleMessage(
     }
 
     try {
-      const warmStartPrompt = await buildWarmStartContextPrompt({
+      const warmStartContext = await buildWarmStartContext({
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
         currentUserPrompt: prompt,
-        discordChannelId: threadId ?? routingChannelId,
+        discordChannelId: routingChannelId,
+        discordThreadId: threadId,
       });
+      const warmStartPrompt = warmStartContext.prompt;
       const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt({
         timestamp: message.createdAt,
         timestampSource: "discord-sent",
@@ -6222,6 +6425,10 @@ async function handleMessage(
           responseMode,
           runtimePath: "v2",
           toolsUsed,
+          warmStartPromptChars: warmStartPrompt?.length ?? 0,
+          turnWarmStartUsed: Boolean(warmStartPrompt),
+          requestWarmStartUsed: Boolean(warmStartPrompt),
+          warmStartContext: warmStartContext.diagnostics,
           runtimeExitCode: metadataNumber(runtimeMetadata, "exitCode") ?? null,
           runtimeSignal: metadataString(runtimeMetadata, "signal") ?? null,
           runtimeStderr: metadataString(runtimeMetadata, "stderr") ?? null,
@@ -6450,6 +6657,11 @@ client.once("clientReady", async () => {
   console.log(`[tango-discord] command-guild-id=${commandGuildId ?? "global"}`);
   console.log(`[tango-discord] db-path=${dbPath}`);
   console.log(`[tango-discord] config=${cwdRelativeConfigDir}`);
+  const recoveredAttachmentJobs = attachmentWorker.recoverStaleLocks();
+  attachmentWorker.start();
+  console.log(
+    `[attachment-worker] started worker=${attachmentWorker.workerId} recovered_stale_jobs=${recoveredAttachmentJobs}`,
+  );
   console.log(`[tango-voice] bridge-enabled=${voiceBridgeEnabled}`);
   console.log(
     `[tango-voice] v2-router-agents=${
@@ -6816,6 +7028,11 @@ function shutdown(signal: "SIGINT" | "SIGTERM"): void {
       }
     } catch (error) {
       console.error("[tango] scheduler shutdown failed", error);
+    }
+    try {
+      await attachmentWorker.stop();
+    } catch (error) {
+      console.error("[attachment-worker] shutdown failed", error);
     }
     try {
       if (voiceBridge) {

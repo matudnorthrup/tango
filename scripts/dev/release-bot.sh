@@ -5,7 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BOT_LOCK_SCRIPT="$SCRIPT_DIR/bot-lock.sh"
 WT_STOP_SCRIPT="$REPO_DIR/scripts/tmux/wt/stop.sh"
-MAIN_START_SCRIPT="$REPO_DIR/scripts/tmux/start.sh"
 source "$REPO_DIR/scripts/tmux/session.sh"
 
 usage() {
@@ -49,12 +48,29 @@ main_discord_target() {
   printf 'tango:discord\n'
 }
 
+resolve_main_repo_dir() {
+  if [ -n "${TANGO_MAIN_REPO_DIR:-}" ]; then
+    printf '%s\n' "$TANGO_MAIN_REPO_DIR"
+    return 0
+  fi
+
+  local main_repo_dir
+  main_repo_dir="$(git -C "$REPO_DIR" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | sed -n '1p')"
+  if [ -z "$main_repo_dir" ]; then
+    fail "Unable to resolve main repo worktree. Set TANGO_MAIN_REPO_DIR."
+  fi
+
+  printf '%s\n' "$main_repo_dir"
+}
+
 start_main_discord() {
   local main_repo_dir=""
+  local main_start_script=""
   local node_bin="${TANGO_NODE_BIN:-/Users/devinnorthrup/.nvm/versions/node/v24.14.0/bin/node}"
   local run_cmd=""
 
-  main_repo_dir="$(resolve_tango_repo_dir)"
+  main_repo_dir="$(resolve_main_repo_dir)"
+  main_start_script="$main_repo_dir/scripts/tmux/start.sh"
 
   if [ ! -x "$node_bin" ]; then
     node_bin="$(command -v node || true)"
@@ -69,6 +85,7 @@ start_main_discord() {
   fi
 
   printf -v run_cmd '%s' "cd \"$main_repo_dir\" && env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$node_bin\" packages/discord/dist/main.js"
+  sync_tmux_service_environment "$(resolve_tango_tmux_session_name)"
 
   if tango_service_tmux has-session -t tango 2>/dev/null; then
     if ! tango_service_tmux list-windows -t tango -F '#{window_name}' 2>/dev/null | grep -qx 'discord'; then
@@ -77,7 +94,7 @@ start_main_discord() {
     return 0
   fi
 
-  "$MAIN_START_SCRIPT"
+  "$main_start_script"
 }
 
 wait_for_discord_ready() {
@@ -86,7 +103,7 @@ wait_for_discord_ready() {
   local waited=0
 
   while [ "$waited" -lt "$timeout_seconds" ]; do
-    if tango_service_tmux capture-pane -t "$target" -p 2>/dev/null | grep -q '\[tango-discord\] connected as '; then
+    if tango_service_tmux capture-pane -J -p -S -2000 -t "$target" 2>/dev/null | grep -q '\[tango-discord\] connected as '; then
       return 0
     fi
     sleep 1

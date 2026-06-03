@@ -62,4 +62,4 @@ if [ -z "$WINDOW_NAME" ] || ! slot_tmux_window_exists "$SESSION_NAME" "$WINDOW_N
 fi
 
 TARGET="${SESSION_NAME}:${WINDOW_NAME}"
-tmux capture-pane -t "$TARGET" -p | tail -n "$lines"
+tango_service_tmux capture-pane -t "$TARGET" -p | tail -n "$lines"

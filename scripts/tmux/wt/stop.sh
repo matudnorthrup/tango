@@ -59,7 +59,7 @@ fi
 TARGET="${SESSION_NAME}:${WINDOW_NAME}"
 
 if slot_tmux_window_exists "$SESSION_NAME" "$WINDOW_NAME"; then
-  tmux kill-window -t "$TARGET"
+  tango_service_tmux kill-window -t "$TARGET"
   echo "Stopped slot tmux target '$TARGET'"
 else
   echo "No slot tmux target running (expected '$TARGET')"

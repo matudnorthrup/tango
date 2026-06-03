@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { executeSchedule } from "../src/scheduler/executor.js";
-import { getPreCheckHandler, registerPreCheckHandler } from "../src/scheduler/handlers.js";
+import { getPreCheckHandler, registerDeterministicHandler, registerPreCheckHandler } from "../src/scheduler/handlers.js";
 import type { ScheduleConfig } from "../src/scheduler/types.js";
 
 const tempDirs: string[] = [];
@@ -49,6 +49,33 @@ function createTempHome(): string {
 }
 
 describe("executeSchedule", () => {
+  it("preserves deterministic handler data as run metadata", async () => {
+    registerDeterministicHandler("test-deterministic-metadata", async () => ({
+      status: "ok",
+      summary: "metadata recorded",
+      data: { decisionsWritten: 2 },
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        execution: {
+          mode: "deterministic",
+          handler: "test-deterministic-metadata",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        db: {} as never,
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "ok",
+      summary: "metadata recorded",
+      metadata: { decisionsWritten: 2 },
+    });
+  });
+
   it("routes migrated explicit-intent agent schedules through executeV2Turn", async () => {
     const executeV2Turn = vi.fn(async () => ({
       text: "v2 schedule turn",

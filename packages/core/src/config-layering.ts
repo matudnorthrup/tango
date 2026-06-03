@@ -10,6 +10,7 @@ import {
 
 export type ConfigCategory =
   | "agents"
+  | "attachment-retention-rules"
   | "intent-contracts"
   | "projects"
   | "schedules"
