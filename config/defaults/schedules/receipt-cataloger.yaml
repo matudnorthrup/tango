@@ -64,7 +64,10 @@ execution:
          to find the matching Gmail invoice or receipt email and create the
          receipt from that invoice or attachment.
     3. Create or update the Obsidian receipt file following the receipt_logging
-       skill format at Records/Finance/Receipts/{Retailer}/.
+       skill format at Records/Finance/Receipts/{Retailer}/. Every receipt
+       note must include frontmatter with `date`, `types: ["[[Receipt]]"]`,
+       and `areas: ["[[Finance]]"]`. Do not write frontmatter `categories`
+       or scalar `type`/`types`/`areas` fields.
     4. Use the transaction_categorization skill rules to suggest
        categories for non-grocery items.
     5. For any reimbursable vendor receipt created, add or repair the

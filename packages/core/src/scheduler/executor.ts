@@ -58,6 +58,7 @@ function writeObsidianLog(config: ScheduleConfig, summary: string): void {
   const filePath = path.join(jobsDir, `${yyyy}-${mm}.md`);
 
   fs.mkdirSync(jobsDir, { recursive: true });
+  ensureObsidianJobLogFrontmatter(filePath, domain, `${yyyy}-${mm}`);
 
   const truncatedSummary = truncateText(summary, 2000);
   const flaggedSection = buildFlaggedSection(summary);
@@ -78,6 +79,71 @@ function writeObsidianLog(config: ScheduleConfig, summary: string): void {
   console.error(
     `[scheduler] obsidian-log written: ${domain}/${yyyy}-${mm}.md for ${config.id}`,
   );
+}
+
+function ensureObsidianJobLogFrontmatter(filePath: string, domain: string, month: string): void {
+  const header = buildObsidianJobLogHeader(domain, month);
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, header, "utf8");
+    return;
+  }
+
+  const current = fs.readFileSync(filePath, "utf8");
+  const trimmedStart = current.trimStart();
+  if (trimmedStart.startsWith("---")) {
+    if (trimmedStart !== current) {
+      fs.writeFileSync(filePath, trimmedStart, "utf8");
+    }
+    return;
+  }
+
+  const needsTitle = !trimmedStart.startsWith("#");
+  const repaired = needsTitle
+    ? `${header}${trimmedStart}`
+    : `${header.replace(/\n# [^\n]+\n$/u, "\n")}${trimmedStart}`;
+  fs.writeFileSync(filePath, repaired, "utf8");
+}
+
+function buildObsidianJobLogHeader(domain: string, month: string): string {
+  const titleDate = new Date(`${month}-01T12:00:00`);
+  const title = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+  }).format(titleDate);
+  const areas = jobLogAreas(domain);
+  const frontmatter = [
+    "---",
+    `date: ${month}-01`,
+    "types:",
+    '  - "[[Record]]"',
+    "areas:",
+    ...areas.map((area) => `  - "[[${area}]]"`),
+    "source_kind: log",
+    "record_kind: job_log",
+    `job_domain: ${JSON.stringify(domain)}`,
+    "---",
+    "",
+    `# ${domain} Jobs — ${title}`,
+    "",
+  ];
+
+  return frontmatter.join("\n");
+}
+
+function jobLogAreas(domain: string): string[] {
+  switch (domain) {
+    case "Finance":
+      return ["Finance"];
+    case "Planning":
+      return ["Personal"];
+    case "Slack":
+    case "Email":
+      return ["Latitude"];
+    case "Vault":
+      return ["Tango"];
+    default:
+      return ["Tango"];
+  }
 }
 
 function truncateText(value: string, maxLength: number): string {

@@ -188,7 +188,17 @@ function renderBackfilledWalmartReceipt(input: BackfillWalmartReceiptInput): str
 
   const lines = [
     "---",
+    `date: ${input.date}`,
     `created: ${input.date}`,
+    "types:",
+    '  - "[[Receipt]]"',
+    "areas:",
+    '  - "[[Finance]]"',
+    `merchant: "Walmart (Delivery from Store)"`,
+    `order_number: "${input.orderId}"`,
+    `reimbursable: ${tip > 0 ? "true" : "false"}`,
+    `amount: ${tip > 0 ? tip.toFixed(2) : "0.00"}`,
+    "source_kind: record",
     "---",
     `# Walmart Order ${input.orderId}`,
     "",
