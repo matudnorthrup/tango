@@ -248,6 +248,9 @@ describe("executeSchedule", () => {
     );
     const logText = fs.readFileSync(logPath, "utf8");
 
+    expect(logText).toContain("types:\n  - \"[[Record]]\"");
+    expect(logText).toContain("areas:\n  - \"[[Personal]]\"");
+    expect(logText).toContain("record_kind: job_log");
     expect(logText).toContain("## 2026-04-29");
     expect(logText).toContain("Morning Planning");
     expect(logText).toContain("**Status:** Done");
@@ -304,6 +307,102 @@ describe("executeSchedule", () => {
     expect(logText).toContain("Needs your review");
     expect(logText).toContain("Chipotle Mexican Grill");
     expect(logText).not.toContain("No flagged items.");
+  });
+
+  it("repairs existing Obsidian job logs that predate frontmatter", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-03T12:00:00Z"));
+    process.env.HOME = createTempHome();
+
+    const logPath = path.join(
+      process.env.HOME!,
+      "Documents",
+      "main",
+      "Records",
+      "Jobs",
+      "Finance",
+      "2026-06.md",
+    );
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(logPath, "# Finance Job Log — June 2026\n\n## Existing Entry\n", "utf8");
+
+    const executeV2Turn = vi.fn(async () => ({
+      text: "Receipt cataloger completed cleanly.",
+      durationMs: 12,
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        id: "receipt-cataloger",
+        runtime: "v2",
+        obsidianLog: {
+          domain: "Finance",
+          jobName: "Receipt Cataloger",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeV2Turn,
+        db: {} as never,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+
+    const logText = fs.readFileSync(logPath, "utf8");
+    expect(logText).toMatch(/^---\ndate: 2026-06-01/mu);
+    expect(logText).toContain("areas:\n  - \"[[Finance]]\"");
+    expect(logText).toContain("record_kind: job_log");
+    expect(logText).toContain("# Finance Job Log — June 2026");
+    expect(logText).toContain("## Existing Entry");
+    expect(logText).toContain("## 2026-06-03");
+  });
+
+  it("normalizes leading whitespace before existing Obsidian job log frontmatter", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-03T12:00:00Z"));
+    process.env.HOME = createTempHome();
+
+    const logPath = path.join(
+      process.env.HOME!,
+      "Documents",
+      "main",
+      "Records",
+      "Jobs",
+      "Slack",
+      "2026-06.md",
+    );
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(
+      logPath,
+      "\n---\ndate: 2026-06-01\ntypes:\n  - \"[[Record]]\"\nareas:\n  - \"[[Latitude]]\"\n---\n\n# Slack Jobs\n",
+      "utf8",
+    );
+
+    const executeV2Turn = vi.fn(async () => ({
+      text: "Slack saved review completed.",
+      durationMs: 12,
+    }));
+
+    await executeSchedule(
+      createAgentSchedule({
+        id: "slack-saved-review",
+        runtime: "v2",
+        obsidianLog: {
+          domain: "Slack",
+          jobName: "Slack Saved Items Review",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeV2Turn,
+        db: {} as never,
+      },
+    );
+
+    const logText = fs.readFileSync(logPath, "utf8");
+    expect(logText.startsWith("---\n")).toBe(true);
+    expect(logText).toContain("Slack saved review completed.");
   });
 
   it("keeps successful runs green when Obsidian log writing fails", async () => {

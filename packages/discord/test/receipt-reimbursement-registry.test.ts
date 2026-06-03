@@ -255,6 +255,10 @@ describe("receipt reimbursement registry", () => {
     expect(record.filePath).toBe(filePath);
     expect(fs.existsSync(filePath)).toBe(true);
     const markdown = fs.readFileSync(filePath, "utf8");
+    expect(markdown).toContain("date: 2025-10-16");
+    expect(markdown).toContain("types:\n  - \"[[Receipt]]\"");
+    expect(markdown).toContain("areas:\n  - \"[[Finance]]\"");
+    expect(markdown).toContain("reimbursable: true");
     expect(markdown).toContain("# Walmart Order 2000139-64770733");
     expect(markdown).toContain("- **Date:** 2025-10-16");
     expect(markdown).toContain("- Status: not_submitted");
