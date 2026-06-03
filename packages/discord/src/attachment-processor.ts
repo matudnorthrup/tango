@@ -167,15 +167,7 @@ export async function processAttachments(
     }
   }
 
-  let promptSuffix = "";
-  const imageAttachments = processed.filter((item) => item.type === "image");
-  if (imageAttachments.length > 0) {
-    const lines = imageAttachments.map((p, i) => {
-      const sizeKB = (p.size / 1024).toFixed(0);
-      return `${i + 1}. ${p.filename} (${p.contentType}, ${sizeKB}KB) — Read the file at ${p.localPath} to view this image.`;
-    });
-    promptSuffix = `\n\n[Attachments]\n${lines.join("\n")}`;
-  }
+  const promptSuffix = buildPromptSuffix(processed);
 
   return { processed, promptSuffix, tempDir };
 }
@@ -399,6 +391,31 @@ function toProcessedAttachment(input: {
     fileId: input.fileId,
     sha256: input.sha256,
   };
+}
+
+function buildPromptSuffix(processed: ProcessedAttachment[]): string {
+  if (processed.length === 0) return "";
+
+  const lines = processed.map((item, index) => {
+    const sizeKB = Math.max(1, Math.round(item.size / 1024));
+    const contentType = item.contentType ?? "unknown";
+    const ordinal = index + 1;
+    const attachmentRef =
+      item.logicalAttachmentId !== undefined ? `attachment:${item.logicalAttachmentId}` : null;
+
+    if (item.type === "image") {
+      const refClause = attachmentRef ? ` Stored as ${attachmentRef}.` : "";
+      return `${ordinal}. ${item.filename} (${contentType}, ${sizeKB}KB) — Read the file at ${item.localPath} to view this image.${refClause}`;
+    }
+
+    if (attachmentRef) {
+      return `${ordinal}. ${item.filename} (${contentType}, ${sizeKB}KB) — Stored as ${attachmentRef}. Use attachment_read for extracted text or attachment_status if it is still processing.`;
+    }
+
+    return `${ordinal}. ${item.filename} (${contentType}, ${sizeKB}KB) — Read the file at ${item.localPath}.`;
+  });
+
+  return `\n\n[Attachments]\n${lines.join("\n")}`;
 }
 
 function uniqueTempPath(tempDir: string, safeFilename: string, attachmentId: string): string {
