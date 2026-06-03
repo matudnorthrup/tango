@@ -84,13 +84,15 @@ case "$SLOT_MODE" in
       BRANCH_CMD='unset TANGO_GIT_BRANCH && '
     fi
 
+    sync_tmux_service_environment "$(resolve_tango_tmux_session_name)"
+
     printf -v DISCORD_CMD '%s' "cd \"$REPO_DIR\" && set -a && if [ -f .env ]; then source .env; fi && source .env.slot && set +a && ${BRANCH_CMD}${CHANNELS_CMD}env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$NODE_BIN\" packages/discord/dist/main.js"
     printf -v RUN_CMD 'bash -lc %q' "$DISCORD_CMD"
 
-    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-      tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+    if tango_service_tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+      tango_service_tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
     else
-      tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+      tango_service_tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
     fi
 
     echo "Started slot Discord in tmux target '${SESSION_NAME}:${WINDOW_NAME}'"
@@ -109,11 +111,13 @@ case "$SLOT_MODE" in
     printf -v PROBE_CMD '%s' "cd \"$REPO_DIR\" && set -a && if [ -f .env ]; then source .env; fi && source .env.slot && set +a && while true; do date; printf 'TANGO_PROFILE=%s\nTANGO_SLOT=%s\nTANGO_VOICE_BRIDGE_ENABLED=%s\n---\n' \"\$TANGO_PROFILE\" \"\$TANGO_SLOT\" \"\$TANGO_VOICE_BRIDGE_ENABLED\"; sleep 5; done"
     printf -v RUN_CMD 'bash -lc %q' "$PROBE_CMD"
 
-    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-      tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
-      tmux resize-window -t "$TARGET" -x "$WINDOW_WIDTH" -y "$WINDOW_HEIGHT"
+    sync_tmux_service_environment "$(resolve_tango_tmux_session_name)"
+
+    if tango_service_tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+      tango_service_tmux new-window -t "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+      tango_service_tmux resize-window -t "$TARGET" -x "$WINDOW_WIDTH" -y "$WINDOW_HEIGHT"
     else
-      tmux new-session -d -x "$WINDOW_WIDTH" -y "$WINDOW_HEIGHT" -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
+      tango_service_tmux new-session -d -x "$WINDOW_WIDTH" -y "$WINDOW_HEIGHT" -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$REPO_DIR" "$RUN_CMD"
     fi
 
     echo "Started slot probe in tmux target '${SESSION_NAME}:${WINDOW_NAME}'"
