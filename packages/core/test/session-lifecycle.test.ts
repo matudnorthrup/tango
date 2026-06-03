@@ -224,6 +224,31 @@ describe("SessionLifecycleManager", () => {
     expect(manager.getSession("conversation-1")?.messageCount).toBe(2);
   });
 
+  it("includes attachment directory context in cold-start context", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(createResponse("First reply", { sessionId: "session-1" }));
+
+    const builder = vi.fn(async () => ({
+      pinnedFacts: "",
+      recentMessages: "",
+      relevantMemories: "Memory hit A",
+      attachmentDirectories: "Relevant attachment directories:\n- attachment:1 \"Launch Screenshot\"",
+    }));
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      undefined,
+      builder,
+    );
+
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+
+    expect(pool.getOrCreateCalls[0]?.config.coldStartContext).toBe(
+      "Relevant memories:\nMemory hit A\n\nAttachment directories:\nRelevant attachment directories:\n- attachment:1 \"Launch Screenshot\"",
+    );
+  });
+
   it("omits per-turn context once a runtime has a provider session", async () => {
     const pool = new MockRuntimePool();
     const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
