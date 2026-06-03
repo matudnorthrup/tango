@@ -88,8 +88,16 @@ export function resolveV2RuntimeTimeoutMs(
 
 export function createAtlasColdStartContextBuilder(
   atlasMemoryClient: Pick<AtlasMemoryClient, "pinnedFactGet" | "memorySearch">,
+  options: {
+    /**
+     * Project-arc reseed: given the conversationKey, returns the project state
+     * block (status / quick read / open items) so a rotated session re-orients
+     * on where the project stands. See project-state.ts.
+     */
+    projectStateProvider?: (conversationKey: string) => string | undefined;
+  } = {},
 ): ColdStartContextBuilder {
-  return async (_conversationKey, agentId) => {
+  return async (conversationKey, agentId) => {
     const [pinnedFacts, agentFacts, relevantMemories] = await Promise.all([
       atlasMemoryClient.pinnedFactGet({ scope: "global" }),
       atlasMemoryClient.pinnedFactGet({ scope: "agent", scope_id: agentId }),
@@ -100,9 +108,11 @@ export function createAtlasColdStartContextBuilder(
       }),
     ]);
 
+    const projectBlock = options.projectStateProvider?.(conversationKey);
+
     return {
       pinnedFacts: formatPinnedFacts([...pinnedFacts, ...agentFacts]),
-      recentMessages: "",
+      recentMessages: projectBlock ? `Project state:\n${projectBlock}` : "",
       relevantMemories: formatMemories(relevantMemories),
     };
   };
