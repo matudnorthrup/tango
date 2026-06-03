@@ -24,20 +24,37 @@ Create retailer subfolders as needed. Do NOT create other folder nesting.
 
 Use the `obsidian` tool to create the file at `Records/Finance/Receipts/{Retailer}/` with this format:
 
-For any vendor listed in `reimbursement-config.yaml`, always include a `## Reimbursement Tracking` section.
-For reimbursable receipts, also include frontmatter so Obsidian Base views can
-find them:
+Every receipt note must include vault-standard frontmatter. Do not write
+frontmatter `categories`; Lunch Money categories belong in the body text or
+Lunch Money itself, not in Obsidian taxonomy.
 
 ```yaml
-reimbursable: true
+---
+date: YYYY-MM-DD
+types:
+  - "[[Receipt]]"
+areas:
+  - "[[Finance]]"
+merchant: "{Retailer or vendor}"
+order_number: "{ORDER_ID}"
+total: 0.00
+reimbursable: false
+source_kind: record
+---
+```
+
+For any vendor listed in `reimbursement-config.yaml`, always include a
+`## Reimbursement Tracking` section. For reimbursable receipts, set
+`reimbursable: true` and include these additional frontmatter fields:
+
+```yaml
 ramp_submitted: null
 ramp_report_id: null
-merchant: {Retailer or vendor}
 amount: 0.00
 ```
 
-Use numeric `amount` values with no dollar sign. `reimbursable` must be the
-boolean `true`, not the string `"true"`.
+Use numeric `total` and `amount` values with no dollar sign. `reimbursable`
+must be the boolean `true` or `false`, not a string.
 
 ```markdown
 # {Retailer} Order {ORDER_ID}
@@ -107,7 +124,7 @@ Invoice-backed Venmo reimbursement created from the Gmail payment confirmation.
 
 Reference the installation's active finance rules note for the authoritative rules file.
 
-Common product-to-category mappings for receipt items:
+Common product-to-Lunch-Money-category mappings for receipt items:
 
 - Tea, coffee, food, beverages, snacks → Groceries
 - Cleaning supplies, toiletries, household consumables → Groceries (don't split)
@@ -124,6 +141,7 @@ Common product-to-category mappings for receipt items:
 - Always include the Lunch Money transaction ID if known.
 - Use the `obsidian` tool with `create` command and the installation's default vault.
 - Check `config/defaults/reimbursement-config.yaml` to determine if a vendor is reimbursable and what the default memo is.
+- Do not add frontmatter `categories`, scalar `type`, scalar `types`, or scalar `areas`.
 - Keep grocery summaries brief — don't list every item, just note the approximate total and key items.
 - Non-grocery items need individual line items with prices for accurate splits later.
 - If the order was split across multiple shipments/charges, note all transaction IDs.
