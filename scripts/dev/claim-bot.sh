@@ -6,7 +6,6 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BOT_LOCK_SCRIPT="$SCRIPT_DIR/bot-lock.sh"
 AUTO_RELEASE_SCRIPT="$SCRIPT_DIR/bot-auto-release.sh"
 WT_START_SCRIPT="$REPO_DIR/scripts/tmux/wt/start.sh"
-MAIN_START_SCRIPT="$REPO_DIR/scripts/tmux/start.sh"
 DEFAULT_WAIT_TIMEOUT_SEC=600
 source "$REPO_DIR/scripts/tmux/session.sh"
 
@@ -53,6 +52,21 @@ main_discord_session_exists() {
   tango_service_tmux has-session -t tango-discord 2>/dev/null
 }
 
+resolve_main_repo_dir() {
+  if [ -n "${TANGO_MAIN_REPO_DIR:-}" ]; then
+    printf '%s\n' "$TANGO_MAIN_REPO_DIR"
+    return 0
+  fi
+
+  local main_repo_dir
+  main_repo_dir="$(git -C "$REPO_DIR" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | sed -n '1p')"
+  if [ -z "$main_repo_dir" ]; then
+    fail "Unable to resolve main repo worktree. Set TANGO_MAIN_REPO_DIR."
+  fi
+
+  printf '%s\n' "$main_repo_dir"
+}
+
 stop_main_discord() {
   if main_discord_window_exists; then
     tango_service_tmux kill-window -t tango:discord
@@ -82,10 +96,12 @@ wait_for_main_discord_exit() {
 
 start_main_discord() {
   local main_repo_dir=""
+  local main_start_script=""
   local node_bin="${TANGO_NODE_BIN:-/Users/devinnorthrup/.nvm/versions/node/v24.14.0/bin/node}"
   local run_cmd=""
 
-  main_repo_dir="$(resolve_tango_repo_dir)"
+  main_repo_dir="$(resolve_main_repo_dir)"
+  main_start_script="$main_repo_dir/scripts/tmux/start.sh"
 
   if [ ! -x "$node_bin" ]; then
     node_bin="$(command -v node || true)"
@@ -100,6 +116,7 @@ start_main_discord() {
   fi
 
   printf -v run_cmd '%s' "cd \"$main_repo_dir\" && env -u CLAUDECODE DISCORD_LISTEN_ONLY=false \"$node_bin\" packages/discord/dist/main.js"
+  sync_tmux_service_environment "$(resolve_tango_tmux_session_name)"
 
   if tango_service_tmux has-session -t tango 2>/dev/null; then
     if ! main_discord_window_exists; then
@@ -108,7 +125,7 @@ start_main_discord() {
     return 0
   fi
 
-  "$MAIN_START_SCRIPT"
+  "$main_start_script"
 }
 
 wait_for_discord_ready() {
@@ -117,7 +134,7 @@ wait_for_discord_ready() {
   local waited=0
 
   while [ "$waited" -lt "$timeout_seconds" ]; do
-    if tmux capture-pane -t "$target" -p 2>/dev/null | grep -q '\[tango-discord\] connected as '; then
+    if tango_service_tmux capture-pane -J -p -S -2000 -t "$target" 2>/dev/null | grep -q '\[tango-discord\] connected as '; then
       return 0
     fi
     sleep 1
@@ -133,7 +150,7 @@ wait_for_slot_mode_threads() {
   local waited=0
 
   while [ "$waited" -lt "$timeout_seconds" ]; do
-    if tmux capture-pane -t "$target" -p 2>/dev/null | grep -q '\[slot-mode\] initialization complete '; then
+    if tango_service_tmux capture-pane -J -p -S -2000 -t "$target" 2>/dev/null | grep -q '\[slot-mode\] initialization complete '; then
       return 0
     fi
     sleep 1
@@ -288,7 +305,7 @@ else
   fi
 
   thread_urls="$(
-    tmux capture-pane -t "tango-wt-$slot:discord" -p 2>/dev/null \
+    tango_service_tmux capture-pane -J -p -S -2000 -t "tango-wt-$slot:discord" 2>/dev/null \
       | sed -n 's/^.*\[slot-mode\] thread ready: .* url=\(.*\)$/\1/p'
   )"
 

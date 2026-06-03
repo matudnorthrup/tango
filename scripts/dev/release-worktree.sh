@@ -97,7 +97,10 @@ if [ "$ensure_tmux" -eq 1 ] && tmux_session_exists "dev-wt-$slot"; then
   dev_session_result="killed"
 fi
 
-if [ "$ensure_tmux" -eq 1 ] && tmux_session_exists "tango-wt-$slot"; then
+if [ "$ensure_tmux" -eq 1 ] && tango_service_tmux has-session -t "tango-wt-$slot" 2>/dev/null; then
+  tango_service_tmux kill-session -t "tango-wt-$slot"
+  slot_session_result="killed"
+elif [ "$ensure_tmux" -eq 1 ] && tmux_session_exists "tango-wt-$slot"; then
   tmux kill-session -t "tango-wt-$slot"
   slot_session_result="killed"
 fi
