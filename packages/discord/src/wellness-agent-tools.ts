@@ -560,10 +560,11 @@ export function createHealthTools(overrides?: WellnessToolPaths): AgentTool[] {
         "  trend     — Multi-day trends with averages. Use 'days' param (default 7). Any range is valid — use whatever the question requires.",
         "  sleep     — Detailed sleep stages + HRV + RHR for a specific night.",
         "  compare   — Side-by-side Apple Watch vs Zepp data for a night: sleep stages, HRV, RHR, overnight HR. Shows deltas.",
+        "  source_breakdown — Diagnostic source totals/freshness for a day. Use when a tracker disagrees or a source looks stale; do not add sources into canonical totals blindly.",
         "",
         "Parameters:",
-        "  command (required): One of: recovery, date, morning, checkin, trend, sleep, compare",
-        "  date (optional): YYYY-MM-DD, 'today', or 'yesterday'. Used by: recovery, date, sleep. Defaults vary by command.",
+        "  command (required): One of: recovery, date, morning, checkin, trend, sleep, compare, source_breakdown",
+        "  date (optional): YYYY-MM-DD, 'today', or 'yesterday'. Used by: date, sleep, compare, source_breakdown. Defaults vary by command.",
         "  days (optional): Number of days for trend command. Default: 7.",
       ].join("\n"),
       inputSchema: {
@@ -571,10 +572,10 @@ export function createHealthTools(overrides?: WellnessToolPaths): AgentTool[] {
         properties: {
           command: {
             type: "string",
-            description: "Query command: recovery, date, morning, checkin, trend, sleep, compare",
-            enum: ["recovery", "date", "morning", "checkin", "trend", "sleep", "compare"],
+            description: "Query command: recovery, date, morning, checkin, trend, sleep, compare, source_breakdown",
+            enum: ["recovery", "date", "morning", "checkin", "trend", "sleep", "compare", "source_breakdown"],
           },
-          date: { type: "string", description: "Date in YYYY-MM-DD format, or 'today'/'yesterday'. Used by recovery, date, sleep commands." },
+          date: { type: "string", description: "Date in YYYY-MM-DD format, or 'today'/'yesterday'. Used by date, sleep, compare, and source_breakdown commands." },
           days: { type: "number", description: "Number of days for trend command (default: 7)." },
         },
         required: ["command"],
@@ -608,8 +609,11 @@ export function createHealthTools(overrides?: WellnessToolPaths): AgentTool[] {
           case "compare":
             args.push("--compare", input.date ? String(input.date) : "last-night");
             break;
+          case "source_breakdown":
+            args.push("--source-breakdown", input.date ? String(input.date) : "today");
+            break;
           default:
-            return { error: `Unknown command: ${command}. Use: recovery, date, morning, checkin, trend, sleep` };
+            return { error: `Unknown command: ${command}. Use: recovery, date, morning, checkin, trend, sleep, compare, source_breakdown` };
         }
 
         const stdout = await runScript(paths.healthScript, args);
