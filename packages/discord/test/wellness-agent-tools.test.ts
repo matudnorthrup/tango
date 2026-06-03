@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createNutritionTools, createRecipeTools, createWorkoutTools } from "../src/wellness-agent-tools.js";
+import { createHealthTools, createNutritionTools, createRecipeTools, createWorkoutTools } from "../src/wellness-agent-tools.js";
 
 const tempDirs: string[] = [];
 
@@ -47,6 +47,32 @@ describe("createWorkoutTools", () => {
     const [tool] = createWorkoutTools({ workoutScript: scriptPath });
 
     await expect(tool!.handler({ sql: "SELECT 1;" })).rejects.toThrow("container is not running");
+  });
+});
+
+describe("createHealthTools", () => {
+  it("maps source_breakdown to the diagnostic CLI command", async () => {
+    const scriptPath = makeScript([
+      "#!/usr/bin/env node",
+      "console.log(JSON.stringify({ args: process.argv.slice(2) }));",
+      "",
+    ].join("\n"));
+    const [tool] = createHealthTools({ healthScript: scriptPath });
+
+    const result = await tool!.handler({ command: "source_breakdown", date: "2026-06-02" });
+    expect(result).toEqual({ args: ["--source-breakdown", "2026-06-02"] });
+  });
+
+  it("advertises compare and source_breakdown in the schema", () => {
+    const [tool] = createHealthTools({ healthScript: "/tmp/fake-health-query.js" });
+    const schema = tool!.inputSchema as {
+      properties?: { command?: { enum?: string[] } };
+    };
+    const command = schema.properties?.command;
+
+    expect(command).toMatchObject({
+      enum: expect.arrayContaining(["compare", "source_breakdown"]),
+    });
   });
 });
 
