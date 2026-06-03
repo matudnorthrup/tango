@@ -1,9 +1,16 @@
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Collection, Attachment, Snowflake } from "discord.js";
+import {
+  AttachmentFileStore,
+  resolveTangoDataDir,
+  sanitizeAttachmentFilename,
+  type AttachmentRecord,
+  type AttachmentStore,
+} from "@tango/core";
 
 const ATTACHMENT_BASE_DIR = "/tmp/tango-attachments";
-const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024; // 20MB
 
 const IMAGE_MIME_TYPES = new Set([
   "image/png",
@@ -13,11 +20,16 @@ const IMAGE_MIME_TYPES = new Set([
 ]);
 
 export interface ProcessedAttachment {
+  discordAttachmentId: string;
   filename: string;
   localPath: string;
-  contentType: string;
+  contentType: string | null;
   size: number;
-  type: "image";
+  type: "image" | "file";
+  durable: boolean;
+  logicalAttachmentId?: number;
+  fileId?: number;
+  sha256?: string;
 }
 
 export interface AttachmentResult {
@@ -26,38 +38,84 @@ export interface AttachmentResult {
   tempDir: string | null;
 }
 
+export interface AttachmentSourceRefs {
+  agentId?: string | null;
+  localMessageId?: string | number | null;
+  discordMessageId?: string | null;
+  channelId?: string | null;
+  threadId?: string | null;
+  userId?: string | null;
+  projectId?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ProcessAttachmentsOptions {
+  attachmentStore?: AttachmentStore | null;
+  dataDir?: string | null;
+  sourceRefs?: AttachmentSourceRefs;
+}
+
+interface DurableAttachmentContext {
+  store: AttachmentStore;
+  fileStore: AttachmentFileStore;
+  refs: ResolvedAttachmentSourceRefs;
+}
+
+interface ResolvedAttachmentSourceRefs {
+  sessionId: string;
+  agentId: string | null;
+  localMessageId: string | null;
+  discordMessageId: string | null;
+  channelId: string | null;
+  threadId: string | null;
+  userId: string | null;
+  projectId: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
 export async function processAttachments(
   attachments: Collection<Snowflake, Attachment>,
-  sessionId: string
+  sessionId: string,
+  options: ProcessAttachmentsOptions = {},
 ): Promise<AttachmentResult> {
   const items = [...attachments.values()];
   if (items.length === 0) {
     return { processed: [], promptSuffix: "", tempDir: null };
   }
 
-  // Filter to images only (Phase 1)
-  const imageItems = items.filter(
-    (a) => a.contentType && IMAGE_MIME_TYPES.has(a.contentType)
-  );
-  if (imageItems.length === 0) {
-    return { processed: [], promptSuffix: "", tempDir: null };
-  }
-
-  const tempDir = join(ATTACHMENT_BASE_DIR, sessionId);
-  mkdirSync(tempDir, { recursive: true });
-
+  const durableContext = createDurableContext(sessionId, options);
+  let tempDir: string | null = null;
   const processed: ProcessedAttachment[] = [];
 
-  for (const attachment of imageItems) {
-    const contentType = attachment.contentType!;
+  for (const attachment of items) {
+    const declaredContentType = normalizeContentType(attachment.contentType);
     const size = attachment.size;
     const filename = attachment.name ?? `attachment-${attachment.id}`;
 
-    if (size > MAX_IMAGE_SIZE) {
+    if (size > MAX_ATTACHMENT_SIZE) {
       console.warn(
-        `[attachment-processor] skipping oversized image: ${filename} (${(size / 1024 / 1024).toFixed(1)}MB > 20MB)`
+        `[attachment-processor] skipping oversized attachment: ${filename} (${(size / 1024 / 1024).toFixed(1)}MB > 20MB)`
       );
       continue;
+    }
+
+    if (durableContext) {
+      const existing = durableContext.store.findAttachmentByDiscordAttachmentId(attachment.id);
+      if (existing) {
+        const existingProcessed = processedFromExistingAttachment(
+          durableContext.store,
+          existing,
+          attachment,
+        );
+        if (existingProcessed) {
+          processed.push(existingProcessed);
+        } else {
+          console.warn(
+            `[attachment-processor] skipping duplicate attachment without available source file: ${filename} (${attachment.id})`
+          );
+        }
+        continue;
+      }
     }
 
     try {
@@ -69,9 +127,39 @@ export async function processAttachments(
         continue;
       }
       const buffer = Buffer.from(await response.arrayBuffer());
-      const localPath = join(tempDir, filename);
-      writeFileSync(localPath, buffer);
-      processed.push({ filename, localPath, contentType, size, type: "image" });
+      if (buffer.byteLength > MAX_ATTACHMENT_SIZE) {
+        console.warn(
+          `[attachment-processor] skipping oversized downloaded attachment: ${filename} (${(buffer.byteLength / 1024 / 1024).toFixed(1)}MB > 20MB)`
+        );
+        continue;
+      }
+
+      const responseContentType = normalizeContentType(response.headers.get("content-type"));
+      const contentType = declaredContentType ?? responseContentType;
+      if (durableContext) {
+        processed.push(
+          persistDurableAttachment({
+            context: durableContext,
+            attachment,
+            buffer,
+            filename,
+            contentType,
+          }),
+        );
+        continue;
+      }
+
+      if (!tempDir) {
+        tempDir = join(ATTACHMENT_BASE_DIR, sessionId);
+        mkdirSync(tempDir, { recursive: true });
+      }
+      processed.push(writeTempAttachment({
+        attachment,
+        buffer,
+        tempDir,
+        filename,
+        contentType,
+      }));
     } catch (err) {
       console.warn(
         `[attachment-processor] download error for ${filename}: ${err instanceof Error ? err.message : err}`
@@ -80,8 +168,9 @@ export async function processAttachments(
   }
 
   let promptSuffix = "";
-  if (processed.length > 0) {
-    const lines = processed.map((p, i) => {
+  const imageAttachments = processed.filter((item) => item.type === "image");
+  if (imageAttachments.length > 0) {
+    const lines = imageAttachments.map((p, i) => {
       const sizeKB = (p.size / 1024).toFixed(0);
       return `${i + 1}. ${p.filename} (${p.contentType}, ${sizeKB}KB) — Read the file at ${p.localPath} to view this image.`;
     });
@@ -100,4 +189,249 @@ export function cleanupAttachments(tempDir: string | null): void {
       `[attachment-processor] cleanup failed for ${tempDir}: ${err instanceof Error ? err.message : err}`
     );
   }
+}
+
+function createDurableContext(
+  sessionId: string,
+  options: ProcessAttachmentsOptions,
+): DurableAttachmentContext | null {
+  if (!options.attachmentStore) {
+    return null;
+  }
+
+  const refs = options.sourceRefs ?? {};
+  return {
+    store: options.attachmentStore,
+    fileStore: new AttachmentFileStore(options.dataDir ?? resolveTangoDataDir()),
+    refs: {
+      sessionId,
+      agentId: nullableString(refs.agentId),
+      localMessageId: nullableString(refs.localMessageId),
+      discordMessageId: nullableString(refs.discordMessageId),
+      channelId: nullableString(refs.channelId),
+      threadId: nullableString(refs.threadId),
+      userId: nullableString(refs.userId),
+      projectId: nullableString(refs.projectId),
+      metadata: refs.metadata ?? null,
+    },
+  };
+}
+
+function persistDurableAttachment(input: {
+  context: DurableAttachmentContext;
+  attachment: Attachment;
+  buffer: Buffer;
+  filename: string;
+  contentType: string | null;
+}): ProcessedAttachment {
+  const { context, attachment, buffer, filename, contentType } = input;
+  const stored = context.fileStore.ingestBuffer({
+    data: buffer,
+    originalFilename: filename,
+  });
+
+  const existingFile = context.store.findSourceFileBySha256(stored.sha256);
+  const file = existingFile ?? context.store.upsertFile({
+    role: "source",
+    sha256: stored.sha256,
+    bytes: stored.bytes,
+    contentType,
+    originalFilename: stored.originalFilename,
+    storagePath: stored.storagePath,
+    status: "available",
+    metadata: compactRecord({
+      source: "discord",
+      storageRelativePath: stored.relativePath,
+      storedFilename: stored.storedFilename,
+      sourceUrl: attachment.url,
+      proxyUrl: attachment.proxyURL,
+      discordAttachmentId: attachment.id,
+      discordMessageId: context.refs.discordMessageId,
+      channelId: context.refs.channelId,
+      threadId: context.refs.threadId,
+      userId: context.refs.userId,
+      projectId: context.refs.projectId,
+      sessionId: context.refs.sessionId,
+      agentId: context.refs.agentId,
+      localMessageId: context.refs.localMessageId,
+    }),
+  });
+
+  const existingAttachment = context.store.findAttachmentByDiscordAttachmentId(attachment.id);
+  const logical = existingAttachment ?? context.store.createAttachment({
+    projectId: context.refs.projectId,
+    agentId: context.refs.agentId,
+    sessionId: context.refs.sessionId,
+    messageId: context.refs.localMessageId,
+    channelId: context.refs.channelId,
+    threadId: context.refs.threadId,
+    userId: context.refs.userId,
+    discordAttachmentId: attachment.id,
+    fileId: file.id,
+    title: filename,
+    originalFilename: stored.originalFilename,
+    contentType,
+    bytes: stored.bytes,
+    status: "received",
+    metadata: compactRecord({
+      source: "discord",
+      discordMessageId: context.refs.discordMessageId,
+      discordAttachmentId: attachment.id,
+      sourceUrl: attachment.url,
+      proxyUrl: attachment.proxyURL,
+      storagePath: file.storagePath,
+      storageRelativePath: stored.relativePath,
+      sha256: stored.sha256,
+      sourceFileDeduped: stored.deduped || Boolean(existingFile),
+      declaredBytes: attachment.size,
+      sourceRefs: context.refs.metadata,
+    }),
+  });
+  if (!existingAttachment) {
+    enqueueInitialAttachmentJob(context.store, logical.id);
+  }
+
+  return toProcessedAttachment({
+    attachment,
+    logical,
+    filename: stored.originalFilename,
+    localPath: file.storagePath,
+    contentType,
+    size: stored.bytes,
+    durable: true,
+    fileId: file.id,
+    sha256: file.sha256,
+  });
+}
+
+function enqueueInitialAttachmentJob(store: AttachmentStore, attachmentId: number): void {
+  const existingClassifyJob = store.listJobs({
+    attachmentId,
+    kind: "classify",
+    limit: 1,
+  })[0];
+  if (existingClassifyJob) {
+    return;
+  }
+
+  store.enqueueJob({
+    attachmentId,
+    kind: "classify",
+    metadata: {
+      queuedBy: "discord_attachment_intake",
+    },
+  });
+}
+
+function processedFromExistingAttachment(
+  store: AttachmentStore,
+  logical: AttachmentRecord,
+  attachment: Attachment,
+): ProcessedAttachment | null {
+  if (logical.fileId === null) {
+    return null;
+  }
+
+  const file = store.getFile(logical.fileId);
+  if (!file || file.status !== "available") {
+    return null;
+  }
+
+  const contentType = normalizeContentType(
+    logical.contentType ?? file.contentType ?? attachment.contentType,
+  );
+  return toProcessedAttachment({
+    attachment,
+    logical,
+    filename: logical.originalFilename ?? file.originalFilename ?? attachment.name ?? `attachment-${attachment.id}`,
+    localPath: file.storagePath,
+    contentType,
+    size: logical.bytes ?? file.bytes,
+    durable: true,
+    fileId: file.id,
+    sha256: file.sha256,
+  });
+}
+
+function writeTempAttachment(input: {
+  attachment: Attachment;
+  buffer: Buffer;
+  tempDir: string;
+  filename: string;
+  contentType: string | null;
+}): ProcessedAttachment {
+  const { attachment, buffer, tempDir, filename, contentType } = input;
+  const safeFilename = sanitizeAttachmentFilename(filename);
+  const localPath = uniqueTempPath(tempDir, safeFilename, attachment.id);
+  writeFileSync(localPath, buffer, { flag: "wx" });
+
+  return toProcessedAttachment({
+    attachment,
+    filename,
+    localPath,
+    contentType,
+    size: buffer.byteLength,
+    durable: false,
+  });
+}
+
+function toProcessedAttachment(input: {
+  attachment: Attachment;
+  logical?: AttachmentRecord;
+  filename: string;
+  localPath: string;
+  contentType: string | null;
+  size: number;
+  durable: boolean;
+  fileId?: number;
+  sha256?: string;
+}): ProcessedAttachment {
+  const contentType = normalizeContentType(input.contentType);
+  return {
+    discordAttachmentId: input.attachment.id,
+    filename: input.filename,
+    localPath: input.localPath,
+    contentType,
+    size: input.size,
+    type: isImageContentType(contentType) ? "image" : "file",
+    durable: input.durable,
+    logicalAttachmentId: input.logical?.id,
+    fileId: input.fileId,
+    sha256: input.sha256,
+  };
+}
+
+function uniqueTempPath(tempDir: string, safeFilename: string, attachmentId: string): string {
+  const preferred = join(tempDir, safeFilename);
+  if (!existsSync(preferred)) {
+    return preferred;
+  }
+
+  const fallback = join(tempDir, `${attachmentId}-${safeFilename}`);
+  if (!existsSync(fallback)) {
+    return fallback;
+  }
+
+  return join(tempDir, `${attachmentId}-${Date.now()}-${safeFilename}`);
+}
+
+function isImageContentType(contentType: string | null | undefined): boolean {
+  return Boolean(contentType && IMAGE_MIME_TYPES.has(contentType));
+}
+
+function normalizeContentType(contentType: string | null | undefined): string | null {
+  const normalized = contentType?.split(";")[0]?.trim().toLowerCase();
+  return normalized && normalized.length > 0 ? normalized : null;
+}
+
+function nullableString(value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined),
+  );
 }

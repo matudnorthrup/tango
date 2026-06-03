@@ -1752,6 +1752,214 @@ const MIGRATIONS: Migration[] = [
   {
     version: 35,
     sql: `
+      CREATE TABLE IF NOT EXISTS attachment_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role TEXT NOT NULL DEFAULT 'source' CHECK(role IN ('source', 'derived')),
+        sha256 TEXT NOT NULL,
+        bytes INTEGER NOT NULL CHECK(bytes >= 0),
+        content_type TEXT,
+        original_filename TEXT,
+        storage_path TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'available'
+          CHECK(status IN ('available', 'missing', 'failed', 'retired')),
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_files_source_sha256
+        ON attachment_files(sha256)
+        WHERE role = 'source';
+      CREATE INDEX IF NOT EXISTS idx_attachment_files_sha_role
+        ON attachment_files(sha256, role);
+      CREATE INDEX IF NOT EXISTS idx_attachment_files_status_updated
+        ON attachment_files(status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_files_content_type
+        ON attachment_files(content_type, updated_at);
+
+      CREATE TABLE IF NOT EXISTS attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        agent_id TEXT,
+        session_id TEXT,
+        message_id TEXT,
+        channel_id TEXT,
+        thread_id TEXT,
+        user_id TEXT,
+        discord_attachment_id TEXT,
+        file_id INTEGER,
+        title TEXT,
+        original_filename TEXT,
+        content_type TEXT,
+        bytes INTEGER CHECK(bytes IS NULL OR bytes >= 0),
+        status TEXT NOT NULL DEFAULT 'received'
+          CHECK(status IN ('received', 'processing', 'partial', 'ready', 'failed', 'retired')),
+        retention_policy_id TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (file_id) REFERENCES attachment_files(id) ON DELETE SET NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_discord_attachment_id
+        ON attachments(discord_attachment_id)
+        WHERE discord_attachment_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_attachments_scope_updated
+        ON attachments(project_id, agent_id, session_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachments_channel_thread_updated
+        ON attachments(channel_id, thread_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachments_user_updated
+        ON attachments(user_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachments_status_updated
+        ON attachments(status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachments_file
+        ON attachments(file_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachments_message
+        ON attachments(message_id, updated_at);
+
+      CREATE TABLE IF NOT EXISTS attachment_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attachment_id INTEGER NOT NULL,
+        kind TEXT NOT NULL
+          CHECK(kind IN ('classify', 'embedded_text', 'apple_ocr', 'chunk', 'directory', 'llm_fallback', 'retention_review')),
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK(status IN ('pending', 'running', 'succeeded', 'failed', 'canceled')),
+        attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+        max_attempts INTEGER NOT NULL DEFAULT 3 CHECK(max_attempts > 0),
+        run_after TEXT NOT NULL DEFAULT (datetime('now')),
+        locked_at TEXT,
+        locked_by TEXT,
+        error_json TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_attachment_jobs_pending
+        ON attachment_jobs(status, run_after, created_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_jobs_attachment
+        ON attachment_jobs(attachment_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_jobs_lock
+        ON attachment_jobs(status, locked_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_jobs_kind_status
+        ON attachment_jobs(kind, status, run_after);
+
+      CREATE TABLE IF NOT EXISTS attachment_extractions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attachment_id INTEGER NOT NULL,
+        method TEXT NOT NULL,
+        text TEXT NOT NULL,
+        confidence REAL,
+        quality_json TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_attachment_extractions_attachment
+        ON attachment_extractions(attachment_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_extractions_method
+        ON attachment_extractions(method, created_at);
+
+      CREATE TABLE IF NOT EXISTS attachment_chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attachment_id INTEGER NOT NULL,
+        extraction_id INTEGER NOT NULL,
+        ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+        text TEXT NOT NULL,
+        token_estimate INTEGER CHECK(token_estimate IS NULL OR token_estimate >= 0),
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(extraction_id, ordinal),
+        FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE,
+        FOREIGN KEY (extraction_id) REFERENCES attachment_extractions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_attachment_chunks_attachment
+        ON attachment_chunks(attachment_id, ordinal);
+      CREATE INDEX IF NOT EXISTS idx_attachment_chunks_extraction
+        ON attachment_chunks(extraction_id, ordinal);
+
+      CREATE TABLE IF NOT EXISTS attachment_directories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attachment_id INTEGER NOT NULL,
+        schema_version INTEGER NOT NULL CHECK(schema_version > 0),
+        directory_json TEXT NOT NULL,
+        project_id TEXT,
+        agent_id TEXT,
+        session_id TEXT,
+        message_id TEXT,
+        channel_id TEXT,
+        thread_id TEXT,
+        user_id TEXT,
+        status TEXT NOT NULL DEFAULT 'building'
+          CHECK(status IN ('building', 'ready', 'stale', 'failed', 'retired')),
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_attachment_directories_attachment
+        ON attachment_directories(attachment_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_directories_scope
+        ON attachment_directories(project_id, agent_id, session_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_directories_channel_thread
+        ON attachment_directories(channel_id, thread_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_directories_status
+        ON attachment_directories(status, updated_at);
+
+      CREATE TABLE IF NOT EXISTS attachment_retention_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attachment_id INTEGER NOT NULL,
+        retention_policy_id TEXT,
+        decision TEXT NOT NULL CHECK(decision IN ('keep', 'delete', 'review', 'retire')),
+        status TEXT NOT NULL DEFAULT 'proposed'
+          CHECK(status IN ('proposed', 'approved', 'applied', 'superseded', 'canceled')),
+        decided_by TEXT,
+        reason TEXT,
+        effective_at TEXT,
+        review_after TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_attachment_retention_attachment
+        ON attachment_retention_decisions(attachment_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_attachment_retention_status
+        ON attachment_retention_decisions(status, review_after);
+      CREATE INDEX IF NOT EXISTS idx_attachment_retention_policy
+        ON attachment_retention_decisions(retention_policy_id, created_at);
+    `,
+  },
+  {
+    version: 36,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('attachment_search', 'attachments', 'Attachment Search', 'read'),
+        ('attachment_read', 'attachments', 'Attachment Read', 'read'),
+        ('attachment_status', 'attachments', 'Attachment Status', 'read'),
+        ('attachment_reprocess', 'attachments', 'Attachment Reprocess', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT p.id, tool_ids.tool_id, 'read', 'attachment read tools available to all workers'
+      FROM principals p
+      CROSS JOIN (
+        SELECT 'attachment_search' AS tool_id
+        UNION ALL SELECT 'attachment_read'
+        UNION ALL SELECT 'attachment_status'
+      ) AS tool_ids
+      WHERE p.type = 'worker';
+    `,
+  },
+  {
+    version: 37,
+    sql: `
       CREATE TABLE IF NOT EXISTS project_state (
         project_id TEXT PRIMARY KEY,
         title TEXT NOT NULL,

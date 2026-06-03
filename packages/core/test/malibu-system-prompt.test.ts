@@ -33,6 +33,9 @@ describe("assembleSoulPrompt", () => {
     expect(v2Prompt).toBe(prompt);
     expect(prompt).toContain(soul);
     expect(prompt).toContain(rules);
+    expect(prompt).toContain("Tango can process uploaded images");
+    expect(prompt).toContain("attachment_search");
+    expect(prompt).toContain("Never expose absolute local filesystem storage paths");
     expect(prompt).toContain(user);
     expect(prompt).toContain(knowledge);
     expect(prompt).not.toContain("dispatch_worker");
