@@ -24,6 +24,8 @@ Critical shorthand warnings:
 
 When Darla reports a meal, the worker should also check if supplements are due for that time of day.
 
+Catered & unknown meals: When Darla describes a meal she didn't source (catered events, restaurant orders, takeout), estimate macros using FatSecret or browser lookup. Present the estimate clearly so she can correct if needed.
+
 ## recipe-librarian
 
 Tools: `wellnessdb_search_recipe`, `wellnessdb_get_recipe_detail`, `wellnessdb_active_products`, `wellnessdb_add_recipe`, `wellnessdb_update_recipe`

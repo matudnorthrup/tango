@@ -3,6 +3,8 @@ import {
   SessionLifecycleManager,
   type AgentRuntimeConfig,
   type ColdStartContextBuilder,
+  type ContextAutoResetNotice,
+  type ConversationSession,
   type RuntimeResponse,
   type SendOptions,
   type SessionLifecycleConfig,
@@ -136,6 +138,24 @@ export class TangoRouter {
   async abortConversation(channelId: string, threadId?: string): Promise<boolean> {
     const conversationKey = this.getConversationKey(channelId, threadId);
     return await this.lifecycleManager.abortActiveRun(conversationKey);
+  }
+
+  /** Get lifecycle session metadata for a channel/thread conversation. */
+  getSession(channelId: string, threadId?: string): ConversationSession | undefined {
+    return this.lifecycleManager.getSession(this.getConversationKey(channelId, threadId));
+  }
+
+  markContextPressureAlertSent(channelId: string, threadId?: string): void {
+    this.lifecycleManager.markContextPressureAlertSent(this.getConversationKey(channelId, threadId));
+  }
+
+  consumeContextAutoResetNotice(
+    channelId: string,
+    threadId?: string,
+  ): ContextAutoResetNotice | undefined {
+    return this.lifecycleManager.consumeContextAutoResetNotice(
+      this.getConversationKey(channelId, threadId),
+    );
   }
 
   /** Shut down all runtimes */
