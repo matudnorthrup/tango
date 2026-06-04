@@ -519,7 +519,7 @@ describe("SessionLifecycleManager", () => {
         },
       },
     }));
-    const runtime2 = pool.enqueueRuntime(new MockRuntime("runtime-2"));
+    pool.enqueueRuntime(new MockRuntime("runtime-2"));
 
     let buildCount = 0;
     const builder = vi.fn(async () => {
@@ -533,9 +533,7 @@ describe("SessionLifecycleManager", () => {
 
     const manager = new SessionLifecycleManager(
       pool as unknown as RuntimePool,
-      {
-        contextResetThreshold: 0.80,
-      },
+      { contextResetThreshold: 0.80 },
       builder,
     );
 
@@ -547,6 +545,10 @@ describe("SessionLifecycleManager", () => {
     expect(pool.closeCalls).toEqual(["conversation-1"]);
     expect(pool.getOrCreateCalls).toHaveLength(2);
     expect(session?.messageCount).toBe(0);
+
+    const notice = manager.consumeContextAutoResetNotice("conversation-1");
+    expect(notice?.fraction).toBeCloseTo(0.82, 4);
+    expect(manager.consumeContextAutoResetNotice("conversation-1")).toBeUndefined();
   });
 
   it("does not reset when modelUsage context fraction is below the threshold", async () => {

@@ -1062,6 +1062,77 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
       },
     },
     {
+      name: "wellnessdb_update_product",
+      description: "Update an existing product by id. Supports name, shorthand, brand, category, serving_size, calories, protein_g, carbs_g, fat_g, and notes.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "products row id" },
+          name: { type: "string" },
+          shorthand: { type: "string" },
+          brand: { type: "string" },
+          category: { type: "string" },
+          serving_size: { type: "string" },
+          calories: { type: "number" },
+          protein_g: { type: "number" },
+          carbs_g: { type: "number" },
+          fat_g: { type: "number" },
+          notes: { type: "string" },
+        },
+        required: ["id"],
+      },
+      handler: async (input) => {
+        const id = Number(input.id);
+        if (!Number.isInteger(id) || id <= 0) return { error: "id must be a positive integer" };
+        const db = openDb(dbPath, false);
+        const existing = queryOne<Record<string, unknown>>(
+          db,
+          `SELECT id, name, shorthand, brand, category, serving_size, calories, protein_g, carbs_g, fat_g, notes
+           FROM products
+           WHERE id = ?`,
+          [id],
+        );
+        if (!existing) return { error: `Product not found: ${id}` };
+
+        const updates: string[] = [];
+        const values: Array<string | number | null> = [];
+        const applyString = (field: string, value: unknown): void => {
+          updates.push(`${field} = ?`);
+          values.push(value == null ? null : String(value).trim());
+        };
+        const applyNumber = (field: string, value: unknown): void => {
+          const numeric = Number(value);
+          updates.push(`${field} = ?`);
+          values.push(Number.isFinite(numeric) ? numeric : null);
+        };
+
+        if (input.name !== undefined) applyString("name", input.name);
+        if (input.shorthand !== undefined) applyString("shorthand", input.shorthand);
+        if (input.brand !== undefined) applyString("brand", input.brand);
+        if (input.category !== undefined) applyString("category", input.category);
+        if (input.serving_size !== undefined) applyString("serving_size", input.serving_size);
+        if (input.calories !== undefined) applyNumber("calories", input.calories);
+        if (input.protein_g !== undefined) applyNumber("protein_g", input.protein_g);
+        if (input.carbs_g !== undefined) applyNumber("carbs_g", input.carbs_g);
+        if (input.fat_g !== undefined) applyNumber("fat_g", input.fat_g);
+        if (input.notes !== undefined) applyString("notes", input.notes);
+
+        if (updates.length === 0) {
+          return { error: "At least one update field is required" };
+        }
+
+        db.prepare(`UPDATE products SET ${updates.join(", ")} WHERE id = ?`).run(...values, id);
+        const product = queryOne<Record<string, unknown>>(
+          db,
+          `SELECT id, name, shorthand, brand, category, serving_size, calories, protein_g, carbs_g, fat_g, notes
+           FROM products
+           WHERE id = ?`,
+          [id],
+        );
+        return { updated: true, product };
+      },
+    },
+    {
       name: "wellnessdb_add_recipe",
       description: "Create a recipe with ingredients. Totals are calculated from ingredient macros.",
       inputSchema: {
@@ -1238,6 +1309,60 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
       },
     },
     {
+      name: "wellnessdb_update_supplement",
+      description: "Update an existing supplement by id. Supports name, shorthand, dosage, and notes.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "supplements row id" },
+          name: { type: "string" },
+          shorthand: { type: "string" },
+          dosage: { type: "string" },
+          notes: { type: "string" },
+        },
+        required: ["id"],
+      },
+      handler: async (input) => {
+        const id = Number(input.id);
+        if (!Number.isInteger(id) || id <= 0) return { error: "id must be a positive integer" };
+        const db = openDb(dbPath, false);
+        const existing = queryOne<Record<string, unknown>>(
+          db,
+          `SELECT id, name, shorthand, dosage, notes
+           FROM supplements
+           WHERE id = ?`,
+          [id],
+        );
+        if (!existing) return { error: `Supplement not found: ${id}` };
+
+        const updates: string[] = [];
+        const values: Array<string | null> = [];
+        const applyString = (field: string, value: unknown): void => {
+          updates.push(`${field} = ?`);
+          values.push(value == null ? null : String(value).trim());
+        };
+
+        if (input.name !== undefined) applyString("name", input.name);
+        if (input.shorthand !== undefined) applyString("shorthand", input.shorthand);
+        if (input.dosage !== undefined) applyString("dosage", input.dosage);
+        if (input.notes !== undefined) applyString("notes", input.notes);
+
+        if (updates.length === 0) {
+          return { error: "At least one update field is required" };
+        }
+
+        db.prepare(`UPDATE supplements SET ${updates.join(", ")} WHERE id = ?`).run(...values, id);
+        const supplement = queryOne<Record<string, unknown>>(
+          db,
+          `SELECT id, name, shorthand, dosage, notes
+           FROM supplements
+           WHERE id = ?`,
+          [id],
+        );
+        return { updated: true, supplement };
+      },
+    },
+    {
       name: "wellnessdb_delete_meal_entry",
       description: "Delete a specific meal_log entry by id (for corrections only).",
       inputSchema: {
@@ -1255,6 +1380,46 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
         if (!existing) return { error: `Meal entry not found: ${id}` };
         db.prepare("DELETE FROM meal_log WHERE id = ?").run(id);
         return { deleted: true, entry: existing };
+      },
+    },
+    {
+      name: "wellnessdb_delete_product",
+      description: "Delete a product by id (for duplicate/incorrect entries only).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "products row id" },
+        },
+        required: ["id"],
+      },
+      handler: async (input) => {
+        const id = Number(input.id);
+        if (!Number.isInteger(id) || id <= 0) return { error: "id must be a positive integer" };
+        const db = openDb(dbPath, false);
+        const existing = queryOne(db, "SELECT id, name, shorthand FROM products WHERE id = ?", [id]);
+        if (!existing) return { error: `Product not found: ${id}` };
+        db.prepare("DELETE FROM products WHERE id = ?").run(id);
+        return { deleted: true, product: existing };
+      },
+    },
+    {
+      name: "wellnessdb_delete_supplement",
+      description: "Delete a supplement by id (for duplicate/incorrect entries only).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "supplements row id" },
+        },
+        required: ["id"],
+      },
+      handler: async (input) => {
+        const id = Number(input.id);
+        if (!Number.isInteger(id) || id <= 0) return { error: "id must be a positive integer" };
+        const db = openDb(dbPath, false);
+        const existing = queryOne(db, "SELECT id, name, shorthand FROM supplements WHERE id = ?", [id]);
+        if (!existing) return { error: `Supplement not found: ${id}` };
+        db.prepare("DELETE FROM supplements WHERE id = ?").run(id);
+        return { deleted: true, supplement: existing };
       },
     },
   ];

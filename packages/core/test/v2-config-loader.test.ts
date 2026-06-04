@@ -99,6 +99,14 @@ describe("loadV2AgentConfig", () => {
     });
   });
 
+  it("loads current turn metadata settings from cod-e", () => {
+    const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "cod-e.yaml"));
+    expect(config.currentTurnMetadata).toEqual({
+      timezone: "America/Denver",
+      timeFormat: "12h",
+    });
+  });
+
   it("loads Porter as an LDS companion with direct governed tool access", () => {
     const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "porter.yaml"));
 

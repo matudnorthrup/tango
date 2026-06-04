@@ -3,6 +3,7 @@ export * from "./agent-runtime.js";
 export * from "./agent-registry.js";
 export * from "./config.js";
 export * from "./context-packet.js";
+export * from "./context-usage.js";
 export * from "./chatgpt-migrated.js";
 export * from "./claude-code-adapter.js";
 export * from "./execution-trace.js";

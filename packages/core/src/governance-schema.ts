@@ -225,10 +225,10 @@ export const GOVERNANCE_SEED = `
     ('agent:wellness', 'agent', 'user:owner', 'Wellness');
 
   INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-    ('worker:nutrition-logger', 'worker', 'agent:malibu', 'Nutrition Logger'),
-    ('worker:health-analyst', 'worker', 'agent:malibu', 'Health Analyst'),
+    ('worker:nutrition-logger', 'worker', 'agent:wellness', 'Nutrition Logger'),
+    ('worker:health-analyst', 'worker', 'agent:wellness', 'Health Analyst'),
     ('worker:workout-recorder', 'worker', 'agent:malibu', 'Workout Recorder'),
-    ('worker:recipe-librarian', 'worker', 'agent:malibu', 'Recipe Librarian'),
+    ('worker:recipe-librarian', 'worker', 'agent:wellness', 'Recipe Librarian'),
     ('worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker'),
     ('worker:personal-assistant', 'worker', 'agent:watson', 'Personal Assistant'),
     ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
@@ -376,6 +376,18 @@ export const GOVERNANCE_SEED = `
   -- personal-assistant browser access (Watson — receipt lookup, transaction categorization)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:personal-assistant', 'browser', 'write', 'web automation for receipt lookup and transaction categorization');
+
+  -- Wellness wellness workers — browser + exa for macro/recipe/health lookups at worker cost
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:nutrition-logger', 'exa_search', 'read', 'Wellness worker macro and restaurant lookup'),
+    ('worker:nutrition-logger', 'exa_answer', 'read', 'Wellness worker macro and restaurant lookup'),
+    ('worker:nutrition-logger', 'browser', 'write', 'Wellness worker macro and restaurant lookup'),
+    ('worker:recipe-librarian', 'exa_search', 'read', 'Wellness worker recipe research'),
+    ('worker:recipe-librarian', 'exa_answer', 'read', 'Wellness worker recipe research'),
+    ('worker:recipe-librarian', 'browser', 'write', 'Wellness worker recipe research'),
+    ('worker:health-analyst', 'exa_search', 'read', 'Wellness worker health research'),
+    ('worker:health-analyst', 'exa_answer', 'read', 'Wellness worker health research'),
+    ('worker:health-analyst', 'browser', 'write', 'Wellness worker health research');
 
   -- 1Password access — Watson (personal assistant) needs credentials for finance, shopping, services
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

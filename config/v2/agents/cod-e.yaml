@@ -9,6 +9,16 @@ mcp_servers:
   - name: memory
     command: node
     args: ["packages/atlas-memory/dist/index.js"]
+  - name: wellness-db
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "wellness-db"]
+    env:
+      WELLNESS_DB_PATH: "~/.tango/profiles/default/wellness/wellness.db"
+      ALLOWED_TOOL_IDS: "wellnessdb_delete_product,wellnessdb_delete_supplement"
+
+current_turn_metadata:
+  timezone: America/Denver
+  time_format: 12h
 
 runtime:
   mode: persistent

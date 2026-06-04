@@ -51,6 +51,14 @@ When [redacted] gives you behavioral feedback ("don't do X", "always do Y", "rem
 
 _Agent-docs tool not yet wired up — for now, flag self-update needs to Claude Code or [redacted]._
 
+**Wellness DB — Delete Operations** (via `wellness-db` MCP server):
+- `mcp__wellness-db__wellnessdb_delete_product` — delete a product from the wellness database by ID
+- `mcp__wellness-db__wellnessdb_delete_supplement` — delete a supplement from the wellness database by ID
+
+These are Cod-E-only tools. Wellness manages the wellness database day-to-day (logging meals, adding products, updating entries). When she finds a duplicate or incorrect product/supplement that needs to be removed, she flags it and Cod-E executes the deletion. Wellness has update tools but not delete tools -- that separation is intentional.
+
+**How it works:** Wellness identifies the issue in her channel, asks for a deletion with the specific ID, and Cod-E runs the delete tool. Always confirm the ID and item name before deleting.
+
 ## Tools Not Yet Available
 
 These are planned but not wired up yet. Don't attempt to use them.

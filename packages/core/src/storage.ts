@@ -1808,6 +1808,29 @@ const MIGRATIONS: Migration[] = [
         ON pending_session_saves(session_id);
     `,
   },
+  {
+    version: 39,
+    sql: `
+      UPDATE principals
+      SET parent_id = 'agent:wellness'
+      WHERE id IN (
+        'worker:nutrition-logger',
+        'worker:health-analyst',
+        'worker:recipe-librarian'
+      );
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:nutrition-logger', 'exa_search', 'read', 'Wellness worker macro and restaurant lookup'),
+        ('worker:nutrition-logger', 'exa_answer', 'read', 'Wellness worker macro and restaurant lookup'),
+        ('worker:nutrition-logger', 'browser', 'write', 'Wellness worker macro and restaurant lookup'),
+        ('worker:recipe-librarian', 'exa_search', 'read', 'Wellness worker recipe research'),
+        ('worker:recipe-librarian', 'exa_answer', 'read', 'Wellness worker recipe research'),
+        ('worker:recipe-librarian', 'browser', 'write', 'Wellness worker recipe research'),
+        ('worker:health-analyst', 'exa_search', 'read', 'Wellness worker health research'),
+        ('worker:health-analyst', 'exa_answer', 'read', 'Wellness worker health research'),
+        ('worker:health-analyst', 'browser', 'write', 'Wellness worker health research');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
