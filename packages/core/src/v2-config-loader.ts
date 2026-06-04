@@ -93,6 +93,10 @@ export interface V2AgentConfig {
     allowlistChannelIds?: string[];
     allowlistUserIds?: string[];
   };
+  currentTurnMetadata?: {
+    timezone: string;
+    timeFormat: "12h" | "24h";
+  };
 }
 
 const providerReasoningEffortSchema = z.enum(["low", "medium", "high", "max", "xhigh"]);
@@ -179,6 +183,10 @@ const rawV2AgentConfigSchema = z.object({
     mode: z.enum(["off", "allowlist", "mention", "both"]).optional(),
     allowlist_channel_ids: z.array(z.string().min(1)).optional(),
     allowlist_user_ids: z.array(z.string().min(1)).optional(),
+  }).optional(),
+  current_turn_metadata: z.object({
+    timezone: z.string().min(1),
+    time_format: z.enum(["12h", "24h"]),
   }).optional(),
 });
 
@@ -311,6 +319,12 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
           mode: parsed.access.mode,
           allowlistChannelIds: parsed.access.allowlist_channel_ids,
           allowlistUserIds: parsed.access.allowlist_user_ids,
+        }
+      : undefined,
+    currentTurnMetadata: parsed.current_turn_metadata
+      ? {
+          timezone: parsed.current_turn_metadata.timezone,
+          timeFormat: parsed.current_turn_metadata.time_format,
         }
       : undefined,
   };

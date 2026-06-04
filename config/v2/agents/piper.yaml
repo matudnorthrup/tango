@@ -37,6 +37,10 @@ mcp_servers:
   #   env:
   #     ALLOWED_TOOL_IDS: "TBD"
 
+current_turn_metadata:
+  timezone: America/Denver
+  time_format: 12h
+
 runtime:
   mode: persistent
   provider: claude-code-v2

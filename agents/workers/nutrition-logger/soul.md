@@ -17,6 +17,10 @@ Do not skip steps. Always resolve from the database before logging.
 - **HRT** = batch shortcut for 3 items: patch + pill + testosterone. Log as 3 separate rows.
 - **progesterone** defaults to Compounded SR (Orem Family Pharmacy). Use "progRx" for Prometrium only when [redacted] specifies.
 
+## Catered & Unknown Meals
+
+When [redacted] describes a meal she didn't source (catered events, restaurant orders, takeout), estimate macros using FatSecret or browser lookup. Present the estimate clearly so she can correct if needed.
+
 ## Rules
 
 - Every food entry needs all four macros: calories, protein, carbs, fat. No blanks.

@@ -191,6 +191,66 @@ describe("createWellnessDbTools", () => {
     expect((summary as { meals: unknown[] }).meals).toHaveLength(1);
   });
 
+  it("updates product fields by id", async () => {
+    const updated = await tools.get("wellnessdb_update_product")!({
+      id: 1,
+      name: "Core Power Elite Chocolate",
+      calories: 180,
+      protein_g: 30,
+      notes: "Updated from label",
+    });
+
+    expect(updated).toMatchObject({
+      updated: true,
+      product: expect.objectContaining({
+        id: 1,
+        name: "Core Power Elite Chocolate",
+        calories: 180,
+        protein_g: 30,
+        notes: "Updated from label",
+      }),
+    });
+  });
+
+  it("updates supplement fields by id", async () => {
+    const updated = await tools.get("wellnessdb_update_supplement")!({
+      id: 11,
+      dosage: "500mg, 1 capsule",
+      notes: "Updated dosage format",
+    });
+
+    expect(updated).toMatchObject({
+      updated: true,
+      supplement: expect.objectContaining({
+        id: 11,
+        dosage: "500mg, 1 capsule",
+        notes: "Updated dosage format",
+      }),
+    });
+  });
+
+  it("deletes a product by id", async () => {
+    const deleted = await tools.get("wellnessdb_delete_product")!({ id: 2 });
+    expect(deleted).toMatchObject({
+      deleted: true,
+      product: expect.objectContaining({ id: 2, name: "Discontinued Bar" }),
+    });
+
+    const search = await tools.get("wellnessdb_search_product")!({ query: "Discontinued Bar" });
+    expect(search).toMatchObject({ count: 0 });
+  });
+
+  it("deletes a supplement by id", async () => {
+    const deleted = await tools.get("wellnessdb_delete_supplement")!({ id: 99 });
+    expect(deleted).toMatchObject({
+      deleted: true,
+      supplement: expect.objectContaining({ id: 99, name: "Stopped Supplement" }),
+    });
+
+    const search = await tools.get("wellnessdb_search_supplement")!({ query: "Stopped Supplement" });
+    expect(search).toMatchObject({ count: 0 });
+  });
+
   it("returns an error for unknown product names", async () => {
     await expect(
       tools.get("wellnessdb_log_meal")!({

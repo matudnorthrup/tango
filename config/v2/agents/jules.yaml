@@ -25,7 +25,7 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "wellness-db"]
     env:
       JULES_WELLNESS_DB_PATH: "~/.tango/profiles/default/wellness/wellness.db"
-      ALLOWED_TOOL_IDS: "wellnessdb_search_product,wellnessdb_search_supplement,wellnessdb_search_recipe,wellnessdb_get_recipe_detail,wellnessdb_day_summary,wellnessdb_day_range,wellnessdb_recent_meals,wellnessdb_active_supplements,wellnessdb_active_products,wellnessdb_log_meal,wellnessdb_log_supplement,wellnessdb_log_weight,wellnessdb_log_activity,wellnessdb_log_hydration,wellnessdb_log_presence,wellnessdb_add_product,wellnessdb_add_recipe,wellnessdb_update_recipe,wellnessdb_add_day_note,wellnessdb_delete_meal_entry"
+      ALLOWED_TOOL_IDS: "wellnessdb_search_product,wellnessdb_search_supplement,wellnessdb_search_recipe,wellnessdb_get_recipe_detail,wellnessdb_day_summary,wellnessdb_day_range,wellnessdb_recent_meals,wellnessdb_active_supplements,wellnessdb_active_products,wellnessdb_log_meal,wellnessdb_log_supplement,wellnessdb_log_weight,wellnessdb_log_activity,wellnessdb_log_hydration,wellnessdb_log_presence,wellnessdb_add_product,wellnessdb_add_recipe,wellnessdb_update_recipe,wellnessdb_add_day_note,wellnessdb_delete_meal_entry,wellnessdb_update_product,wellnessdb_update_supplement"
   # - name: fatsecret
   #   command: node
   #   args: ["packages/core/dist/mcp-proxy.js", "fatsecret"]
@@ -36,6 +36,10 @@ mcp_servers:
   #   args: ["packages/core/dist/mcp-proxy.js", "wellness-files"]
   #   env:
   #     ALLOWED_TOOL_IDS: "TBD"
+
+current_turn_metadata:
+  timezone: America/Denver
+  time_format: 12h
 
 runtime:
   mode: persistent

@@ -86,6 +86,7 @@ import {
   contactsSyncHandler,
   isRuntimeAbortedError,
   isV2RuntimeEnabled,
+  shouldSendContextPressureAlert,
   type V2AgentConfig,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
@@ -184,7 +185,14 @@ import {
 import {
   buildSendContextWithOptionalSavePass,
   buildV2ConversationKey,
+  mergeSendContext,
 } from "./session-ops.js";
+import {
+  buildContextPressureInThreadAlert,
+  buildContextRotationInThreadAlert,
+  buildContextSlashReply,
+} from "./context-visibility.js";
+import { buildCurrentTurnMetadataPrompt } from "./current-turn-metadata.js";
 import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
 import { AtlasMemoryClient } from "./atlas-memory-client.js";
 import { TangoRouter } from "./tango-router.js";
@@ -503,12 +511,13 @@ const storage = new TangoStorage(dbPath);
 const v2Configs = loadLayeredV2AgentConfigs(configDir);
 const v2EnabledAgents = buildV2EnabledAgentSet(v2Configs);
 const atlasMemoryClient = new AtlasMemoryClient();
+const v2LifecycleConfig = {
+  idleTimeoutHours: 24,
+  contextResetThreshold: 0.80,
+};
 const tangoRouter = new TangoRouter({
   agentConfigs: buildV2RuntimeConfigs(v2Configs),
-  lifecycleConfig: {
-    idleTimeoutHours: 24,
-    contextResetThreshold: 0.80,
-  },
+  lifecycleConfig: v2LifecycleConfig,
   buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient),
   onPostTurn: createV2PostTurnHook({
     v2Configs,
@@ -3166,10 +3175,11 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       currentUserPrompt: turnInput.transcript,
       discordChannelId: voiceRouterThreadId ?? voiceRouterChannelId,
     });
-  const voiceContext = [
+  const voiceContext = mergeSendContext(
     voiceWarmStartPrompt,
+    buildCurrentTurnMetadataPrompt(v2AgentConfig),
     VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT,
-  ].filter(Boolean).join("\n\n");
+  );
 
   return dispatchVoiceTurnByRuntime({
     transcript: turnInput.transcript,
@@ -3728,7 +3738,7 @@ function formatHealthStatus(): string {
     `access_default_mode=${defaultAccessMode}`,
     `default_allowlist_channels=${defaultAccessPolicy.allowlistChannelIds.size}`,
     `default_allowlist_users=${defaultAccessPolicy.allowlistUserIds.size}`,
-    `agent_access_overrides=${agentAccessOverrideCount}`
+    `agent_access_overrides=${agentAccessOverrideCount}`,
   ];
   return ["Tango status", "```", ...lines, "```"].join("\n");
 }
@@ -4843,6 +4853,11 @@ function tangoCommandPayload(): RESTPostAPIApplicationCommandsJSONBody {
     )
     .addSubcommand((subcommand) =>
       subcommand
+        .setName("context")
+        .setDescription("Show context usage for this conversation")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
         .setName("replay")
         .setDescription("Replay a dead-letter entry")
         .addIntegerOption((option) =>
@@ -5303,6 +5318,7 @@ async function handleReplayCommand(interaction: ChatInputCommandInteraction): Pr
   });
   const warmStartPrompt = warmStartContext.prompt;
   const warmStartContextChars = warmStartPrompt?.length ?? 0;
+  const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt(v2Configs.get(deadLetter.agentId) ?? {});
 
   let selectedProviderName = providerChain[0]?.providerName ?? deadLetter.providerName;
   let providerResolution = "dead-letter";
@@ -5322,7 +5338,7 @@ async function handleReplayCommand(interaction: ChatInputCommandInteraction): Pr
       },
       providerRetryLimit,
       continuityByProvider,
-      { warmStartPrompt }
+      { warmStartPrompt, currentTurnMetadataPrompt }
     );
     const { providerName, failures, retryResult, requestPrompt, warmStartUsed } = failoverResult;
     selectedProviderName = providerName;
@@ -5627,6 +5643,98 @@ async function handleStopCommand(interaction: ChatInputCommandInteraction): Prom
   }
 }
 
+async function deliverInThreadContextAlert(channelId: string, message: string): Promise<void> {
+  try {
+    if (!client.isReady()) {
+      return;
+    }
+
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel || !channel.isTextBased()) {
+      return;
+    }
+
+    const textChannel = channel as { send?: (content: string) => Promise<unknown> };
+    if (typeof textChannel.send === "function") {
+      await textChannel.send(message);
+    }
+  } catch (error) {
+    console.warn(
+      `[tango-discord] context alert delivery failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+function maybePostContextPressureAlert(input: {
+  channelId: string;
+  routingChannelId: string;
+  threadId?: string;
+  agentId: string;
+}): void {
+  const session = tangoRouter.getSession(input.routingChannelId, input.threadId);
+  if (
+    !shouldSendContextPressureAlert(
+      session?.lastContextUsage,
+      session?.contextPressureAlertSent === true,
+    )
+    || !session?.lastContextUsage
+  ) {
+    return;
+  }
+
+  tangoRouter.markContextPressureAlertSent(input.routingChannelId, input.threadId);
+  const alertMessage = buildContextPressureInThreadAlert(input.agentId, session.lastContextUsage);
+  console.log(
+    `[tango-discord] context pressure alert agent=${input.agentId} channel=${input.channelId} usage=${Math.round(session.lastContextUsage.fraction * 100)}%`,
+  );
+  void deliverInThreadContextAlert(input.channelId, alertMessage);
+}
+
+function maybePostContextRotationNotice(input: {
+  channelId: string;
+  routingChannelId: string;
+  threadId?: string;
+  agentId: string;
+}): void {
+  const notice = tangoRouter.consumeContextAutoResetNotice(input.routingChannelId, input.threadId);
+  if (!notice) {
+    return;
+  }
+
+  const alertMessage = buildContextRotationInThreadAlert(input.agentId);
+  console.log(
+    `[tango-discord] context rotation alert agent=${input.agentId} channel=${input.channelId} usage=${Math.round(notice.fraction * 100)}%`,
+  );
+  void deliverInThreadContextAlert(input.channelId, alertMessage);
+}
+
+async function handleContextCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const { routingChannelId, threadId, route } = resolveSlashCommandContext(interaction);
+
+  if (!route) {
+    await interaction.reply({ content: "No session found for this channel.", ephemeral: true });
+    return;
+  }
+
+  const conversationKey = buildV2ConversationKey(routingChannelId, threadId);
+  const session = tangoRouter.getSession(routingChannelId, threadId);
+  const agentConfig = v2Configs.get(route.agentId);
+
+  await interaction.reply({
+    content: buildContextSlashReply({
+      agentId: route.agentId,
+      conversationKey,
+      usage: session?.lastContextUsage,
+      contextPressureAlertSent: session?.contextPressureAlertSent,
+      idleTimeoutHours: agentConfig?.runtime.idleTimeoutHours ?? v2LifecycleConfig.idleTimeoutHours,
+      lifecycleIdleTimeoutHours: v2LifecycleConfig.idleTimeoutHours,
+    }),
+    ephemeral: true,
+  });
+}
+
 async function handleSaveCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const { routingChannelId, threadId, route } = resolveSlashCommandContext(interaction);
 
@@ -5862,6 +5970,11 @@ async function handleTangoCommand(interaction: ChatInputCommandInteraction): Pro
 
   if (subcommand === "save") {
     await handleSaveCommand(interaction);
+    return;
+  }
+
+  if (subcommand === "context") {
+    await handleContextCommand(interaction);
     return;
   }
 
@@ -6253,13 +6366,18 @@ async function handleMessage(
         discordChannelId: threadId ?? routingChannelId,
       });
       const sendContext = buildSendContextWithOptionalSavePass(warmStartPrompt, hasPendingSavePass);
+      const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt(v2Configs.get(targetAgent.id) ?? {});
+      const mergedContext = mergeSendContext(
+        sendContext,
+        currentTurnMetadataPrompt,
+      );
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
           channelId: routingChannelId,
           ...(threadId ? { threadId } : {}),
           agentId: targetAgent.id,
-          sendOptions: sendContext ? { context: sendContext } : undefined,
+          sendOptions: mergedContext ? { context: mergedContext } : undefined,
         },
         {
           v2EnabledAgents,
@@ -6369,6 +6487,20 @@ async function handleMessage(
           `[tango-discord] fulfilled pending session save conversation=${conversationKey} cleared=${cleared}`,
         );
       }
+
+      maybePostContextRotationNotice({
+        channelId: message.channelId,
+        routingChannelId,
+        ...(threadId ? { threadId } : {}),
+        agentId: targetAgent.id,
+      });
+
+      maybePostContextPressureAlert({
+        channelId: message.channelId,
+        routingChannelId,
+        ...(threadId ? { threadId } : {}),
+        agentId: targetAgent.id,
+      });
 
       return;
     } finally {
