@@ -168,7 +168,8 @@ The worktree may contain user or agent changes unrelated to your task.
 - macOS uses bash 3.2 in some scripts: use `eval "$(cmd)"` instead of
   `source <(cmd)` for env propagation.
 - Two Discord allowlist layers exist: `DISCORD_ALLOWED_CHANNELS` at the event
-  layer and `access-control.ts` per-agent routing via parent channel
-  resolution.
+  layer and `access-control.ts` per-agent routing. Forum threads route to parent
+  channel IDs; allowlisting a single thread requires the thread-level fix in
+  [`discord-access-control.md`](./discord-access-control.md).
 - Prefer structured parsers and existing repo helpers over ad hoc string
   manipulation when changing config or data formats.
