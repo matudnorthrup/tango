@@ -103,4 +103,24 @@ describe("access-control", () => {
     expect(allowed.allowed).toBe(true);
     expect(allowed.reason).toBe("ok");
   });
+
+  it("allows forum thread ID when parent channel is routed for allowlist", () => {
+    const policy = buildDefaultAccessPolicy({
+      mode: "allowlist",
+      allowlistChannelIds: ["1509320762287456457"],
+      allowlistUserIds: []
+    });
+
+    const allowed = evaluateAccess(
+      {
+        channelId: "1469909960199503913",
+        threadChannelId: "1509320762287456457",
+        userId: "any-user",
+        mentioned: true
+      },
+      policy
+    );
+    expect(allowed.allowed).toBe(true);
+    expect(allowed.channelAllowed).toBe(true);
+  });
 });
