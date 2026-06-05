@@ -55,6 +55,7 @@ import { VoicePipeline } from '../src/pipeline/voice-pipeline.js';
 import { checkPipelineInvariants } from '../src/pipeline/pipeline-invariants.js';
 import { transcribe } from '../src/services/whisper.js';
 import { textToSpeechStream } from '../src/services/tts.js';
+import { setEndpointingMode } from '../src/services/voice-settings.js';
 
 const transcribeMock = vi.mocked(transcribe);
 const ttsMock = vi.mocked(textToSpeechStream);
@@ -62,6 +63,7 @@ const ttsMock = vi.mocked(textToSpeechStream);
 describe('Pipeline fault injection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setEndpointingMode('indicate');
   });
 
   it('recovers to IDLE after STT (transcribe) failure', async () => {
@@ -80,6 +82,7 @@ describe('Pipeline fault injection', () => {
   });
 
   it('recovers to IDLE after TTS failure during speak', async () => {
+    setEndpointingMode('silence');
     transcribeMock.mockResolvedValueOnce('Hello Watson test');
     ttsMock.mockRejectedValueOnce(new Error('Kokoro TTS connection refused'));
 
@@ -89,6 +92,19 @@ describe('Pipeline fault injection', () => {
 
     const stateType = (pipeline as any).stateMachine.getStateType();
     expect(stateType).toBe('IDLE');
+
+    pipeline.stop();
+  });
+
+  it('recovers to IDLE after wait response playback failure', async () => {
+    const pipeline = new VoicePipeline({} as any);
+    ttsMock.mockResolvedValueOnce(Buffer.from('audio'));
+    vi.spyOn((pipeline as any).player, 'playStream').mockRejectedValueOnce(new Error('terminated'));
+
+    (pipeline as any).deliverWaitResponse('Ready response text.', 'juliet');
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect((pipeline as any).stateMachine.getStateType()).toBe('IDLE');
 
     pipeline.stop();
   });

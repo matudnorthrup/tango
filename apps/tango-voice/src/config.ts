@@ -7,7 +7,7 @@ function parseAudioProcessingMode(value: string | undefined): 'discord' | 'local
 
 function parseEndpointingMode(value: string | undefined): 'silence' | 'indicate' {
   const normalized = value?.trim().toLowerCase();
-  if (!normalized) return 'silence';
+  if (!normalized) return 'indicate';
   if (normalized === 'indicate' || normalized === 'manual') return 'indicate';
   return 'silence';
 }
