@@ -338,17 +338,51 @@ function parseKeyValueLines(block: string): Map<string, string> {
   const result = new Map<string, string>();
   for (const rawLine of block.split("\n")) {
     const line = rawLine.trim();
-    const match = /^-\s+([^:]+):\s*(.+)\s*$/u.exec(line);
-    if (!match) {
+    const listMatch = /^-\s+(?:\*\*)?([^:*]+):(?:\*\*)?\s*(.+)\s*$/u.exec(line);
+    if (listMatch) {
+      const [, rawKey, rawValue] = listMatch;
+      if (rawKey && rawValue) {
+        result.set(rawKey.trim().toLowerCase(), rawValue.trim());
+      }
       continue;
     }
-    const [, rawKey, rawValue] = match;
+
+    const tableMatch = /^\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/u.exec(line);
+    if (!tableMatch) {
+      continue;
+    }
+    const rawKey = tableMatch[1]?.replace(/\*/gu, "").trim();
+    const rawValue = tableMatch[2]?.replace(/\*/gu, "").trim();
     if (!rawKey || !rawValue) {
+      continue;
+    }
+    if (/^-+$/.test(rawKey.replace(/:/gu, "")) || /^-+$/.test(rawValue.replace(/:/gu, ""))) {
       continue;
     }
     result.set(rawKey.trim().toLowerCase(), rawValue.trim());
   }
   return result;
+}
+
+function extractFrontmatterScalar(markdown: string, key: string): string | undefined {
+  const frontmatter = /^---\n([\s\S]*?)\n---/u.exec(markdown)?.[1];
+  if (!frontmatter) {
+    return undefined;
+  }
+  const pattern = new RegExp(`^${key}:\\s*["']?(.+?)["']?\\s*$`, "imu");
+  return pattern.exec(frontmatter)?.[1]?.trim();
+}
+
+function parseIsoDate(value: string | undefined): string | undefined {
+  return /([0-9]{4}-[0-9]{2}-[0-9]{2})/u.exec(value ?? "")?.[1];
+}
+
+function extractReceiptDate(markdown: string): string | undefined {
+  const fields = parseKeyValueLines(markdown);
+  return parseIsoDate(extractFrontmatterScalar(markdown, "date"))
+    ?? parseIsoDate(/^\s*-?\s*\*\*Date:\*\*\s+(.+)$/imu.exec(markdown)?.[1])
+    ?? parseIsoDate(/^\s*-?\s*Date:\s+(.+)$/imu.exec(markdown)?.[1])
+    ?? parseIsoDate(fields.get("date"));
 }
 
 function extractReimbursementSection(markdown: string): string | null {
@@ -398,9 +432,16 @@ export function parseWalmartReceiptMarkdown(filePath: string, markdown: string):
     ?? /-\s+Order\s*#:\s+(.+)$/imu.exec(markdown)?.[1]?.trim()
     ?? /Order\s+([^./]+)\.md$/u.exec(path.basename(filePath))?.[1]?.trim()
     ?? path.basename(filePath, ".md");
-  const date = /-\s+\*\*Date:\*\*\s+([0-9]{4}-[0-9]{2}-[0-9]{2})/u.exec(markdown)?.[1];
-  const total = parseCurrency(/-\s+\*\*Total:\*\*\s+\$([0-9.,]+)/u.exec(markdown)?.[1]);
-  const cardCharge = /-\s+\*\*Card Charge:\*\*\s+(.+)/u.exec(markdown)?.[1]?.trim();
+  const fields = parseKeyValueLines(markdown);
+  const date = extractReceiptDate(markdown);
+  const total = parseCurrency(
+    extractFrontmatterScalar(markdown, "total")
+    ?? /^\s*-?\s*\*\*Total:\*\*\s+(.+)$/imu.exec(markdown)?.[1]
+    ?? fields.get("total"),
+  );
+  const cardCharge =
+    /^\s*-?\s*\*\*Card Charge:\*\*\s+(.+)$/imu.exec(markdown)?.[1]?.trim()
+    ?? fields.get("card charge");
   const driverTip = parseFirstCurrencyFromRegex(markdown, [
     /driver tips\s+\$([0-9.,]+)/iu,
     /includes?\s+\$([0-9.,]+)\s+driver tip/iu,

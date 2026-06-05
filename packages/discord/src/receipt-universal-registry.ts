@@ -362,12 +362,25 @@ function parseKeyValueLines(block: string): Map<string, string> {
   const result = new Map<string, string>();
   for (const rawLine of block.split("\n")) {
     const line = rawLine.trim();
-    const match = /^-\s+([^:]+):\s*(.+)\s*$/u.exec(line);
-    if (!match) {
+    const listMatch = /^-\s+(?:\*\*)?([^:*]+):(?:\*\*)?\s*(.+)\s*$/u.exec(line);
+    if (listMatch) {
+      const [, rawKey, rawValue] = listMatch;
+      if (rawKey && rawValue) {
+        result.set(rawKey.trim().toLowerCase(), rawValue.trim());
+      }
       continue;
     }
-    const [, rawKey, rawValue] = match;
+
+    const tableMatch = /^\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/u.exec(line);
+    if (!tableMatch) {
+      continue;
+    }
+    const rawKey = tableMatch[1]?.replace(/\*/gu, "").trim();
+    const rawValue = tableMatch[2]?.replace(/\*/gu, "").trim();
     if (!rawKey || !rawValue) {
+      continue;
+    }
+    if (/^-+$/.test(rawKey.replace(/:/gu, "")) || /^-+$/.test(rawValue.replace(/:/gu, ""))) {
       continue;
     }
     result.set(rawKey.trim().toLowerCase(), rawValue.trim());
@@ -860,8 +873,8 @@ function buildLunchMoneyReceiptNote(record: ReceiptLookupRecord): string {
 
 function extractBulletValue(markdown: string, labels: string[]): string | undefined {
   for (const label of labels) {
-    const boldPattern = new RegExp(`^-\\s+\\*\\*${escapeRegex(label)}:\\*\\*\\s+(.+)$`, "imu");
-    const plainPattern = new RegExp(`^-\\s+${escapeRegex(label)}:\\s+(.+)$`, "imu");
+    const boldPattern = new RegExp(`^\\s*-?\\s*\\*\\*${escapeRegex(label)}:\\*\\*\\s+(.+)$`, "imu");
+    const plainPattern = new RegExp(`^\\s*-?\\s*${escapeRegex(label)}:\\s+(.+)$`, "imu");
     const match = boldPattern.exec(markdown) ?? plainPattern.exec(markdown);
     const value = match?.[1]?.trim();
     if (value) {
@@ -871,13 +884,50 @@ function extractBulletValue(markdown: string, labels: string[]): string | undefi
   return undefined;
 }
 
+function extractFrontmatterScalar(markdown: string, key: string): string | undefined {
+  const frontmatter = /^---\n([\s\S]*?)\n---/u.exec(markdown)?.[1];
+  if (!frontmatter) {
+    return undefined;
+  }
+  const pattern = new RegExp(`^${escapeRegex(key)}:\\s*["']?(.+?)["']?\\s*$`, "imu");
+  return pattern.exec(frontmatter)?.[1]?.trim();
+}
+
 function parseReceiptMetadataFields(markdown: string): Record<string, string> {
   const result: Record<string, string> = {};
+  const frontmatter = /^---\n([\s\S]*?)\n---/u.exec(markdown)?.[1];
+  if (frontmatter) {
+    for (const rawLine of frontmatter.split("\n")) {
+      const match = /^\s*([A-Za-z0-9_-]+):\s*(.+?)\s*$/u.exec(rawLine);
+      const rawKey = match?.[1]?.trim();
+      const rawValue = match?.[2]?.replace(/^["']|["']$/gu, "").trim();
+      if (rawKey && rawValue) {
+        result[rawKey] = rawValue;
+      }
+    }
+  }
+
   for (const rawLine of markdown.replace(/\r\n/gu, "\n").split("\n")) {
-    const match = /^\s*-\s+(?:\*\*)?([^:*]+):(?:\*\*)?\s+(.+?)\s*$/u.exec(rawLine);
-    const rawKey = match?.[1]?.trim();
-    const rawValue = match?.[2]?.trim();
+    const listMatch = /^\s*(?:-\s+)?(?:\*\*)?([^:*|]+):(?:\*\*)?\s+(.+?)\s*$/u.exec(rawLine);
+    if (listMatch) {
+      const rawKey = listMatch[1]?.trim();
+      const rawValue = listMatch[2]?.trim();
+      if (rawKey && rawValue) {
+        result[rawKey] = rawValue;
+      }
+      continue;
+    }
+
+    const tableMatch = /^\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/u.exec(rawLine.trim());
+    if (!tableMatch) {
+      continue;
+    }
+    const rawKey = tableMatch[1]?.replace(/\*/gu, "").trim();
+    const rawValue = tableMatch[2]?.replace(/\*/gu, "").trim();
     if (!rawKey || !rawValue) {
+      continue;
+    }
+    if (/^-+$/.test(rawKey.replace(/:/gu, "")) || /^-+$/.test(rawValue.replace(/:/gu, ""))) {
       continue;
     }
     result[rawKey] = rawValue;
@@ -885,8 +935,27 @@ function parseReceiptMetadataFields(markdown: string): Record<string, string> {
   return result;
 }
 
+function firstMetadataValue(fields: Record<string, string>, labels: string[]): string | undefined {
+  for (const label of labels) {
+    const exact = fields[label];
+    if (exact) {
+      return exact;
+    }
+    const lowerLabel = label.toLowerCase();
+    const matchedKey = Object.keys(fields).find((key) => key.toLowerCase() === lowerLabel);
+    if (matchedKey && fields[matchedKey]) {
+      return fields[matchedKey];
+    }
+  }
+  return undefined;
+}
+
 function extractDateValue(markdown: string): string | undefined {
-  const raw = extractBulletValue(markdown, ["Date", "Transaction Date", "Paid On", "Payment Date"]);
+  const fields = parseReceiptMetadataFields(markdown);
+  const raw =
+    extractFrontmatterScalar(markdown, "date")
+    ?? extractBulletValue(markdown, ["Date", "Transaction Date", "Paid On", "Payment Date"])
+    ?? firstMetadataValue(fields, ["Date", "Transaction Date", "Paid On", "Payment Date", "date"]);
   if (!raw) {
     return undefined;
   }

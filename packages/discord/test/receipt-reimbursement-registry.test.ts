@@ -70,6 +70,70 @@ describe("receipt reimbursement registry", () => {
     expect(record.orderId).toBe("200014788507768");
   });
 
+  it("parses frontmatter and table-format Walmart receipt notes", () => {
+    const record = parseWalmartReceiptMarkdown(
+      "/tmp/2026-05-27 Order 2000149-10045684.md",
+      [
+        "---",
+        "date: 2026-05-27",
+        "merchant: \"Walmart (Delivery from Store)\"",
+        "order_number: \"2000149-10045684\"",
+        "total: 266.59",
+        "reimbursable: true",
+        "amount: 24.94",
+        "---",
+        "# Walmart Order 2000149-10045684",
+        "",
+        "| Field | Value |",
+        "|-------|-------|",
+        "| Date | 2026-05-27 |",
+        "| Driver tip | $24.94 |",
+        "| Total | $266.59 |",
+        "",
+        "## Reimbursement Tracking",
+        "",
+        "| Field | Value |",
+        "|-------|-------|",
+        "| Status | not_submitted |",
+        "| System | Ramp |",
+        "| Reimbursable Item | Driver tip |",
+        "| Amount | $24.94 |",
+        "| Note | Exec Buy Back Time |",
+      ].join("\n"),
+    );
+
+    expect(record.orderId).toBe("2000149-10045684");
+    expect(record.date).toBe("2026-05-27");
+    expect(record.total).toBe(266.59);
+    expect(record.driverTip).toBe(24.94);
+    expect(record.reimbursement.status).toBe("not_submitted");
+    expect(record.reimbursement.system).toBe("Ramp");
+    expect(record.reimbursement.reimbursableItem).toBe("Driver tip");
+    expect(record.reimbursement.amount).toBe(24.94);
+    expect(record.reimbursement.note).toBe("Exec Buy Back Time");
+  });
+
+  it("parses bold date lines without a list marker", () => {
+    const record = parseWalmartReceiptMarkdown(
+      "/tmp/2026-05-09 Order 2000147-25164542.md",
+      [
+        "# Walmart Order 2000147-25164542",
+        "",
+        "**Date:** 2026-05-09",
+        "**Delivered:** 2026-05-10",
+        "",
+        "## Order Summary",
+        "",
+        "| | Amount |",
+        "|-|--------|",
+        "| Driver tip | $4.00 |",
+      ].join("\n"),
+    );
+
+    expect(record.date).toBe("2026-05-09");
+    expect(record.driverTip).toBe(4);
+  });
+
   it("upserts a reimbursement tracking section into a receipt note", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-ramp-reimburse-"));
     const filePath = path.join(tempDir, "2026-04-01 Order 2000146-86460984.md");

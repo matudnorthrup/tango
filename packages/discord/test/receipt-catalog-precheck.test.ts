@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildReceiptCatalogDateWindow,
   buildMissingReceiptCandidates,
   buildReimbursementGapCandidates,
   collectLinkedReceiptTransactionIds,
@@ -36,6 +37,20 @@ afterEach(() => {
 });
 
 describe("receipt catalog precheck", () => {
+  it("keeps a two-week recovery window for blocked receipt candidates", () => {
+    const window = buildReceiptCatalogDateWindow(
+      new Date("2026-06-05T19:00:00.000Z"),
+      "America/Los_Angeles",
+    );
+
+    expect(window).toEqual({
+      startDate: "2026-05-22",
+      endDate: "2026-06-05",
+      lookbackDays: 14,
+    });
+    expect("2026-05-28" >= window.startDate).toBe(true);
+  });
+
   it("extracts linked transaction ids from receipt markdown", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-receipt-precheck-"));
     cleanupDirs.push(dir);
