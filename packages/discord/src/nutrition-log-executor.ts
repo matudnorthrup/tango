@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { resolveCurrentTurnTimeZone } from "@tango/core";
 
 export interface NutritionLogItemInput {
   name: string;
@@ -431,10 +432,23 @@ function normalizeLogDate(value: string | undefined): string {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value.trim())) {
     return value.trim();
   }
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
+  return formatLocalIsoDate(new Date(), resolveCurrentTurnTimeZone());
+}
+
+function formatLocalIsoDate(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const partMap = new Map(parts.map((part) => [part.type, part.value]));
+  const year = partMap.get("year");
+  const month = partMap.get("month");
+  const day = partMap.get("day");
+  if (!year || !month || !day) {
+    throw new Error(`Unable to format nutrition log date for timezone ${timeZone}.`);
+  }
   return `${year}-${month}-${day}`;
 }
 

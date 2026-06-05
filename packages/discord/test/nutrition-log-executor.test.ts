@@ -9,8 +9,21 @@ import {
 } from "../src/nutrition-log-executor.js";
 
 const tempDirs: string[] = [];
+const originalTangoTimeZone = process.env.TANGO_TIME_ZONE;
+const originalTz = process.env.TZ;
 
 afterEach(() => {
+  vi.useRealTimers();
+  if (originalTangoTimeZone === undefined) {
+    delete process.env.TANGO_TIME_ZONE;
+  } else {
+    process.env.TANGO_TIME_ZONE = originalTangoTimeZone;
+  }
+  if (originalTz === undefined) {
+    delete process.env.TZ;
+  } else {
+    process.env.TZ = originalTz;
+  }
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (dir) {
@@ -172,6 +185,66 @@ describe("executeNutritionLogItems", () => {
       meal: "other",
       date: "2026-04-09",
     });
+  });
+
+  it("defaults an omitted log date to the configured local timezone day", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-03T01:15:00.000Z"));
+    process.env.TANGO_TIME_ZONE = "America/Los_Angeles";
+    process.env.TZ = "UTC";
+
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Light Vanilla Greek Yogurt",
+        food_id: "1001",
+        serving_id: "2001",
+        serving_description: "100 g",
+        serving_size: "100 g",
+        grams_per_serving: 100,
+        calories: 60,
+        protein: 10,
+        carbs: 5,
+        fat: 0,
+        aliases: JSON.stringify(["light vanilla greek yogurt"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return {
+          success: true,
+          food_entry_id: `${params.food_id}-entry`,
+        };
+      }
+      if (method === "food_entries_get") {
+        return {
+          breakfast: [{ food_entry_id: "1001-entry" }],
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "light vanilla greek yogurt", quantity: "100g" }],
+        meal: "breakfast",
+      },
+      {
+        atlasDbPath,
+        fatsecretCall,
+      },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "confirmed",
+      meal: "breakfast",
+      date: "2026-06-02",
+    });
+    expect(fatsecretCall.mock.calls[0]?.[1]).toMatchObject({
+      meal: "breakfast",
+      date: "2026-06-02",
+    });
+    expect(fatsecretCall.mock.calls[1]?.[1]).toEqual({ date: "2026-06-02" });
   });
 
   it("uses raw grams for Atlas servings whose unit is just grams", async () => {
