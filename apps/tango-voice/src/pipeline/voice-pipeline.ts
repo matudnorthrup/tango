@@ -4352,6 +4352,12 @@ Use channel names (the part before the colon). Do not explain.`,
         }
       } catch (err: any) {
         console.error(`Wait response delivery failed: ${err.message}`);
+        this.stopWaitingLoop();
+        this.player.stopPlayback('wait-response-delivery-failed');
+        const stateType = this.stateMachine.getStateType();
+        if (stateType === 'SPEAKING' || stateType === 'PROCESSING' || stateType === 'TRANSCRIBING') {
+          this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
+        }
       }
     })();
   }
