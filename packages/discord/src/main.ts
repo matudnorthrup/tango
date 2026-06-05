@@ -179,6 +179,7 @@ import {
 } from "./message-referents.js";
 import { selectWarmStartMessages } from "./channel-surface-context.js";
 import {
+  buildReceiptCatalogDateWindow,
   buildReimbursementGapCandidates,
   buildMissingReceiptCandidates,
   collectLinkedReceiptTransactionIds,
@@ -872,8 +873,7 @@ registerPreCheckHandler("foxtrot-unreviewed-transactions", async () => {
 
 registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
   const timeZone = "America/Los_Angeles";
-  const endDate = formatDateInTimeZone(new Date(), timeZone);
-  const startDate = formatDateInTimeZone(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), timeZone);
+  const { startDate, endDate, lookbackDays } = buildReceiptCatalogDateWindow(new Date(), timeZone);
   const receiptsRoot = resolveDefaultReceiptRoot();
   const response = await fetch(
     `https://dev.lunchmoney.app/v1/transactions?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`,
@@ -904,7 +904,7 @@ registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
     return {
       action: "skip" as const,
       reason:
-        "No recent receipt candidates or reimbursement tracking gaps for Amazon/Walmart/Costco/Venmo/Maid in Newport/Factor in the last 7 days.",
+        `No recent receipt candidates or reimbursement tracking gaps for Amazon/Walmart/Costco/Venmo/Maid in Newport/Factor in the last ${lookbackDays} days.`,
     };
   }
 
@@ -913,6 +913,7 @@ registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
     context: {
       startDate,
       endDate,
+      lookbackDays,
       retailerCandidateCount: Math.min(
         retailerCandidates.length,
         RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN,

@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  detectReimbursementGaps,
+  listReimbursementCandidates,
   lookupReceiptRecords,
   reconcileUniversalReimbursements,
   upsertReimbursementTracking,
@@ -190,6 +192,73 @@ describe("receipt universal registry", () => {
     expect(updated).toContain("amount: 350.00");
     expect(updated).toContain("## Reimbursement Tracking");
     expect(updated).toContain("- Status: not_submitted");
+  });
+
+  it("reads frontmatter dates and table reimbursement fields for Walmart candidates", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-universal-walmart-home-"));
+    cleanupDirs.push(tempHome);
+    process.env.TANGO_HOME = tempHome;
+    process.env.TANGO_PROFILE = "test";
+
+    const receiptDir = path.join(tempHome, "profiles", "test", "data", "receipts", "Walmart");
+    fs.mkdirSync(receiptDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(receiptDir, "2026-05-27 Order 2000149-10045684.md"),
+      [
+        "---",
+        "date: 2026-05-27",
+        "types:",
+        "  - \"[[Receipt]]\"",
+        "areas:",
+        "  - \"[[Finance]]\"",
+        "merchant: \"Walmart (Delivery from Store)\"",
+        "order_number: \"2000149-10045684\"",
+        "total: 266.59",
+        "reimbursable: true",
+        "amount: 24.94",
+        "source_kind: record",
+        "---",
+        "# Walmart Order 2000149-10045684",
+        "",
+        "| Field | Value |",
+        "|-------|-------|",
+        "| Date | 2026-05-27 |",
+        "| Driver tip | $24.94 |",
+        "| Total | $266.59 |",
+        "",
+        "## Reimbursement Tracking",
+        "",
+        "| Field | Value |",
+        "|-------|-------|",
+        "| Status | not_submitted |",
+        "| System | Ramp |",
+        "| Reimbursable Item | Driver tip |",
+        "| Amount | $24.94 |",
+        "| Note | Exec Buy Back Time |",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const candidates = listReimbursementCandidates({
+      since: "2026-05-27",
+      until: "2026-05-27",
+      vendor: "walmart_tip",
+      includeSubmitted: true,
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.date).toBe("2026-05-27");
+    expect(candidates[0]?.reimbursableAmount).toBe(24.94);
+    expect(candidates[0]?.reimbursement.status).toBe("not_submitted");
+    expect(candidates[0]?.reimbursement.system).toBe("Ramp");
+    expect(candidates[0]?.reimbursement.note).toBe("Exec Buy Back Time");
+
+    const gaps = detectReimbursementGaps({
+      since: "2026-05-27",
+      until: "2026-05-27",
+      vendor: "walmart_tip",
+    });
+    expect(gaps.gaps.some((gap) => gap.type === "missing_date")).toBe(false);
   });
 
   it("treats draft notes with no live Ramp match as pending", () => {

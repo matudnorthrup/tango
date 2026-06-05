@@ -45,6 +45,8 @@ export interface BuildReimbursementGapCandidatesInput {
   lookbackMonths?: number;
 }
 
+export const RECEIPT_CATALOG_LOOKBACK_DAYS = 14;
+
 const LINKED_TRANSACTION_ID_PATTERN = /\b(?:Lunch Money\s+)?TXN\s+(\d+)\b/gu;
 const RETAILER_PATTERN = /\b(amazon|walmart|costco|venmo|maid in newport|factor)\b/iu;
 const REIMBURSEMENT_GAP_TYPE_ORDER: Record<ReimbursementGapCandidate["type"], number> = {
@@ -52,6 +54,19 @@ const REIMBURSEMENT_GAP_TYPE_ORDER: Record<ReimbursementGapCandidate["type"], nu
   stale_tracking: 1,
   missing_recurring_receipt: 2,
 };
+
+export function buildReceiptCatalogDateWindow(
+  now: Date = new Date(),
+  timeZone = "America/Los_Angeles",
+  lookbackDays = RECEIPT_CATALOG_LOOKBACK_DAYS,
+): { startDate: string; endDate: string; lookbackDays: number } {
+  const endDate = formatDateInTimeZone(now, timeZone);
+  const startDate = formatDateInTimeZone(
+    new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000),
+    timeZone,
+  );
+  return { startDate, endDate, lookbackDays };
+}
 
 export function collectLinkedReceiptTransactionIds(receiptsRoot: string): Set<string> {
   const linkedIds = new Set<string>();
@@ -304,6 +319,15 @@ function normalizeOptionalAmount(value: string | number | null | undefined): str
   return normalized === "0.00" && (value == null || String(value).trim().length === 0)
     ? undefined
     : normalized;
+}
+
+function formatDateInTimeZone(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
 function recordMatchesGapFilters(
