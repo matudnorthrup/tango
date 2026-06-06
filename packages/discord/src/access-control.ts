@@ -8,6 +8,7 @@ export interface AccessPolicy {
 
 export interface AccessEvaluationInput {
   channelId: string;
+  threadChannelId?: string;
   userId: string;
   mentioned: boolean;
 }
@@ -75,7 +76,10 @@ function evaluateAllowlist(input: AccessEvaluationInput, policy: AccessPolicy): 
   allowed: boolean;
 } {
   const channelAllowed =
-    policy.allowlistChannelIds.size === 0 ? true : policy.allowlistChannelIds.has(input.channelId);
+    policy.allowlistChannelIds.size === 0
+      ? true
+      : policy.allowlistChannelIds.has(input.channelId) ||
+        (!!input.threadChannelId && policy.allowlistChannelIds.has(input.threadChannelId));
   const userAllowed =
     policy.allowlistUserIds.size === 0 ? true : policy.allowlistUserIds.has(input.userId);
   return {
