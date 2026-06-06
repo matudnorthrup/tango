@@ -9,6 +9,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { expandHomePath } from "./runtime-paths.js";
 import { assembleAgentPrompt } from "./system-prompt.js";
 import type { AgentConfig } from "./types.js";
 import type { V2AgentConfig } from "./v2-config-loader.js";
@@ -19,11 +20,12 @@ function resolveV2PromptFile(
   systemPromptFile: string,
   repoRoot?: string,
 ): string {
-  if (path.isAbsolute(systemPromptFile)) {
-    return systemPromptFile;
+  const expanded = expandHomePath(systemPromptFile.trim());
+  if (path.isAbsolute(expanded)) {
+    return path.resolve(expanded);
   }
   const root = repoRoot ?? process.cwd();
-  return path.resolve(root, systemPromptFile);
+  return path.resolve(root, expanded);
 }
 
 function resolveV2Prompt(
