@@ -1,9 +1,9 @@
-# Ollama Provider & Parallel Instance — Design Spec
+# Ollama Provider — Design Spec
 
 This is a forward-looking design spec, not a description of the current system.
-It defines (1) a first-class `ollama` model provider and (2) a parallel
-"Ollama-backed" Tango instance used to evaluate it live alongside production
-without disruption.
+It defines (1) a first-class `ollama` model provider and (2) how it is evaluated
+live — on dedicated channels of the **existing** Tango bot (per-agent provider
+routing), alongside production without disruption.
 
 Related: [`../guides/parallel-dev.md`](../guides/parallel-dev.md) (the profile +
 slot isolation this builds on), [`../guides/profile-model.md`](../guides/profile-model.md).
@@ -30,8 +30,9 @@ is **cache-creation** (context re-send), not output.
 
 This spec pursues the **open-weight, flat-rate** alternative: route some/all
 agent traffic to **Ollama Cloud** (flat subscription, GPU-time metered, runs
-DeepSeek V4 Pro / Qwen / gpt-oss), via a first-class provider, validated on a
-**parallel instance** so production is never at risk.
+DeepSeek V4 Pro / Qwen / gpt-oss), via a first-class provider, validated on
+**dedicated channels of the existing bot** (per-agent provider routing) so
+production is never at risk.
 
 ---
 
@@ -73,7 +74,7 @@ This loop is the bulk of the effort and nearly all of the risk. Once built it is
 reusable for any future HTTP/OpenAI-compatible provider.
 
 > Do **not** shim this by pointing `CLAUDE_CLI_COMMAND` at an Ollama endpoint.
-> Route through the real `OllamaProvider` selected via per-profile agent config.
+> Route through the real `OllamaProvider` selected via per-agent config.
 
 ### 2.2 Context ownership (statelessness as an advantage)
 
@@ -131,75 +132,73 @@ well-bounded task inside Phase 2 — not a from-scratch rebuild.
 
 ---
 
-## Section 3: Parallel instance topology
+## Section 3: Topology — same bot, per-channel routing
 
-The evaluation runs as a **second, fully isolated Tango instance** — same
-codebase, different config — using the existing `TANGO_PROFILE` mechanism
-(`packages/core/src/runtime-paths.ts`). Setting `TANGO_PROFILE=ollama` routes
-*all* runtime state under `~/.tango/profiles/ollama/`.
+The evaluation runs on the **existing Tango instance and bot** — not a separate
+process or profile. Provider *and* model are already per-agent config, so routing
+traffic to Ollama is the same mechanism as "this agent uses Sonnet, that one uses
+Opus": point an agent at `provider.default: ollama` and pin it to its own
+channel(s). (This revises an earlier draft's second-process / second-token
+design — below is what that bought and why it is no longer needed.)
 
-- **Process:** a second always-on Tango process with `TANGO_PROFILE=ollama`,
-  plus its own watchdog (sibling to the existing remote-control/session
-  watchdogs).
-- **Discord identity:** a **dedicated second bot token** (`DISCORD_TOKEN`), not
-  the shared claim/release queue from worktree-dev (that was for *ephemeral* dev
-  slots). This gives a persistent, visibly distinct identity (e.g.
-  "Tango [Ollama]") and true process isolation.
-- **Channels:** `DISCORD_ALLOWED_CHANNELS` (see
-  `packages/discord/src/allowed-channels.ts`) pins the Ollama instance to
-  dedicated channels (e.g. `#watson-ollama`, `#sierra-ollama`). Each instance
-  answers only in its own channels — same agents/personas, different brain.
-- **Provider config:** the `ollama` profile's agent YAMLs set
-  `provider.default: ollama`; production's stay `claude-oauth`.
+- **No second process or bot token.** Once the provider is merged it is a
+  first-class peer in the same codebase; a dedicated channel + agent is all that's
+  required. A second `DISCORD_TOKEN` / `TANGO_PROFILE=ollama` process is warranted
+  *only* to run a **divergent build** in parallel with prod, or for a visibly
+  distinct identity — neither is needed here.
+- **Channels:** dedicated channels (e.g. `#watson-ollama`) via
+  `DISCORD_ALLOWED_CHANNELS` (`packages/discord/src/allowed-channels.ts`) on the
+  existing bot. Claude-backed and Ollama-backed channels run side by side.
+- **Agent/provider config:** the Ollama-routed agent's YAML sets
+  `provider.default: ollama`; Claude agents stay `claude-oauth`.
+- **No fallback during the eval.** Ollama-routed agents set **no `fallback`**
+  (`fallback: []`). A Claude fallback would silently absorb Ollama failures and
+  produce a false-positive "it works" — during setup/testing we want failures
+  *visible*. Add fallback later, once Ollama is trusted.
+- **Blast radius:** with no fallback, an Ollama failure surfaces as a visible
+  error confined to its own channel — exactly the signal we want; Claude channels
+  are unaffected.
 
 ### 3.1 The split is temporary
 
-During development the Ollama provider + tool loop live on a feature branch in a
-worktree (the Ollama instance runs that build; prod runs `main`). **Once merged,
-both instances run identical code** — the only difference is per-profile config
-+ env. This converges to *one codebase, two configs*, not a maintained fork.
+During development the provider lives on a feature branch in a worktree; prod
+runs `main`. **Once merged there is no separate instance at all** — Ollama is
+just another provider any agent selects by config. One codebase, per-agent
+config; not a maintained fork.
 
 ---
 
-## Section 4: Data sharing policy (layered)
+## Section 4: Data sharing policy
 
-`TANGO_PROFILE` already isolates the runtime and shares the knowledge layer —
-the boundary this evaluation wants is largely the default. Policy by layer:
+Same bot = **everything is shared**; there is no per-profile isolation. The user
+has accepted this. Implications by layer:
 
-| Data | Store | Default scope | Policy for Ollama instance |
+| Data | Store | Scope | Policy |
 |---|---|---|---|
-| Sessions, messages, `model_runs`, `obsidian_index` | per-profile `tango.sqlite` | isolated | **Isolated** (default). Clean A/B; own usage accounting. |
-| Atlas semantic memory (memories, pinned_facts, embeddings, conversation_summaries) | global `~/.tango/atlas/memory.db` | **shared** | **Read-shared, write-isolated.** Both read the same knowledge (fair test); the experimental instance must NOT write into prod's brain. Disable Atlas writes on the Ollama instance, or seed it a private copy. |
-| Obsidian vault (markdown files) | global, `TANGO_OBSIDIAN_VAULT` → `~/Documents/main` (`packages/core/src/obsidian-indexer.ts`) | **shared** (not profile-scoped) | **Shared read + write.** Either brain may legitimately write notes. Vault is file-backed with version history, so rollback is the safety net; simultaneous writes are unlikely. |
-
-Rationale for the Atlas/Obsidian asymmetry: Atlas is a *semantic* store
-production reasons over directly — experimental writes could silently poison
-retrieval, and there's no easy per-entry rollback. Obsidian is *file-backed and
-versioned*, so shared writes are recoverable and the user has accepted that
-trade.
+| Sessions, messages, `model_runs`, `obsidian_index` | shared `tango.sqlite` | shared | **A/B by query, not by database.** `model_runs` stamps `provider_name` + `agent_id` per turn, so Ollama-vs-Claude cost/quality is a filter over one table. |
+| Atlas semantic memory (memories, pinned_facts, embeddings, conversation_summaries) | global `~/.tango/atlas/memory.db` | shared read + write | **Shared.** Process-level write-isolation is no longer possible. In Phase 0 this is largely moot — text-only agents (`tools.mode: off`) have no memory tools to write with. For wider rollout, manage per-agent (route Ollama to agents that don't write Atlas, or accept it). **To confirm:** whether background conversation-summarization writes Atlas regardless of agent tool mode. |
+| Obsidian vault (markdown files) | global, `TANGO_OBSIDIAN_VAULT` → `~/Documents/main` (`packages/core/src/obsidian-indexer.ts`) | shared read + write | **Shared** (unchanged). File-backed + versioned, so writes are recoverable. |
 
 ### 4.1 Concurrency notes
 
-Both `tango.sqlite` and Atlas use WAL (`journal_mode=WAL`, Atlas
-`busy_timeout=5000`). WAL allows many readers + one writer; shared-Atlas
-*reads* are safe. The Atlas write-isolation above is a **quality/contamination**
-guard, not merely a locking concern. For shared Obsidian, prefer the project's
-direct-filesystem I/O convention (not `obsidian-cli`, which steals app focus in
-background jobs) and consider tagging Ollama-instance writes for attribution +
-easier rollback during the A/B.
+`tango.sqlite` and Atlas use WAL (`journal_mode=WAL`, Atlas `busy_timeout=5000`):
+many readers + one writer. Running on **one** bot/process actually *reduces*
+contention versus the earlier two-process design. For shared Obsidian, use the
+project's direct-filesystem I/O convention (not `obsidian-cli`, which steals app
+focus in background jobs).
 
 ---
 
 ## Section 5: Phased plan
 
-**Pilot first (Phases 0–1), then the hard loop (Phase 2).** The parallel
-instance is the live, zero-prod-risk test bed for each phase.
+**Pilot first (Phases 0–1), then the hard loop (Phase 2).** Dedicated Ollama
+channels on the existing bot are the live, zero-prod-risk test bed for each phase.
 
 | Phase | Work | Size | Unlocks |
 |---|---|---|---|
 | **0 — Provider plumbing** | `OllamaProvider implements ChatProvider`; register in `provider-registry.ts`; env + YAML config (`OLLAMA_BASE_URL`=`https://ollama.com/v1`, `OLLAMA_MODEL`=`deepseek-v4-pro:cloud`, key via `getSecret`); map response → `ProviderResponse` (usage + `reasoning`/`thinking` handling per §7.1; `totalCostUsd` null — flat sub); record to `model_runs`. **Text-only, `tools.mode: off`.** | S (~½ day) | Route text-only workers to DeepSeek on Ollama Cloud; validate connectivity, model selection, accounting. |
 | **1 — Context ownership** | Assemble + persist the per-`providerSessionId` message array (in-memory pilot → DB-backed for prod), **including a context-assembly + compaction policy** (see 2.2). Converges with the Unified Memory System. | M | Multi-turn continuity; thread-scoped context; deterministic, Tango-owned compaction. |
-| **1b — Parallel instance** | Stand up `TANGO_PROFILE=ollama` profile, second bot token, `DISCORD_ALLOWED_CHANNELS`, dedicated channels, watchdog; apply the Section 4 data policy. | S–M | Live A/B surface; dogfood without touching prod. |
+| **1b — Ollama channel routing** | On the existing bot: add dedicated channel(s) via `DISCORD_ALLOWED_CHANNELS` + an agent YAML with `provider.default: ollama` and **`fallback: []`** (no fallback — failures must be visible). No second token/process. | S | First real Discord turn; live A/B surface; dogfood without touching prod. |
 | **2 — Agentic tool loop** | Provider-agnostic executor: MCP→OpenAI schema translation, tool exec via mcp-proxy, loop control. **Plus built-in-tool parity** (swap `WebSearch`/`WebFetch`→`exa`; see 2.3). **The real cost and risk.** | L | Tool-using agents on any non-CLI provider. |
 | **3 — Usage/cost + parity** | Map Ollama usage into `model_runs`; map/handle `reasoningEffort`. | M | Accurate accounting; routing parity. |
 | **4 — Live validation** | Side-by-side on real traffic, workers/classifiers first, then user-facing. (`done-means-live-tested`.) | M | Trust before promoting. |
@@ -219,9 +218,10 @@ test: a real `generate()` to `deepseek-v4-pro:cloud` returned correct text,
 `usage {inputTokens,outputTokens}`, `stopReason`, reasoning kept in `raw` (not
 `text`), and no `providerSessionId`. Provider returns no session id by design, so
 the discord failover layer re-injects warm-start history — **no Phase 1 history
-replay is needed for basic continuity**. Not yet committed. The full
-Discord-turn validation is gated on either a deploy (merge → rebuild → restart →
-test channel) or the Phase 1b parallel instance (the zero-prod-risk path).
+replay is needed for basic continuity**. **Committed +
+[PR #73](https://github.com/matudnorthrup/tango/pull/73).** The full Discord-turn
+validation is gated on deploy (merge → rebuild → restart) + a dedicated Ollama
+channel/agent (Phase 1b) — no second instance needed.
 
 ---
 
@@ -231,16 +231,20 @@ test channel) or the Phase 1b parallel instance (the zero-prod-risk path).
 - **Hosting:** Ollama Cloud (flat-rate, no local hardware).
 - **Pilot model:** DeepSeek V4 Pro (`deepseek-v4-pro:cloud`; paid Ollama Cloud
   tier — active 2026-06-06).
-- **Atlas memory:** read-shared, write-isolated.
-- **Obsidian vault:** shared read + write (rollback via file history).
-- **Discord:** dedicated second bot token + parallel instance (not the shared
-  claim/release queue).
+- **Topology (revised 2026-06-06):** same bot, per-channel/per-agent routing —
+  **no second bot token or process.** A second token is optional, only for a
+  divergent build or distinct identity.
+- **No fallback during eval:** Ollama-routed agents run with `fallback: []` so
+  failures are *visible* — a Claude fallback would be a false-positive.
+- **Data (revised 2026-06-06):** shared (no profile isolation) — accepted. A/B
+  via `model_runs.provider_name`; Atlas + Obsidian shared read + write (Phase 0
+  text-only agents have no memory tools, so Atlas writes are minimal).
 - **Context ownership:** Tango owns the message array — provider-side context
   assembly + compaction (see 2.2), converging with the Unified Memory System; no
   attempt to mirror Claude's opaque server-side sessions.
 - **Tool parity:** `WebSearch`/`WebFetch` → `exa` MCP; everything else is already
   MCP-backed and portable (see 2.3).
-- **End state:** one codebase, per-profile config selects the provider.
+- **End state:** one codebase, per-agent config selects the provider.
 
 ---
 
@@ -289,14 +293,17 @@ test channel) or the Phase 1b parallel instance (the zero-prod-risk path).
 - **Tool-calling reliability** of open models against Tango's MCP toolset — the
   primary quality risk; Phase 2 gates user-facing promotion.
 - **New shared infrastructure** (the tool loop) — bugs affect any non-CLI
-  provider; build behind the parallel instance.
+  provider; build behind dedicated Ollama channels (no fallback, failures visible).
 - **mcp-proxy reuse** assumption needs validation for non-Claude callers.
 - **Flat-rate durability** — open-weight hosting incentives differ from
   Anthropic's eroding subsidy, but a flat consumer plan driven by an automated
   agent could still be re-metered; treat the flat rate as advantageous, not
   permanent.
-- **Single-process in-memory history** must not be used across the parallel
-  worktree profiles; DB-backed history before any multi-process use.
+- **In-memory history** is fine on the single shared bot; **DB-backed history is
+  required before any multi-process use** (e.g. a future divergent-build instance).
 - **Context-assembly is now ours to get right** — owning the message array is a
   capability win (2.2), but naive full replay overflows the model's context
   window; the compaction policy is load-bearing, not optional.
+- **No fallback is intentional during the eval** — Ollama-routed channels can
+  hard-fail visibly; that's the desired signal. Revisit before user-facing
+  promotion.
