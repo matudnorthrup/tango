@@ -237,6 +237,7 @@ function buildCleanupPlan(input: {
       instructions: [
         "Read `References/Vault Design.md` before editing.",
         "Use this cleanup plan as the work order; do not invent new schema values or folders.",
+        "Do not create schema values just because the audit found an unapproved or missing target; prefer updating the note to approved taxonomy.",
         "Apply only small, reviewable batches.",
         "Do not delete notes or merge duplicates without Devin approval.",
         "After edits, run `npm run memory:index:obsidian` and `npm run vault:audit`.",

@@ -145,6 +145,68 @@ const FOLDERS_TO_RECONCILE = new Set([
   "Skills",
   "Templates",
 ]);
+const APPROVED_AREAS = new Set([
+  "3D Printing",
+  "Church",
+  "Family",
+  "Finance",
+  "Health",
+  "Home",
+  "Latitude",
+  "Legal",
+  "Nofo",
+  "Personal",
+  "Tango",
+]);
+const APPROVED_TYPES = new Set([
+  "Backlog",
+  "Brief",
+  "Daily Note",
+  "Draft",
+  "Financial Review",
+  "Framework",
+  "Health Daily",
+  "Indexes",
+  "Ingredients",
+  "Journal",
+  "Lesson Plan",
+  "Maintenance Record",
+  "Person",
+  "Process",
+  "Project Plan",
+  "Quarterly Plan",
+  "Receipt",
+  "Recipes",
+  "Record",
+  "Reference",
+  "Research",
+  "Weekly Plan",
+  "Wiki Summary",
+]);
+const DISCOURAGED_AREA_SUGGESTIONS = new Map([
+  [
+    "Travel",
+    "Do not create _Schema/Areas/Travel.md. Use a specific approved area, and put the trip/event under `collections`.",
+  ],
+  [
+    "Projects",
+    "Do not create _Schema/Areas/Projects.md. Use a specific approved area and `collections` for the finite project or initiative.",
+  ],
+  [
+    "Work",
+    "Do not create _Schema/Areas/Work.md. Use a specific approved area such as [[Latitude]], [[Tango]], [[Nofo]], [[Personal]], or [[Home]].",
+  ],
+]);
+const DISCOURAGED_TYPE_SUGGESTIONS = new Map([
+  [
+    "Planning",
+    "Do not create _Schema/Types/Planning.md. Use [[Project Plan]] for trip/project plans, or the specific temporal type for daily/weekly/quarterly planning notes.",
+  ],
+  [
+    "Project",
+    "Do not create _Schema/Types/Project.md. Use [[Project Plan]] for active plans or [[Reference]] for stable reference material.",
+  ],
+]);
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
@@ -290,7 +352,7 @@ function auditNotes(
   notes: NoteRecord[],
   schema: SchemaCatalog,
 ): Finding[] {
-  const findings: Finding[] = [];
+  const findings: Finding[] = auditSchemaCatalog(vaultPath, schema);
   const duplicateTitleMap = new Map<string, NoteRecord[]>();
   const categoryUsageMap = new Map<string, NoteRecord[]>();
 
@@ -378,23 +440,39 @@ function auditNotes(
           continue;
         }
 
-        if (field === "types" && !schema.types.has(linkTarget)) {
+        if (field === "types" && !APPROVED_TYPES.has(linkTarget)) {
+          findings.push({
+            code: "schema.type_unapproved",
+            severity: "review",
+            filePath: note.filePath,
+            message: `Type is not approved in the vault design: [[${linkTarget}]].`,
+            suggestion: schemaTypeSuggestion(linkTarget),
+          });
+        } else if (field === "types" && !schema.types.has(linkTarget)) {
           findings.push({
             code: "schema.type_missing",
             severity: "review",
             filePath: note.filePath,
             message: `Type schema note is missing: [[${linkTarget}]].`,
-            suggestion: `Create _Schema/Types/${linkTarget}.md or update the note to use an existing type.`,
+            suggestion: `Add _Schema/Types/${linkTarget}.md only if the taxonomy is intentionally approved; otherwise update the note to use an existing type.`,
           });
         }
 
-        if (field === "areas" && !schema.areas.has(linkTarget)) {
+        if (field === "areas" && !APPROVED_AREAS.has(linkTarget)) {
+          findings.push({
+            code: "schema.area_unapproved",
+            severity: "review",
+            filePath: note.filePath,
+            message: `Area is not approved in the vault design: [[${linkTarget}]].`,
+            suggestion: schemaAreaSuggestion(linkTarget),
+          });
+        } else if (field === "areas" && !schema.areas.has(linkTarget)) {
           findings.push({
             code: "schema.area_missing",
             severity: "review",
             filePath: note.filePath,
             message: `Area schema note is missing: [[${linkTarget}]].`,
-            suggestion: `Create _Schema/Areas/${linkTarget}.md or update the note to use an existing area.`,
+            suggestion: `Add _Schema/Areas/${linkTarget}.md only if the taxonomy is intentionally approved; otherwise update the note to use an existing area.`,
           });
         }
 
@@ -493,6 +571,44 @@ function auditNotes(
   }
 
   return findings;
+}
+
+function auditSchemaCatalog(vaultPath: string, schema: SchemaCatalog): Finding[] {
+  const findings: Finding[] = [];
+
+  for (const area of schema.areas) {
+    if (APPROVED_AREAS.has(area)) continue;
+    findings.push({
+      code: "schema.area_schema_unapproved",
+      severity: "review",
+      filePath: path.join(vaultPath, "_Schema", "Areas", `${area}.md`),
+      message: `Area schema note is not approved in the vault design: [[${area}]].`,
+      suggestion: schemaAreaSuggestion(area),
+    });
+  }
+
+  for (const type of schema.types) {
+    if (APPROVED_TYPES.has(type)) continue;
+    findings.push({
+      code: "schema.type_schema_unapproved",
+      severity: "review",
+      filePath: path.join(vaultPath, "_Schema", "Types", `${type}.md`),
+      message: `Type schema note is not approved in the vault design: [[${type}]].`,
+      suggestion: schemaTypeSuggestion(type),
+    });
+  }
+
+  return findings;
+}
+
+function schemaAreaSuggestion(area: string): string {
+  return DISCOURAGED_AREA_SUGGESTIONS.get(area)
+    ?? `Do not create or keep _Schema/Areas/${area}.md unless Devin approves it as a durable area; update notes to an approved area when possible.`;
+}
+
+function schemaTypeSuggestion(type: string): string {
+  return DISCOURAGED_TYPE_SUGGESTIONS.get(type)
+    ?? `Do not create or keep _Schema/Types/${type}.md unless Devin approves it as a durable artifact type; update notes to an approved type when possible.`;
 }
 
 function auditAtlas(input: { dbPath: string; vaultPath: string }): AtlasAuditResult {
@@ -715,7 +831,7 @@ function renderReport(input: {
   lines.push("## Suggested Next Steps");
   lines.push("");
   lines.push("1. Review warnings first, especially broken frontmatter and missing Atlas source files.");
-  lines.push("2. Confirm which schema types and areas should be added before editing notes in bulk.");
+  lines.push("2. Treat unapproved or missing schema findings as note-repair candidates first; add schema files only after the taxonomy is intentionally approved.");
   lines.push("3. Review frontmatter tags/categories and migrate useful meaning into types, areas, collections, fields, or links.");
   lines.push("4. Review folder reconciliation candidates by folder, starting with the smallest folders.");
   lines.push("5. Make one small migration batch, then run this audit again.");

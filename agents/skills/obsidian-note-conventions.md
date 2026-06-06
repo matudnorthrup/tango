@@ -19,6 +19,7 @@ Reusable conventions for reading and writing notes in the main Obsidian vault.
 - `types`, `areas`, and `collections` must be YAML lists of wikilinks. Never write these as scalar strings.
 - Use approved area schema values from `_Schema/Areas/`: `3D Printing`, `Church`, `Family`, `Finance`, `Health`, `Home`, `Latitude`, `Legal`, `Nofo`, `Personal`, `Tango`.
 - Do not use `Travel`, `Projects`, or `Work` as areas. Use a specific approved area, and use `collections` for finite trips, events, initiatives, or bundles that cut across areas.
+- Do not use `Planning` or `Project` as types. Use `Project Plan` for plan artifacts, or the specific daily/weekly/quarterly type for temporal planning notes.
 - Do not add `tags` or `categories` to new notes unless Devin explicitly asks for that workflow. Categories are deprecated; collections are the preferred cross-cutting grouping field.
 - Frontmatter goes between `---` delimiters at the top of `.md` files only. Never add `---` delimiters to `.base` files.
 
