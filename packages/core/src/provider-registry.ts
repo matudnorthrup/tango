@@ -2,9 +2,11 @@ import {
   ClaudeCliProvider,
   CodexExecProvider,
   EchoProvider,
+  OllamaProvider,
   type ChatProvider,
   type ClaudeCliProviderOptions,
-  type CodexExecProviderOptions
+  type CodexExecProviderOptions,
+  type OllamaProviderOptions
 } from "./provider.js";
 import type { AgentConfig } from "./types.js";
 
@@ -13,6 +15,7 @@ export interface BuiltInProviderRegistryOptions {
   claudeOauthSecondary?: ClaudeCliProviderOptions;
   claudeHarness?: ClaudeCliProviderOptions;
   codex?: CodexExecProviderOptions;
+  ollama?: OllamaProviderOptions;
 }
 
 export interface SelectedProvider {
@@ -65,6 +68,9 @@ export function createBuiltInProviderRegistry(
     new ClaudeCliProvider(options.claudeHarness ?? options.claudeOauth)
   );
   providers.set("codex", new CodexExecProvider(options.codex));
+  if (options.ollama) {
+    providers.set("ollama", new OllamaProvider(options.ollama));
+  }
 
   const echo = new EchoProvider();
   providers.set("echo", echo);

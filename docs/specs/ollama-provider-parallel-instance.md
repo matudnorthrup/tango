@@ -75,13 +75,59 @@ reusable for any future HTTP/OpenAI-compatible provider.
 > Do **not** shim this by pointing `CLAUDE_CLI_COMMAND` at an Ollama endpoint.
 > Route through the real `OllamaProvider` selected via per-profile agent config.
 
-### 2.2 Statelessness / session continuity
+### 2.2 Context ownership (statelessness as an advantage)
 
 Claude/Codex persist sessions server-side; Tango stores only the opaque
 `providerSessionId` in the `provider_sessions` table and resumes via `--resume`.
-Ollama is stateless, so `OllamaProvider` must store and replay conversation
-history per `providerSessionId`. In-memory is acceptable for a single-process
-pilot; **DB-backed history is required before multi-process / wider rollout.**
+Tango never sees or controls the resulting context window — compaction,
+truncation, and continuity all happen inside the harness, and Tango can only
+*influence* them indirectly (warm-start injection, `--append-system-prompt`).
+Much of today's context handling is working *around* that opacity.
+
+Ollama is stateless: `OllamaProvider` assembles and sends the full message array
+on every turn. The obvious framing is "extra work," but the real consequence is
+**control** — Tango owns exactly what enters the context window each turn. This
+is strictly more capable than the CLI path, and it converges with the in-flight
+Unified Memory System work (per-thread state files, the context meter, governed
+retrieval): context assembly becomes the *native* path instead of a layer
+fighting the harness. Two long-standing constraints relax:
+
+- **Thread-scoped context** becomes natural — the provider builds a
+  per-channel/thread array instead of inheriting one opaque server-side session.
+- **Compaction is ours to design** — summarize-and-replace, sliding window, or
+  retrieval-augmented context on *our* policy and at *our* threshold, rather than
+  the harness's heuristic.
+
+The cost of this control is that we must build it well: naive full-history
+replay is *worse* than Claude's compaction — it will overflow the model's
+context window on long Discord threads. A deliberate context-assembly +
+compaction strategy is therefore part of Phase 1, not an afterthought. Storage:
+in-memory is fine for a single-process pilot; **DB-backed history is required
+before multi-process / wider rollout.**
+
+### 2.3 Tool parity: MCP carries over, Claude built-ins do not
+
+The Phase 2 tool loop translates **MCP** tool definitions → OpenAI function
+schemas. That covers the overwhelming majority of Tango's tool surface: ~24 MCP
+servers (memory/Atlas, obsidian, slack, linear, google, **browser** (Playwright),
+exa, receipts, ramp, etc.), almost all bridged through `mcp-proxy.ts` on port
+9100. All of it is provider-agnostic and carries over unchanged.
+
+The gap is the handful of tools that are **Claude CLI built-ins**, passed via
+`--allowedTools` (`packages/core/src/provider.ts`) rather than `--mcp-config`.
+These are NOT MCP and would be lost on a raw endpoint:
+
+| Built-in | Who uses it | Replacement on Ollama |
+|---|---|---|
+| `WebSearch` | Watson, Sierra, Charlie, Porter (allowlist) | **`exa` MCP** — already wired, already used by Sierra/Charlie for search. Swap `WebSearch`→exa in the allowlists. |
+| `WebFetch` | same agents | `exa` content retrieval. **Confirm** it covers arbitrary fetch-by-URL as well as `WebFetch` did. |
+| `Bash` / file built-ins | appears only in a **test** config (`provider.test.ts`), not live personas | Confirm no live persona/worker depends on it; if so, no work. |
+
+Net: browser automation (the obvious worry) is **already an MCP server** and
+needs no work. The only genuine loss is `WebSearch`/`WebFetch`, and Tango already
+ships `exa` as the replacement. Juliet's `memory_*` tools and every other persona
+capability are MCP-backed and portable. "Tool parity" is therefore a small,
+well-bounded task inside Phase 2 — not a from-scratch rebuild.
 
 ---
 
@@ -151,10 +197,10 @@ instance is the live, zero-prod-risk test bed for each phase.
 
 | Phase | Work | Size | Unlocks |
 |---|---|---|---|
-| **0 — Provider plumbing** | `OllamaProvider implements ChatProvider`; register in `provider-registry.ts`; env + YAML config (`OLLAMA_BASE_URL`, `OLLAMA_API_KEY`, `OLLAMA_MODEL`); map response → `ProviderResponse` (tokens from `prompt_eval_count`/`eval_count`; `totalCostUsd` null — flat sub); record to `model_runs`. **Text-only, `tools.mode: off`.** | S (~½ day) | Route text-only workers to DeepSeek on Ollama Cloud; validate connectivity, model selection, accounting. |
-| **1 — Stateless history** | Persist conversation history per `providerSessionId` (in-memory for single-process pilot → DB-backed for prod). | S–M | Multi-turn continuity; survives restart / multi-process. |
+| **0 — Provider plumbing** | `OllamaProvider implements ChatProvider`; register in `provider-registry.ts`; env + YAML config (`OLLAMA_BASE_URL`=`https://ollama.com/v1`, `OLLAMA_MODEL`=`deepseek-v4-pro:cloud`, key via `getSecret`); map response → `ProviderResponse` (usage + `reasoning`/`thinking` handling per §7.1; `totalCostUsd` null — flat sub); record to `model_runs`. **Text-only, `tools.mode: off`.** | S (~½ day) | Route text-only workers to DeepSeek on Ollama Cloud; validate connectivity, model selection, accounting. |
+| **1 — Context ownership** | Assemble + persist the per-`providerSessionId` message array (in-memory pilot → DB-backed for prod), **including a context-assembly + compaction policy** (see 2.2). Converges with the Unified Memory System. | M | Multi-turn continuity; thread-scoped context; deterministic, Tango-owned compaction. |
 | **1b — Parallel instance** | Stand up `TANGO_PROFILE=ollama` profile, second bot token, `DISCORD_ALLOWED_CHANNELS`, dedicated channels, watchdog; apply the Section 4 data policy. | S–M | Live A/B surface; dogfood without touching prod. |
-| **2 — Agentic tool loop** | Provider-agnostic executor: MCP→OpenAI schema translation, tool exec via mcp-proxy, loop control. **The real cost and risk.** | L | Tool-using agents on any non-CLI provider. |
+| **2 — Agentic tool loop** | Provider-agnostic executor: MCP→OpenAI schema translation, tool exec via mcp-proxy, loop control. **Plus built-in-tool parity** (swap `WebSearch`/`WebFetch`→`exa`; see 2.3). **The real cost and risk.** | L | Tool-using agents on any non-CLI provider. |
 | **3 — Usage/cost + parity** | Map Ollama usage into `model_runs`; map/handle `reasoningEffort`. | M | Accurate accounting; routing parity. |
 | **4 — Live validation** | Side-by-side on real traffic, workers/classifiers first, then user-facing. (`done-means-live-tested`.) | M | Trust before promoting. |
 
@@ -162,32 +208,79 @@ Early win: Phases 0 + 1 + 1b alone move the existing Haiku-class worker/
 classifier traffic onto Ollama Cloud and measure real cost + quality **before**
 committing to Phase 2.
 
+**Implementation status (2026-06-06):** **Phase 0 built + live-verified.**
+`OllamaProvider` (fetch-based, OpenAI-compat) + pure `buildOllamaChatBody` /
+`parseOllamaChatResponse` in `packages/core/src/provider.ts`; registered as
+`ollama` in `provider-registry.ts`; `OLLAMA_BASE_URL` / `OLLAMA_MODEL` /
+`OLLAMA_API_KEY` env + call-site block in `packages/discord/src/main.ts` with a
+lazy `getSecret("Watson","Ollama API Credential Tango")` key resolver. 7 unit
+tests pass (core builds clean; 326 core + 337 discord tests green). Live smoke
+test: a real `generate()` to `deepseek-v4-pro:cloud` returned correct text,
+`usage {inputTokens,outputTokens}`, `stopReason`, reasoning kept in `raw` (not
+`text`), and no `providerSessionId`. Provider returns no session id by design, so
+the discord failover layer re-injects warm-start history — **no Phase 1 history
+replay is needed for basic continuity**. Not yet committed. The full
+Discord-turn validation is gated on either a deploy (merge → rebuild → restart →
+test channel) or the Phase 1b parallel instance (the zero-prod-risk path).
+
 ---
 
 ## Section 6: Locked decisions
 
 - **Pilot scope:** Phases 0–1 first (text-only worker routing), then evaluate.
 - **Hosting:** Ollama Cloud (flat-rate, no local hardware).
-- **Pilot model:** DeepSeek V4 Pro.
+- **Pilot model:** DeepSeek V4 Pro (`deepseek-v4-pro:cloud`; paid Ollama Cloud
+  tier — active 2026-06-06).
 - **Atlas memory:** read-shared, write-isolated.
 - **Obsidian vault:** shared read + write (rollback via file history).
 - **Discord:** dedicated second bot token + parallel instance (not the shared
   claim/release queue).
+- **Context ownership:** Tango owns the message array — provider-side context
+  assembly + compaction (see 2.2), converging with the Unified Memory System; no
+  attempt to mirror Claude's opaque server-side sessions.
+- **Tool parity:** `WebSearch`/`WebFetch` → `exa` MCP; everything else is already
+  MCP-backed and portable (see 2.3).
 - **End state:** one codebase, per-profile config selects the provider.
 
 ---
 
-## Section 7: Open questions / to confirm during build
+## Section 7: Open questions
 
-- Exact Ollama Cloud model tag for DeepSeek V4 Pro + endpoint URL and auth
-  header format.
-- Whether Ollama Cloud's OpenAI-compatible endpoint returns usage counts (some
-  hosted endpoints omit them).
-- `reasoningEffort` handling for open models (likely ignore for the pilot).
+### 7.1 Confirmed during setup (2026-06-06, live-tested)
+
+- **Endpoints:** native `https://ollama.com/api` (e.g. `/api/generate`);
+  OpenAI-compatible `https://ollama.com/v1` (e.g. `/v1/chat/completions`) — note
+  `/v1`, **not** `/api/v1`. Auth header: `Authorization: Bearer <OLLAMA_API_KEY>`.
+  Both paths verified HTTP 200 with the live key.
+- **Pilot model tag:** `deepseek-v4-pro:cloud` — 1.6T/49B MoE, **1M-token
+  context**, tool use + three reasoning modes. **Requires a paid Ollama Cloud
+  subscription** (free tier 403s "requires a subscription"); subscription active
+  as of 2026-06-06.
+- **Usage IS returned** (so `model_runs` accounting works): native →
+  `prompt_eval_count` / `eval_count`; OpenAI-compat →
+  `usage.{prompt_tokens,completion_tokens,total_tokens}`. `totalCostUsd` is null
+  (flat subscription).
+- **Reasoning is exposed separately** from the answer: native → `thinking`;
+  OpenAI-compat → `choices[].message.reasoning`. The provider must read/strip/
+  store this, not treat it as answer content.
+- **API key source:** 1Password **Watson** vault, item **`Ollama API Credential
+  Tango`**, field `credential` — fetch via
+  `getSecret("Watson", "Ollama API Credential Tango")`
+  (`packages/discord/src/op-secret.ts`; requires `OP_SERVICE_ACCOUNT_TOKEN`). No
+  device/SSH key needed (HTTP API, not the `ollama` CLI).
+
+### 7.2 Still open / to confirm during build
+
+- `reasoningEffort` → reasoning-mode mapping (no-thinking / thinking / max-
+  thinking). Likely wire in Phase 3; pilot default TBD.
 - Whether the Ollama instance's worker/classifier targets are genuinely
-  LLM-backed routes vs deterministic ones (route only the LLM-backed ones).
-- Does Ollama Cloud's tier volume cap accommodate sustained bot traffic, or does
-  it throttle under load? (Validate during pilot.)
+  LLM-backed vs deterministic (route only the LLM-backed ones).
+- Tier volume cap under sustained bot traffic — does it throttle? (Validate
+  during pilot.)
+- Does `exa` cover arbitrary fetch-by-URL to full `WebFetch` parity, or only
+  search + content for search results?
+- Confirm no live persona/worker depends on the Claude `Bash`/file built-ins
+  (only seen in a test config so far).
 
 ---
 
@@ -204,3 +297,6 @@ committing to Phase 2.
   permanent.
 - **Single-process in-memory history** must not be used across the parallel
   worktree profiles; DB-backed history before any multi-process use.
+- **Context-assembly is now ours to get right** — owning the message array is a
+  capability win (2.2), but naive full replay overflows the model's context
+  window; the compaction policy is load-bearing, not optional.

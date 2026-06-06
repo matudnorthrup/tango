@@ -351,6 +351,27 @@ const envSchema = z.object({
   CODEX_APPROVAL_POLICY: z
     .enum(["untrusted", "on-failure", "on-request", "never"])
     .default("never"),
+  OLLAMA_BASE_URL: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const normalized = value?.trim();
+      return normalized && normalized.length > 0 ? normalized : "https://ollama.com/v1";
+    }),
+  OLLAMA_MODEL: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const normalized = value?.trim();
+      return normalized && normalized.length > 0 ? normalized : "deepseek-v4-pro:cloud";
+    }),
+  OLLAMA_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const normalized = value?.trim();
+      return normalized && normalized.length > 0 ? normalized : undefined;
+    }),
   TANGO_DB_PATH: z
     .string()
     .optional()
@@ -602,6 +623,14 @@ const providers = createBuiltInProviderRegistry({
     sandbox: env.CODEX_SANDBOX,
     approvalPolicy: env.CODEX_APPROVAL_POLICY,
     skipGitRepoCheck: true
+  },
+  ollama: {
+    baseUrl: env.OLLAMA_BASE_URL,
+    defaultModel: env.OLLAMA_MODEL,
+    apiKey:
+      env.OLLAMA_API_KEY ??
+      (async () => (await getSecret("Watson", "Ollama API Credential Tango")) ?? undefined),
+    timeoutMs: claudeTimeoutMs
   }
 });
 const attachmentWorker = new AttachmentJobWorker(
