@@ -28,6 +28,7 @@ Start here:
 - Setup guide: [`guides/setup.md`](./guides/setup.md)
 - Architecture index: [`architecture/README.md`](./architecture/README.md)
 - Agent operating model: [`guides/agent-operating-model.md`](./guides/agent-operating-model.md)
+- Discord access control: [`guides/discord-access-control.md`](./guides/discord-access-control.md)
 - Public launch guide: [`guides/public-launch.md`](./guides/public-launch.md)
 - Profile/config model: [`guides/profile-model.md`](./guides/profile-model.md)
 - Agent structure: [`guides/agents-structure.md`](./guides/agents-structure.md)
