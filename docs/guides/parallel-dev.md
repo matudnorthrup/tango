@@ -192,7 +192,7 @@ scripts/dev/release-worktree.sh 1
 ## Architecture notes
 
 - **Profile isolation**: `TANGO_PROFILE=wt-{N}` triggers `hasExplicitProfileRuntimeSelection()` in `packages/core/src/runtime-paths.ts`, routing all DB/cache/config/log resolution to `~/.tango/profiles/wt-{N}/`
-- **Two-layer allowlist**: Phase 2a's `DISCORD_ALLOWED_CHANNELS` guards `messageCreate` at the event level (thread IDs). Tango's per-agent `access-control.ts` guards at the routing level (parent channel IDs via `resolveRoutingChannelId`). Slot mode injects both.
+- **Two-layer allowlist**: Phase 2a's `DISCORD_ALLOWED_CHANNELS` guards `messageCreate` at the event level (thread IDs). Tango's per-agent `access-control.ts` guards at the routing level using parent channel IDs via `resolveRoutingChannelId`, **plus** optional `threadChannelId` for forum-thread allowlists. See [`discord-access-control.md`](./discord-access-control.md). Slot mode injects parent channels into the default allowlist.
 - **Thread auto-archive**: slot test threads use Discord's 60-minute auto-archive, so no explicit cleanup is needed
 - **Singleton services**: Kokoro (TTS), Whisper (STT), voice pipeline, and OwnTracks stay on main. Dev slots don't run these. Voice-touching branches should be tested on the main checkout.
 - **macOS bash 3.2**: all shell scripts use `eval "$(cmd)"` instead of `source <(cmd)` for env propagation (process substitution doesn't export vars in bash 3.2)
