@@ -512,6 +512,47 @@ describe("loadScheduleConfigs", () => {
     expect(shortAliasModels).toEqual([]);
   });
 
+  it("requires morning planning to apply email triage rules before surfacing email tasks", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+    const schedules = loadScheduleConfigs(defaultsDir);
+    const morningPlanning = schedules.find((schedule) => schedule.id === "morning-planning");
+    const manualTest = schedules.find((schedule) => schedule.id === "manual-test-morning-planning");
+
+    for (const schedule of [morningPlanning, manualTest]) {
+      expect(schedule, "schedule exists").toBeDefined();
+      const task = schedule?.execution.task ?? "";
+      expect(task).toContain("~/Documents/main/References/Email Triage Rules.md");
+      expect(task).toContain("filter every email-sourced item");
+      expect(task).toContain("Today's Priorities");
+      expect(task).toContain("Stretch (if capacity)");
+      expect(task).toContain("tech@latitude.io");
+    }
+
+    expect(manualTest?.enabled).toBe(false);
+    expect(manualTest?.delivery?.channelId).toBe("100000000000001001");
+    expect(manualTest?.completion?.checkBeforeRun).toBe(false);
+    expect(manualTest?.completion?.markOnSuccess).toBe(false);
+  });
+
+  it("keeps daily email review manual-test triage rules aligned with production", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+    const schedules = loadScheduleConfigs(defaultsDir);
+    const production = schedules.find((schedule) => schedule.id === "daily-email-review");
+    const manualTest = schedules.find((schedule) => schedule.id === "manual-test-daily-email-review");
+
+    for (const schedule of [production, manualTest]) {
+      expect(schedule, "schedule exists").toBeDefined();
+      const task = schedule?.execution.task ?? "";
+      expect(task).toContain("~/Documents/main/References/Email Triage Rules.md");
+      expect(task).toContain("Apply the");
+      expect(task).toContain("triage rules");
+      expect(task).toContain("Ignore");
+      expect(task).toContain("Delegate");
+    }
+  });
+
   it("parses deterministic schedule intent routing fields", () => {
     const dir = createTempConfigDir();
     fs.writeFileSync(

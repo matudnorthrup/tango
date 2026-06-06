@@ -285,6 +285,65 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("migrates legacy governance databases that do not have user:owner before Wellness seeds", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const dbPath = path.join(dir, "tango.sqlite");
+    const legacyDb = new DatabaseSync(dbPath);
+    legacyDb.exec(`
+      PRAGMA foreign_keys = OFF;
+
+      UPDATE principals
+      SET parent_id = 'agent:malibu'
+      WHERE id IN (
+        'worker:nutrition-logger',
+        'worker:health-analyst',
+        'worker:recipe-librarian'
+      );
+
+      DELETE FROM principals
+      WHERE id IN ('worker:activity-tracker', 'agent:wellness', 'user:owner');
+
+      PRAGMA user_version = 38;
+      PRAGMA foreign_keys = ON;
+    `);
+    legacyDb.close();
+
+    const migrated = new TangoStorage(dbPath);
+    migrated.close();
+
+    const db = new DatabaseSync(dbPath, { readonly: true });
+    const owner = db.prepare(
+      "SELECT id, type FROM principals WHERE id = 'user:owner'",
+    ).get() as { id: string; type: string } | undefined;
+    const wellness = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'agent:wellness'",
+    ).get() as { id: string; parent_id: string } | undefined;
+    const activityTracker = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'worker:activity-tracker'",
+    ).get() as { id: string; parent_id: string } | undefined;
+    const presencePermission = db.prepare(
+      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'agent:wellness' AND tool_id = 'wellnessdb_log_presence'",
+    ).get() as { principal_id: string; tool_id: string; access_level: string } | undefined;
+    const foreignKeyFailures = db.prepare("PRAGMA foreign_key_check;").all();
+
+    expect(owner).toEqual({ id: "user:owner", type: "user" });
+    expect(wellness).toEqual({ id: "agent:wellness", parent_id: "user:owner" });
+    expect(activityTracker).toEqual({
+      id: "worker:activity-tracker",
+      parent_id: "agent:wellness",
+    });
+    expect(presencePermission).toEqual({
+      principal_id: "agent:wellness",
+      tool_id: "wellnessdb_log_presence",
+      access_level: "write",
+    });
+    expect(foreignKeyFailures).toEqual([]);
+
+    db.close();
+  });
+
   it("seeds Porter church-assistant governance with read-only email", () => {
     const { storage, dir } = createStorage();
     storage.close();

@@ -2009,11 +2009,17 @@ const MIGRATIONS: Migration[] = [
   {
     version: 39,
     sql: `
+      INSERT OR IGNORE INTO principals (id, type, display_name)
+      VALUES ('user:owner', 'user', 'Owner');
+
       INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
       VALUES ('agent:wellness', 'agent', 'user:owner', 'Wellness');
 
-      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
-      VALUES ('worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+        ('worker:nutrition-logger', 'worker', 'agent:wellness', 'Nutrition Logger'),
+        ('worker:health-analyst', 'worker', 'agent:wellness', 'Health Analyst'),
+        ('worker:recipe-librarian', 'worker', 'agent:wellness', 'Recipe Librarian'),
+        ('worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker');
 
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
         ('wellnessdb_search_product', 'wellness-db', 'Wellness DB Product Search', 'read'),
