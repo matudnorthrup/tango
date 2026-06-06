@@ -5,13 +5,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseClaudePrintJson } from "./provider.js";
-import type {
-  AgentRuntime,
-  AgentRuntimeConfig,
-  McpServerConfig,
-  RuntimeResponse,
-  RuntimeState,
-  SendOptions,
+import {
+  RuntimeAbortedError,
+  isRuntimeAbortedError,
+  type AgentRuntime,
+  type AgentRuntimeConfig,
+  type McpServerConfig,
+  type RuntimeResponse,
+  type RuntimeState,
+  type SendOptions,
 } from "./agent-runtime.js";
 
 const DEFAULT_SEND_TIMEOUT_MS = 900_000;
@@ -257,6 +259,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   private sessionId?: string;
   private sessionCommand?: string;
   private mcpConfigPath?: string;
+  private abortRequested = false;
 
   constructor(commandOrOptions: string | ClaudeCodeAdapterOptions = "claude") {
     if (typeof commandOrOptions === "string") {
@@ -287,6 +290,17 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     const normalized = sessionId.trim();
     this.sessionId = normalized.length > 0 ? normalized : undefined;
     this.sessionCommand = undefined;
+  }
+
+  abortActiveRun(): boolean {
+    const child = this.child;
+    if (!child) {
+      return false;
+    }
+
+    this.abortRequested = true;
+    child.kill("SIGTERM");
+    return true;
   }
 
   async initialize(config: AgentRuntimeConfig): Promise<void> {
@@ -324,6 +338,10 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       try {
         execution = await this.runClaudeProcess(attempt.command, args, prompt, timeoutMs);
       } catch (error) {
+        if (isRuntimeAbortedError(error)) {
+          this.stateValue = "idle";
+          throw error;
+        }
         this.sessionId = undefined;
         this.sessionCommand = undefined;
         this.stateValue = "error";
@@ -619,6 +637,13 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       });
 
       child.once("close", (code, signal) => {
+        if (this.abortRequested) {
+          this.abortRequested = false;
+          this.stateValue = "idle";
+          fail(new RuntimeAbortedError("Claude Code run aborted by user."));
+          return;
+        }
+
         if (timedOut) {
           fail(new Error(`Claude Code request timed out after ${timeoutMs}ms.`));
           return;

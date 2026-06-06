@@ -830,6 +830,252 @@ export function createRecipeTools(overrides?: WellnessToolPaths): AgentTool[] {
 }
 
 // ---------------------------------------------------------------------------
+// Jules bounded wellness file tool
+// ---------------------------------------------------------------------------
+
+const JULES_FILES_READ_LIMIT = 50_000;
+const JULES_FILES_READONLY_SUBDIRS = ["healing-library"];
+
+export interface JulesFilesToolOptions {
+  rootDir?: string;
+}
+
+export function resolveJulesWellnessFilesRoot(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const home = os.homedir();
+  const configured = env.JULES_WELLNESS_FILES_ROOT?.trim()
+    || path.join(resolveTangoProfileDir(), "wellness");
+  return path.resolve(configured.replace(/^~/, home));
+}
+
+export function isJulesWellnessPathAllowed(resolvedPath: string, rootDir: string): boolean {
+  const root = path.resolve(rootDir);
+  const resolved = path.resolve(resolvedPath);
+  const relative = path.relative(root, resolved);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+export function isJulesWellnessPathReadOnly(resolvedPath: string, rootDir: string): boolean {
+  const root = path.resolve(rootDir);
+  const resolved = path.resolve(resolvedPath);
+
+  for (const subdir of JULES_FILES_READONLY_SUBDIRS) {
+    const readonlyRoot = path.join(root, subdir);
+    if (resolved === readonlyRoot || resolved.startsWith(`${readonlyRoot}${path.sep}`)) {
+      return true;
+    }
+  }
+
+  const relative = path.relative(root, resolved);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return false;
+  }
+
+  return relative.split(path.sep).includes("source");
+}
+
+function resolveJulesFilesInputPath(filePath: string, rootDir: string): string {
+  const home = os.homedir();
+  const normalized = filePath.trim().replace(/^~/, home);
+  if (path.isAbsolute(normalized)) {
+    return path.resolve(normalized);
+  }
+  return path.resolve(rootDir, normalized);
+}
+
+export function createJulesFilesTools(options?: JulesFilesToolOptions): AgentTool[] {
+  const rootDir = path.resolve(options?.rootDir ?? resolveJulesWellnessFilesRoot());
+  const rootLabel = rootDir.replace(os.homedir(), "~");
+
+  return [
+    {
+      name: "jules_files",
+      description: [
+        "Bounded file operations for Jules's wellness workspace.",
+        "",
+        `Allowed root: ${rootLabel}`,
+        "Read-only areas: healing-library/ and any path containing /source/",
+        "",
+        "Actions:",
+        "  list — List files in a directory",
+        "    path (required): directory path relative to the wellness root, or absolute within it",
+        "    pattern: glob filter (e.g. '*.md')",
+        "",
+        "  read — Read a text file (returns first 50KB)",
+        "    path (required): file path",
+        "",
+        "  copy — Copy a file to a new location",
+        "    path (required): source file path",
+        "    destination (required): destination file path",
+        "",
+        "  move — Move/rename a file",
+        "    path (required): source file path",
+        "    destination (required): destination file path",
+        "",
+        "  append — Append text to the end of a text file",
+        "    path (required): file path",
+        "    content (required): text to append",
+        "",
+        "  write — Overwrite a text file with new content",
+        "    path (required): file path",
+        "    content (required): full replacement text",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["list", "read", "copy", "move", "append", "write"],
+            description: "File operation to perform",
+          },
+          path: {
+            type: "string",
+            description: "File or directory path",
+          },
+          destination: {
+            type: "string",
+            description: "For copy/move: destination path",
+          },
+          pattern: {
+            type: "string",
+            description: "For list: glob filter (e.g. '*.md')",
+          },
+          content: {
+            type: "string",
+            description: "For append/write: text content to write",
+          },
+        },
+        required: ["action", "path"],
+      },
+      handler: async (input) => {
+        const action = String(input.action);
+        const filePath = String(input.path);
+        const resolved = resolveJulesFilesInputPath(filePath, rootDir);
+
+        if (!isJulesWellnessPathAllowed(resolved, rootDir)) {
+          return {
+            error: `Access denied: ${filePath}. Allowed root: ${rootLabel}`,
+          };
+        }
+
+        const requiresWritable = action === "write" || action === "append" || action === "move" || action === "copy";
+        if (requiresWritable && isJulesWellnessPathReadOnly(resolved, rootDir)) {
+          return {
+            error: `Read-only area: ${filePath}. healing-library/ and /source/ paths cannot be modified.`,
+          };
+        }
+
+        switch (action) {
+          case "list": {
+            if (!fs.existsSync(resolved)) {
+              return { error: `Directory not found: ${filePath}` };
+            }
+            const stat = fs.statSync(resolved);
+            if (!stat.isDirectory()) {
+              return { error: `Not a directory: ${filePath}` };
+            }
+            const entries = fs.readdirSync(resolved, { withFileTypes: true });
+            let items = entries.map((entry) => ({
+              name: entry.name,
+              type: entry.isDirectory() ? "directory" as const : "file" as const,
+              size: entry.isFile() ? fs.statSync(path.join(resolved, entry.name)).size : undefined,
+              readOnly: entry.isDirectory()
+                ? isJulesWellnessPathReadOnly(path.join(resolved, entry.name), rootDir)
+                : isJulesWellnessPathReadOnly(path.join(resolved, entry.name), rootDir),
+            }));
+
+            if (input.pattern) {
+              const pattern = String(input.pattern);
+              const regex = new RegExp(
+                `^${pattern.replace(/\./g, "\\.").replace(/\*/g, ".*").replace(/\?/g, ".")}$`,
+                "i",
+              );
+              items = items.filter((item) => item.type === "directory" || regex.test(item.name));
+            }
+
+            return { path: filePath, items, count: items.length };
+          }
+
+          case "read": {
+            if (!fs.existsSync(resolved)) {
+              return { error: `File not found: ${filePath}` };
+            }
+            const content = fs.readFileSync(resolved, "utf8");
+            if (content.length > JULES_FILES_READ_LIMIT) {
+              return {
+                content: content.slice(0, JULES_FILES_READ_LIMIT),
+                truncated: true,
+                totalLength: content.length,
+              };
+            }
+            return { content };
+          }
+
+          case "copy":
+          case "move": {
+            if (!input.destination) {
+              return { error: `${action} requires 'destination'` };
+            }
+            const destPath = String(input.destination);
+            const destResolved = resolveJulesFilesInputPath(destPath, rootDir);
+
+            if (!isJulesWellnessPathAllowed(destResolved, rootDir)) {
+              return {
+                error: `Access denied for destination: ${destPath}. Allowed root: ${rootLabel}`,
+              };
+            }
+            if (isJulesWellnessPathReadOnly(destResolved, rootDir)) {
+              return {
+                error: `Read-only area: ${destPath}. healing-library/ and /source/ paths cannot be modified.`,
+              };
+            }
+            if (!fs.existsSync(resolved)) {
+              return { error: `Source not found: ${filePath}` };
+            }
+
+            const destDir = path.dirname(destResolved);
+            if (!fs.existsSync(destDir)) {
+              fs.mkdirSync(destDir, { recursive: true });
+            }
+
+            if (action === "copy") {
+              fs.copyFileSync(resolved, destResolved);
+              return { success: true, action: "copy", from: filePath, to: destPath };
+            }
+
+            fs.renameSync(resolved, destResolved);
+            return { success: true, action: "move", from: filePath, to: destPath };
+          }
+
+          case "append":
+          case "write": {
+            if (typeof input.content !== "string") {
+              return { error: `${action} requires 'content'` };
+            }
+            const nextContent = String(input.content);
+            const dir = path.dirname(resolved);
+            if (!fs.existsSync(dir)) {
+              fs.mkdirSync(dir, { recursive: true });
+            }
+            if (action === "append") {
+              const prefix = fs.existsSync(resolved) && fs.statSync(resolved).size > 0 ? "\n" : "";
+              fs.appendFileSync(resolved, `${prefix}${nextContent}`, "utf8");
+              return { success: true, action: "append", path: filePath, appended: nextContent.length };
+            }
+            fs.writeFileSync(resolved, nextContent, "utf8");
+            return { success: true, action: "write", path: filePath, bytes: nextContent.length };
+          }
+
+          default:
+            return { error: `Unknown action: ${action}` };
+        }
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // All tools combined
 // ---------------------------------------------------------------------------
 
@@ -839,5 +1085,6 @@ export function createAllWellnessTools(overrides?: WellnessToolPaths): AgentTool
     ...createHealthTools(overrides),
     ...createWorkoutTools(overrides),
     ...createRecipeTools(overrides),
+    ...createJulesFilesTools(),
   ];
 }

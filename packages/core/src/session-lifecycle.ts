@@ -6,7 +6,14 @@ import type {
   RuntimeState,
   SendOptions,
 } from "./agent-runtime.js";
+import { isRuntimeAbortedError } from "./agent-runtime.js";
 import type { RuntimePool } from "./runtime-pool.js";
+import {
+  extractContextUsageFraction,
+  extractResponderContextUsage,
+  shouldResetContextPressureAlert,
+  type LastContextUsageSnapshot,
+} from "./context-usage.js";
 
 const CLOSED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
@@ -15,10 +22,6 @@ const DEFAULT_SESSION_LIFECYCLE_CONFIG: SessionLifecycleConfig = {
   contextResetThreshold: 0.80,
   idleCheckIntervalMs: 60_000,
 };
-
-interface InternalConversationSession extends ConversationSession {
-  closedAt?: Date;
-}
 
 interface ResumableRuntime extends AgentRuntime {
   getSessionId?: () => string | undefined;
@@ -42,6 +45,15 @@ export interface ConversationSession {
   createdAt: Date;
   sessionId?: string;
   messageCount: number;
+  closedAt?: Date;
+  lastContextUsage?: LastContextUsageSnapshot;
+  contextPressureAlertSent?: boolean;
+  contextAutoResetNotice?: ContextAutoResetNotice;
+}
+
+export interface ContextAutoResetNotice {
+  fraction: number;
+  recordedAt: Date;
 }
 
 export interface ColdStartContext {
@@ -101,222 +113,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
 
-function normalizeFraction(value: unknown): number | undefined {
-  const numeric =
-    typeof value === "number"
-      ? value
-      : typeof value === "string" && value.trim().length > 0
-        ? Number(value)
-        : Number.NaN;
-
-  if (!Number.isFinite(numeric) || numeric < 0) {
-    return undefined;
-  }
-
-  if (numeric <= 1) {
-    return numeric;
-  }
-
-  if (numeric <= 100) {
-    return numeric / 100;
-  }
-
-  return undefined;
-}
-
-function extractContextUsageFraction(
-  metadata: Record<string, unknown> | undefined,
-): number | undefined {
-  if (!metadata) {
-    return undefined;
-  }
-
-  // Prefer the accurate peak-occupancy signal: the largest single internal
-  // model call's prompt size (input + cache_read + cache_creation) divided by
-  // the context window. This is bounded by the window and correct on tool-heavy
-  // multi-turn turns, unlike modelUsage which SUMS token counts across every
-  // internal call and balloons past the window.
-  const occupancyFraction = computeFractionFromOccupancy(metadata);
-  if (occupancyFraction !== undefined) {
-    return occupancyFraction;
-  }
-
-  // Fallback for providers/outputs that don't surface per-call occupancy:
-  // compute from Claude CLI modelUsage (guarded against multi-turn over-count).
-  const fraction = computeFractionFromModelUsage(metadata);
-  if (fraction !== undefined) {
-    return fraction;
-  }
-
-  // Fallback: search recursively for a pre-computed fraction field.
-  const keys = new Set([
-    "contextUsage",
-    "contextUsageFraction",
-    "contextWindowUsage",
-    "contextWindowFraction",
-    "context_usage",
-    "context_usage_fraction",
-    "context_window_usage",
-    "context_window_fraction",
-  ]);
-
-  const seen = new Set<object>();
-  const visit = (value: unknown): number | undefined => {
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const nested = visit(item);
-        if (nested !== undefined) {
-          return nested;
-        }
-      }
-      return undefined;
-    }
-
-    const record = asRecord(value);
-    if (!record || seen.has(record)) {
-      return undefined;
-    }
-
-    seen.add(record);
-
-    for (const key of keys) {
-      const nestedValue = normalizeFraction(record[key]);
-      if (nestedValue !== undefined) {
-        return nestedValue;
-      }
-    }
-
-    for (const nestedValue of Object.values(record)) {
-      const nested = visit(nestedValue);
-      if (nested !== undefined) {
-        return nested;
-      }
-    }
-
-    return undefined;
-  };
-
-  return visit(metadata);
-}
-
-function computeFractionFromOccupancy(
-  metadata: Record<string, unknown>,
-): number | undefined {
-  const occupancy = findNumericField(metadata, "contextOccupancyTokens");
-  const window = findNumericField(metadata, "contextWindowTokens");
-  if (
-    occupancy !== undefined && occupancy > 0
-    && window !== undefined && window > 0
-  ) {
-    return occupancy / window;
-  }
-  return undefined;
-}
-
-function computeFractionFromModelUsage(
-  metadata: Record<string, unknown>,
-): number | undefined {
-  const turnCount =
-    findNumericField(metadata, "num_turns") ??
-    findNumericField(metadata, "numTurns");
-  if (turnCount !== undefined && turnCount > 1) {
-    return undefined;
-  }
-
-  // Search for modelUsage anywhere in the metadata tree (it lives in raw/providerMetadata).
-  const modelUsage = findModelUsage(metadata);
-  if (!modelUsage) {
-    return undefined;
-  }
-
-  // modelUsage is keyed by model name; use the first (typically only) entry.
-  const entries = Object.values(modelUsage);
-  const entry = entries.length > 0 ? asRecord(entries[0]) : undefined;
-  if (!entry) {
-    return undefined;
-  }
-
-  const contextWindow = typeof entry.contextWindow === "number" ? entry.contextWindow : 0;
-  if (contextWindow <= 0) {
-    return undefined;
-  }
-
-  const inputTokens = typeof entry.inputTokens === "number" ? entry.inputTokens : 0;
-  const outputTokens = typeof entry.outputTokens === "number" ? entry.outputTokens : 0;
-  const cacheRead = typeof entry.cacheReadInputTokens === "number" ? entry.cacheReadInputTokens : 0;
-  const cacheCreation = typeof entry.cacheCreationInputTokens === "number" ? entry.cacheCreationInputTokens : 0;
-
-  const totalTokens = inputTokens + outputTokens + cacheRead + cacheCreation;
-  if (totalTokens <= 0) {
-    return undefined;
-  }
-
-  return totalTokens / contextWindow;
-}
-
-function findNumericField(
-  value: unknown,
-  fieldName: string,
-  seen = new Set<object>(),
-): number | undefined {
-  const record = asRecord(value);
-  if (!record || seen.has(record)) {
-    return undefined;
-  }
-  seen.add(record);
-
-  const direct = record[fieldName];
-  if (typeof direct === "number" && Number.isFinite(direct)) {
-    return direct;
-  }
-
-  for (const child of Object.values(record)) {
-    if (Array.isArray(child)) {
-      for (const item of child) {
-        const found = findNumericField(item, fieldName, seen);
-        if (found !== undefined) return found;
-      }
-      continue;
-    }
-
-    const found = findNumericField(child, fieldName, seen);
-    if (found !== undefined) return found;
-  }
-
-  return undefined;
-}
-
-function findModelUsage(
-  value: unknown,
-  seen = new Set<object>(),
-): Record<string, unknown> | undefined {
-  const record = asRecord(value);
-  if (!record || seen.has(record)) {
-    return undefined;
-  }
-  seen.add(record);
-
-  if (record.modelUsage) {
-    const mu = asRecord(record.modelUsage);
-    if (mu) return mu;
-  }
-
-  for (const child of Object.values(record)) {
-    if (Array.isArray(child)) {
-      for (const item of child) {
-        const found = findModelUsage(item, seen);
-        if (found) return found;
-      }
-    } else {
-      const found = findModelUsage(child, seen);
-      if (found) return found;
-    }
-  }
-
-  return undefined;
-}
-
-function toConversationSession(session: InternalConversationSession): ConversationSession {
+function toConversationSession(session: ConversationSession): ConversationSession {
   return {
     conversationKey: session.conversationKey,
     agentId: session.agentId,
@@ -325,6 +122,26 @@ function toConversationSession(session: InternalConversationSession): Conversati
     createdAt: new Date(session.createdAt),
     ...(session.sessionId ? { sessionId: session.sessionId } : {}),
     messageCount: session.messageCount,
+    ...(session.closedAt ? { closedAt: new Date(session.closedAt) } : {}),
+    ...(session.lastContextUsage
+      ? {
+          lastContextUsage: {
+            ...session.lastContextUsage,
+            recordedAt: new Date(session.lastContextUsage.recordedAt),
+          },
+        }
+      : {}),
+    ...(session.contextPressureAlertSent
+      ? { contextPressureAlertSent: session.contextPressureAlertSent }
+      : {}),
+    ...(session.contextAutoResetNotice
+      ? {
+          contextAutoResetNotice: {
+            fraction: session.contextAutoResetNotice.fraction,
+            recordedAt: new Date(session.contextAutoResetNotice.recordedAt),
+          },
+        }
+      : {}),
   };
 }
 
@@ -346,8 +163,10 @@ function omitContextForResumedRuntime(
 }
 
 export class SessionLifecycleManager {
-  private readonly sessions = new Map<string, InternalConversationSession>();
-  private readonly resolvedConfig: SessionLifecycleConfig;
+  private readonly sessions = new Map<string, ConversationSession>();
+  private readonly resolvedConfig: Required<
+    Pick<SessionLifecycleConfig, "idleTimeoutHours" | "contextResetThreshold" | "idleCheckIntervalMs">
+  >;
   private idleTimer?: NodeJS.Timeout;
   private idleCheckInFlight?: Promise<void>;
 
@@ -357,8 +176,11 @@ export class SessionLifecycleManager {
     private readonly buildColdStartContext?: ColdStartContextBuilder,
   ) {
     this.resolvedConfig = {
-      ...DEFAULT_SESSION_LIFECYCLE_CONFIG,
-      ...config,
+      idleTimeoutHours: config.idleTimeoutHours ?? DEFAULT_SESSION_LIFECYCLE_CONFIG.idleTimeoutHours,
+      contextResetThreshold:
+        config.contextResetThreshold ?? DEFAULT_SESSION_LIFECYCLE_CONFIG.contextResetThreshold,
+      idleCheckIntervalMs:
+        config.idleCheckIntervalMs ?? DEFAULT_SESSION_LIFECYCLE_CONFIG.idleCheckIntervalMs,
     };
   }
 
@@ -397,6 +219,11 @@ export class SessionLifecycleManager {
         runtime = undefined;
       }
 
+      if (session.state === "closed") {
+        session.contextPressureAlertSent = false;
+        session.lastContextUsage = undefined;
+      }
+
       session.state = "spawning";
       session.closedAt = undefined;
       runtime = await this.createRuntime(conversationKey, agentConfig, session.sessionId);
@@ -410,6 +237,8 @@ export class SessionLifecycleManager {
       throw new Error(`Failed to acquire runtime for conversation '${conversationKey}'.`);
     }
 
+    this.ensureRuntimeSessionBound(runtime, session.sessionId);
+
     session.state = "active";
 
     let response: RuntimeResponse;
@@ -420,6 +249,11 @@ export class SessionLifecycleManager {
       );
       response = await runtime.send(message, effectiveOptions);
     } catch (error) {
+      if (isRuntimeAbortedError(error)) {
+        session.state = "idle";
+        session.sessionId = this.getRuntimeSessionId(runtime) ?? session.sessionId;
+        throw error;
+      }
       session.state = "error";
       throw error;
     }
@@ -430,15 +264,46 @@ export class SessionLifecycleManager {
     session.sessionId = this.resolveSessionId(response, runtime) ?? session.sessionId;
     session.state = "idle";
 
-    const contextUsage = extractContextUsageFraction(response.metadata);
+    const responderUsage = extractResponderContextUsage(response.metadata);
+    const contextUsage =
+      responderUsage?.fraction ?? extractContextUsageFraction(response.metadata);
+
+    if (responderUsage) {
+      session.lastContextUsage = {
+        fraction: responderUsage.fraction,
+        totalTokens: responderUsage.totalTokens,
+        contextWindow: responderUsage.contextWindow,
+        recordedAt: now,
+      };
+    } else if (contextUsage !== undefined) {
+      session.lastContextUsage = {
+        fraction: contextUsage,
+        totalTokens: 0,
+        contextWindow: 0,
+        recordedAt: now,
+      };
+    }
+
+    if (shouldResetContextPressureAlert(session.lastContextUsage)) {
+      session.contextPressureAlertSent = false;
+    }
+
     if (
       contextUsage !== undefined
       && contextUsage > this.resolvedConfig.contextResetThreshold
     ) {
+      const resetFraction = contextUsage;
       try {
         await this.recreateRuntime(conversationKey, agentConfig, {
           lastMessageAt: now,
         });
+        const resetSession = this.sessions.get(conversationKey);
+        if (resetSession) {
+          resetSession.contextAutoResetNotice = {
+            fraction: resetFraction,
+            recordedAt: now,
+          };
+        }
       } catch {
         session.state = "error";
       }
@@ -456,8 +321,49 @@ export class SessionLifecycleManager {
     return [...this.sessions.values()].map((session) => toConversationSession(session));
   }
 
+  markContextPressureAlertSent(conversationKey: string): void {
+    const session = this.sessions.get(conversationKey);
+    if (session) {
+      session.contextPressureAlertSent = true;
+    }
+  }
+
+  consumeContextAutoResetNotice(conversationKey: string): ContextAutoResetNotice | undefined {
+    const session = this.sessions.get(conversationKey);
+    if (!session?.contextAutoResetNotice) {
+      return undefined;
+    }
+
+    const notice = {
+      fraction: session.contextAutoResetNotice.fraction,
+      recordedAt: new Date(session.contextAutoResetNotice.recordedAt),
+    };
+    delete session.contextAutoResetNotice;
+    return notice;
+  }
+
   async resetSession(conversationKey: string, agentConfig: AgentRuntimeConfig): Promise<void> {
     await this.recreateRuntime(conversationKey, agentConfig, {});
+  }
+
+  async abortActiveRun(conversationKey: string): Promise<boolean> {
+    const session = this.sessions.get(conversationKey);
+    const runtime = this.pool.get(conversationKey);
+    if (!runtime) {
+      return false;
+    }
+
+    const preservedSessionId = this.getRuntimeSessionId(runtime) ?? session?.sessionId;
+    const aborted = runtime.abortActiveRun?.() ?? false;
+
+    if (session && (aborted || session.state === "active" || session.state === "spawning")) {
+      session.state = "idle";
+      if (preservedSessionId) {
+        session.sessionId = preservedSessionId;
+      }
+    }
+
+    return aborted;
   }
 
   async closeSession(conversationKey: string): Promise<void> {
@@ -547,6 +453,23 @@ export class SessionLifecycleManager {
     runtime.resumeSession(sessionId);
   }
 
+  private ensureRuntimeSessionBound(
+    runtime: AgentRuntime,
+    sessionId: string | undefined,
+  ): void {
+    const boundSessionId = sessionId?.trim();
+    if (!boundSessionId) {
+      return;
+    }
+
+    const runtimeSessionId = this.getRuntimeSessionId(runtime)?.trim();
+    if (runtimeSessionId === boundSessionId) {
+      return;
+    }
+
+    this.restoreRuntimeSession(runtime, boundSessionId);
+  }
+
   private getRuntimeSessionId(runtime: AgentRuntime): string | undefined {
     if (!isResumableRuntime(runtime) || typeof runtime.getSessionId !== "function") {
       return undefined;
@@ -588,6 +511,8 @@ export class SessionLifecycleManager {
       createdAt: now,
       messageCount: 0,
       sessionId: this.getRuntimeSessionId(runtime),
+      contextPressureAlertSent: false,
+      lastContextUsage: undefined,
     });
   }
 
