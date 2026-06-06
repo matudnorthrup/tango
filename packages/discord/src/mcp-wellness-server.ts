@@ -31,6 +31,7 @@ import {
   createHealthTools,
   createWorkoutTools,
   createRecipeTools,
+  createWellnessFilesTools,
 } from "./wellness-agent-tools.js";
 import { createAllPersonalTools } from "./personal-agent-tools.js";
 import { createAllResearchTools } from "./research-agent-tools.js";
@@ -45,6 +46,8 @@ import { createAttachmentTools } from "./attachment-agent-tools.js";
 import { createLinearTools } from "./linear-agent-tools.js";
 import { createSlackTools } from "./slack-tools.js";
 import { createYouTubeTools } from "./youtube-agent-tools.js";
+import { createWellnessDbTools, wellnessDbToolLooksReadOnly } from "./wellness-db-tools.js";
+import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agent-tools.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { GovernanceChecker, resolveDatabasePath } from "@tango/core";
 import type { AgentTool, AccessLevel } from "@tango/core";
@@ -96,6 +99,7 @@ const allTools: AgentTool[] = [
   ...createHealthTools(),
   ...createWorkoutTools(),
   ...createRecipeTools(),
+  ...createWellnessFilesTools(),
   ...createAllPersonalTools(),
   ...createAllResearchTools(),
   ...createBrowserTools(),
@@ -109,6 +113,8 @@ const allTools: AgentTool[] = [
   ...createLinearTools(),
   ...createSlackTools(),
   ...createYouTubeTools(),
+  ...createWellnessDbTools(),
+  ...createEmailAgentTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -338,6 +344,10 @@ function inferRequestedAccessLevel(
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return action === "list" || action === "read" ? "read" : "write";
     }
+    case "wellness_files": {
+      const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
+      return action === "list" || action === "read" ? "read" : "write";
+    }
     case "browser": {
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return ["status", "open", "snapshot", "screenshot", "wait", "eval", "connect", "launch", "close", "scroll"].includes(action)
@@ -349,6 +359,12 @@ function inferRequestedAccessLevel(
       return gospelLibraryActionLooksMutating(action) ? "write" : "read";
     }
     default:
+      if (name.startsWith("wellnessdb_")) {
+        return wellnessDbToolLooksReadOnly(name) ? "read" : "write";
+      }
+      if (name.startsWith("email_")) {
+        return emailAgentToolLooksReadOnly(name) ? "read" : "write";
+      }
       return (governance?.getToolAccessType(name) ?? "read") as AccessLevel;
   }
 }

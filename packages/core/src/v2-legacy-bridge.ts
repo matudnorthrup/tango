@@ -94,6 +94,11 @@ export function v2ToLegacyAgentConfig(
           smokeTestChannelId: v2.voice.smokeTestChannelId,
         }
       : undefined,
+    discord: v2.discord.typingTokenEnv
+      ? {
+          typingTokenEnv: v2.discord.typingTokenEnv,
+        }
+      : undefined,
     responseMode: v2.responseMode,
     access: v2.access
       ? {

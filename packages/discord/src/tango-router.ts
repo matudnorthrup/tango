@@ -3,6 +3,8 @@ import {
   SessionLifecycleManager,
   type AgentRuntimeConfig,
   type ColdStartContextBuilder,
+  type ContextAutoResetNotice,
+  type ConversationSession,
   type RuntimeResponse,
   type SendOptions,
   type SessionLifecycleConfig,
@@ -119,7 +121,7 @@ export class TangoRouter {
     return threadId ? `thread:${threadId}` : `channel:${channelId}`;
   }
 
-  /** Force reset a conversation */
+  /** Force reset a conversation (new provider session on next message). */
   async resetConversation(channelId: string, threadId?: string): Promise<void> {
     const conversationKey = this.getConversationKey(channelId, threadId);
     const session = this.lifecycleManager.getSession(conversationKey);
@@ -130,6 +132,30 @@ export class TangoRouter {
 
     const agentConfig = this.resolveAgentConfig(session.agentId);
     await this.lifecycleManager.resetSession(conversationKey, agentConfig);
+  }
+
+  /** Abort an in-flight generation without rotating the provider session. */
+  async abortConversation(channelId: string, threadId?: string): Promise<boolean> {
+    const conversationKey = this.getConversationKey(channelId, threadId);
+    return await this.lifecycleManager.abortActiveRun(conversationKey);
+  }
+
+  /** Get lifecycle session metadata for a channel/thread conversation. */
+  getSession(channelId: string, threadId?: string): ConversationSession | undefined {
+    return this.lifecycleManager.getSession(this.getConversationKey(channelId, threadId));
+  }
+
+  markContextPressureAlertSent(channelId: string, threadId?: string): void {
+    this.lifecycleManager.markContextPressureAlertSent(this.getConversationKey(channelId, threadId));
+  }
+
+  consumeContextAutoResetNotice(
+    channelId: string,
+    threadId?: string,
+  ): ContextAutoResetNotice | undefined {
+    return this.lifecycleManager.consumeContextAutoResetNotice(
+      this.getConversationKey(channelId, threadId),
+    );
   }
 
   /** Shut down all runtimes */

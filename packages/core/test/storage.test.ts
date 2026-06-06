@@ -250,6 +250,41 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds Wellness wellness worker browser access and parent assignment", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+
+    for (const workerId of [
+      "worker:nutrition-logger",
+      "worker:recipe-librarian",
+      "worker:health-analyst",
+    ]) {
+      const principal = db.prepare(
+        "SELECT id, parent_id FROM principals WHERE id = ?",
+      ).get(workerId) as { id: string; parent_id: string } | undefined;
+      expect(principal).toEqual({
+        id: workerId,
+        parent_id: "agent:wellness",
+      });
+      expect(checker.hasPermission(workerId, "browser", "write")).toBe(true);
+      expect(checker.hasPermission(workerId, "exa_search", "read")).toBe(true);
+      expect(checker.hasPermission(workerId, "exa_answer", "read")).toBe(true);
+    }
+
+    const workoutRecorder = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'worker:workout-recorder'",
+    ).get() as { id: string; parent_id: string } | undefined;
+    expect(workoutRecorder).toEqual({
+      id: "worker:workout-recorder",
+      parent_id: "agent:malibu",
+    });
+
+    db.close();
+  });
+
   it("seeds Porter church-assistant governance with read-only email", () => {
     const { storage, dir } = createStorage();
     storage.close();
@@ -1887,6 +1922,47 @@ describe("TangoStorage", () => {
     expect(resolvedTasks.map((task) => task.id)).toEqual(
       expect.arrayContaining([completedTaskId, expiringTaskId]),
     );
+
+    storage.close();
+  });
+
+  it("upserts, retrieves, deletes, and counts pending session saves", () => {
+    const { storage } = createStorage();
+
+    expect(storage.countPendingSessionSaves()).toBe(0);
+    expect(storage.getPendingSessionSave("channel:123")).toBeNull();
+
+    const created = storage.upsertPendingSessionSave({
+      conversationKey: "channel:123",
+      sessionId: "cod-e",
+      agentId: "cod-e",
+      requestedByUserId: "user-1",
+      trigger: "slash_command",
+    });
+
+    expect(created.conversationKey).toBe("channel:123");
+    expect(created.sessionId).toBe("cod-e");
+    expect(created.agentId).toBe("cod-e");
+    expect(created.requestedByUserId).toBe("user-1");
+    expect(created.trigger).toBe("slash_command");
+    expect(created.requestedAt).toMatch(/^\d{4}-\d{2}-\d{2}/);
+    expect(storage.countPendingSessionSaves()).toBe(1);
+
+    const updated = storage.upsertPendingSessionSave({
+      conversationKey: "channel:123",
+      sessionId: "topic:abc",
+      agentId: "cod-e",
+      requestedByUserId: "user-2",
+      trigger: "slash_command",
+    });
+
+    expect(updated.sessionId).toBe("topic:abc");
+    expect(updated.requestedByUserId).toBe("user-2");
+    expect(storage.countPendingSessionSaves()).toBe(1);
+
+    expect(storage.deletePendingSessionSave("channel:123")).toBe(true);
+    expect(storage.deletePendingSessionSave("channel:123")).toBe(false);
+    expect(storage.countPendingSessionSaves()).toBe(0);
 
     storage.close();
   });
