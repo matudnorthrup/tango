@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mockState = vi.hoisted(() => {
   const sendMessage = vi.fn();
   const resetSession = vi.fn();
+  const abortActiveRun = vi.fn();
   const shutdown = vi.fn();
   const startIdleChecker = vi.fn();
   const getSession = vi.fn();
@@ -26,6 +27,7 @@ const mockState = vi.hoisted(() => {
 
     readonly sendMessage = sendMessage;
     readonly resetSession = resetSession;
+    readonly abortActiveRun = abortActiveRun;
     readonly shutdown = shutdown;
     readonly startIdleChecker = startIdleChecker;
     readonly getSession = getSession;
@@ -34,6 +36,7 @@ const mockState = vi.hoisted(() => {
   return {
     sendMessage,
     resetSession,
+    abortActiveRun,
     shutdown,
     startIdleChecker,
     getSession,
@@ -87,6 +90,7 @@ async function waitForImmediate(): Promise<void> {
 afterEach(() => {
   mockState.sendMessage.mockReset();
   mockState.resetSession.mockReset();
+  mockState.abortActiveRun.mockReset();
   mockState.shutdown.mockReset();
   mockState.startIdleChecker.mockReset();
   mockState.getSession.mockReset();
@@ -265,6 +269,22 @@ describe("TangoRouter", () => {
 
     expect(mockState.getSession).toHaveBeenCalledWith("thread:thread-1");
     expect(mockState.resetSession).toHaveBeenCalledWith("thread:thread-1", alphaConfig);
+  });
+
+  it("delegates conversation aborts to the lifecycle manager without resetting", async () => {
+    mockState.abortActiveRun.mockResolvedValue(true);
+
+    const router = new TangoRouter({
+      agentConfigs: new Map([
+        ["alpha", createAgentConfig("alpha")],
+      ]),
+    });
+
+    const aborted = await router.abortConversation("channel-1", "thread-1");
+
+    expect(aborted).toBe(true);
+    expect(mockState.abortActiveRun).toHaveBeenCalledWith("thread:thread-1");
+    expect(mockState.resetSession).not.toHaveBeenCalled();
   });
 
   it("delegates shutdown to the lifecycle manager", async () => {

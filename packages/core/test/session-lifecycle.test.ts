@@ -83,6 +83,7 @@ class MockRuntime implements AgentRuntime {
   readonly resumeSession = vi.fn((sessionId: string) => {
     this.sessionId = sessionId;
   });
+  readonly abortActiveRun = vi.fn(() => false);
 
   constructor(readonly id: string) {}
 
@@ -564,7 +565,7 @@ describe("SessionLifecycleManager", () => {
         },
       },
     }));
-    const runtime2 = pool.enqueueRuntime(new MockRuntime("runtime-2"));
+    pool.enqueueRuntime(new MockRuntime("runtime-2"));
 
     let buildCount = 0;
     const builder = vi.fn(async () => {
@@ -578,9 +579,7 @@ describe("SessionLifecycleManager", () => {
 
     const manager = new SessionLifecycleManager(
       pool as unknown as RuntimePool,
-      {
-        contextResetThreshold: 0.80,
-      },
+      { contextResetThreshold: 0.80 },
       builder,
     );
 
@@ -592,6 +591,10 @@ describe("SessionLifecycleManager", () => {
     expect(pool.closeCalls).toEqual(["conversation-1"]);
     expect(pool.getOrCreateCalls).toHaveLength(2);
     expect(session?.messageCount).toBe(0);
+
+    const notice = manager.consumeContextAutoResetNotice("conversation-1");
+    expect(notice?.fraction).toBeCloseTo(0.82, 4);
+    expect(manager.consumeContextAutoResetNotice("conversation-1")).toBeUndefined();
   });
 
   it("does not hard reset from aggregate Claude Code modelUsage across multiple turns", async () => {
@@ -791,5 +794,49 @@ describe("SessionLifecycleManager", () => {
       messageCount: 0,
     });
     expect(session?.sessionId).toBeUndefined();
+  });
+
+  it("abortActiveRun preserves provider session id without closing the runtime pool", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(createResponse("First reply", { sessionId: "session-1" }));
+    runtime.abortActiveRun.mockReturnValue(true);
+
+    const manager = new SessionLifecycleManager(pool as unknown as RuntimePool);
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+
+    const aborted = await manager.abortActiveRun("conversation-1");
+
+    expect(aborted).toBe(true);
+    expect(pool.closeCalls).toEqual([]);
+    expect(manager.getSession("conversation-1")).toMatchObject({
+      state: "idle",
+      sessionId: "session-1",
+    });
+  });
+
+  it("restores provider session on the next send after abort cleared runtime binding", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(createResponse("First reply", { sessionId: "session-1" }));
+    runtime.queueResponse(createResponse("Second reply", { sessionId: "session-1" }));
+    runtime.abortActiveRun.mockImplementation(() => {
+      runtime.sessionId = undefined;
+      return true;
+    });
+
+    const manager = new SessionLifecycleManager(pool as unknown as RuntimePool);
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+
+    await manager.abortActiveRun("conversation-1");
+
+    await manager.sendMessage("conversation-1", createConfig(), "after stop");
+
+    expect(runtime.resumeSession).toHaveBeenCalledWith("session-1");
+    expect(runtime.sentMessages).toEqual(["hello", "after stop"]);
+    expect(manager.getSession("conversation-1")).toMatchObject({
+      state: "idle",
+      sessionId: "session-1",
+    });
   });
 });

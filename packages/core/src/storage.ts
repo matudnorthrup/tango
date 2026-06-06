@@ -726,6 +726,23 @@ export interface ObsidianIndexUpsertInput {
   lastIndexedAt?: string | null;
 }
 
+export interface PendingSessionSaveRecord {
+  conversationKey: string;
+  sessionId: string;
+  agentId: string;
+  requestedByUserId: string;
+  trigger: string;
+  requestedAt: string;
+}
+
+export interface PendingSessionSaveUpsertInput {
+  conversationKey: string;
+  sessionId: string;
+  agentId: string;
+  requestedByUserId: string;
+  trigger?: string;
+}
+
 export interface PinnedFactUpsertInput {
   scope: PinnedFactScope;
   scopeId?: string | null;
@@ -1976,7 +1993,125 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_project_state_status
         ON project_state(status, updated_at);
     `,
-  }
+  },
+  {
+    version: 38,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('jules_files', 'wellness', 'Jules Wellness Files', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:note-librarian', 'jules_files', 'write', 'bounded wellness workspace file access'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:note-librarian')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'jules_files');
+    `,
+  },
+  {
+    version: 39,
+    sql: `
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      VALUES ('agent:jules', 'agent', 'user:owner', 'Jules');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      VALUES ('worker:activity-tracker', 'worker', 'agent:jules', 'Activity Tracker');
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('wellnessdb_search_product', 'wellness-db', 'Wellness DB Product Search', 'read'),
+        ('wellnessdb_search_supplement', 'wellness-db', 'Wellness DB Supplement Search', 'read'),
+        ('wellnessdb_search_recipe', 'wellness-db', 'Wellness DB Recipe Search', 'read'),
+        ('wellnessdb_get_recipe_detail', 'wellness-db', 'Wellness DB Recipe Detail', 'read'),
+        ('wellnessdb_day_summary', 'wellness-db', 'Wellness DB Day Summary', 'read'),
+        ('wellnessdb_day_range', 'wellness-db', 'Wellness DB Day Range', 'read'),
+        ('wellnessdb_recent_meals', 'wellness-db', 'Wellness DB Recent Meals', 'read'),
+        ('wellnessdb_active_supplements', 'wellness-db', 'Wellness DB Active Supplements', 'read'),
+        ('wellnessdb_active_products', 'wellness-db', 'Wellness DB Active Products', 'read'),
+        ('wellnessdb_log_meal', 'wellness-db', 'Wellness DB Log Meal', 'write'),
+        ('wellnessdb_log_supplement', 'wellness-db', 'Wellness DB Log Supplement', 'write'),
+        ('wellnessdb_log_weight', 'wellness-db', 'Wellness DB Log Weight', 'write'),
+        ('wellnessdb_log_activity', 'wellness-db', 'Wellness DB Log Activity', 'write'),
+        ('wellnessdb_log_hydration', 'wellness-db', 'Wellness DB Log Hydration', 'write'),
+        ('wellnessdb_log_presence', 'wellness-db', 'Wellness DB Log Presence', 'write'),
+        ('wellnessdb_add_product', 'wellness-db', 'Wellness DB Add Product', 'write'),
+        ('wellnessdb_add_recipe', 'wellness-db', 'Wellness DB Add Recipe', 'write'),
+        ('wellnessdb_update_recipe', 'wellness-db', 'Wellness DB Update Recipe', 'write'),
+        ('wellnessdb_add_day_note', 'wellness-db', 'Wellness DB Add Day Note', 'write'),
+        ('wellnessdb_delete_meal_entry', 'wellness-db', 'Wellness DB Delete Meal Entry', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:nutrition-logger', 'wellnessdb_search_product', 'read', 'Jules wellness.db lookup'),
+        ('worker:nutrition-logger', 'wellnessdb_search_supplement', 'read', 'Jules wellness.db lookup'),
+        ('worker:nutrition-logger', 'wellnessdb_day_summary', 'read', 'Jules wellness.db day summary'),
+        ('worker:nutrition-logger', 'wellnessdb_recent_meals', 'read', 'Jules wellness.db recent meals'),
+        ('worker:nutrition-logger', 'wellnessdb_active_supplements', 'read', 'Jules wellness.db active supplements'),
+        ('worker:nutrition-logger', 'wellnessdb_active_products', 'read', 'Jules wellness.db active products'),
+        ('worker:nutrition-logger', 'wellnessdb_log_meal', 'write', 'Jules wellness.db meal logging'),
+        ('worker:nutrition-logger', 'wellnessdb_log_supplement', 'write', 'Jules wellness.db supplement logging'),
+        ('worker:nutrition-logger', 'wellnessdb_add_product', 'write', 'Jules wellness.db product creation'),
+        ('worker:nutrition-logger', 'wellnessdb_add_day_note', 'write', 'Jules wellness.db day notes'),
+        ('worker:nutrition-logger', 'wellnessdb_delete_meal_entry', 'write', 'Jules wellness.db meal corrections'),
+        ('worker:recipe-librarian', 'wellnessdb_search_recipe', 'read', 'Jules wellness.db recipe lookup'),
+        ('worker:recipe-librarian', 'wellnessdb_get_recipe_detail', 'read', 'Jules wellness.db recipe detail'),
+        ('worker:recipe-librarian', 'wellnessdb_active_products', 'read', 'Jules wellness.db active products'),
+        ('worker:recipe-librarian', 'wellnessdb_add_recipe', 'write', 'Jules wellness.db recipe creation'),
+        ('worker:recipe-librarian', 'wellnessdb_update_recipe', 'write', 'Jules wellness.db recipe updates'),
+        ('worker:health-analyst', 'wellnessdb_day_summary', 'read', 'Jules wellness.db day summary'),
+        ('worker:health-analyst', 'wellnessdb_day_range', 'read', 'Jules wellness.db trend analysis'),
+        ('worker:activity-tracker', 'wellnessdb_log_weight', 'write', 'Jules wellness.db weight logging'),
+        ('worker:activity-tracker', 'wellnessdb_log_activity', 'write', 'Jules wellness.db activity logging'),
+        ('worker:activity-tracker', 'wellnessdb_log_hydration', 'write', 'Jules wellness.db hydration logging'),
+        ('agent:jules', 'wellnessdb_log_presence', 'write', 'Jules direct presence check logging');
+    `,
+  },
+  {
+    version: 40,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('email_thread_brief', 'email', 'Email Thread Brief', 'read'),
+        ('email_search', 'email', 'Email Search', 'read'),
+        ('email_inbox_scan', 'email', 'Email Inbox Scan', 'read'),
+        ('email_draft_create', 'email', 'Email Draft Create', 'write'),
+        ('email_thread_archive', 'email', 'Email Thread Archive', 'write');
+    `,
+  },
+  {
+    version: 41,
+    sql: `
+      CREATE TABLE IF NOT EXISTS pending_session_saves (
+        conversation_key TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        requested_by_user_id TEXT NOT NULL,
+        trigger TEXT NOT NULL DEFAULT 'slash_command',
+        requested_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_pending_session_saves_session_id
+        ON pending_session_saves(session_id);
+    `,
+  },
+  {
+    version: 42,
+    sql: `
+      UPDATE principals
+      SET parent_id = 'agent:jules'
+      WHERE id IN (
+        'worker:nutrition-logger',
+        'worker:health-analyst',
+        'worker:recipe-librarian'
+      );
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:nutrition-logger', 'exa_search', 'read', 'Jules worker macro and restaurant lookup'),
+        ('worker:nutrition-logger', 'exa_answer', 'read', 'Jules worker macro and restaurant lookup'),
+        ('worker:nutrition-logger', 'browser', 'write', 'Jules worker macro and restaurant lookup'),
+        ('worker:recipe-librarian', 'exa_search', 'read', 'Jules worker recipe research'),
+        ('worker:recipe-librarian', 'exa_answer', 'read', 'Jules worker recipe research'),
+        ('worker:recipe-librarian', 'browser', 'write', 'Jules worker recipe research'),
+        ('worker:health-analyst', 'exa_search', 'read', 'Jules worker health research'),
+        ('worker:health-analyst', 'exa_answer', 'read', 'Jules worker health research'),
+        ('worker:health-analyst', 'browser', 'write', 'Jules worker health research');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
@@ -6182,6 +6317,94 @@ export class TangoStorage {
       .prepare(`SELECT COUNT(*) AS cnt FROM voice_turn_receipts WHERE status = 'processing'`)
       .get() as { cnt: number } | undefined;
     return row?.cnt ?? 0;
+  }
+
+  upsertPendingSessionSave(input: PendingSessionSaveUpsertInput): PendingSessionSaveRecord {
+    const conversationKey = input.conversationKey.trim();
+    const sessionId = input.sessionId.trim();
+    const agentId = input.agentId.trim();
+    const requestedByUserId = input.requestedByUserId.trim();
+    const trigger = input.trigger?.trim() || "slash_command";
+
+    if (!conversationKey || !sessionId || !agentId || !requestedByUserId) {
+      throw new Error(
+        "conversationKey, sessionId, agentId, and requestedByUserId are required for pending session save.",
+      );
+    }
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO pending_session_saves (
+            conversation_key,
+            session_id,
+            agent_id,
+            requested_by_user_id,
+            trigger,
+            requested_at
+          )
+          VALUES (?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(conversation_key) DO UPDATE SET
+            session_id = excluded.session_id,
+            agent_id = excluded.agent_id,
+            requested_by_user_id = excluded.requested_by_user_id,
+            trigger = excluded.trigger,
+            requested_at = datetime('now')
+        `,
+      )
+      .run(conversationKey, sessionId, agentId, requestedByUserId, trigger);
+
+    const record = this.getPendingSessionSave(conversationKey);
+    if (!record) {
+      throw new Error(`Failed to upsert pending session save for '${conversationKey}'.`);
+    }
+
+    return record;
+  }
+
+  getPendingSessionSave(conversationKey: string): PendingSessionSaveRecord | null {
+    const normalizedKey = conversationKey.trim();
+    if (!normalizedKey) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            conversation_key AS conversationKey,
+            session_id AS sessionId,
+            agent_id AS agentId,
+            requested_by_user_id AS requestedByUserId,
+            trigger,
+            requested_at AS requestedAt
+          FROM pending_session_saves
+          WHERE conversation_key = ?
+          LIMIT 1
+        `,
+      )
+      .get(normalizedKey) as PendingSessionSaveRecord | undefined;
+
+    return row ?? null;
+  }
+
+  deletePendingSessionSave(conversationKey: string): boolean {
+    const result = this.db
+      .prepare(
+        `
+          DELETE FROM pending_session_saves
+          WHERE conversation_key = ?
+        `,
+      )
+      .run(conversationKey.trim());
+    return toSafeNumber(result.changes) > 0;
+  }
+
+  countPendingSessionSaves(): number {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS count FROM pending_session_saves`)
+      .get() as { count: number | bigint } | undefined;
+    return toSafeNumber(row?.count ?? 0);
   }
 
   private getUserVersion(): number {
