@@ -38,7 +38,7 @@ function execOp(args: string[], token: string): Promise<CommandResult> {
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       setTimeout(() => { if (!child.killed) child.kill("SIGKILL"); }, 2000).unref();
-    }, 15_000);
+    }, 45_000);
     timer.unref();
 
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
