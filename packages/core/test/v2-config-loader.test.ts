@@ -40,7 +40,7 @@ describe("loadV2AgentConfig", () => {
         mode: "persistent",
         provider: "claude-code-v2",
         fallback: "codex",
-        model: "claude-sonnet-4-6",
+        model: "claude-opus-4-8",
         reasoningEffort: "medium",
         idleTimeoutHours: 24,
         contextResetThreshold: 0.8,
