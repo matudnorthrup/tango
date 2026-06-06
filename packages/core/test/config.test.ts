@@ -196,11 +196,16 @@ describe("loadSessionConfigs", () => {
 });
 
 describe("loadAgentConfigs", () => {
-  it("keeps repo agent defaults limited to legacy-only dispatch", () => {
+  it("loads repo agent defaults for dispatch and bundled assistant templates", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     process.env.TANGO_CONFIG_DIR = defaultsDir;
 
-    expect(loadAgentConfigs(defaultsDir).map((agent) => agent.id)).toEqual(["dispatch"]);
+    expect(loadAgentConfigs(defaultsDir).map((agent) => agent.id).sort()).toEqual([
+      "cod-e",
+      "dispatch",
+      "wellness",
+      "piper",
+    ]);
 
     const operationsProject = loadProjectConfigs(defaultsDir).find((project) => project.id === "operations");
     expect(operationsProject).toMatchObject({

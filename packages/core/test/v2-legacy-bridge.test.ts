@@ -383,7 +383,7 @@ describe("loadUnifiedAgentConfigs", () => {
     expect(unifiedIds).toContain("dispatch");
   });
 
-  it("keeps current repo personal v2 configs as disabled templates and loads dispatch only", () => {
+  it("loads enabled bundled v2 configs while keeping older personal configs disabled", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     const v2Dir = path.join(repoRoot, "config", "v2", "agents");
     process.env.TANGO_CONFIG_DIR = defaultsDir;
@@ -393,12 +393,26 @@ describe("loadUnifiedAgentConfigs", () => {
     const unifiedById = new Map(unifiedConfigs.map((agent) => [agent.id, agent]));
 
     expect([...v2Configs.keys()].sort()).toEqual(
-      ["charlie", "foxtrot", "juliet", "malibu", "porter", "sierra", "victor", "watson"],
+      [
+        "charlie",
+        "cod-e",
+        "foxtrot",
+        "wellness",
+        "juliet",
+        "malibu",
+        "piper",
+        "porter",
+        "sierra",
+        "victor",
+        "watson",
+      ],
     );
-    for (const v2Config of v2Configs.values()) {
-      expect(v2Config.enabled).toBe(false);
-    }
-    expect([...unifiedById.keys()].sort()).toEqual(["dispatch"]);
+    const enabledV2Ids = [...v2Configs.values()]
+      .filter((v2Config) => v2Config.enabled !== false)
+      .map((v2Config) => v2Config.id)
+      .sort();
+    expect(enabledV2Ids).toEqual(["cod-e", "wellness", "piper"]);
+    expect([...unifiedById.keys()].sort()).toEqual(["cod-e", "dispatch", "wellness", "piper"]);
     expect(unifiedById.get("dispatch")).toMatchObject({
       id: "dispatch",
       type: "router",
