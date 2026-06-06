@@ -17,19 +17,26 @@ execution:
   task: |
     Run the daily email review. Follow the email_review skill guidance.
 
+    **First:** Read the triage rules at
+    ~/Documents/main/References/Email Triage Rules.md
+    These rules define what to ignore, delegate, and flag. Apply them
+    before making triage decisions.
+
     Since this is a scheduled run (not interactive), handle phases
     autonomously:
 
     Phase 1: Scan all 7 accounts. Categorize inbox mail into
-    newsletters/promotions, notifications, and actionable.
+    newsletters/promotions, notifications, and actionable. Apply the
+    triage rules — auto-archive "Ignore" items, mark "Delegate" items
+    as not Devin's responsibility.
 
-    Phase 2: For actionable emails, summarize each thread. Skip ones
-    that clearly don't need a response. For important ones that need
-    the user's input, note them but don't draft replies — just flag them.
+    Phase 2: For actionable emails (not ignored or delegated), summarize
+    each thread. Skip ones that clearly don't need a response. For
+    important ones that need the user's input, note them but don't draft
+    replies — just flag them.
 
     Phase 3: Review notifications and newsletters. Flag anything that
-    needs attention (renewals, billing, security alerts). Archive the
-    rest in bulk.
+    needs attention per the rules. Archive the rest in bulk.
 
     Phase 4: Present a summary with counts: actionable flagged, drafts
     created, notifications/newsletters archived, total inbox reduction.

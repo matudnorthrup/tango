@@ -1,14 +1,11 @@
-id: morning-planning
-display_name: Morning Planning Backstop
+id: manual-test-morning-planning
+display_name: Manual Test Morning Planning
 description: >
-  Generate the morning planning briefing if the user hasn't already done it
-  manually. Checks calendar, email priorities, and outstanding tasks.
-enabled: true
+  Manual dry-run validation clone of morning planning for smoke/test channels.
+  It reads the same planning inputs and triage rules but must not mutate daily
+  notes.
+enabled: false
 runtime: v2
-
-obsidian_log:
-  domain: Planning
-  job_name: Morning Planning
 
 schedule:
   cron: "15 5 * * *"
@@ -21,41 +18,30 @@ execution:
     - planning.morning_review
   deterministic_agent_id: watson
   task: |
-    Run the morning planning session.
+    Run a dry-run morning planning validation for the smoke/test channel.
 
-    **Step 1: Create today's daily note from template.**
-    Check if ~/Documents/main/Planning/Daily/YYYY-MM-DD.md exists.
-    If it does NOT exist, create it from the template at
-    ~/Documents/main/_Schema/Templates/Daily Notes Template.md.
-    Substitute these tokens in the template:
-    - {{date:YYYY-MM-DD}} → today's date (e.g. 2026-04-30)
-    - {{date:YYYY [Week] w [Plan]}} → e.g. "2026 Week 18 Plan"
-    - {{date:YYYY [Q]Q [Plan]}} → e.g. "2026 Q2 Plan"
+    Do NOT create, overwrite, or update any Obsidian notes. Do NOT call
+    Obsidian write commands. Return the sections you would write and explain
+    anything filtered out.
 
-    The frontmatter MUST include:
-    - brief: "[[Records/Briefs/YYYY-MM-DD]]"
-    - All other fields from the template exactly as specified
-
-    If the daily note already exists, verify the frontmatter has the
-    `brief:` field. Add it if missing.
-
-    **Step 2: Read today's brief, triage rules, and yesterday's note.**
+    **Step 1: Read today's brief, triage rules, daily note, and yesterday's note.**
     - Read ~/Documents/main/Records/Briefs/YYYY-MM-DD.md for today's
       brief (flagged items, calendar, overnight job summaries)
     - Read ~/Documents/main/References/Email Triage Rules.md before
       selecting any email-derived priorities or stretch tasks. These rules
       define Ignore, Delegate, and Flag behavior for email sources.
+    - Read ~/Documents/main/Planning/Daily/YYYY-MM-DD.md for existing
+      generated sections and human-owned context
     - Read yesterday's daily note for carryover tasks (unchecked items)
     - Get today's calendar events from both accounts (--all for
       non-primary calendars)
 
-    **Step 3: Fill in generated daily-note sections only.**
-    Read ~/Documents/main/Planning/Daily/YYYY-MM-DD.md immediately before writing.
-    Before writing, filter every email-sourced item from the brief or email
-    logs through the triage rules. Do not add ignored or delegated email items
-    to "Today's Priorities", "Stretch (if capacity)", or action
+    **Step 2: Produce proposed generated sections only.**
+    Before proposing output, filter every email-sourced item from the brief or
+    email logs through the triage rules. Do not add ignored or delegated email
+    items to "Today's Priorities", "Stretch (if capacity)", or action
     recommendations.
-    Use the Obsidian `section` command to update only these sections:
+    Return proposed content for only these sections:
     - "Today's Priorities" — top 3-5 tasks based on brief flags,
       carryovers, and calendar. Include dates in format: task—YYYY-MM-DD
     - "Stretch (if capacity)" — lower priority items
@@ -63,13 +49,6 @@ execution:
       - [ ] Slack saved items (Morning)
       - [ ] Check/Update Linear (Afternoon)
       - [ ] Discord and Reddit (Afternoon)
-    - If the brief has flagged/urgent items, note them in priorities
-      with action recommendation
-
-    Do NOT use `create --overwrite` on an existing daily note. Preserve
-    these human-owned sections exactly: "Unscheduled Work I Did Today",
-    "Notes", "Interstitial Log", "Energy Reflection", and "Notes from
-    Last Night".
 
     **Filtering rules — do NOT surface these as priorities:**
     - Email items marked Ignore or Delegate by
@@ -86,27 +65,32 @@ execution:
       maintenance context. Only add Vault Audit items to today's priorities
       when they appear under the brief's Flagged section.
 
-    Do NOT modify the frontmatter fields other than adding `brief:` if
-    missing. Do NOT add a Morning Brief section to the daily note — that
-    content lives in Records/Briefs/.
-
-    **Step 4: Return a concise summary** of what was planned.
+    **Step 3: Return validation evidence.**
+    Include:
+    - Proposed "Today's Priorities"
+    - Proposed "Stretch (if capacity)"
+    - A short "Filtered by triage rules" list naming any ignored/delegated
+      email-derived items that were excluded
+    - Confirmation that no Obsidian writes were performed
   timeout_seconds: 300
 
 provider:
   model: claude-sonnet-4-6
 
 delivery:
-  mode: none
+  channel_id: "100000000000001001"
+  agent_id: watson
 
 completion:
-  workflow_id: morning-planning
+  workflow_id: manual-test-morning-planning
   scope: daily
+  check_before_run: false
+  mark_on_success: false
 
 policy:
-  max_consecutive_failures: 1
+  max_consecutive_failures: 3
   alert_channel_id: "100000000000000010"
-  concurrency_group: watson-tasks
+  concurrency_group: watson-test-tasks
   priority: 10
   backoff:
     enabled: true
@@ -117,3 +101,4 @@ tags:
   - watson
   - morning
   - planning
+  - manual-test
