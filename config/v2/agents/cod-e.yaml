@@ -28,7 +28,7 @@ current_turn_metadata:
 runtime:
   mode: persistent
   provider: claude-code-v2
-  model: claude-opus-4-6
+  model: claude-opus-4-8
   reasoning_effort: high
   idle_timeout_hours: 4
   context_reset_threshold: 0.80
