@@ -7,6 +7,9 @@ Primary product/design specs live here so they are versioned with code.
   boundaries, memory behavior, and privacy model.
 - `voice-state-machine-v2-design.md` is the forward-looking voice state
   machine redesign spec.
+- `ollama-provider-parallel-instance.md` is the design spec for a first-class
+  `ollama` model provider and a parallel Ollama-backed Tango instance for live
+  evaluation alongside production.
 - If a separate private notes system exists, treat this repo copy as the
   source of truth for code-facing work and keep it updated alongside changes.
 
