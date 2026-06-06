@@ -6084,9 +6084,11 @@ async function handleMessage(
   const accessAgent = naturalRoute?.systemCommand ? (systemAgent ?? targetAgent) : targetAgent;
   const accessPolicy = resolveAccessPolicy(accessAgent, defaultAccessPolicy);
   const routingChannelId = resolveRoutingChannelId(message);
+  const threadChannelId = message.channelId !== routingChannelId ? message.channelId : undefined;
   const access = evaluateAccess(
     {
       channelId: routingChannelId,
+      threadChannelId,
       userId: message.author.id,
       mentioned: hasMentionForBot(message)
     },
