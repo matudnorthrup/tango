@@ -68,6 +68,7 @@ export async function triggerAgentTyping(
 
 export function createAgentTypingPresenter(options: {
   resolveAgentTypingToken: (agentId: string) => string | undefined;
+  defaultToken?: string;
   refreshIntervalMs?: number;
   fetchImpl?: typeof fetch;
   logger?: AgentTypingPresenterLogger;
@@ -88,7 +89,8 @@ export function createAgentTypingPresenter(options: {
         return { stop() {} };
       }
 
-      const botToken = options.resolveAgentTypingToken(normalizedAgentId);
+      const perAgentToken = options.resolveAgentTypingToken(normalizedAgentId);
+      const botToken = perAgentToken ?? (options.defaultToken?.trim() || undefined);
       if (!botToken) {
         return { stop() {} };
       }
