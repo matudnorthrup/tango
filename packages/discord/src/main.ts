@@ -512,6 +512,7 @@ const agentTypingPresenter = createAgentTypingPresenter({
   resolveAgentTypingToken(agentId) {
     return resolveAgentTypingToken(agentRegistry.get(agentId));
   },
+  defaultToken: process.env.DISCORD_TOKEN,
   logger: {
     warn(message: string): void {
       console.warn(message);
