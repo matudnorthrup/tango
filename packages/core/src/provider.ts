@@ -114,6 +114,13 @@ export interface OllamaProviderOptions {
 
 export const DEFAULT_OLLAMA_BASE_URL = "https://ollama.com/v1";
 export const DEFAULT_OLLAMA_MODEL = "deepseek-v4-pro:cloud";
+/**
+ * Conservative effective context window for the Ollama backend (DeepSeek's true
+ * window is ~1M tokens). Stamped onto each Ollama RuntimeResponse as
+ * `contextWindowTokens` so SessionLifecycleManager's context-reset (0.80
+ * threshold) + compaction fire with headroom before the real window is hit.
+ */
+export const OLLAMA_CONTEXT_WINDOW_TOKENS = 800_000;
 
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 300_000;
 
