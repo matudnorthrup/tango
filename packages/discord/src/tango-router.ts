@@ -2,6 +2,7 @@ import {
   RuntimePool,
   SessionLifecycleManager,
   type AgentRuntimeConfig,
+  type ChatProvider,
   type ColdStartContextBuilder,
   type ContextAutoResetNotice,
   type ConversationSession,
@@ -19,6 +20,11 @@ export interface TangoRouterConfig {
   buildColdStartContext?: ColdStartContextBuilder;
   /** Post-turn hook (e.g., memory extraction) */
   onPostTurn?: (context: PostTurnContext) => Promise<void>;
+  /**
+   * Stateless chat provider used for agents whose runtime config sets
+   * backend: "ollama". Passed through to the RuntimePool.
+   */
+  ollamaProvider?: ChatProvider;
 }
 
 export interface PostTurnContext {
@@ -64,7 +70,7 @@ export class TangoRouter {
     this.agentConfigs = config.agentConfigs;
     this.onPostTurn = config.onPostTurn;
     this.lifecycleManager = new SessionLifecycleManager(
-      new RuntimePool(),
+      new RuntimePool(config.ollamaProvider ? { ollamaProvider: config.ollamaProvider } : {}),
       config.lifecycleConfig,
       config.buildColdStartContext,
     );

@@ -1,9 +1,27 @@
 import type { AgentRuntime, AgentRuntimeConfig } from "./agent-runtime.js";
 import { ClaudeCodeAdapter } from "./claude-code-adapter.js";
+import { OllamaRuntimeAdapter } from "./ollama-runtime-adapter.js";
+import type { ChatProvider } from "./provider.js";
+
+export interface RuntimePoolOptions {
+  /**
+   * Stateless chat provider used to back runtimes whose config requests the
+   * "ollama" backend. Required for those agents; omit it when no v2 agent is
+   * configured for Ollama. Construction throws if a turn needs it but it is
+   * absent, so a misconfiguration fails loudly rather than silently using
+   * Claude.
+   */
+  ollamaProvider?: ChatProvider;
+}
 
 export class RuntimePool {
   private readonly runtimes = new Map<string, AgentRuntime>();
   private readonly pendingCreates = new Map<string, Promise<AgentRuntime>>();
+  private readonly ollamaProvider?: ChatProvider;
+
+  constructor(options: RuntimePoolOptions = {}) {
+    this.ollamaProvider = options.ollamaProvider;
+  }
 
   async getOrCreate(conversationKey: string, config: AgentRuntimeConfig): Promise<AgentRuntime> {
     const existing = this.runtimes.get(conversationKey);
@@ -17,7 +35,7 @@ export class RuntimePool {
     }
 
     const creation = (async () => {
-      const runtime = new ClaudeCodeAdapter();
+      const runtime = this.createRuntime(config);
       await runtime.initialize(config);
       this.runtimes.set(conversationKey, runtime);
       return runtime;
@@ -30,6 +48,19 @@ export class RuntimePool {
     } finally {
       this.pendingCreates.delete(conversationKey);
     }
+  }
+
+  private createRuntime(config: AgentRuntimeConfig): AgentRuntime {
+    if (config.backend === "ollama") {
+      if (!this.ollamaProvider) {
+        throw new Error(
+          `Agent '${config.agentId}' requests the ollama backend but no ollamaProvider was supplied to RuntimePool.`,
+        );
+      }
+      return new OllamaRuntimeAdapter(this.ollamaProvider, config);
+    }
+
+    return new ClaudeCodeAdapter();
   }
 
   get(conversationKey: string): AgentRuntime | undefined {
