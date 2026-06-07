@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { ChatProvider, ProviderRequest, ProviderResponse } from "./provider.js";
+import {
+  OLLAMA_CONTEXT_WINDOW_TOKENS,
+  type ChatProvider,
+  type ProviderRequest,
+  type ProviderResponse,
+} from "./provider.js";
 import type {
   AgentRuntime,
   AgentRuntimeConfig,
@@ -78,6 +83,17 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     const providerMetadata = response.metadata;
     const model = providerMetadata?.model ?? this.config.runtimePreferences.model;
 
+    // Context-window occupancy stamping. The stateless provider never reports
+    // window occupancy, so SessionLifecycleManager's context-reset (0.80
+    // threshold) + compaction would never fire and Ollama conversations would
+    // grow unbounded. Stamp the high-water occupancy + a conservative window so
+    // extractOccupancyUsage() (context-usage.ts) computes a fraction the
+    // lifecycle can act on. occupancy = input + output tokens for this turn;
+    // because warm-start re-injects the FULL transcript every turn, inputTokens
+    // tracks the growing history and the fraction climbs as the conversation does.
+    const usage = providerMetadata?.usage;
+    const contextOccupancyTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
+
     if (options.onChunk && response.text.length > 0) {
       options.onChunk(response.text);
     }
@@ -92,6 +108,15 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
         // / durationMs / usage off metadata.providerMetadata to populate the
         // model_runs row (see main.ts v2 turn handler).
         providerMetadata,
+        // Occupancy fields read by extractOccupancyUsage() → the lifecycle
+        // context-reset. findNumericField() recurses into metadata, so these are
+        // discovered here at the top level.
+        ...(contextOccupancyTokens > 0
+          ? {
+              contextOccupancyTokens,
+              contextWindowTokens: OLLAMA_CONTEXT_WINDOW_TOKENS,
+            }
+          : {}),
         ...(response.raw !== undefined ? { raw: response.raw } : {}),
       },
     };

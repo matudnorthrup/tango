@@ -42,6 +42,17 @@ type ReasoningEffort = NonNullable<AgentRuntimeConfig["runtimePreferences"]["rea
 
 const DEFAULT_V2_RUNTIME_TIMEOUT_MS = 900_000;
 
+/**
+ * True when an agent's turns are served by the Ollama runtime adapter rather
+ * than the Claude Code CLI, derived from its (legacy) provider intent. This is
+ * the single source of truth for the backend decision; both
+ * {@link buildV2RuntimeConfigs} and the warm-start continuity resolver in
+ * main.ts consult it so the two never drift.
+ */
+export function isOllamaBackedAgent(v2Config: V2AgentConfig | undefined): boolean {
+  return v2Config?.legacyProvider?.default === "ollama";
+}
+
 export function buildV2EnabledAgentSet(
   v2Configs: ReadonlyMap<string, V2AgentConfig>,
 ): Set<string> {
@@ -82,7 +93,7 @@ export function buildV2RuntimeConfigs(
       },
       // Route this agent's turns through the Ollama runtime adapter when its
       // (legacy) provider intent is "ollama"; otherwise use the Claude Code CLI.
-      backend: v2Config.legacyProvider?.default === "ollama" ? "ollama" : "claude-code",
+      backend: isOllamaBackedAgent(v2Config) ? "ollama" : "claude-code",
     });
   }
 
