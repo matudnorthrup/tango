@@ -88,6 +88,65 @@ describe("createAgentTypingPresenter", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("uses the default token when the agent has no configured token", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const presenter = createAgentTypingPresenter({
+      resolveAgentTypingToken: () => undefined,
+      defaultToken: "default-token",
+      fetchImpl,
+    });
+
+    const session = presenter.start("jules", "channel-1");
+    await Promise.resolve();
+    session.stop();
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://discord.com/api/v10/channels/channel-1/typing",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bot default-token",
+        },
+      }
+    );
+  });
+
+  it("uses the per-agent token before the default token", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const presenter = createAgentTypingPresenter({
+      resolveAgentTypingToken: () => "jules-token",
+      defaultToken: "default-token",
+      fetchImpl,
+    });
+
+    const session = presenter.start("jules", "channel-1");
+    await Promise.resolve();
+    session.stop();
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://discord.com/api/v10/channels/channel-1/typing",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bot jules-token",
+        },
+      }
+    );
+  });
+
+  it("does nothing when neither token is present", () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const presenter = createAgentTypingPresenter({
+      resolveAgentTypingToken: () => undefined,
+      fetchImpl,
+    });
+
+    const session = presenter.start("jules", "channel-1");
+    session.stop();
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("pulses typing through the agent token and stops on cleanup", async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
