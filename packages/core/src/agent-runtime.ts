@@ -17,7 +17,7 @@ export function isRuntimeAbortedError(error: unknown): error is RuntimeAbortedEr
 
 export interface AgentRuntime {
   readonly id: string;
-  readonly type: "claude-code" | "codex";
+  readonly type: "claude-code" | "codex" | "ollama";
   readonly active: boolean;
 
   send(message: string, options?: SendOptions): Promise<RuntimeResponse>;
@@ -39,6 +39,13 @@ export interface AgentRuntimeConfig {
     timeout?: number;
   };
   coldStartContext?: string;
+  /**
+   * Which runtime backend should serve this agent's turns. Defaults to
+   * "claude-code" (the Claude Code CLI adapter). When "ollama", the
+   * RuntimePool constructs an OllamaRuntimeAdapter backed by the shared
+   * OllamaProvider instead. Populated from V2AgentConfig.legacyProvider.default.
+   */
+  backend?: "claude-code" | "ollama";
 }
 
 export interface McpServerConfig {
