@@ -30,6 +30,7 @@ export * from "./memory-reflection.js";
 export * from "./obsidian-indexer.js";
 export * from "./memory-system.js";
 export * from "./provider.js";
+export * from "./mcp-http-tool-client.js";
 export * from "./provider-artifacts.js";
 export * from "./provider-registry.js";
 export * from "./runtime-pool.js";
