@@ -67,6 +67,8 @@ import {
   runAttachmentRetentionSweep,
   createBuiltInProviderRegistry,
   OllamaProvider,
+  McpHttpToolClient,
+  DEFAULT_MCP_HTTP_PORT,
   createAttachmentProcessingHandlers,
   resolveProviderCandidates,
   resolveAgentToolPolicy,
@@ -574,6 +576,14 @@ const v2LifecycleConfig = {
 // via TangoRouter -> RuntimePool) and the legacy provider registry below. The
 // 1Password apiKey resolver caches its first result, so sharing one instance
 // avoids resolving the secret twice.
+// Phase 2: the Ollama tool loop talks to the persistent HTTP MCP server (the
+// same `mcp-wellness-server --http --port=9100` the Claude CLI path forks). One
+// shared client keeps every Ollama-backed turn pointed at that server so the
+// model can invoke wellness tools via OpenAI function-calling.
+const ollamaToolClient = new McpHttpToolClient({
+  port: DEFAULT_MCP_HTTP_PORT,
+  timeoutMs: claudeTimeoutMs,
+});
 const ollamaProviderOptions = {
   baseUrl: env.OLLAMA_BASE_URL,
   defaultModel: env.OLLAMA_MODEL,
@@ -581,6 +591,7 @@ const ollamaProviderOptions = {
     env.OLLAMA_API_KEY ??
     (async () => (await getSecret("Watson", "Ollama API Credential Tango")) ?? undefined),
   timeoutMs: claudeTimeoutMs,
+  toolClient: ollamaToolClient,
 };
 const ollamaProvider = new OllamaProvider(ollamaProviderOptions);
 const tangoRouter = new TangoRouter({
