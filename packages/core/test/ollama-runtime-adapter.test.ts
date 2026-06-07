@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentRuntimeConfig } from "../src/agent-runtime.js";
 import type { ChatProvider, ProviderRequest, ProviderResponse } from "../src/provider.js";
+import { OLLAMA_CONTEXT_WINDOW_TOKENS } from "../src/provider.js";
+import { extractResponderContextUsage } from "../src/context-usage.js";
 import { OllamaRuntimeAdapter } from "../src/ollama-runtime-adapter.js";
 
 function createConfig(overrides: Partial<AgentRuntimeConfig> = {}): AgentRuntimeConfig {
@@ -60,6 +62,46 @@ describe("OllamaRuntimeAdapter", () => {
     expect(providerMetadata?.usage).toEqual({ inputTokens: 42, outputTokens: 7 });
     expect(response.metadata?.backend).toBe("ollama");
     expect(response.metadata?.raw).toEqual({ ok: true });
+  });
+
+  it("stamps context-window occupancy so the lifecycle reset can fire", async () => {
+    const providerResponse: ProviderResponse = {
+      text: "Reply.",
+      metadata: {
+        model: "deepseek-v4-pro:cloud",
+        usage: { inputTokens: 700_000, outputTokens: 5_000 },
+      },
+    };
+    const adapter = new OllamaRuntimeAdapter(createFakeProvider(providerResponse), createConfig());
+
+    const response = await adapter.send("ping");
+
+    // occupancy = inputTokens + outputTokens; window = OLLAMA_CONTEXT_WINDOW_TOKENS.
+    expect(response.metadata?.contextOccupancyTokens).toBe(705_000);
+    expect(response.metadata?.contextWindowTokens).toBe(OLLAMA_CONTEXT_WINDOW_TOKENS);
+
+    // End-to-end: the stamped fields are exactly what the lifecycle reads to
+    // compute the occupancy fraction (705k / 800k ≈ 0.881 > the 0.80 threshold).
+    const usage = extractResponderContextUsage(
+      response.metadata as Record<string, unknown>,
+    );
+    expect(usage).toBeDefined();
+    expect(usage?.totalTokens).toBe(705_000);
+    expect(usage?.contextWindow).toBe(OLLAMA_CONTEXT_WINDOW_TOKENS);
+    expect(usage?.fraction).toBeCloseTo(705_000 / OLLAMA_CONTEXT_WINDOW_TOKENS, 5);
+    expect(usage?.fraction).toBeGreaterThan(0.8);
+  });
+
+  it("omits occupancy stamping when the provider reports no token usage", async () => {
+    const adapter = new OllamaRuntimeAdapter(
+      createFakeProvider({ text: "ok", metadata: { model: "deepseek-v4-pro:cloud" } }),
+      createConfig(),
+    );
+
+    const response = await adapter.send("ping");
+
+    expect(response.metadata?.contextOccupancyTokens).toBeUndefined();
+    expect(response.metadata?.contextWindowTokens).toBeUndefined();
   });
 
   it("carries no session id (stateless provider)", async () => {
