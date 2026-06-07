@@ -52,6 +52,7 @@ function cloneRuntimeConfig(config: AgentRuntimeConfig): AgentRuntimeConfig {
       ...config.runtimePreferences,
     },
     ...(config.coldStartContext ? { coldStartContext: config.coldStartContext } : {}),
+    ...(config.backend ? { backend: config.backend } : {}),
   };
 }
 
