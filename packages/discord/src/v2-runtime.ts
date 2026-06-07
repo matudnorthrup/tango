@@ -80,6 +80,9 @@ export function buildV2RuntimeConfigs(
         reasoningEffort: normalizeRuntimeReasoningEffort(v2Config.runtime.reasoningEffort),
         timeout: resolveV2RuntimeTimeoutMs(v2Config, DEFAULT_V2_RUNTIME_TIMEOUT_MS),
       },
+      // Route this agent's turns through the Ollama runtime adapter when its
+      // (legacy) provider intent is "ollama"; otherwise use the Claude Code CLI.
+      backend: v2Config.legacyProvider?.default === "ollama" ? "ollama" : "claude-code",
     });
   }
 
