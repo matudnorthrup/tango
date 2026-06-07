@@ -66,6 +66,7 @@ import {
   runAttachmentBacklogWatchdog,
   runAttachmentRetentionSweep,
   createBuiltInProviderRegistry,
+  OllamaProvider,
   createAttachmentProcessingHandlers,
   resolveProviderCandidates,
   resolveAgentToolPolicy,
@@ -568,6 +569,19 @@ const v2LifecycleConfig = {
   idleTimeoutHours: 24,
   contextResetThreshold: 0.80,
 };
+// Single OllamaProvider instance shared by the v2 runtime (OllamaRuntimeAdapter,
+// via TangoRouter -> RuntimePool) and the legacy provider registry below. The
+// 1Password apiKey resolver caches its first result, so sharing one instance
+// avoids resolving the secret twice.
+const ollamaProviderOptions = {
+  baseUrl: env.OLLAMA_BASE_URL,
+  defaultModel: env.OLLAMA_MODEL,
+  apiKey:
+    env.OLLAMA_API_KEY ??
+    (async () => (await getSecret("Watson", "Ollama API Credential Tango")) ?? undefined),
+  timeoutMs: claudeTimeoutMs,
+};
+const ollamaProvider = new OllamaProvider(ollamaProviderOptions);
 const tangoRouter = new TangoRouter({
   agentConfigs: buildV2RuntimeConfigs(v2Configs),
   lifecycleConfig: v2LifecycleConfig,
@@ -580,6 +594,7 @@ const tangoRouter = new TangoRouter({
     v2Configs,
     atlasMemoryClient,
   }),
+  ollamaProvider,
 });
 let embeddingProvider: EmbeddingProvider | null | undefined;
 
@@ -625,15 +640,11 @@ const providers = createBuiltInProviderRegistry({
     approvalPolicy: env.CODEX_APPROVAL_POLICY,
     skipGitRepoCheck: true
   },
-  ollama: {
-    baseUrl: env.OLLAMA_BASE_URL,
-    defaultModel: env.OLLAMA_MODEL,
-    apiKey:
-      env.OLLAMA_API_KEY ??
-      (async () => (await getSecret("Watson", "Ollama API Credential Tango")) ?? undefined),
-    timeoutMs: claudeTimeoutMs
-  }
+  ollama: ollamaProviderOptions
 });
+// Reuse the single OllamaProvider instance built above so the legacy registry
+// and the v2 runtime share one provider (and one cached 1Password key lookup).
+providers.set("ollama", ollamaProvider);
 const attachmentWorker = new AttachmentJobWorker(
   attachmentStore,
   `discord-${process.pid}`,
