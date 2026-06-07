@@ -99,6 +99,22 @@ export interface CodexExecProviderOptions {
   skipGitRepoCheck?: boolean;
 }
 
+export interface OllamaProviderOptions {
+  /** OpenAI-compatible base URL, e.g. https://ollama.com/v1 */
+  baseUrl?: string;
+  /**
+   * API key, or a lazy async resolver so the key can be fetched from 1Password
+   * at the call site without a top-level await. Resolved once, then cached.
+   */
+  apiKey?: string | (() => Promise<string | undefined>);
+  defaultModel?: string;
+  defaultReasoningEffort?: ProviderReasoningEffort;
+  timeoutMs?: number;
+}
+
+export const DEFAULT_OLLAMA_BASE_URL = "https://ollama.com/v1";
+export const DEFAULT_OLLAMA_MODEL = "deepseek-v4-pro:cloud";
+
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 300_000;
 
 const claudeResultSchema = z
@@ -954,5 +970,135 @@ export class EchoProvider implements ChatProvider {
       text: `Echo: ${request.prompt}`,
       providerSessionId: request.providerSessionId
     };
+  }
+}
+
+// --- Ollama (OpenAI-compatible HTTP) provider -------------------------------
+
+interface OllamaChatBody {
+  model: string;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  stream: false;
+}
+
+/** Build the OpenAI-compatible chat-completions request body. Pure + testable. */
+export function buildOllamaChatBody(
+  request: ProviderRequest,
+  options: Pick<OllamaProviderOptions, "defaultModel"> = {}
+): OllamaChatBody {
+  const model =
+    request.model?.trim() || options.defaultModel?.trim() || DEFAULT_OLLAMA_MODEL;
+  const messages: OllamaChatBody["messages"] = [];
+  const systemPrompt = request.systemPrompt?.trim();
+  if (systemPrompt) {
+    messages.push({ role: "system", content: systemPrompt });
+  }
+  messages.push({ role: "user", content: request.prompt });
+  return { model, messages, stream: false };
+}
+
+/**
+ * Map an OpenAI-compatible chat-completions response into a ProviderResponse.
+ * Pure + testable. DeepSeek reasoning (choices[].message.reasoning) is kept only
+ * in `raw`; it is NOT merged into `text`.
+ */
+export function parseOllamaChatResponse(payload: unknown): ProviderResponse {
+  const root = asRecord(payload);
+  if (!root) {
+    throw new Error("Ollama returned a non-object response");
+  }
+  const choices = Array.isArray(root.choices) ? root.choices : [];
+  const firstChoice = asRecord(choices[0]);
+  const message = asRecord(firstChoice?.message);
+  const content = typeof message?.content === "string" ? message.content.trim() : "";
+  if (content.length === 0) {
+    throw new Error("Ollama returned an empty response");
+  }
+
+  const asNumber = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+  const usage = asRecord(root.usage);
+  const model = typeof root.model === "string" ? root.model : undefined;
+  const finishReason =
+    typeof firstChoice?.finish_reason === "string" ? firstChoice.finish_reason : undefined;
+
+  const metadata: ProviderResponseMetadata = {
+    model,
+    stopReason: finishReason ?? undefined,
+    usage: usage
+      ? {
+          inputTokens: asNumber(usage.prompt_tokens),
+          outputTokens: asNumber(usage.completion_tokens)
+        }
+      : undefined
+  };
+
+  return { text: content, metadata, raw: payload };
+}
+
+export class OllamaProvider implements ChatProvider {
+  private resolvedKey?: string;
+
+  constructor(private readonly options: OllamaProviderOptions = {}) {}
+
+  private async resolveApiKey(): Promise<string | undefined> {
+    const { apiKey } = this.options;
+    if (typeof apiKey === "function") {
+      if (this.resolvedKey === undefined) {
+        this.resolvedKey = (await apiKey()) ?? undefined;
+      }
+      return this.resolvedKey;
+    }
+    return apiKey;
+  }
+
+  async generate(request: ProviderRequest): Promise<ProviderResponse> {
+    const apiKey = await this.resolveApiKey();
+    if (!apiKey) {
+      throw new Error("Ollama provider is missing an API key");
+    }
+
+    const baseUrl = (this.options.baseUrl ?? DEFAULT_OLLAMA_BASE_URL).replace(/\/+$/u, "");
+    const url = `${baseUrl}/chat/completions`;
+    const body = buildOllamaChatBody(request, { defaultModel: this.options.defaultModel });
+    // Phase 0 is text-only: request.tools and request.providerSessionId are
+    // intentionally ignored. Because we return NO providerSessionId, the discord
+    // failover layer re-injects warm-start history into request.prompt each turn.
+    // Tool loop and provider-owned session/compaction arrive in Phases 2 and 1.
+
+    const timeoutMs = this.options.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
+    const startedAt = Date.now();
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Ollama request failed: ${message}`);
+    }
+
+    const rawText = await res.text();
+    if (!res.ok) {
+      throw new Error(`Ollama request failed: status=${res.status} body=${rawText.slice(0, 500)}`);
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(rawText);
+    } catch {
+      throw new Error("Ollama returned invalid JSON");
+    }
+
+    const response = parseOllamaChatResponse(payload);
+    const durationMs = Date.now() - startedAt;
+    return { ...response, metadata: { ...response.metadata, durationMs } };
   }
 }

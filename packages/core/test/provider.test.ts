@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildClaudeCliArgs,
   buildCodexExecArgs,
+  buildOllamaChatBody,
   parseClaudePrintJson,
-  parseCodexExecJson
+  parseCodexExecJson,
+  parseOllamaChatResponse
 } from "../src/provider.js";
 
 describe("parseClaudePrintJson", () => {
@@ -480,5 +482,100 @@ describe("buildCodexExecArgs", () => {
       "gpt-5.4-mini",
       "summarize this"
     ]);
+  });
+});
+
+describe("buildOllamaChatBody", () => {
+  it("includes a system message and a user message when systemPrompt is set", () => {
+    const body = buildOllamaChatBody({
+      prompt: "ping",
+      systemPrompt: "You are Watson."
+    });
+
+    expect(body).toEqual({
+      model: "deepseek-v4-pro:cloud",
+      messages: [
+        { role: "system", content: "You are Watson." },
+        { role: "user", content: "ping" }
+      ],
+      stream: false
+    });
+  });
+
+  it("omits the system message when systemPrompt is absent", () => {
+    const body = buildOllamaChatBody({ prompt: "ping" });
+
+    expect(body.messages).toEqual([{ role: "user", content: "ping" }]);
+    expect(body.stream).toBe(false);
+  });
+
+  it("prefers request.model over defaultModel over the built-in default", () => {
+    expect(
+      buildOllamaChatBody({ prompt: "ping", model: "qwen3:cloud" }, { defaultModel: "llama4:cloud" })
+        .model
+    ).toBe("qwen3:cloud");
+
+    expect(
+      buildOllamaChatBody({ prompt: "ping" }, { defaultModel: "llama4:cloud" }).model
+    ).toBe("llama4:cloud");
+
+    expect(buildOllamaChatBody({ prompt: "ping" }).model).toBe("deepseek-v4-pro:cloud");
+  });
+});
+
+describe("parseOllamaChatResponse", () => {
+  const samplePayload = {
+    id: "chatcmpl-308",
+    model: "deepseek-v4-pro:cloud",
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: "pong",
+          reasoning: "the user said ping"
+        },
+        finish_reason: "stop"
+      }
+    ],
+    usage: { prompt_tokens: 11, completion_tokens: 38, total_tokens: 49 }
+  };
+
+  it("maps the OpenAI-compatible response shape into a ProviderResponse", () => {
+    const parsed = parseOllamaChatResponse(samplePayload);
+
+    expect(parsed.text).toBe("pong");
+    expect(parsed.metadata?.model).toBe("deepseek-v4-pro:cloud");
+    expect(parsed.metadata?.stopReason).toBe("stop");
+    expect(parsed.metadata?.usage).toEqual({
+      inputTokens: 11,
+      outputTokens: 38
+    });
+    expect(parsed.raw).toBe(samplePayload);
+  });
+
+  it("throws when content is empty", () => {
+    expect(() =>
+      parseOllamaChatResponse({
+        choices: [{ message: { role: "assistant", content: "   " } }]
+      })
+    ).toThrow("Ollama returned an empty response");
+  });
+
+  it("throws when content is missing", () => {
+    expect(() =>
+      parseOllamaChatResponse({
+        choices: [{ message: { role: "assistant" } }]
+      })
+    ).toThrow("Ollama returned an empty response");
+  });
+
+  it("keeps DeepSeek reasoning only in raw, never in text", () => {
+    const parsed = parseOllamaChatResponse(samplePayload);
+
+    expect(parsed.text).toBe("pong");
+    expect(parsed.text).not.toContain("the user said ping");
+    const raw = parsed.raw as typeof samplePayload;
+    expect(raw.choices[0]?.message.reasoning).toBe("the user said ping");
   });
 });
