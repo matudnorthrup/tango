@@ -76,19 +76,21 @@ describe("OllamaRuntimeAdapter", () => {
 
     const response = await adapter.send("ping");
 
-    // occupancy = inputTokens + outputTokens; window = OLLAMA_CONTEXT_WINDOW_TOKENS.
-    expect(response.metadata?.contextOccupancyTokens).toBe(705_000);
+    // occupancy = peak PROMPT tokens only (prompt-only semantics, matching the
+    // Claude provider); outputTokens stay in usage for cost but are excluded from
+    // the compaction trigger. window = OLLAMA_CONTEXT_WINDOW_TOKENS.
+    expect(response.metadata?.contextOccupancyTokens).toBe(700_000);
     expect(response.metadata?.contextWindowTokens).toBe(OLLAMA_CONTEXT_WINDOW_TOKENS);
 
     // End-to-end: the stamped fields are exactly what the lifecycle reads to
-    // compute the occupancy fraction (705k / 800k ≈ 0.881 > the 0.80 threshold).
+    // compute the occupancy fraction (700k / 800k = 0.875 > the 0.80 threshold).
     const usage = extractResponderContextUsage(
       response.metadata as Record<string, unknown>,
     );
     expect(usage).toBeDefined();
-    expect(usage?.totalTokens).toBe(705_000);
+    expect(usage?.totalTokens).toBe(700_000);
     expect(usage?.contextWindow).toBe(OLLAMA_CONTEXT_WINDOW_TOKENS);
-    expect(usage?.fraction).toBeCloseTo(705_000 / OLLAMA_CONTEXT_WINDOW_TOKENS, 5);
+    expect(usage?.fraction).toBeCloseTo(700_000 / OLLAMA_CONTEXT_WINDOW_TOKENS, 5);
     expect(usage?.fraction).toBeGreaterThan(0.8);
   });
 
@@ -143,6 +145,65 @@ describe("OllamaRuntimeAdapter", () => {
         "the message",
       ].join("\n\n"),
     );
+  });
+
+  it("derives deduped toolsUsed from the provider's tool calls", async () => {
+    const providerResponse: ProviderResponse = {
+      text: "Done.",
+      metadata: { model: "deepseek-v4-pro:cloud", usage: { inputTokens: 1, outputTokens: 1 } },
+      toolCalls: [
+        { name: "log_weight", input: { lbs: 1 } },
+        { name: "log_weight", input: { lbs: 2 } },
+        { name: "list_meals", input: {} },
+      ],
+    };
+    const adapter = new OllamaRuntimeAdapter(createFakeProvider(providerResponse), createConfig());
+
+    const response = await adapter.send("track me");
+
+    expect(response.toolsUsed?.sort()).toEqual(["list_meals", "log_weight"]);
+  });
+
+  it("passes the agent tool policy and worker id when MCP servers are configured", async () => {
+    let captured: ProviderRequest | undefined;
+    const adapter = new OllamaRuntimeAdapter(
+      createFakeProvider({ text: "ok", metadata: { usage: { inputTokens: 1 } } }, (request) => {
+        captured = request;
+      }),
+      createConfig({
+        agentId: "watson",
+        mcpServers: [
+          {
+            name: "wellness",
+            command: "node",
+            args: ["mcp-wellness-server.js"],
+            env: { MCP_SERVER_PORT: "9100" },
+          },
+        ],
+      }),
+    );
+
+    await adapter.send("hi");
+
+    expect(captured?.tools).toEqual({ mode: "default" });
+    expect(captured?.workerId).toBe("watson");
+    // The provider uses one shared fixed-port tool client; no port is passed
+    // per request.
+    expect("mcpServerPort" in (captured ?? {})).toBe(false);
+  });
+
+  it("omits tools (text-only) when the agent has no MCP servers", async () => {
+    let captured: ProviderRequest | undefined;
+    const adapter = new OllamaRuntimeAdapter(
+      createFakeProvider({ text: "ok", metadata: { usage: { inputTokens: 1 } } }, (request) => {
+        captured = request;
+      }),
+      createConfig({ mcpServers: [] }),
+    );
+
+    await adapter.send("hi");
+
+    expect(captured?.tools).toBeUndefined();
   });
 
   it("falls back to the configured model when the provider omits one", async () => {
