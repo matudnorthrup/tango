@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { ProviderReasoningEffort } from "./types.js";
+import type { McpHttpToolClient, OpenAIToolDefinition } from "./mcp-http-tool-client.js";
 
 export interface ProviderRequest {
   prompt: string;
@@ -12,6 +13,12 @@ export interface ProviderRequest {
   tools?: ProviderToolsConfig;
   model?: string;
   reasoningEffort?: ProviderReasoningEffort;
+  /**
+   * Governance principal for the HTTP MCP tool loop (Ollama only). Sent as the
+   * `X-Worker-ID` header so the persistent MCP server resolves the agent's tool
+   * permissions. Ignored by CLI providers.
+   */
+  workerId?: string;
 }
 
 export interface ProviderResponse {
@@ -110,6 +117,12 @@ export interface OllamaProviderOptions {
   defaultModel?: string;
   defaultReasoningEffort?: ProviderReasoningEffort;
   timeoutMs?: number;
+  /**
+   * Optional HTTP MCP tool client (Phase 2). When present AND the request enables
+   * tools, `generate()` runs a bounded agentic tool loop against the persistent
+   * MCP server. When absent, `generate()` is the Phase 0 single-shot text path.
+   */
+  toolClient?: McpHttpToolClient;
 }
 
 export const DEFAULT_OLLAMA_BASE_URL = "https://ollama.com/v1";
@@ -121,6 +134,23 @@ export const DEFAULT_OLLAMA_MODEL = "deepseek-v4-pro:cloud";
  * threshold) + compaction fire with headroom before the real window is hit.
  */
 export const OLLAMA_CONTEXT_WINDOW_TOKENS = 800_000;
+
+/**
+ * Hard cap on the number of /v1/chat/completions round-trips inside the Ollama
+ * tool loop. Each iteration that returns at least one `tool_calls` entry consumes
+ * one slot; when the cap is hit the loop returns the model's last text — or, if
+ * the cap was reached with no final text, {@link TOOL_LOOP_CAP_FALLBACK_TEXT} and
+ * `stopReason:"max_tool_iters"` — so a misbehaving model can never spin forever.
+ */
+export const MAX_TOOL_ITERS = 8;
+
+/**
+ * Deterministic reply substituted when the tool loop hits {@link MAX_TOOL_ITERS}
+ * without the model producing any final text, so the discord layer never sends a
+ * blank message.
+ */
+export const TOOL_LOOP_CAP_FALLBACK_TEXT =
+  "(tool loop reached the step limit without a final answer)";
 
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 300_000;
 
@@ -982,34 +1012,98 @@ export class EchoProvider implements ChatProvider {
 
 // --- Ollama (OpenAI-compatible HTTP) provider -------------------------------
 
+/** OpenAI-compatible tool_call as emitted/echoed in chat messages. */
+export interface OpenAiToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+/**
+ * One OpenAI-compatible chat message. Beyond the Phase 0 system/user/assistant
+ * text turns, the tool loop appends assistant messages carrying `tool_calls` and
+ * `role:"tool"` results keyed by `tool_call_id`.
+ */
+export type OllamaChatMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string | null; tool_calls?: OpenAiToolCall[] }
+  | { role: "tool"; tool_call_id: string; content: string };
+
 interface OllamaChatBody {
   model: string;
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  messages: OllamaChatMessage[];
   stream: false;
+  tools?: OpenAIToolDefinition[];
+  tool_choice?: "auto" | "none";
 }
 
 /** Build the OpenAI-compatible chat-completions request body. Pure + testable. */
 export function buildOllamaChatBody(
   request: ProviderRequest,
-  options: Pick<OllamaProviderOptions, "defaultModel"> = {}
+  options: Pick<OllamaProviderOptions, "defaultModel"> & {
+    messages?: OllamaChatMessage[];
+    tools?: OpenAIToolDefinition[];
+  } = {}
 ): OllamaChatBody {
   const model =
     request.model?.trim() || options.defaultModel?.trim() || DEFAULT_OLLAMA_MODEL;
-  const messages: OllamaChatBody["messages"] = [];
-  const systemPrompt = request.systemPrompt?.trim();
-  if (systemPrompt) {
-    messages.push({ role: "system", content: systemPrompt });
+  // When the tool loop supplies an explicit message array (system + user + the
+  // running assistant/tool transcript), use it verbatim. Otherwise assemble the
+  // Phase 0 single-shot system + user pair.
+  let messages: OllamaChatMessage[];
+  if (options.messages) {
+    messages = options.messages;
+  } else {
+    messages = [];
+    const systemPrompt = request.systemPrompt?.trim();
+    if (systemPrompt) {
+      messages.push({ role: "system", content: systemPrompt });
+    }
+    messages.push({ role: "user", content: request.prompt });
   }
-  messages.push({ role: "user", content: request.prompt });
-  return { model, messages, stream: false };
+  const body: OllamaChatBody = { model, messages, stream: false };
+  if (options.tools && options.tools.length > 0) {
+    body.tools = options.tools;
+    body.tool_choice = "auto";
+  }
+  return body;
+}
+
+function parseOpenAiToolCalls(message: Record<string, unknown> | null): OpenAiToolCall[] {
+  const raw = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
+  const calls: OpenAiToolCall[] = [];
+  let syntheticId = 0;
+  for (const entry of raw) {
+    const record = asRecord(entry);
+    const fn = asRecord(record?.function);
+    const name = typeof fn?.name === "string" ? fn.name : undefined;
+    if (!name) continue;
+    // Synthetic ids use an `auto_` prefix + monotonic counter so they can never
+    // collide with a model-supplied id like `call_0` (the result is keyed by id
+    // back to the tool message).
+    const id = typeof record?.id === "string" && record.id.length > 0
+      ? record.id
+      : `auto_${syntheticId++}`;
+    const args = typeof fn?.arguments === "string" ? fn.arguments : "";
+    calls.push({ id, type: "function", function: { name, arguments: args } });
+  }
+  return calls;
 }
 
 /**
- * Map an OpenAI-compatible chat-completions response into a ProviderResponse.
- * Pure + testable. DeepSeek reasoning (choices[].message.reasoning) is kept only
- * in `raw`; it is NOT merged into `text`.
+ * Decode one /v1/chat/completions response into the fields the tool loop needs:
+ * the assistant text, OpenAI tool_calls, finish_reason, prompt/completion token
+ * counts, and model. Pure + testable. Unlike {@link parseOllamaChatResponse} this
+ * does NOT throw on empty content (a `tool_calls` turn has none).
  */
-export function parseOllamaChatResponse(payload: unknown): ProviderResponse {
+export function parseOllamaChatTurn(payload: unknown): {
+  content: string;
+  toolCalls: OpenAiToolCall[];
+  finishReason?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  model?: string;
+} {
   const root = asRecord(payload);
   if (!root) {
     throw new Error("Ollama returned a non-object response");
@@ -1018,30 +1112,82 @@ export function parseOllamaChatResponse(payload: unknown): ProviderResponse {
   const firstChoice = asRecord(choices[0]);
   const message = asRecord(firstChoice?.message);
   const content = typeof message?.content === "string" ? message.content.trim() : "";
-  if (content.length === 0) {
-    throw new Error("Ollama returned an empty response");
-  }
+  const toolCalls = parseOpenAiToolCalls(message);
 
   const asNumber = (value: unknown): number | undefined =>
     typeof value === "number" && Number.isFinite(value) ? value : undefined;
-
   const usage = asRecord(root.usage);
-  const model = typeof root.model === "string" ? root.model : undefined;
-  const finishReason =
-    typeof firstChoice?.finish_reason === "string" ? firstChoice.finish_reason : undefined;
+
+  return {
+    content,
+    toolCalls,
+    finishReason:
+      typeof firstChoice?.finish_reason === "string" ? firstChoice.finish_reason : undefined,
+    promptTokens: asNumber(usage?.prompt_tokens),
+    completionTokens: asNumber(usage?.completion_tokens),
+    model: typeof root.model === "string" ? root.model : undefined,
+  };
+}
+
+/**
+ * Map an OpenAI-compatible chat-completions response into a ProviderResponse.
+ * Pure + testable. DeepSeek reasoning (choices[].message.reasoning) is kept only
+ * in `raw`; it is NOT merged into `text`. Any `choices[0].message.tool_calls`
+ * are surfaced on `ProviderResponse.toolCalls`.
+ *
+ * Throws on empty content UNLESS the turn carries tool_calls (a tool-request turn
+ * legitimately has no assistant text).
+ */
+export function parseOllamaChatResponse(payload: unknown): ProviderResponse {
+  const turn = parseOllamaChatTurn(payload);
+  if (turn.content.length === 0 && turn.toolCalls.length === 0) {
+    throw new Error("Ollama returned an empty response");
+  }
 
   const metadata: ProviderResponseMetadata = {
-    model,
-    stopReason: finishReason ?? undefined,
-    usage: usage
-      ? {
-          inputTokens: asNumber(usage.prompt_tokens),
-          outputTokens: asNumber(usage.completion_tokens)
-        }
-      : undefined
+    model: turn.model,
+    stopReason: turn.finishReason ?? undefined,
+    usage:
+      turn.promptTokens !== undefined || turn.completionTokens !== undefined
+        ? {
+            inputTokens: turn.promptTokens,
+            outputTokens: turn.completionTokens,
+          }
+        : undefined,
   };
 
-  return { text: content, metadata, raw: payload };
+  const toolCalls: ProviderToolCall[] = turn.toolCalls.map((call) => ({
+    name: call.function.name,
+    input: safeParseToolArgs(call.function.arguments),
+  }));
+
+  return {
+    text: turn.content,
+    metadata,
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    raw: payload,
+  };
+}
+
+/**
+ * Parse an OpenAI function-call `arguments` JSON string into an object. Never
+ * throws: on malformed JSON it returns an empty object so the loop can still feed
+ * a tool result back to the model instead of crashing the turn.
+ */
+function safeParseToolArgs(argsJson: string): Record<string, unknown> {
+  const trimmed = argsJson.trim();
+  if (trimmed.length === 0) return {};
+  try {
+    const parsed = JSON.parse(trimmed);
+    return asRecord(parsed) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Whether the request's tool policy enables MCP tools at all. */
+function ollamaToolsEnabled(tools: ProviderToolsConfig | undefined): boolean {
+  return normalizeToolMode(tools?.mode) !== "off";
 }
 
 export class OllamaProvider implements ChatProvider {
@@ -1060,32 +1206,22 @@ export class OllamaProvider implements ChatProvider {
     return apiKey;
   }
 
-  async generate(request: ProviderRequest): Promise<ProviderResponse> {
-    const apiKey = await this.resolveApiKey();
-    if (!apiKey) {
-      throw new Error("Ollama provider is missing an API key");
-    }
-
+  /** POST one chat-completions body and return the parsed JSON payload. */
+  private async postChat(body: OllamaChatBody, apiKey: string): Promise<unknown> {
     const baseUrl = (this.options.baseUrl ?? DEFAULT_OLLAMA_BASE_URL).replace(/\/+$/u, "");
     const url = `${baseUrl}/chat/completions`;
-    const body = buildOllamaChatBody(request, { defaultModel: this.options.defaultModel });
-    // Phase 0 is text-only: request.tools and request.providerSessionId are
-    // intentionally ignored. Because we return NO providerSessionId, the discord
-    // failover layer re-injects warm-start history into request.prompt each turn.
-    // Tool loop and provider-owned session/compaction arrive in Phases 2 and 1.
-
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
-    const startedAt = Date.now();
+
     let res: Response;
     try {
       res = await fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs)
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1096,16 +1232,164 @@ export class OllamaProvider implements ChatProvider {
     if (!res.ok) {
       throw new Error(`Ollama request failed: status=${res.status} body=${rawText.slice(0, 500)}`);
     }
-
-    let payload: unknown;
     try {
-      payload = JSON.parse(rawText);
+      return JSON.parse(rawText);
     } catch {
       throw new Error("Ollama returned invalid JSON");
     }
+  }
 
-    const response = parseOllamaChatResponse(payload);
+  async generate(request: ProviderRequest): Promise<ProviderResponse> {
+    const apiKey = await this.resolveApiKey();
+    if (!apiKey) {
+      throw new Error("Ollama provider is missing an API key");
+    }
+
+    const toolClient = this.options.toolClient;
+    const useToolLoop = !!toolClient && ollamaToolsEnabled(request.tools);
+
+    // --- Phase 0 text-only path (no tool client / tools disabled) ------------
+    // PRESERVED EXACTLY: a single shot returning the assistant text. Because we
+    // return NO providerSessionId, the discord failover layer re-injects
+    // warm-start history into request.prompt each turn.
+    if (!useToolLoop) {
+      const startedAt = Date.now();
+      const body = buildOllamaChatBody(request, { defaultModel: this.options.defaultModel });
+      const payload = await this.postChat(body, apiKey);
+      const response = parseOllamaChatResponse(payload);
+      const durationMs = Date.now() - startedAt;
+      return { ...response, metadata: { ...response.metadata, durationMs } };
+    }
+
+    // --- Phase 2 bounded agentic tool loop -----------------------------------
+    return this.runToolLoop(request, apiKey, toolClient);
+  }
+
+  private async runToolLoop(
+    request: ProviderRequest,
+    apiKey: string,
+    toolClient: McpHttpToolClient,
+  ): Promise<ProviderResponse> {
+    const startedAt = Date.now();
+    const workerId = request.workerId ?? "ollama";
+    const allowlist =
+      normalizeToolMode(request.tools?.mode) === "allowlist"
+        ? normalizeToolAllowlist(request.tools?.allowlist)
+        : undefined;
+
+    // Fetch the tool catalogue once for the whole turn.
+    const tools = await toolClient.listOpenAITools(workerId, allowlist);
+
+    // Seed the running transcript with system + user.
+    const messages: OllamaChatMessage[] = [];
+    const systemPrompt = request.systemPrompt?.trim();
+    if (systemPrompt) {
+      messages.push({ role: "system", content: systemPrompt });
+    }
+    messages.push({ role: "user", content: request.prompt });
+
+    const executedToolCalls: ProviderToolCall[] = [];
+    // contextOccupancyTokens has HIGH-WATER semantics: report the PEAK single-call
+    // prompt_tokens across iterations, NOT the sum (summing tool-heavy turns would
+    // inflate Phase 1's compaction trigger). Completion tokens, by contrast, are a
+    // genuine cost and ARE summed.
+    let peakPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let lastModel: string | undefined;
+    let lastFinishReason: string | undefined;
+    let lastContent = "";
+    let lastPayload: unknown;
+    // Stays true if every iteration requested tools and the loop fell out at the
+    // cap; cleared the moment the model emits a tool-free terminal turn.
+    let hitCap = true;
+
+    for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
+      const body = buildOllamaChatBody(request, {
+        defaultModel: this.options.defaultModel,
+        messages,
+        tools,
+      });
+      const payload = await this.postChat(body, apiKey);
+      lastPayload = payload;
+      const turn = parseOllamaChatTurn(payload);
+
+      if (turn.promptTokens !== undefined && turn.promptTokens > peakPromptTokens) {
+        peakPromptTokens = turn.promptTokens;
+      }
+      if (turn.completionTokens !== undefined) {
+        totalCompletionTokens += turn.completionTokens;
+      }
+      if (turn.model) lastModel = turn.model;
+      lastFinishReason = turn.finishReason;
+      if (turn.content.length > 0) lastContent = turn.content;
+
+      // Terminal turn: model stopped requesting tools. Gate on tool_calls
+      // PRESENCE, not finish_reason — some models emit finish_reason:"stop" while
+      // still attaching tool_calls, and those tools must still run. MAX_TOOL_ITERS
+      // remains the only hard stop.
+      if (turn.toolCalls.length === 0) {
+        hitCap = false;
+        break;
+      }
+
+      // Append the assistant message that carries the tool_calls, then execute
+      // every requested call in parallel and append each {role:"tool"} result.
+      messages.push({
+        role: "assistant",
+        content: turn.content.length > 0 ? turn.content : null,
+        tool_calls: turn.toolCalls,
+      });
+
+      const results = await Promise.all(
+        turn.toolCalls.map(async (call) => {
+          const args = safeParseToolArgs(call.function.arguments);
+          executedToolCalls.push({ name: call.function.name, input: args });
+          let output: string;
+          try {
+            output = await toolClient.callTool(call.function.name, args, workerId, allowlist);
+          } catch (error) {
+            // callTool already swallows MCP errors, but guard defensively: a tool
+            // failure must NEVER throw out of the loop.
+            output = JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+          return { id: call.id, output };
+        }),
+      );
+
+      for (const { id, output } of results) {
+        messages.push({ role: "tool", tool_call_id: id, content: output });
+      }
+      // Loop: re-request with the tool results appended.
+    }
+
+    // If the cap was hit with no usable text, substitute a deterministic
+    // fallback and flag truncation so the discord layer never sends a blank
+    // reply and downstream can tell the answer was cut off.
+    const cappedWithoutText = hitCap && lastContent.length === 0;
+    const text = cappedWithoutText ? TOOL_LOOP_CAP_FALLBACK_TEXT : lastContent;
+    const stopReason = cappedWithoutText
+      ? "max_tool_iters"
+      : (lastFinishReason ?? undefined);
+
     const durationMs = Date.now() - startedAt;
-    return { ...response, metadata: { ...response.metadata, durationMs } };
+    const metadata: ProviderResponseMetadata = {
+      model: lastModel,
+      stopReason,
+      durationMs,
+      usage: {
+        // high-water prompt occupancy, summed completion cost.
+        inputTokens: peakPromptTokens > 0 ? peakPromptTokens : undefined,
+        outputTokens: totalCompletionTokens > 0 ? totalCompletionTokens : undefined,
+      },
+    };
+
+    return {
+      text,
+      metadata,
+      ...(executedToolCalls.length > 0 ? { toolCalls: executedToolCalls } : {}),
+      raw: lastPayload,
+    };
   }
 }
