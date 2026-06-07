@@ -49,7 +49,9 @@ an adaptation of the existing Codex adapter.
   `packages/core/src/provider-registry.ts` — add `providers.set("ollama", new OllamaProvider(options.ollama))`.
 - Per-agent selection is config-driven (`AgentConfig.provider`):
   `default`, `model`, `reasoningEffort`, `fallback[]`. Routing an agent to
-  Ollama is a YAML change, not code.
+  Ollama is a YAML change *for the registry/failover path* — but the v2 Discord
+  runtime is a **separate seam** that does NOT consult the registry (see §2.4),
+  so Discord routing also needed a small runtime adapter (built in Phase 1b).
 
 ### 2.1 The one hard problem: who owns the tool loop
 
@@ -129,6 +131,28 @@ needs no work. The only genuine loss is `WebSearch`/`WebFetch`, and Tango alread
 ships `exa` as the replacement. Juliet's `memory_*` tools and every other persona
 capability are MCP-backed and portable. "Tool parity" is therefore a small,
 well-bounded task inside Phase 2 — not a from-scratch rebuild.
+
+### 2.4 The v2 runtime is a second seam (discovered in Phase 1b)
+
+Routing via `AgentConfig.provider` only reaches the **provider registry**
+(`ChatProvider` / `generateWithFailover`), which today serves voice, attachments,
+and dead-letter replay. **Discord agent turns run exclusively through the v2
+runtime** (`TangoRouter` → `SessionLifecycleManager` → `RuntimePool` → an
+`AgentRuntime`), which was hardwired to `ClaudeCodeAdapter` and never consults
+the registry; the legacy Discord exec path is removed (it refuses non-v2 agents
+with "not migrated to v2"). So a registry `OllamaProvider` is **necessary but not
+sufficient** for Discord — the original "Phase 0 + flip config" assumption was
+incomplete.
+
+The v2 runtime is correctly built against the `AgentRuntime` interface, so the
+fix is a peer implementation, not a hack: **`OllamaRuntimeAdapter implements
+AgentRuntime`** wrapping `OllamaProvider`, selected in `RuntimePool.getOrCreate`
+via a new `AgentRuntimeConfig.backend` discriminator (from `legacyProvider.default`).
+Shipped + live-validated in Phase 1b (PR #74). The thin wrapper is a stateless,
+text-only v0; it grows into a first-class runtime that owns history assembly +
+compaction (Phase 1) and the tool loop (Phase 2). NB: there are now two model
+abstractions — `ChatProvider` (stateless) and `AgentRuntime` (stateful) — both
+wrapping the Ollama client; consolidation is tracked as cleanup.
 
 ---
 
