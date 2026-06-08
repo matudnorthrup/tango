@@ -1,0 +1,88 @@
+id: victor-ollama
+enabled: true
+display_name: Victor (Ollama)
+type: operations
+
+# System prompt = personality + domain + rules
+system_prompt_file: agents/assistants/victor/soul.md
+
+# MCP servers this agent can access
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+  - name: attachments
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "attachments"]
+    env:
+      ALLOWED_TOOL_IDS: "attachment_search,attachment_read,attachment_status"
+  - name: linear
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "linear"]
+    env:
+      ALLOWED_TOOL_IDS: "linear"
+  - name: obsidian
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
+    env:
+      ALLOWED_TOOL_IDS: "obsidian"
+
+# Runtime configuration
+runtime:
+  mode: persistent
+  provider: claude-code-v2
+  fallback: codex
+  model: deepseek-v4-pro:cloud
+  reasoning_effort: max
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+
+# Memory configuration
+memory:
+  post_turn_extraction: enabled
+  extraction_provider: ollama
+  extraction_model: gpt-oss:20b
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+# Discord routing
+discord:
+  default_channel_id: "1513207701088243793"
+
+# Restrict this clone to its own channel
+access:
+  mode: allowlist
+  allowlist_channel_ids:
+    - "1513207701088243793"
+
+# Legacy registry fields
+avatar_url: https://cdn.discordapp.com/avatars/1480581855450497277/cb5e0df0a5857352c71e9fd660f29a23.webp
+default_project: operations
+response_mode: concise
+
+provider:
+  default: ollama
+  model: deepseek-v4-pro:cloud
+  reasoning_effort: max
+  fallback: []
+
+tools:
+  mode: off
+
+deterministic_routing:
+  enabled: false
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex
+
+# Voice addressing — distinct "Whiskey <Name>" wake word so it never
+# collides with the original victor's wake word (start-anchored matcher).
+voice:
+  call_signs:
+    - "Whiskey Victor"
+  kokoro_voice: am_liam
+  default_channel_id: "1513207701088243793"
