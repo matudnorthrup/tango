@@ -605,6 +605,10 @@ const tangoRouter = new TangoRouter({
   onPostTurn: createV2PostTurnHook({
     v2Configs,
     atlasMemoryClient,
+    // Resolve the extraction provider lazily at turn time from the shared registry
+    // (defined just below); lets Ollama clones extract via the cheap Ollama model
+    // instead of billing the Claude CLI every turn.
+    resolveProvider: (name) => providers.get(name),
   }),
   ollamaProvider,
 });
@@ -6564,9 +6568,19 @@ async function handleMessage(
   }
 
   const responseMode = resolveResponseMode(targetAgent, commandParse.responseModeOverride);
+  // Ollama-backed clones run the stateless OpenAI-compatible loop: no Claude-CLI
+  // Read tool (so no inline file/image viewing) and currently no attachment_* tool
+  // grants on the :9100 governance path. Pass reduced access so the attachment
+  // prompt suffix states the attachment honestly instead of instructing a
+  // non-actionable "Read the file" step (which invites hallucinated reads).
+  const targetAgentIsOllama = isOllamaBackedAgent(v2Configs.get(targetAgent.id));
   const attachmentResult = await processAttachments(message.attachments, promptRoute.sessionId, {
     attachmentStore,
     dataDir: attachmentDataDir,
+    agentAttachmentAccess: {
+      canReadLocalFiles: !targetAgentIsOllama,
+      canUseAttachmentTools: !targetAgentIsOllama,
+    },
     sourceRefs: {
       agentId: targetAgent.id,
       localMessageId: inboundMessageId,

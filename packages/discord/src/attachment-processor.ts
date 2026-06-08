@@ -49,10 +49,37 @@ export interface AttachmentSourceRefs {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface AgentAttachmentAccess {
+  /**
+   * The agent can open a local file by path (e.g. the Claude CLI's built-in Read
+   * tool), which also renders images inline. False for stateless
+   * OpenAI-compatible runtimes (Ollama clones) that have no such tool.
+   */
+  canReadLocalFiles: boolean;
+  /** The agent holds attachment_* MCP tools to fetch extracted text / OCR. */
+  canUseAttachmentTools: boolean;
+}
+
+/**
+ * Default access: full. Preserves behavior for the Claude CLI path and any caller
+ * that does not specify capabilities.
+ */
+const FULL_ATTACHMENT_ACCESS: AgentAttachmentAccess = {
+  canReadLocalFiles: true,
+  canUseAttachmentTools: true,
+};
+
 export interface ProcessAttachmentsOptions {
   attachmentStore?: AttachmentStore | null;
   dataDir?: string | null;
   sourceRefs?: AttachmentSourceRefs;
+  /**
+   * What the target agent can actually do with attachments. When omitted, full
+   * access is assumed. Ollama-backed clones pass reduced access so the prompt
+   * suffix does not instruct a non-actionable "Read the file" step (which would
+   * invite hallucinated "I read the file" responses).
+   */
+  agentAttachmentAccess?: AgentAttachmentAccess;
 }
 
 interface DurableAttachmentContext {
@@ -167,7 +194,10 @@ export async function processAttachments(
     }
   }
 
-  const promptSuffix = buildPromptSuffix(processed);
+  const promptSuffix = buildPromptSuffix(
+    processed,
+    options.agentAttachmentAccess ?? FULL_ATTACHMENT_ACCESS,
+  );
 
   return { processed, promptSuffix, tempDir };
 }
@@ -393,7 +423,7 @@ function toProcessedAttachment(input: {
   };
 }
 
-function buildPromptSuffix(processed: ProcessedAttachment[]): string {
+function buildPromptSuffix(processed: ProcessedAttachment[], access: AgentAttachmentAccess): string {
   if (processed.length === 0) return "";
 
   const lines = processed.map((item, index) => {
@@ -402,17 +432,28 @@ function buildPromptSuffix(processed: ProcessedAttachment[]): string {
     const ordinal = index + 1;
     const attachmentRef =
       item.logicalAttachmentId !== undefined ? `attachment:${item.logicalAttachmentId}` : null;
+    const header = `${ordinal}. ${item.filename} (${contentType}, ${sizeKB}KB)`;
 
     if (item.type === "image") {
-      const refClause = attachmentRef ? ` Stored as ${attachmentRef}.` : "";
-      return `${ordinal}. ${item.filename} (${contentType}, ${sizeKB}KB) — Read the file at ${item.localPath} to view this image.${refClause}`;
+      if (access.canReadLocalFiles) {
+        const refClause = attachmentRef ? ` Stored as ${attachmentRef}.` : "";
+        return `${header} — Read the file at ${item.localPath} to view this image.${refClause}`;
+      }
+      if (access.canUseAttachmentTools && attachmentRef) {
+        return `${header} — Stored as ${attachmentRef}. You cannot view images directly; call attachment_read for any text extracted from it (e.g. OCR), or attachment_status if it is still processing. Do not describe visual contents you have not read.`;
+      }
+      return `${header} — The user attached an image. You cannot view it directly and have no tool to read it; acknowledge the attachment rather than describing or guessing its contents.`;
     }
 
-    if (attachmentRef) {
-      return `${ordinal}. ${item.filename} (${contentType}, ${sizeKB}KB) — Stored as ${attachmentRef}. Use attachment_read for extracted text or attachment_status if it is still processing.`;
+    if (access.canUseAttachmentTools && attachmentRef) {
+      return `${header} — Stored as ${attachmentRef}. Use attachment_read for extracted text or attachment_status if it is still processing.`;
     }
 
-    return `${ordinal}. ${item.filename} (${contentType}, ${sizeKB}KB) — Read the file at ${item.localPath}.`;
+    if (access.canReadLocalFiles) {
+      return `${header} — Read the file at ${item.localPath}.`;
+    }
+
+    return `${header} — The user attached a file. You cannot open it directly and have no tool to read it; acknowledge the attachment rather than guessing its contents.`;
   });
 
   return `\n\n[Attachments]\n${lines.join("\n")}`;
