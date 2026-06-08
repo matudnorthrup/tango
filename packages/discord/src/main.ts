@@ -6716,18 +6716,20 @@ async function handleMessage(
   }
 
   const responseMode = resolveResponseMode(targetAgent, commandParse.responseModeOverride);
-  // Ollama-backed clones run the stateless OpenAI-compatible loop: no Claude-CLI
-  // Read tool (so no inline file/image viewing) and currently no attachment_* tool
-  // grants on the :9100 governance path. Pass reduced access so the attachment
-  // prompt suffix states the attachment honestly instead of instructing a
-  // non-actionable "Read the file" step (which invites hallucinated reads).
+  // Ollama-backed clones run the stateless OpenAI-compatible loop with no Claude-CLI
+  // Read tool, so they can't open a file by path. But they DO hold attachment_* tool
+  // grants (extracted text / OCR) and, when inline vision is on, are handed image
+  // bytes folded through qwen3-vl this turn. Pass access that reflects both so the
+  // suffix points them at attachment_read for files and states that image content is
+  // provided, instead of the stale "you cannot view/read it" wording.
   const targetAgentIsOllama = isOllamaBackedAgent(v2Configs.get(targetAgent.id));
   const attachmentResult = await processAttachments(message.attachments, promptRoute.sessionId, {
     attachmentStore,
     dataDir: attachmentDataDir,
     agentAttachmentAccess: {
       canReadLocalFiles: !targetAgentIsOllama,
-      canUseAttachmentTools: !targetAgentIsOllama,
+      canUseAttachmentTools: true,
+      canViewImagesInline: targetAgentIsOllama && CLONE_INLINE_VISION,
     },
     sourceRefs: {
       agentId: targetAgent.id,

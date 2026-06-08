@@ -58,6 +58,13 @@ export interface AgentAttachmentAccess {
   canReadLocalFiles: boolean;
   /** The agent holds attachment_* MCP tools to fetch extracted text / OCR. */
   canUseAttachmentTools: boolean;
+  /**
+   * The runtime is handed inbound image bytes for this turn and folds them
+   * through a vision model (the Ollama clones' qwen3-vl inline path), so the
+   * image's visual content is already available without a Read tool. When true,
+   * the image suffix says the image is provided rather than "you cannot view it".
+   */
+  canViewImagesInline?: boolean;
 }
 
 /**
@@ -438,6 +445,12 @@ function buildPromptSuffix(processed: ProcessedAttachment[], access: AgentAttach
       if (access.canReadLocalFiles) {
         const refClause = attachmentRef ? ` Stored as ${attachmentRef}.` : "";
         return `${header} — Read the file at ${item.localPath} to view this image.${refClause}`;
+      }
+      if (access.canViewImagesInline) {
+        const refClause = attachmentRef
+          ? ` Stored as ${attachmentRef}; you may also call attachment_read for any extracted text (e.g. OCR).`
+          : "";
+        return `${header} — This image's visual content is provided to you with this turn; describe and act on what you see.${refClause}`;
       }
       if (access.canUseAttachmentTools && attachmentRef) {
         return `${header} — Stored as ${attachmentRef}. You cannot view images directly; call attachment_read for any text extracted from it (e.g. OCR), or attachment_status if it is still processing. Do not describe visual contents you have not read.`;
