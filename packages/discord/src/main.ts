@@ -1508,6 +1508,7 @@ startPersistentMcpServer().then((port) => {
 
       const runtimeConfig: AgentRuntimeConfig = {
         agentId: input.agentId,
+        backend: isOllamaBackedAgent(v2Entry) ? "ollama" : "claude-code",
         systemPrompt,
         mcpServers: v2Entry.mcpServers.map((server) => ({
           name: server.name,
@@ -1547,8 +1548,13 @@ startPersistentMcpServer().then((port) => {
       }
       runtimeConfig.coldStartContext = coldStartContext || undefined;
 
-      const { ClaudeCodeAdapter } = await import("@tango/core");
-      const adapter = new ClaudeCodeAdapter();
+      // Backend-aware adapter selection (mirrors RuntimePool): scheduled/proactive
+      // turns for -ollama agents run on DeepSeek instead of wrongly spawning the
+      // Claude CLI with a deepseek model.
+      const core = await import("@tango/core");
+      const adapter = isOllamaBackedAgent(v2Entry)
+        ? new core.OllamaRuntimeAdapter(ollamaProvider, runtimeConfig)
+        : new core.ClaudeCodeAdapter();
       await adapter.initialize(runtimeConfig);
 
       try {
@@ -1573,7 +1579,7 @@ startPersistentMcpServer().then((port) => {
         writeModelRun({
           sessionId,
           agentId: input.agentId,
-          providerName: "claude-code-v2",
+          providerName: isOllamaBackedAgent(v2Entry) ? "ollama" : "claude-code-v2",
           conversationKey,
           providerSessionId,
           model: runtimeModel,
