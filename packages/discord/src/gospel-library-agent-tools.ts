@@ -226,7 +226,10 @@ type HighlightBuild =
 // resolving docId, contentVersion, the verse paragraph id (pid), and the character
 // offsets of the phrase. This keeps the model out of the brittle business of reading the
 // page and computing offsets itself (the failure mode that left scriptures unmarked).
-async function buildHighlightAnnotation(input: Record<string, unknown>): Promise<HighlightBuild> {
+async function buildHighlightAnnotation(
+  input: Record<string, unknown>,
+  opts: { allowAnchorOnly?: boolean } = {},
+): Promise<HighlightBuild> {
   const rawUri = stringInput(input.uri) ?? stringInput(input.url);
   if (!rawUri) {
     return { error: "create_highlight needs 'uri' (e.g. /scriptures/bofm/2-ne/23) plus 'verse' and 'phrase'." };
@@ -251,7 +254,7 @@ async function buildHighlightAnnotation(input: Record<string, unknown>): Promise
 
   const phrase = stringInput(input.phrase) ?? stringInput(input.text);
   const noteContent = stringInput(input.note);
-  if (!phrase && !noteContent) {
+  if (!phrase && !noteContent && !opts.allowAnchorOnly) {
     return { error: "create_highlight needs 'phrase' (exact text to mark) and/or 'note' (a verse note)." };
   }
 
@@ -361,6 +364,228 @@ function sanitizeAnnotationForPost(annotation: Record<string, unknown>): Record<
     delete clone[key];
   }
   return clone;
+}
+
+// Standard-works book table: alias regexes -> canonical content path + display name.
+// Covers the books needed for scripture cross-referencing; aliases are case-insensitive
+// and tolerate "First/Second", "1/2", abbreviations, and "Revelations" (common slip).
+const SCRIPTURE_BOOKS: Array<{ path: string; name: string; aliases: RegExp[] }> = [
+  // Book of Mormon
+  { path: "bofm/1-ne", name: "1 Nephi", aliases: [/^(1|i|first)\s*ne(phi)?$/i] },
+  { path: "bofm/2-ne", name: "2 Nephi", aliases: [/^(2|ii|second)\s*ne(phi)?$/i] },
+  { path: "bofm/jacob", name: "Jacob", aliases: [/^jacob$/i] },
+  { path: "bofm/enos", name: "Enos", aliases: [/^enos$/i] },
+  { path: "bofm/jarom", name: "Jarom", aliases: [/^jarom$/i] },
+  { path: "bofm/omni", name: "Omni", aliases: [/^omni$/i] },
+  { path: "bofm/w-of-m", name: "Words of Mormon", aliases: [/^words?\s*of\s*mormon$/i, /^w[- ]?of[- ]?m$/i] },
+  { path: "bofm/mosiah", name: "Mosiah", aliases: [/^mosiah$/i] },
+  { path: "bofm/alma", name: "Alma", aliases: [/^alma$/i] },
+  { path: "bofm/hel", name: "Helaman", aliases: [/^hel(aman)?$/i] },
+  { path: "bofm/3-ne", name: "3 Nephi", aliases: [/^(3|iii|third)\s*ne(phi)?$/i] },
+  { path: "bofm/4-ne", name: "4 Nephi", aliases: [/^(4|iv|fourth)\s*ne(phi)?$/i] },
+  { path: "bofm/morm", name: "Mormon", aliases: [/^morm(on)?$/i] },
+  { path: "bofm/ether", name: "Ether", aliases: [/^ether$/i] },
+  { path: "bofm/moro", name: "Moroni", aliases: [/^moro(ni)?$/i] },
+  // Doctrine and Covenants / Pearl of Great Price
+  { path: "dc-testament/dc", name: "Doctrine and Covenants", aliases: [/^d\s*&?\s*c$/i, /^doctrine\s*(and|&)?\s*covenants$/i] },
+  { path: "pgp/moses", name: "Moses", aliases: [/^moses$/i] },
+  { path: "pgp/abr", name: "Abraham", aliases: [/^abr(aham)?$/i] },
+  { path: "pgp/js-h", name: "Joseph Smith—History", aliases: [/^js[-—\s]*h(istory)?$/i, /^joseph\s*smith[-—\s]*history$/i] },
+  // New Testament (commonly cross-referenced)
+  { path: "nt/matt", name: "Matthew", aliases: [/^matt(hew)?$/i] },
+  { path: "nt/mark", name: "Mark", aliases: [/^mark$/i] },
+  { path: "nt/luke", name: "Luke", aliases: [/^luke$/i] },
+  { path: "nt/john", name: "John", aliases: [/^john$/i] },
+  { path: "nt/acts", name: "Acts", aliases: [/^acts$/i] },
+  { path: "nt/rom", name: "Romans", aliases: [/^rom(ans)?$/i] },
+  { path: "nt/rev", name: "Revelation", aliases: [/^rev(elation)?s?$/i] },
+  // Old Testament (commonly cross-referenced)
+  { path: "ot/gen", name: "Genesis", aliases: [/^gen(esis)?$/i] },
+  { path: "ot/ex", name: "Exodus", aliases: [/^ex(odus)?$/i] },
+  { path: "ot/isa", name: "Isaiah", aliases: [/^isa(iah)?$/i] },
+  { path: "ot/jer", name: "Jeremiah", aliases: [/^jer(emiah)?$/i] },
+  { path: "ot/ps", name: "Psalms", aliases: [/^ps(alms?)?$/i] },
+  { path: "ot/mal", name: "Malachi", aliases: [/^mal(achi)?$/i] },
+];
+
+type ParsedReference = { bookPath: string; displayBook: string; chapter: number; verses: number[] };
+
+// Parse a human scripture reference like "D&C 88:89-91", "First Nephi chapter 14",
+// "Revelations chapter 17 verses 1 through 5", or "2 Nephi 23:6" into a structured form.
+// Returns null if the book is unknown or the shape is unrecognized.
+function parseScriptureReference(ref: string): ParsedReference | null {
+  const cleaned = ref.replace(/\s+/g, " ").trim();
+  // Split off the leading book name: words up to the first chapter token (a number,
+  // optionally preceded by "chapter"/"section"). Keep a leading ordinal (1/2/3/First...).
+  const m = cleaned.match(
+    /^(.*?)\s*(?:chapters?|sections?|§)?\s*(\d+)\s*(?::|\bverses?\b|\bvs?\.?\b|\bv\b)?\s*(\d+(?:\s*(?:[-–—]|through|thru|to)\s*\d+)?(?:\s*,\s*\d+)*)?\s*$/i,
+  );
+  if (!m) return null;
+  const bookRaw = (m[1] ?? "").replace(/[.,]+$/, "").trim();
+  const chapter = Number(m[2]);
+  const verseSpec = m[3]?.trim();
+  if (!bookRaw || !Number.isFinite(chapter)) return null;
+
+  const book = SCRIPTURE_BOOKS.find((b) => b.aliases.some((re) => re.test(bookRaw)));
+  if (!book) return null;
+
+  const verses: number[] = [];
+  if (verseSpec) {
+    for (const part of verseSpec.split(",")) {
+      const range = part.match(/(\d+)\s*(?:[-–—]|through|thru|to)\s*(\d+)/i);
+      if (range) {
+        const a = Number(range[1]);
+        const b = Number(range[2]);
+        for (let v = a; v <= b; v += 1) verses.push(v);
+      } else {
+        const single = part.match(/\d+/);
+        if (single) verses.push(Number(single[0]));
+      }
+    }
+  }
+  return { bookPath: book.path, displayBook: book.name, chapter, verses };
+}
+
+type ChapterContent = { docId: string; contentVersion: number; html: string };
+
+// Fetch + cache an authenticated scripture chapter's content (docId, contentVersion, body
+// HTML). Cached per chapter uri for the lifetime of a single tool call so a multi-target
+// reference resolves each target's chapter only once.
+async function fetchChapterContent(
+  chapterUri: string,
+  cache: Map<string, ChapterContent | { error: string }>,
+): Promise<ChapterContent | { error: string }> {
+  const cached = cache.get(chapterUri);
+  if (cached) return cached;
+  const contentUrl = `${CHURCH_ORIGIN}/study/api/v3/language-pages/type/content?lang=eng&uri=${encodeURIComponent(chapterUri)}`;
+  const resp = toRecord(await pageFetch({ url: contentUrl }));
+  let result: ChapterContent | { error: string };
+  if (resp.ok !== true) {
+    result = { error: `Failed to load ${chapterUri} (status ${String(resp.status)}).` };
+  } else {
+    const body = toRecord(resp.body);
+    const pageAttributes = toRecord(toRecord(body.meta).pageAttributes);
+    const docId = typeof pageAttributes["data-aid"] === "string" ? pageAttributes["data-aid"] : null;
+    const contentVersion = Number(pageAttributes["data-aid-version"]);
+    const html = typeof toRecord(body.content).body === "string" ? String(toRecord(body.content).body) : "";
+    result = docId && Number.isFinite(contentVersion) && html
+      ? { docId, contentVersion, html }
+      : { error: `Could not read content metadata for ${chapterUri}.` };
+  }
+  cache.set(chapterUri, result);
+  return result;
+}
+
+// Resolve a verse paragraph's pid (data-aid) from chapter HTML.
+function paragraphPid(html: string, verse: number): string | null {
+  const openTag = html.match(new RegExp(`<p[^>]*id="p${verse}"[^>]*>`, "i"));
+  if (!openTag) return null;
+  return (openTag[0].match(/data-aid="([^"]+)"/) || [])[1] ?? null;
+}
+
+// Resolve one parsed reference into a Gospel Library ref object (name/uri/docId/pid/
+// contentVersion/locale). Verse lists become comma-joined uri+pid; an empty verse list
+// links the whole chapter (pid = chapter docId, the format the reader uses).
+async function resolveReferenceTarget(
+  parsed: ParsedReference,
+  cache: Map<string, ChapterContent | { error: string }>,
+): Promise<{ ref: Record<string, unknown> } | { error: string }> {
+  const chapterUri = `/scriptures/${parsed.bookPath}/${parsed.chapter}`;
+  const content = await fetchChapterContent(chapterUri, cache);
+  if ("error" in content) return { error: content.error };
+
+  if (parsed.verses.length === 0) {
+    return {
+      ref: {
+        name: `${parsed.displayBook} ${parsed.chapter}`,
+        uri: chapterUri,
+        docId: content.docId,
+        pid: content.docId,
+        contentVersion: content.contentVersion,
+        locale: "eng",
+      },
+    };
+  }
+
+  const pids: string[] = [];
+  for (const verse of parsed.verses) {
+    const pid = paragraphPid(content.html, verse);
+    if (!pid) return { error: `Verse ${verse} not found in ${parsed.displayBook} ${parsed.chapter}.` };
+    pids.push(pid);
+  }
+  const verseSuffix = parsed.verses.map((v) => `p${v}`).join(",");
+  const first = parsed.verses[0];
+  const last = parsed.verses[parsed.verses.length - 1];
+  const name = parsed.verses.length === 1
+    ? `${parsed.displayBook} ${parsed.chapter}:${first}`
+    : `${parsed.displayBook} ${parsed.chapter}:${first}–${last}`;
+  return {
+    ref: {
+      name,
+      uri: `${chapterUri}.${verseSuffix}`,
+      docId: content.docId,
+      pid: pids.join(","),
+      contentVersion: content.contentVersion,
+      locale: "eng",
+    },
+  };
+}
+
+// Build a type:"reference" annotation that links a source verse/phrase to one or more
+// target scriptures. Resolves the source anchor (offsets for a phrase, whole-verse anchor
+// otherwise) and every target's metadata server-side, so the model only supplies a verse
+// and human-readable reference strings.
+async function buildReferenceAnnotation(input: Record<string, unknown>): Promise<HighlightBuild> {
+  const linksRaw = input.links ?? input.refs ?? input.references;
+  const linkList = Array.isArray(linksRaw)
+    ? linksRaw.map((l) => stringInput(l)).filter((l): l is string => !!l)
+    : (stringInput(linksRaw) ? [stringInput(linksRaw) as string] : []);
+  if (linkList.length === 0) {
+    return { error: "create_reference_link needs 'links': one or more target references, e.g. links:[\"D&C 88:87\"]." };
+  }
+
+  // Reuse the highlight builder to resolve the source anchor + (optional) phrase offsets.
+  // When no phrase is given it yields a whole-verse anchor (color 'clear'); we recolor that
+  // to a visible yellow anchor so the link is discoverable in the reader.
+  const built = await buildHighlightAnnotation(input, { allowAnchorOnly: true });
+  if ("error" in built) return built;
+  const annotation = built.annotation;
+  annotation.type = "reference";
+  const phrase = stringInput(input.phrase) ?? stringInput(input.text);
+  if (!phrase) {
+    // Whole-verse reference anchor: yellow, no underline, -1/-1 offsets.
+    annotation.highlights = [
+      {
+        uri: (annotation.highlights as Record<string, unknown>[])[0]?.uri,
+        pid: (annotation.highlights as Record<string, unknown>[])[0]?.pid,
+        color: (stringInput(input.color) ?? "yellow").toLowerCase(),
+        startOffset: -1,
+        endOffset: -1,
+      },
+    ];
+  }
+
+  const cache = new Map<string, ChapterContent | { error: string }>();
+  const refs: Record<string, unknown>[] = [];
+  const resolvedLinks: string[] = [];
+  for (const link of linkList) {
+    const parsed = parseScriptureReference(link);
+    if (!parsed) return { error: `Could not parse reference "${link}". Use e.g. "D&C 88:87", "1 Nephi 14", or "Revelation 17:1-5".` };
+    const resolved = await resolveReferenceTarget(parsed, cache);
+    if ("error" in resolved) return { error: resolved.error };
+    refs.push(resolved.ref);
+    resolvedLinks.push(String(resolved.ref.name));
+  }
+  annotation.refs = refs;
+
+  return {
+    annotation,
+    resolution: {
+      ...built.resolution,
+      type: "reference",
+      links: resolvedLinks,
+    },
+  };
 }
 
 function summarizeProbe(value: unknown): {
@@ -1086,7 +1311,13 @@ export function createGospelLibraryTools(): AgentTool[] {
         "- prepare_login: launch/open Church site, detect auth, and click a visible sign-in control if needed",
         "- login: launch/open Church site and use the configured 1Password Church login item to re-authenticate when needed",
         "- list_annotations: GET /notes/api/v3/annotations with optional query object",
-        "- create_reference_link: POST a prepared reference-link annotation payload",
+        "- create_reference_link: LINK a verse (or a phrase in it) to one or more other scriptures. Pass a human-level",
+        "    source + target list and the tool resolves every target's docId/pid/contentVersion server-side. Params:",
+        "      uri: source chapter path, e.g. '/scriptures/bofm/2-ne/23'; verse: source verse number, e.g. 10",
+        "      links: array of target references as plain strings, e.g. [\"D&C 88:87\"], [\"Revelation 17:1-5\"], [\"1 Nephi 14\"]",
+        "            (ranges and whole-chapter links supported; multiple targets allowed in one call)",
+        "      phrase: optional — to anchor the link on specific words (also underlines them); color/style/note optional",
+        "    Advanced: pass a full `annotation` object instead to POST it verbatim.",
         "- create_highlight: MARK/UNDERLINE scripture text (optionally colored, optionally with a note). Just pass a",
         "    human-level reference and the tool resolves docId, contentVersion, the verse's pid, and the exact character",
         "    offsets for you — you do NOT need to read the page or compute offsets. Params:",
@@ -1160,6 +1391,11 @@ export function createGospelLibraryTools(): AgentTool[] {
           occurrence: {
             type: "number",
             description: "For create_highlight: 1-based match index when the phrase repeats in the verse (default 1).",
+          },
+          links: {
+            type: "array",
+            items: { type: "string" },
+            description: "For create_reference_link: target scriptures as plain strings, e.g. [\"D&C 88:87\", \"Revelation 17:1-5\", \"1 Nephi 14\"]. Ranges and whole-chapter links supported.",
           },
           annotation_id: {
             type: "string",
@@ -1330,9 +1566,24 @@ export function createGospelLibraryTools(): AgentTool[] {
         }
 
         if (action === "create_reference_link" || action === "create_annotation") {
-          const annotation = sanitizeAnnotationForPost(toRecord(input.annotation));
+          // create_reference_link preferred path: build the type:reference annotation from
+          // a source verse/phrase + human-readable `links`. Escape hatch (and the only path
+          // for create_annotation): a fully-formed `annotation` object POSTed as-is.
+          let annotation = sanitizeAnnotationForPost(toRecord(input.annotation));
+          let resolution: Record<string, unknown> | null = null;
+          const wantsHighLevel = action === "create_reference_link"
+            && Object.keys(annotation).length === 0
+            && (input.links !== undefined || input.refs !== undefined || input.references !== undefined);
+          if (wantsHighLevel) {
+            const built = await buildReferenceAnnotation(input);
+            if ("error" in built) {
+              return built;
+            }
+            annotation = built.annotation;
+            resolution = built.resolution;
+          }
           if (Object.keys(annotation).length === 0) {
-            return { error: `${action} requires an annotation object (see the tool description for the expected payload shape)` };
+            return { error: `${action} requires an annotation object, or (for create_reference_link) 'uri'+'verse'+'links'.` };
           }
 
           const created = await pageFetch({
@@ -1342,7 +1593,7 @@ export function createGospelLibraryTools(): AgentTool[] {
           });
 
           if (input.verify === false) {
-            return { created, verified: null };
+            return { created, resolution, verified: null };
           }
 
           const annotationId = extractAnnotationId(created);
@@ -1355,6 +1606,7 @@ export function createGospelLibraryTools(): AgentTool[] {
           return {
             created,
             annotationId,
+            resolution,
             verification,
           };
         }
