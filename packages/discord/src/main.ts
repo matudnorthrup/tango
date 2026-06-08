@@ -685,6 +685,18 @@ function resolveMemoryEvalAuditProvider(): ChatProvider {
   throw new Error("No provider available for memory-eval audit.");
 }
 
+// Model-agnostic image vision. For image attachments the fallback worker sends the
+// actual image bytes to a configurable vision model (default qwen3-vl on Ollama)
+// instead of the Claude-CLI "Read the local file path" trick. deepseek-v4-pro is NOT
+// vision-capable, so the vision model is a separate knob (TANGO_VISION_MODEL).
+const ATTACHMENT_VISION_MODEL = process.env.TANGO_VISION_MODEL?.trim() || "qwen3-vl:235b-cloud";
+const ATTACHMENT_VISION_SYSTEM_PROMPT = [
+  "You are Tango's fresh-context attachment vision worker.",
+  "Analyze the provided image together with the attachment metadata.",
+  "Return exactly one compact JSON object matching the requested schema.",
+  "Do not include local filesystem paths in the returned JSON.",
+].join("\n");
+
 function createProviderAttachmentLlmFallbackRunner(): AttachmentLlmFallbackRunner {
   return async (input) => {
     const fallbackAgent = resolveAttachmentFallbackAgent(input.attachment.agentId);
@@ -699,6 +711,56 @@ function createProviderAttachmentLlmFallbackRunner(): AttachmentLlmFallbackRunne
     const providerChain = resolveProviderChain(providerNames);
     const prompt = buildAttachmentLlmFallbackPrompt(input);
     const startedAt = Date.now();
+
+    // Model-agnostic vision: for image attachments, send the actual image bytes to
+    // the configured Ollama vision model (qwen3-vl) first — no Claude dependency on
+    // the common path. Only falls through to the provider chain below on failure.
+    const visionContentType = (input.attachment.contentType ?? input.file.contentType ?? "").toLowerCase();
+    if (ATTACHMENT_VISION_MODEL && visionContentType.startsWith("image/")) {
+      try {
+        const imageBytes = await fs.promises.readFile(input.filePath);
+        const visionResponse = await ollamaProvider.generate({
+          prompt,
+          systemPrompt: ATTACHMENT_VISION_SYSTEM_PROMPT,
+          images: [{ dataBase64: imageBytes.toString("base64"), mediaType: visionContentType }],
+          model: ATTACHMENT_VISION_MODEL,
+        });
+        if (visionResponse.text.trim().length > 0) {
+          return buildAttachmentLlmFallbackResultFromProviderOutput(visionResponse.text, {
+            metadata: compactAttachmentFallbackMetadata({
+              promptVersion: LLM_VISION_FALLBACK_PROMPT_VERSION,
+              providerName: "ollama",
+              model: visionResponse.metadata?.model ?? ATTACHMENT_VISION_MODEL,
+              providerSessionId: visionResponse.providerSessionId ?? null,
+              attempts: 1,
+              attemptErrors: [],
+              failures: [],
+              usedFailover: false,
+              warmStartUsed: false,
+              durationMs: Date.now() - startedAt,
+              providerMetadata: visionResponse.metadata ?? null,
+              toolCalls: [],
+              promptChars: prompt.length,
+              source: {
+                attachmentId: input.attachment.id,
+                fileId: input.file.id,
+                sha256: input.file.sha256,
+                contentType: input.attachment.contentType ?? input.file.contentType,
+                bytes: input.attachment.bytes ?? input.file.bytes,
+              },
+              previousExtractionId: input.previousExtraction?.id ?? null,
+              fallbackReason: input.reason,
+            }),
+          });
+        }
+      } catch (error) {
+        console.warn(
+          `[attachment-vision] ${ATTACHMENT_VISION_MODEL} vision failed for attachment ${input.attachment.id}, falling back to provider chain: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
 
     const result = await generateWithFailover(
       providerChain,
@@ -764,7 +826,14 @@ function resolveAttachmentFallbackAgent(agentId: string | null): AgentConfig {
 }
 
 function appendDefaultVisionFallbackProviders(providerNames: string[]): string[] {
-  const defaults = ["claude-oauth", "claude-oauth-secondary", "claude-harness", "codex"];
+  // De-hardcoded: TANGO_VISION_FALLBACK_PROVIDERS (comma-separated) overrides the
+  // default chain, so Claude can be removed from the vision fallback entirely. This
+  // chain is now only the text/path-based backstop; primary image vision goes
+  // through ATTACHMENT_VISION_MODEL (qwen3-vl) above.
+  const configured = process.env.TANGO_VISION_FALLBACK_PROVIDERS?.trim();
+  const defaults = configured
+    ? configured.split(",").map((name) => name.trim()).filter(Boolean)
+    : ["claude-oauth", "claude-oauth-secondary", "claude-harness", "codex"];
   return [...new Set([...providerNames, ...defaults])];
 }
 
