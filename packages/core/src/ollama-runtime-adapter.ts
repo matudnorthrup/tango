@@ -88,6 +88,10 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
         : { systemPrompt: OLLAMA_TOOL_EFFICIENCY_GUIDANCE.trim() }),
       ...(this.config.runtimePreferences.model ? { model: this.config.runtimePreferences.model } : {}),
       ...(tools ? { tools } : {}),
+      // Inbound image bytes for same-turn vision. OllamaProvider folds these
+      // through a vision model (qwen3-vl) and strips them before the tool loop,
+      // so DeepSeek can reason over image content on the turn it arrives.
+      ...(options.images && options.images.length > 0 ? { images: options.images } : {}),
       // Governance principal for the HTTP MCP tool loop. The persistent server
       // resolves this agent's tool permissions from X-Worker-ID. The provider's
       // shared fixed-port tool client targets the server; no port is passed here.
