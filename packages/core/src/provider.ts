@@ -6,6 +6,13 @@ import { z } from "zod";
 import type { ProviderReasoningEffort } from "./types.js";
 import type { McpHttpToolClient, OpenAIToolDefinition } from "./mcp-http-tool-client.js";
 
+export interface ProviderImageInput {
+  /** Base64-encoded image bytes (no `data:` prefix). */
+  dataBase64: string;
+  /** MIME type, e.g. "image/png" or "image/jpeg". */
+  mediaType: string;
+}
+
 export interface ProviderRequest {
   prompt: string;
   providerSessionId?: string;
@@ -13,6 +20,11 @@ export interface ProviderRequest {
   tools?: ProviderToolsConfig;
   model?: string;
   reasoningEffort?: ProviderReasoningEffort;
+  /**
+   * Inline images for multimodal/vision requests. Consumed by the Ollama provider
+   * (emitted as OpenAI `image_url` content parts); CLI providers ignore them.
+   */
+  images?: ProviderImageInput[];
   /**
    * Governance principal for the HTTP MCP tool loop (Ollama only). Sent as the
    * `X-Worker-ID` header so the persistent MCP server resolves the agent's tool
@@ -1024,8 +1036,13 @@ export interface OpenAiToolCall {
  * text turns, the tool loop appends assistant messages carrying `tool_calls` and
  * `role:"tool"` results keyed by `tool_call_id`.
  */
+export type OllamaContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export type OllamaChatMessage =
-  | { role: "system" | "user"; content: string }
+  | { role: "system"; content: string }
+  | { role: "user"; content: string | OllamaContentPart[] }
   | { role: "assistant"; content: string | null; tool_calls?: OpenAiToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
 
@@ -1059,7 +1076,20 @@ export function buildOllamaChatBody(
     if (systemPrompt) {
       messages.push({ role: "system", content: systemPrompt });
     }
-    messages.push({ role: "user", content: request.prompt });
+    const images = request.images ?? [];
+    if (images.length > 0) {
+      // Multimodal: OpenAI-compatible content-parts array (text + image_url data URIs).
+      const parts: OllamaContentPart[] = [{ type: "text", text: request.prompt }];
+      for (const image of images) {
+        parts.push({
+          type: "image_url",
+          image_url: { url: `data:${image.mediaType};base64,${image.dataBase64}` },
+        });
+      }
+      messages.push({ role: "user", content: parts });
+    } else {
+      messages.push({ role: "user", content: request.prompt });
+    }
   }
   const body: OllamaChatBody = { model, messages, stream: false };
   if (options.tools && options.tools.length > 0) {

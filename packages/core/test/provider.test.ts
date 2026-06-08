@@ -521,6 +521,28 @@ describe("buildOllamaChatBody", () => {
 
     expect(buildOllamaChatBody({ prompt: "ping" }).model).toBe("deepseek-v4-pro:cloud");
   });
+
+  it("emits OpenAI image_url content parts when images are present", () => {
+    const body = buildOllamaChatBody({
+      prompt: "What is in this image?",
+      images: [{ dataBase64: "QUJD", mediaType: "image/png" }],
+    });
+
+    expect(body.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is in this image?" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,QUJD" } },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a plain string user message when no images are present", () => {
+    const body = buildOllamaChatBody({ prompt: "no image here" });
+    expect(body.messages).toEqual([{ role: "user", content: "no image here" }]);
+  });
 });
 
 describe("parseOllamaChatResponse", () => {
