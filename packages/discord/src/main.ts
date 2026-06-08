@@ -516,6 +516,27 @@ const sessionManager = new SessionManager(sessionConfigs);
 const sessionConfigById = new Map(sessionConfigs.map((session) => [session.id, session]));
 const agentConfigs = loadUnifiedAgentConfigs(configDir);
 const dbPath = resolveDatabasePath(env.TANGO_DB_PATH);
+// Single OllamaProvider instance shared by the voice + text v2 runtimes
+// (OllamaRuntimeAdapter via TangoRouter -> RuntimePool) and the legacy provider
+// registry below. Built BEFORE the voice router so voice turns to -ollama agents
+// resolve the ollama backend instead of throwing "no ollamaProvider supplied".
+// The 1Password apiKey resolver caches its first result, so sharing one instance
+// avoids resolving twice. The Ollama tool loop talks to the persistent HTTP MCP
+// server (:9100, same as the Claude CLI path).
+const ollamaToolClient = new McpHttpToolClient({
+  port: DEFAULT_MCP_HTTP_PORT,
+  timeoutMs: claudeTimeoutMs,
+});
+const ollamaProviderOptions = {
+  baseUrl: env.OLLAMA_BASE_URL,
+  defaultModel: env.OLLAMA_MODEL,
+  apiKey:
+    env.OLLAMA_API_KEY ??
+    (async () => (await getSecret("Watson", "Ollama API Credential Tango")) ?? undefined),
+  timeoutMs: claudeTimeoutMs,
+  toolClient: ollamaToolClient,
+};
+const ollamaProvider = new OllamaProvider(ollamaProviderOptions);
 const voiceV2AgentRuntimeConfigs = loadEnabledVoiceV2AgentRuntimeConfigs({
   dbPath,
   configDir,
@@ -529,6 +550,7 @@ const voiceTangoRouter = voiceV2AgentRuntimeConfigs.size > 0
           entry.runtimeConfig,
         ]),
       ),
+      ollamaProvider,
     })
   : null;
 const scheduleConfigs = loadScheduleConfigs(configDir);
@@ -573,28 +595,6 @@ const v2LifecycleConfig = {
   idleTimeoutHours: 24,
   contextResetThreshold: 0.80,
 };
-// Single OllamaProvider instance shared by the v2 runtime (OllamaRuntimeAdapter,
-// via TangoRouter -> RuntimePool) and the legacy provider registry below. The
-// 1Password apiKey resolver caches its first result, so sharing one instance
-// avoids resolving the secret twice.
-// Phase 2: the Ollama tool loop talks to the persistent HTTP MCP server (the
-// same `mcp-wellness-server --http --port=9100` the Claude CLI path forks). One
-// shared client keeps every Ollama-backed turn pointed at that server so the
-// model can invoke wellness tools via OpenAI function-calling.
-const ollamaToolClient = new McpHttpToolClient({
-  port: DEFAULT_MCP_HTTP_PORT,
-  timeoutMs: claudeTimeoutMs,
-});
-const ollamaProviderOptions = {
-  baseUrl: env.OLLAMA_BASE_URL,
-  defaultModel: env.OLLAMA_MODEL,
-  apiKey:
-    env.OLLAMA_API_KEY ??
-    (async () => (await getSecret("Watson", "Ollama API Credential Tango")) ?? undefined),
-  timeoutMs: claudeTimeoutMs,
-  toolClient: ollamaToolClient,
-};
-const ollamaProvider = new OllamaProvider(ollamaProviderOptions);
 const tangoRouter = new TangoRouter({
   agentConfigs: buildV2RuntimeConfigs(v2Configs),
   lifecycleConfig: v2LifecycleConfig,
@@ -812,6 +812,7 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
         config,
         runtimeConfig: {
           agentId: config.id,
+          backend: isOllamaBackedAgent(config) ? "ollama" : "claude-code",
           systemPrompt,
           mcpServers: config.mcpServers.map((server) => ({
             name: server.name,
