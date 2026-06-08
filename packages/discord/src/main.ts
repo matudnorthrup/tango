@@ -466,6 +466,10 @@ const captureProviderRaw = env.TANGO_CAPTURE_PROVIDER_RAW === "true";
 const providerRetryLimit = env.TANGO_PROVIDER_RETRY_LIMIT;
 const providerTimeoutMs = env.TANGO_PROVIDER_TIMEOUT_MS ?? DEFAULT_PROVIDER_TIMEOUT_MS;
 const claudeTimeoutMs = env.CLAUDE_TIMEOUT_MS ?? providerTimeoutMs;
+// Run agent-mode scheduled/proactive turns on the Ollama clone (DeepSeek) instead of
+// the Claude base agent, so background traffic gets the same off-Anthropic treatment
+// as interactive turns. Default on; set TANGO_SCHEDULER_USE_OLLAMA=false to revert.
+const SCHEDULER_USE_OLLAMA = (process.env.TANGO_SCHEDULER_USE_OLLAMA ?? "true") !== "false";
 const claudeSecondaryTimeoutMs = env.CLAUDE_SECONDARY_TIMEOUT_MS ?? claudeTimeoutMs;
 const claudeHarnessTimeoutMs = env.CLAUDE_HARNESS_TIMEOUT_MS ?? claudeTimeoutMs;
 const codexTimeoutMs = env.CODEX_TIMEOUT_MS ?? providerTimeoutMs;
@@ -1494,20 +1498,29 @@ startPersistentMcpServer().then((port) => {
   // Initialize and start the scheduler once MCP is ready
   if (scheduleConfigs.length > 0) {
     const executeV2TurnForScheduler: V2ScheduledTurnExecuteFn = async (input) => {
-      const v2Entry = v2Configs.get(input.agentId);
+      // Background migration: when enabled (default true, off via
+      // TANGO_SCHEDULER_USE_OLLAMA=false), run agent-mode schedules on the agent's
+      // Ollama clone (DeepSeek) instead of the Claude base agent, so scheduled/
+      // proactive traffic gets the same off-Anthropic treatment as interactive turns.
+      // Falls back to the base agent if no clone exists.
+      const scheduledAgentId =
+        SCHEDULER_USE_OLLAMA && !input.agentId.endsWith("-ollama") && v2Configs.has(`${input.agentId}-ollama`)
+          ? `${input.agentId}-ollama`
+          : input.agentId;
+      const v2Entry = v2Configs.get(scheduledAgentId);
       if (!v2Entry) {
         throw new Error(
-          `Schedule '${input.config.id}' requests v2 runtime but agent '${input.agentId}' has no v2 config.`,
+          `Schedule '${input.config.id}' requests v2 runtime but agent '${scheduledAgentId}' has no v2 config.`,
         );
       }
 
       const systemPrompt = assembleV2SystemPrompt(v2Entry, { repoRoot: process.cwd() }).trim();
       if (systemPrompt.length === 0) {
-        throw new Error(`System prompt file for agent '${input.agentId}' is empty.`);
+        throw new Error(`System prompt file for agent '${scheduledAgentId}' is empty.`);
       }
 
       const runtimeConfig: AgentRuntimeConfig = {
-        agentId: input.agentId,
+        agentId: scheduledAgentId,
         backend: isOllamaBackedAgent(v2Entry) ? "ollama" : "claude-code",
         systemPrompt,
         mcpServers: v2Entry.mcpServers.map((server) => ({
@@ -1520,7 +1533,12 @@ startPersistentMcpServer().then((port) => {
           },
         })),
         runtimePreferences: {
-          model: input.config.provider?.model ?? v2Entry.runtime.model,
+          // Ollama-backed clones ignore the schedule's hardcoded Claude model
+          // (e.g. claude-sonnet-4-6) and use their own model, or it would be sent to
+          // the DeepSeek endpoint and hard-fail.
+          model: isOllamaBackedAgent(v2Entry)
+            ? v2Entry.runtime.model
+            : input.config.provider?.model ?? v2Entry.runtime.model,
           reasoningEffort: normalizeRuntimeReasoningEffort(
             input.config.provider?.reasoningEffort ?? v2Entry.runtime.reasoningEffort,
           ),
