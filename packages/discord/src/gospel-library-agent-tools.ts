@@ -21,6 +21,8 @@ type GospelLibraryAction =
   | "login"
   | "list_annotations"
   | "create_reference_link"
+  | "create_highlight"
+  | "create_annotation"
   | "delete_annotation";
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -182,6 +184,183 @@ function extractAnnotationId(value: unknown): string | null {
     }
   }
   return null;
+}
+
+// Normalize curly quotes/apostrophes so a model-supplied phrase with straight quotes
+// still matches the verse text (which uses typographic ’ and “”). The replacements are
+// 1:1 in length, so character offsets are preserved.
+function normalizeQuotes(value: string): string {
+  return value.replace(/[‘’′]/g, "'").replace(/[“”″]/g, '"');
+}
+
+// Decode the small set of HTML entities that appear in scripture body text. Each decodes
+// to a single character, keeping offsets aligned with what the Church highlight API expects.
+function decodeScriptureEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ");
+}
+
+// Resolve a verse paragraph's highlight coordinate space exactly the way the Church
+// reader does: drop the leading verse-number span, strip remaining markup, decode
+// entities. The resulting plain text is what start/end offsets are measured against.
+function verseHighlightText(innerHtml: string): string {
+  const withoutVerseNumber = innerHtml.replace(
+    /^\s*<span[^>]*class="[^"]*verse-number[^"]*"[^>]*>[\s\S]*?<\/span>/i,
+    "",
+  );
+  return decodeScriptureEntities(withoutVerseNumber.replace(/<[^>]+>/g, ""));
+}
+
+type HighlightBuild =
+  | { error: string; detail?: unknown }
+  | { annotation: Record<string, unknown>; resolution: Record<string, unknown> };
+
+// Build a Gospel Library highlight/note annotation from a human-level reference
+// (chapter uri + verse + phrase) by fetching the authenticated scripture content and
+// resolving docId, contentVersion, the verse paragraph id (pid), and the character
+// offsets of the phrase. This keeps the model out of the brittle business of reading the
+// page and computing offsets itself (the failure mode that left scriptures unmarked).
+async function buildHighlightAnnotation(input: Record<string, unknown>): Promise<HighlightBuild> {
+  const rawUri = stringInput(input.uri) ?? stringInput(input.url);
+  if (!rawUri) {
+    return { error: "create_highlight needs 'uri' (e.g. /scriptures/bofm/2-ne/23) plus 'verse' and 'phrase'." };
+  }
+
+  // The uri may be the chapter (/scriptures/bofm/2-ne/23) or a verse uri (.../23.p6 or .../23.6).
+  let chapterUri = rawUri.replace(/[?#].*$/, "").replace(/\/+$/, "");
+  let verseNum: number | null = null;
+  const dotVerse = chapterUri.match(/\.p?(\d+)$/i);
+  if (dotVerse) {
+    verseNum = Number(dotVerse[1]);
+    chapterUri = chapterUri.slice(0, chapterUri.length - dotVerse[0].length);
+  }
+  for (const candidate of [input.verse, input.paragraph]) {
+    if (candidate === undefined || candidate === null) continue;
+    const match = String(candidate).match(/(\d+)/);
+    if (match) verseNum = Number(match[1]);
+  }
+  if (!verseNum || !Number.isFinite(verseNum)) {
+    return { error: "create_highlight needs the verse number (e.g. verse: 6), or a uri ending in .p6." };
+  }
+
+  const phrase = stringInput(input.phrase) ?? stringInput(input.text);
+  const noteContent = stringInput(input.note);
+  if (!phrase && !noteContent) {
+    return { error: "create_highlight needs 'phrase' (exact text to mark) and/or 'note' (a verse note)." };
+  }
+
+  const contentUrl = `${CHURCH_ORIGIN}/study/api/v3/language-pages/type/content?lang=eng&uri=${encodeURIComponent(chapterUri)}`;
+  const resp = toRecord(await pageFetch({ url: contentUrl }));
+  if (resp.ok !== true) {
+    return { error: `Failed to load scripture content for ${chapterUri} (status ${String(resp.status)}).`, detail: resp.body };
+  }
+  const body = toRecord(resp.body);
+  const pageAttributes = toRecord(toRecord(body.meta).pageAttributes);
+  const docId = typeof pageAttributes["data-aid"] === "string" ? pageAttributes["data-aid"] : null;
+  const contentVersion = Number(pageAttributes["data-aid-version"]);
+  const html = typeof toRecord(body.content).body === "string" ? String(toRecord(body.content).body) : "";
+  if (!docId || !Number.isFinite(contentVersion) || !html) {
+    return { error: `Could not read content metadata (docId/version/body) for ${chapterUri}.` };
+  }
+
+  const pId = `p${verseNum}`;
+  const openTag = html.match(new RegExp(`<p[^>]*id="${pId}"[^>]*>`, "i"));
+  const block = html.match(new RegExp(`<p[^>]*id="${pId}"[^>]*>([\\s\\S]*?)</p>`, "i"));
+  if (!openTag || !block) {
+    return { error: `Verse ${verseNum} (${pId}) not found in ${chapterUri}.` };
+  }
+  const pid = (openTag[0].match(/data-aid="([^"]+)"/) || [])[1] ?? null;
+  if (!pid) {
+    return { error: `Could not resolve paragraph id (pid) for verse ${verseNum} in ${chapterUri}.` };
+  }
+  const verseText = verseHighlightText(block[1] ?? "");
+
+  const color = (stringInput(input.color) ?? "yellow").toLowerCase();
+  const style = stringInput(input.style) ?? "red-underline";
+  const verseUri = `${chapterUri}.p${verseNum}`;
+
+  let startOffset = -1;
+  let endOffset = -1;
+  if (phrase) {
+    const hay = normalizeQuotes(verseText);
+    const needle = normalizeQuotes(phrase).trim();
+    const occurrence = Number(input.occurrence) > 0 ? Number(input.occurrence) : 1;
+    let idx = -1;
+    let from = 0;
+    for (let i = 0; i < occurrence; i += 1) {
+      idx = hay.indexOf(needle, from);
+      if (idx < 0) break;
+      from = idx + needle.length;
+    }
+    if (idx < 0) {
+      return { error: `Phrase not found in verse ${verseNum}. Verse text is: "${verseText}"` };
+    }
+    startOffset = idx;
+    endOffset = idx + needle.length;
+  }
+
+  // A note with no phrase attaches to the whole verse: the Church reader stores that as a
+  // "clear" highlight spanning -1/-1 (an anchor with no visible underline/fill).
+  const highlight: Record<string, unknown> = phrase
+    ? { uri: verseUri, pid, color, style, startOffset, endOffset }
+    : { uri: verseUri, pid, color: "clear", startOffset: -1, endOffset: -1 };
+
+  const annotation: Record<string, unknown> = {
+    type: "highlight",
+    docId,
+    contentVersion,
+    locale: "eng",
+    uri: chapterUri,
+    highlights: [highlight],
+    folders: [],
+    tags: [],
+  };
+  if (noteContent) {
+    annotation.note = { content: `<div>${noteContent}</div>` };
+  }
+
+  return {
+    annotation,
+    resolution: {
+      chapterUri,
+      verse: verseNum,
+      paragraph: pId,
+      pid,
+      docId,
+      contentVersion,
+      verseText,
+      phrase: phrase ?? null,
+      startOffset,
+      endOffset,
+      color: phrase ? color : "clear",
+      style: phrase ? style : null,
+      note: noteContent ?? null,
+    },
+  };
+}
+
+// The Church POST schema rejects fields that appear in the GET representation (e.g.
+// highlights[].mediaType). Strip those so a model that copies a listed annotation as a
+// template still POSTs cleanly.
+function sanitizeAnnotationForPost(annotation: Record<string, unknown>): Record<string, unknown> {
+  const clone: Record<string, unknown> = { ...annotation };
+  if (Array.isArray(clone.highlights)) {
+    clone.highlights = clone.highlights.map((entry) => {
+      const record = toRecord(entry);
+      const { mediaType: _mediaType, ...rest } = record;
+      return rest;
+    });
+  }
+  for (const key of ["personId", "annotationId", "id", "created", "lastUpdated", "source", "device"]) {
+    delete clone[key];
+  }
+  return clone;
 }
 
 function summarizeProbe(value: unknown): {
@@ -891,7 +1070,7 @@ async function runOnePasswordLogin(input: Record<string, unknown>): Promise<Reco
 }
 
 export function gospelLibraryActionLooksMutating(action: string): boolean {
-  return ["create_reference_link", "delete_annotation"].includes(action.trim().toLowerCase());
+  return ["create_reference_link", "create_highlight", "create_annotation", "delete_annotation"].includes(action.trim().toLowerCase());
 }
 
 export function createGospelLibraryTools(): AgentTool[] {
@@ -908,6 +1087,18 @@ export function createGospelLibraryTools(): AgentTool[] {
         "- login: launch/open Church site and use the configured 1Password Church login item to re-authenticate when needed",
         "- list_annotations: GET /notes/api/v3/annotations with optional query object",
         "- create_reference_link: POST a prepared reference-link annotation payload",
+        "- create_highlight: MARK/UNDERLINE scripture text (optionally colored, optionally with a note). Just pass a",
+        "    human-level reference and the tool resolves docId, contentVersion, the verse's pid, and the exact character",
+        "    offsets for you — you do NOT need to read the page or compute offsets. Params:",
+        "      uri: chapter path, e.g. '/scriptures/bofm/2-ne/23' (or a verse path ending in .p6)",
+        "      verse: verse number, e.g. 6 (omit if uri already ends in .p6)",
+        "      phrase: the EXACT words to underline/highlight, e.g. 'day of the Lord' (verbatim from the verse)",
+        "      color: yellow|pink|blue|green|orange|red|purple|... (default yellow); style: red-underline|highlight (default red-underline)",
+        "      note: optional study note text to attach to the verse",
+        "      occurrence: optional 1-based match index when the phrase repeats in the verse (default 1)",
+        "    To attach only a note to a whole verse, pass uri+verse+note and omit phrase. Advanced: pass a full `annotation`",
+        "    object instead to POST it verbatim. The tool verifies the new annotation and returns its id + resolved offsets.",
+        "- create_annotation: POST any annotation payload (generic; for non-highlight/reference types).",
         "- delete_annotation: DELETE an annotation by annotation_id",
         "",
         "This tool owns browser launch/navigation for Gospel Library. Do not ask the user to open a browser tab. Use login before asking for help; ask the user only when 1Password access, password-manager approval, captcha, or 2FA blocks authentication.",
@@ -925,6 +1116,8 @@ export function createGospelLibraryTools(): AgentTool[] {
               "login",
               "list_annotations",
               "create_reference_link",
+              "create_highlight",
+              "create_annotation",
               "delete_annotation",
             ],
           },
@@ -942,7 +1135,31 @@ export function createGospelLibraryTools(): AgentTool[] {
           },
           annotation: {
             type: "object",
-            description: "For create_reference_link: complete annotation payload for the Gospel Library notes API.",
+            description: "For create_reference_link/create_annotation (or advanced create_highlight): complete annotation payload for the Gospel Library notes API.",
+          },
+          verse: {
+            type: "number",
+            description: "For create_highlight: verse number to mark, e.g. 6. Omit if uri already ends in .p6.",
+          },
+          phrase: {
+            type: "string",
+            description: "For create_highlight: the exact words to underline/highlight, verbatim from the verse, e.g. 'day of the Lord'.",
+          },
+          color: {
+            type: "string",
+            description: "For create_highlight: yellow|pink|blue|green|orange|red|purple|... (default yellow).",
+          },
+          style: {
+            type: "string",
+            description: "For create_highlight: 'red-underline' underlines the range; 'highlight' fills the color (default red-underline).",
+          },
+          note: {
+            type: "string",
+            description: "For create_highlight: optional study note text to attach to the verse (pass without phrase to note the whole verse).",
+          },
+          occurrence: {
+            type: "number",
+            description: "For create_highlight: 1-based match index when the phrase repeats in the verse (default 1).",
           },
           annotation_id: {
             type: "string",
@@ -1073,10 +1290,49 @@ export function createGospelLibraryTools(): AgentTool[] {
           });
         }
 
-        if (action === "create_reference_link") {
-          const annotation = toRecord(input.annotation);
+        if (action === "create_highlight") {
+          // Preferred path: build the payload from a human-level reference (uri + verse +
+          // phrase). Escape hatch: a fully-formed `annotation` object is POSTed as-is.
+          let annotation = sanitizeAnnotationForPost(toRecord(input.annotation));
+          let resolution: Record<string, unknown> | null = null;
           if (Object.keys(annotation).length === 0) {
-            return { error: "create_reference_link requires annotation object" };
+            const built = await buildHighlightAnnotation(input);
+            if ("error" in built) {
+              return built;
+            }
+            annotation = built.annotation;
+            resolution = built.resolution;
+          }
+
+          const created = await pageFetch({
+            url: `${CHURCH_ORIGIN}${ANNOTATIONS_PATH}`,
+            method: "POST",
+            body: annotation,
+          });
+
+          if (input.verify === false) {
+            return { created, resolution, verified: null };
+          }
+
+          const annotationId = extractAnnotationId(created);
+          const verification = annotationId
+            ? await pageFetch({
+                url: `${CHURCH_ORIGIN}${ANNOTATIONS_PATH}/${encodeURIComponent(annotationId)}`,
+              })
+            : null;
+
+          return {
+            created,
+            annotationId,
+            resolution,
+            verification,
+          };
+        }
+
+        if (action === "create_reference_link" || action === "create_annotation") {
+          const annotation = sanitizeAnnotationForPost(toRecord(input.annotation));
+          if (Object.keys(annotation).length === 0) {
+            return { error: `${action} requires an annotation object (see the tool description for the expected payload shape)` };
           }
 
           const created = await pageFetch({
