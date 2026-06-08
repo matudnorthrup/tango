@@ -470,6 +470,19 @@ const claudeTimeoutMs = env.CLAUDE_TIMEOUT_MS ?? providerTimeoutMs;
 // the Claude base agent, so background traffic gets the same off-Anthropic treatment
 // as interactive turns. Default on; set TANGO_SCHEDULER_USE_OLLAMA=false to revert.
 const SCHEDULER_USE_OLLAMA = (process.env.TANGO_SCHEDULER_USE_OLLAMA ?? "true") !== "false";
+// Schedules too heavy for DeepSeek to finish inside the scheduler timeout stay on the
+// Claude base agent even when SCHEDULER_USE_OLLAMA is on. The weekly/month-end finance
+// reviews are the known offenders: Claude completes the multi-account Plaid+reconcile flow
+// in ~280s, but DeepSeek timed out at 600s. These run weekly/monthly so the metering cost
+// of keeping them on Claude is negligible, and finance accuracy favors the proven path.
+// Comma-separated schedule ids; the "manual-test-" prefix is matched too. Override via env.
+const SCHEDULER_OLLAMA_EXCLUDE = new Set(
+  (process.env.TANGO_SCHEDULER_OLLAMA_EXCLUDE
+    ?? "weekly-finance-review,sinking-fund-reconciliation,sinking-fund-reconciliation-month-end")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean),
+);
 const claudeSecondaryTimeoutMs = env.CLAUDE_SECONDARY_TIMEOUT_MS ?? claudeTimeoutMs;
 const claudeHarnessTimeoutMs = env.CLAUDE_HARNESS_TIMEOUT_MS ?? claudeTimeoutMs;
 const codexTimeoutMs = env.CODEX_TIMEOUT_MS ?? providerTimeoutMs;
@@ -1502,9 +1515,13 @@ startPersistentMcpServer().then((port) => {
       // TANGO_SCHEDULER_USE_OLLAMA=false), run agent-mode schedules on the agent's
       // Ollama clone (DeepSeek) instead of the Claude base agent, so scheduled/
       // proactive traffic gets the same off-Anthropic treatment as interactive turns.
-      // Falls back to the base agent if no clone exists.
+      // Falls back to the base agent if no clone exists, and keeps SCHEDULER_OLLAMA_EXCLUDE
+      // schedules (e.g. the heavy finance reviews DeepSeek can't finish in time) on Claude.
+      const baseScheduleId = input.config.id.replace(/^manual-test-/, "");
+      const scheduleExcluded =
+        SCHEDULER_OLLAMA_EXCLUDE.has(input.config.id) || SCHEDULER_OLLAMA_EXCLUDE.has(baseScheduleId);
       const scheduledAgentId =
-        SCHEDULER_USE_OLLAMA && !input.agentId.endsWith("-ollama") && v2Configs.has(`${input.agentId}-ollama`)
+        SCHEDULER_USE_OLLAMA && !scheduleExcluded && !input.agentId.endsWith("-ollama") && v2Configs.has(`${input.agentId}-ollama`)
           ? `${input.agentId}-ollama`
           : input.agentId;
       const v2Entry = v2Configs.get(scheduledAgentId);
