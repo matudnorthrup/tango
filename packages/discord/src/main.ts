@@ -108,6 +108,7 @@ import {
   isV2RuntimeEnabled,
   shouldSendContextPressureAlert,
   type V2AgentConfig,
+  type ProviderImageInput,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
@@ -116,6 +117,7 @@ import {
   createMorningFlowSentinelHandler,
 } from "./morning-flow.js";
 import { createDailyBriefAggregationHandler } from "./daily-brief-aggregator.js";
+import { createKiloLedgerMonitorHandler } from "./kilo-ledger-monitor.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
 import { coerceWorkerReplyForDisplay } from "./worker-text-sanitizer.js";
@@ -483,6 +485,37 @@ const SCHEDULER_OLLAMA_EXCLUDE = new Set(
     .map((id) => id.trim())
     .filter(Boolean),
 );
+// Give Ollama clones same-turn vision: pass inbound image attachment bytes to the
+// runtime so the provider folds them through a vision model (qwen3-vl) on the arrival
+// turn, instead of relying on async OCR text only (which misses visual/spatial images
+// like maps and diagrams). Default on; set TANGO_CLONE_INLINE_VISION=false to revert.
+// Caps below bound the base64 payload sent to the vision model.
+const CLONE_INLINE_VISION = (process.env.TANGO_CLONE_INLINE_VISION ?? "true") !== "false";
+const CLONE_INLINE_VISION_MAX_IMAGES = Number(process.env.TANGO_CLONE_INLINE_VISION_MAX_IMAGES) || 4;
+const CLONE_INLINE_VISION_MAX_BYTES = Number(process.env.TANGO_CLONE_INLINE_VISION_MAX_BYTES) || 12_000_000;
+
+// Read inbound image attachments off disk as base64 for same-turn clone vision.
+// Skips non-images, empty/oversized files, and unreadable temp files (those still reach
+// the clone via the async OCR/attachment_read path). Bounded by the caps above.
+function buildCloneInlineImages(
+  processed: ReadonlyArray<{ localPath: string; contentType: string | null; type: "image" | "file" }>,
+): ProviderImageInput[] {
+  const images: ProviderImageInput[] = [];
+  for (const att of processed) {
+    if (images.length >= CLONE_INLINE_VISION_MAX_IMAGES) break;
+    if (att.type !== "image") continue;
+    const mediaType = att.contentType && att.contentType.startsWith("image/") ? att.contentType : "image/png";
+    try {
+      const bytes = fs.readFileSync(att.localPath);
+      if (bytes.length === 0 || bytes.length > CLONE_INLINE_VISION_MAX_BYTES) continue;
+      images.push({ dataBase64: bytes.toString("base64"), mediaType });
+    } catch {
+      // Unreadable temp file — skip; the OCR/attachment_read path still applies.
+    }
+  }
+  return images;
+}
+
 const claudeSecondaryTimeoutMs = env.CLAUDE_SECONDARY_TIMEOUT_MS ?? claudeTimeoutMs;
 const claudeHarnessTimeoutMs = env.CLAUDE_HARNESS_TIMEOUT_MS ?? claudeTimeoutMs;
 const codexTimeoutMs = env.CODEX_TIMEOUT_MS ?? providerTimeoutMs;
@@ -940,6 +973,9 @@ registerDeterministicHandler("printer-monitor", printerMonitorHandler);
 registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
 registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
 registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
+registerDeterministicHandler("kilo-ledger-monitor", createKiloLedgerMonitorHandler({
+  getLunchMoneyAccessToken: getLunchMoneyApiKey,
+}));
 registerDeterministicHandler("attachment-retention-sweep", async (ctx) => {
   const store = new AttachmentStore(ctx.db);
   const report = runAttachmentRetentionSweep(store, {
@@ -6837,6 +6873,13 @@ async function handleMessage(
         searchFirst: Boolean(stateFilePointer) || process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
       });
       const sendContext = buildSendContextWithOptionalSavePass(warmStartPrompt, hasPendingSavePass);
+      // Clone same-turn vision: hand inbound image bytes to the Ollama runtime so the
+      // provider folds them through a vision model on the arrival turn (Claude agents
+      // open files via their own Read tool, so this is clone-only).
+      const inlineImages =
+        targetAgentIsOllama && CLONE_INLINE_VISION
+          ? buildCloneInlineImages(attachmentResult.processed)
+          : [];
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
@@ -6847,6 +6890,7 @@ async function handleMessage(
             ...(sendContext ? { context: sendContext } : {}),
             currentTurnMetadataPrompt,
             ...(turnBriefingPrompt ? { turnBriefingPrompt } : {}),
+            ...(inlineImages.length > 0 ? { images: inlineImages } : {}),
           },
         },
         {
