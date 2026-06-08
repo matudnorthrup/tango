@@ -118,6 +118,7 @@ import {
 import { createDailyBriefAggregationHandler } from "./daily-brief-aggregator.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
+import { coerceWorkerReplyForDisplay } from "./worker-text-sanitizer.js";
 import { z } from "zod";
 import {
   buildDefaultAccessPolicy,
@@ -6761,13 +6762,24 @@ async function handleMessage(
       const toolsUsed = v2Result.response.toolsUsed ?? [];
       const runtimeError = metadataBoolean(runtimeMetadata, "error") ?? false;
       const rawRuntimeResponse = asRecord(runtimeMetadata?.raw);
-      const replyDelivery = await sendPresentedReply(message.channel, v2Result.response.text, targetAgent);
+      // Ollama clones run a stateless OpenAI-compatible loop and occasionally wrap
+      // output in JSON / fenced structured blocks. Coerce to clean display text so
+      // raw JSON never leaks to the channel, and store the cleaned text so it does
+      // not pollute the next turn's warm-start. Claude replies pass through unchanged.
+      const replyText = targetAgentIsOllama
+        ? coerceWorkerReplyForDisplay(v2Result.response.text)
+        : v2Result.response.text;
+      // Label the turn by backend so Ollama clone turns are not miscounted as the
+      // Claude path. provider_name was hardcoded "claude-code-v2" for every v2 turn,
+      // which made the cost A/B (the reason this project exists) unmeasurable.
+      const v2ProviderName = targetAgentIsOllama ? "ollama" : "claude-code-v2";
+      const replyDelivery = await sendPresentedReply(message.channel, replyText, targetAgent);
       ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
 
       const outboundMessageId = writeMessage({
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
-        providerName: "claude-code-v2",
+        providerName: v2ProviderName,
         direction: "outbound",
         source: "tango",
         visibility: "public",
@@ -6775,7 +6787,7 @@ async function handleMessage(
         discordChannelId: message.channelId,
         discordUserId: replyDelivery.delivery === "bot" ? client.user?.id ?? null : null,
         discordUsername: replyDelivery.actualDisplayName,
-        content: v2Result.response.text,
+        content: replyText,
         metadata: {
           replyToDiscordMessageId: message.id,
           sentChunks: replyDelivery.sentChunks,
@@ -6796,7 +6808,7 @@ async function handleMessage(
       writeModelRun({
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
-        providerName: "claude-code-v2",
+        providerName: v2ProviderName,
         conversationKey: v2Result.conversationKey,
         providerSessionId,
         model: runtimeModel,
@@ -6813,7 +6825,8 @@ async function handleMessage(
         isError: runtimeError,
         errorMessage:
           runtimeError
-            ? metadataString(runtimeMetadata, "stderr") ?? "Claude Code runtime returned an error response."
+            ? metadataString(runtimeMetadata, "stderr")
+              ?? `${targetAgentIsOllama ? "Ollama" : "Claude Code"} runtime returned an error response.`
             : null,
         requestMessageId: inboundMessageId,
         responseMessageId: outboundMessageId,
