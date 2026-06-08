@@ -1,0 +1,5 @@
+id: porter-ollama
+type: persistent
+agent: porter-ollama
+channels:
+  - "discord:1513207696331898981"
