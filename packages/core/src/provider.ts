@@ -1292,7 +1292,50 @@ export class OllamaProvider implements ChatProvider {
     }
 
     // --- Phase 2 bounded agentic tool loop -----------------------------------
-    return this.runToolLoop(request, apiKey, toolClient);
+    // Inline vision: the tool loop is text-only and DeepSeek-class models can't see
+    // images. If the turn carries images, synchronously describe them with the
+    // configured vision model (qwen3-vl) and fold that text into the prompt so the
+    // tool-using model can reason over the image content while still calling tools.
+    let effectiveRequest = request;
+    if (request.images && request.images.length > 0) {
+      const description = await this.describeImages(request.images, apiKey);
+      if (description) {
+        effectiveRequest = {
+          ...request,
+          prompt:
+            `${request.prompt}\n\n[Vision] This turn includes ${request.images.length} image(s); a vision ` +
+            `model describes them as follows. Treat this as the image content:\n${description}`,
+          images: undefined,
+        };
+      }
+    }
+    return this.runToolLoop(effectiveRequest, apiKey, toolClient);
+  }
+
+  /**
+   * Synchronously describe inline images using the configured vision model
+   * (TANGO_VISION_MODEL, default qwen3-vl) so a text-only tool-using model can act on
+   * image content. Best-effort: returns "" on failure and the caller proceeds without.
+   */
+  private async describeImages(images: ProviderImageInput[], apiKey: string): Promise<string> {
+    const visionModel = process.env.TANGO_VISION_MODEL?.trim() || "qwen3-vl:235b-cloud";
+    const body = buildOllamaChatBody(
+      {
+        prompt:
+          "Describe the image(s) in thorough, precise detail for an assistant that will act on them: " +
+          "transcribe ALL visible text verbatim (numbers, dates, names, amounts, labels) and note layout, " +
+          "items, and anything actionable. Do not omit text.",
+        images,
+        model: visionModel,
+      },
+      { defaultModel: this.options.defaultModel },
+    );
+    try {
+      const payload = await this.postChat(body, apiKey);
+      return parseOllamaChatResponse(payload).text.trim();
+    } catch {
+      return "";
+    }
   }
 
   private async runToolLoop(
