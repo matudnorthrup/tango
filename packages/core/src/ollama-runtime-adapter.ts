@@ -14,6 +14,17 @@ import type {
   SendOptions,
 } from "./agent-runtime.js";
 
+// Appended to every Ollama-backed agent's system prompt. DeepSeek tends to fan out
+// search/list tools serially (validation saw a one-day Slack digest fire the slack tool
+// 20× and a notes lookup hit obsidian 8×), which is slow though not wrong. This nudges it
+// toward broad-query-then-drill and batching, cutting latency/iteration use. Ollama-only:
+// the adapter is only constructed for clones, so the Claude originals' souls are untouched.
+const OLLAMA_TOOL_EFFICIENCY_GUIDANCE =
+  "\n\nTool efficiency: when you search or list (Slack, Obsidian, email, web, transactions), " +
+  "run ONE broad query first and then drill into only the results that matter — do not loop a " +
+  "tool one item, channel, or note at a time. Use batch/multi-target options when a tool offers " +
+  "them, and finish in as few tool calls as you can.";
+
 /**
  * Runs a v2 agent turn through a stateless {@link ChatProvider} (the
  * OllamaProvider) instead of the Claude Code CLI. Mirrors
@@ -72,7 +83,9 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     const tools = this.resolveTools();
     const request: ProviderRequest = {
       prompt,
-      ...(this.config.systemPrompt.trim() ? { systemPrompt: this.config.systemPrompt } : {}),
+      ...(this.config.systemPrompt.trim()
+        ? { systemPrompt: this.config.systemPrompt + OLLAMA_TOOL_EFFICIENCY_GUIDANCE }
+        : { systemPrompt: OLLAMA_TOOL_EFFICIENCY_GUIDANCE.trim() }),
       ...(this.config.runtimePreferences.model ? { model: this.config.runtimePreferences.model } : {}),
       ...(tools ? { tools } : {}),
       // Governance principal for the HTTP MCP tool loop. The persistent server
