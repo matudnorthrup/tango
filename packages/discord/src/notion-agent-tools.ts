@@ -236,6 +236,17 @@ export function createNotionTools(): AgentTool[] {
                 page_size: typeof input.page_size === "number" ? input.page_size : 25,
               });
             }
+            case "archive":
+            case "trash":
+            case "delete": {
+              const id = normalizeId(input.page_id);
+              return await notionFetch(`/pages/${id}`, "PATCH", { in_trash: true });
+            }
+            case "restore":
+            case "unarchive": {
+              const id = normalizeId(input.page_id);
+              return await notionFetch(`/pages/${id}`, "PATCH", { in_trash: false });
+            }
             default:
               return { error: `Unknown notion operation "${op}". Use search | get_page | create_page | update_page | append | query_database.` };
           }
