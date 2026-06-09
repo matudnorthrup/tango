@@ -101,7 +101,8 @@ export function computeVerdict(fixture, summaries) {
     }
   }
 
-  const infraIncomplete = summaries.filter((s) => !s.benchmarkOnly).every((s) => s.validRuns === 0);
+  const assignable = summaries.filter((s) => !s.benchmarkOnly);
+  const infraIncomplete = assignable.length > 0 && assignable.every((s) => s.validRuns === 0);
 
   return {
     fixtureId: fixture.id,

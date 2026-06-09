@@ -109,3 +109,10 @@ test("no eligible model yields a null recommendation, infra-only yields infraInc
   const v2 = computeVerdict(f, [infraOnly]);
   assert.equal(v2.infraIncomplete, true);
 });
+
+test("benchmarks-only run is not infra-incomplete", () => {
+  const bench = candidate("claude:sonnet", [mkRun()], true);
+  const v = computeVerdict(fixture(), [bench]);
+  assert.equal(v.infraIncomplete, false);
+  assert.equal(v.recommendation, null);
+});
