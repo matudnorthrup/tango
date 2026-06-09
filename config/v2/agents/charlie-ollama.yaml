@@ -37,7 +37,7 @@ runtime:
   mode: persistent
   provider: claude-code-v2
   fallback: codex
-  model: deepseek-v4-pro:cloud
+  model: deepseek-v4-flash
   reasoning_effort: low
   idle_timeout_hours: 4
   context_reset_threshold: 0.50
