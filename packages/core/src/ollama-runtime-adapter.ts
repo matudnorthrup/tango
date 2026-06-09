@@ -75,8 +75,21 @@ async function classifyTaskShape(task: string, apiKey: string): Promise<"JUDGMEN
   }
 }
 
-// Resolve the model for a turn: per-task override for JUDGMENT/DATA, else the agent's
-// configured model (fallback). Returns the fallback if routing is off, no key, or on error.
+// Models already strong enough at a shape that the router must NOT downgrade them. A bake-off
+// showed deepseek-v4-pro is the BEST model for emotional-judgment (juliet) and teaching
+// (porter) — so a blanket "JUDGMENT -> glm-5" would replace their deliberately-assigned strong
+// model with a worse one. So the router only OVERRIDES to upgrade a weak/fast fallback for its
+// weak shape; an agent already on a strong model for that shape keeps it.
+const STRONG_JUDGMENT_MODELS = new Set([
+  "glm-5", "glm-4.7", "deepseek-v4-pro:cloud", "deepseek-v4-pro", "kimi-k2.6", "kimi-k2:1t",
+]);
+const STRONG_DATA_MODELS = new Set([
+  "deepseek-v4-pro:cloud", "deepseek-v4-pro", "deepseek-v4-flash",
+]);
+
+// Resolve the model for a turn: a per-task UPGRADE for JUDGMENT/DATA when the agent's
+// configured (fallback) model is weak at that shape, else the agent's own model. Returns the
+// fallback if routing is off, no key, or on error — so it can never break or block a turn.
 async function resolveModelForTask(
   task: string,
   fallbackModel: string | undefined,
@@ -85,8 +98,12 @@ async function resolveModelForTask(
   const apiKey = process.env.OLLAMA_API_KEY?.trim();
   if (!apiKey || !task.trim()) return fallbackModel;
   const shape = await classifyTaskShape(task, apiKey);
-  if (shape === "JUDGMENT") return MODEL_FOR_JUDGMENT;
-  if (shape === "DATA") return MODEL_FOR_DATA;
+  if (shape === "JUDGMENT" && !(fallbackModel && STRONG_JUDGMENT_MODELS.has(fallbackModel))) {
+    return MODEL_FOR_JUDGMENT;
+  }
+  if (shape === "DATA" && !(fallbackModel && STRONG_DATA_MODELS.has(fallbackModel))) {
+    return MODEL_FOR_DATA;
+  }
   return fallbackModel;
 }
 
