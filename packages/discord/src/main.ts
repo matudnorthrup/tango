@@ -2121,11 +2121,27 @@ function resolveContextualTargetAgent(input: {
   const topicLeadAgentId = activeTopic?.leadAgentId?.trim() || null;
   const projectDefaultAgentId = activeProject?.defaultAgentId?.trim() || null;
 
-  return resolveTargetAgent(
+  const resolved = resolveTargetAgent(
     agentRegistry,
     input.routeAgentId,
     input.explicitAgentId ?? topicLeadAgentId ?? projectDefaultAgentId
   );
+
+  // The -ollama channels exist to run the Ollama clones. If this is such a
+  // channel (its route agent/session is an -ollama clone) but a name-address,
+  // topic lead, or reply-referent resolved to a base (Claude) agent, redirect
+  // to that agent's -ollama clone when one exists — so addressing "Sierra" in
+  // the sierra-ollama channel never silently falls back to the metered Claude
+  // agent. (The bare-name call-signs still reach the Claude agents in their own
+  // channels.)
+  const isOllamaChannel =
+    input.routeAgentId.endsWith("-ollama") || input.routeSessionId.endsWith("-ollama");
+  if (resolved && isOllamaChannel && !resolved.id.endsWith("-ollama")) {
+    const clone = agentRegistry.get(`${resolved.id}-ollama`);
+    if (clone) return clone;
+  }
+
+  return resolved;
 }
 
 function upsertChannelTopic(
