@@ -411,6 +411,32 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds OSRM route governance for Sierra travel workers", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    const tool = db.prepare(
+      "SELECT id, access_type FROM governance_tools WHERE id = 'osrm_route'",
+    ).get() as { id: string; access_type: string } | undefined;
+    const clonePrincipal = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'worker:sierra-ollama'",
+    ).get() as { id: string; parent_id: string } | undefined;
+
+    expect(tool).toEqual({ id: "osrm_route", access_type: "read" });
+    expect(clonePrincipal).toEqual({
+      id: "worker:sierra-ollama",
+      parent_id: "agent:sierra-ollama",
+    });
+    expect(checker.hasPermission("worker:research-assistant", "osrm_route", "read")).toBe(true);
+    expect(checker.hasPermission("worker:research-coordinator", "osrm_route", "read")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "osrm_route", "read")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "osrm_route", "write")).toBe(false);
+
+    db.close();
+  });
+
   it("lists recoverable discord inbound messages that never reached execution", () => {
     const { storage } = createStorage();
     storage.bootstrapSessions([

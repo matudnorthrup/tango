@@ -225,6 +225,7 @@ export const GOVERNANCE_SEED = `
     ('agent:wellness', 'agent', 'user:owner', 'Wellness'),
     ('agent:foxtrot', 'agent', 'user:owner', 'Foxtrot'),
     ('agent:foxtrot-ollama', 'agent', 'user:owner', 'Foxtrot (Ollama)'),
+    ('agent:sierra-ollama', 'agent', 'user:owner', 'Sierra (Ollama)'),
     ('agent:kilo', 'agent', 'user:owner', 'Kilo');
 
   INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
@@ -241,6 +242,7 @@ export const GOVERNANCE_SEED = `
     ('worker:note-librarian', 'worker', NULL, 'Note Librarian'),
     ('worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'),
     ('worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime'),
+    ('worker:sierra-ollama', 'worker', 'agent:sierra-ollama', 'Sierra Ollama Runtime'),
     ('worker:kilo', 'worker', 'agent:kilo', 'Kilo Runtime');
 
   -- Tools (from MCP server)
@@ -277,6 +279,7 @@ export const GOVERNANCE_SEED = `
     ('openscad_render', 'research', 'OpenSCAD Render', 'write'),
     ('prusa_slice', 'research', 'PrusaSlicer', 'write'),
     ('location_read', 'research', 'GPS Location', 'read'),
+    ('osrm_route', 'research', 'OSRM Route Planner', 'read'),
     ('find_diesel', 'research', 'Diesel Finder', 'read'),
     ('walmart', 'research', 'Walmart Shopping', 'write'),
     ('browser', 'shared', 'Browser Automation', 'write'),
@@ -376,6 +379,7 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'prusa_slice', 'write', 'seed from config'),
     ('worker:research-assistant', 'obsidian', 'write', 'travel planning + research filing'),
     ('worker:research-assistant', 'location_read', 'read', 'travel navigation'),
+    ('worker:research-assistant', 'osrm_route', 'read', 'travel route planning and drive-time verification'),
     ('worker:research-assistant', 'find_diesel', 'read', 'travel navigation'),
     ('worker:research-assistant', 'walmart', 'write', 'walmart shopping and queue management'),
     ('worker:research-assistant', 'browser', 'write', 'web automation for shopping and research'),
@@ -383,6 +387,15 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'file_ops', 'write', 'file access for Downloads, 3d-printing, Documents'),
     ('worker:research-assistant', 'youtube_transcript', 'read', 'YouTube transcript extraction'),
     ('worker:research-assistant', 'youtube_analyze', 'read', 'YouTube video analysis via Gemini');
+
+  -- Sierra Ollama clone — explicit research/travel surface for direct clone channels.
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:sierra-ollama', 'exa_search', 'read', 'Sierra Ollama research parity'),
+    ('worker:sierra-ollama', 'exa_answer', 'read', 'Sierra Ollama research parity'),
+    ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
+    ('worker:sierra-ollama', 'osrm_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
+    ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
+    ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for shopping and research');
 
   -- personal-assistant browser access (Watson — receipt lookup, transaction categorization)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

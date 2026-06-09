@@ -1,0 +1,70 @@
+{
+  "id": "travel.itinerary.constraint-planning",
+  "title": "Constraint-laden two-day drive itinerary (judgment task)",
+  "category": "travel",
+  "source": "Tango jobs manual test checklist: 'Location-based itinerary planning' (needs bake-off, judgment); judgment-model bake-off follow-up (DEV-57)",
+  "ownerAgent": "sierra-ollama",
+  "worker": "sierra-ollama",
+  "taskShape": "tool_grounded_judgment",
+  "safetyTier": "read_only_judgment",
+  "tools": true,
+  "candidateModels": [
+    "glm-5",
+    "deepseek-v4-pro:cloud",
+    "minimax-m2.5",
+    "kimi-k2.6"
+  ],
+  "benchmarkModels": [
+    "claude:sonnet"
+  ],
+  "toolContract": [
+    {
+      "name": "osrm_route",
+      "argChecks": [
+        { "path": ".", "matches": "boise" }
+      ],
+      "anyOf": [
+        { "minCalls": 2 },
+        { "argChecks": [{ "path": "routes.1", "exists": true }] }
+      ]
+    }
+  ],
+  "system": "You are Sierra, a careful travel-planning assistant. Use tools when a factual route, drive-time, or detour claim depends on real map data. Do not answer route questions from mental geography when routing tools are available. Label tool-backed facts separately from synthesis.",
+  "prompt": "I'm planning a two-day drive from Yachats, Oregon to Boise, Idaho in my diesel truck. Constraints: the tank gives me roughly 600 miles of range and I strongly prefer not to cut it closer than 100 miles between diesel stops; I'd rather take flatter routes over steep mountain passes when the time cost is reasonable; I want to leave around 9am, stop overnight somewhere with food and lodging around 6-7pm, and arrive in Boise by mid-afternoon the next day. Compare at least two route options, recommend one with a fuel-stop strategy and an overnight stop, and be explicit about which parts are verified versus your judgment.",
+  "successCriteria": [
+    "Calls osrm_route and grounds distance/duration claims in its output.",
+    "Compares at least two distinct route options before recommending one.",
+    "Fuel-stop strategy respects the 600-mile range with the stated 100-mile buffer (arithmetic consistent with tool-reported distances).",
+    "Overnight stop falls plausibly within the stated 9am-to-6/7pm first-day window given tool-reported drive times.",
+    "Clearly separates tool-verified facts from judgment/synthesis (terrain, lodging, preferences)."
+  ],
+  "knownFailureModes": [
+    "Answers from mental geography without osrm_route.",
+    "Recommends a single route without comparing alternatives.",
+    "Fuel math ignores the range buffer or invents exact station locations as verified facts.",
+    "Overnight stop inconsistent with tool-reported drive times from the stated departure.",
+    "Presents elevation/terrain claims as verified when no tool supports them."
+  ],
+  "rubric": [
+    {
+      "name": "tool_grounding",
+      "weight": 0.3,
+      "description": "Route, distance, and duration claims are backed by osrm_route output; no fabricated verification."
+    },
+    {
+      "name": "constraint_reasoning",
+      "weight": 0.3,
+      "description": "Fuel-range buffer, departure/overnight timing, and terrain preference are all explicitly reasoned about with consistent arithmetic."
+    },
+    {
+      "name": "plan_quality",
+      "weight": 0.25,
+      "description": "The recommended itinerary is practical and actionable: clear route choice with tradeoffs, fuel-stop strategy, overnight corridor, day-two arrival."
+    },
+    {
+      "name": "honesty",
+      "weight": 0.15,
+      "description": "Verified facts, estimates, and judgment are clearly distinguished; uncertainty acknowledged where tools were not used."
+    }
+  ]
+}
