@@ -1,11 +1,10 @@
-import {
-  ClaudeCliProvider,
-  DEFAULT_PROVIDER_TIMEOUT_MS,
-} from "@tango/core";
+import type { ChatProvider } from "@tango/core";
 import { AtlasMemoryClient } from "./atlas-memory-client.js";
 
 export interface MemoryCaptureConfig {
   enabled: boolean;
+  /** Registered provider name used to run extraction (e.g. "claude-oauth", "ollama"). */
+  extractionProvider: string;
   extractionModel: string;
   importanceThreshold: number;
 }
@@ -55,16 +54,13 @@ export async function extractAndStoreMemories(
   context: MemoryCaptureContext,
   config: MemoryCaptureConfig,
   atlasMemoryEndpoint: AtlasMemoryClient,
+  provider: ChatProvider,
 ): Promise<void> {
   if (!config.enabled) {
     return;
   }
 
   try {
-    const provider = new ClaudeCliProvider({
-      command: normalizeClaudeCommand(process.env.CLAUDE_CLI_COMMAND),
-      timeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
-    });
     const response = await provider.generate({
       prompt: buildExtractionPrompt(context),
       model: config.extractionModel,
@@ -90,6 +86,7 @@ export async function extractAndStoreMemories(
             conversation_key: context.conversationKey,
             channel_id: context.channelId,
             ...(context.threadId ? { thread_id: context.threadId } : {}),
+            extraction_provider: config.extractionProvider,
             extraction_model: config.extractionModel,
           },
         });
@@ -119,11 +116,6 @@ function buildExtractionPrompt(context: MemoryCaptureContext): string {
     `User: ${context.userMessage}`,
     `Agent: ${context.agentResponse}`,
   ].join("\n");
-}
-
-function normalizeClaudeCommand(value?: string): string {
-  const normalized = value?.trim();
-  return normalized && normalized.length > 0 ? normalized : "claude";
 }
 
 function parseExtractionResponse(text: string): ExtractedMemory[] {

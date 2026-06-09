@@ -634,8 +634,17 @@ export function createWorkoutTools(overrides?: WellnessToolPaths): AgentTool[] {
     {
       name: "workout_sql",
       description: [
-        "Run any SQL against the workout Postgres database — reads and writes.",
-        "Schema:",
+        "Run SQL against the workout Postgres database — reads and writes.",
+        "",
+        "PREFERRED for logging a workout: action:'log_workout' — pass structured params and the",
+        "tool builds all the SQL for you (creates the workout, resolves the routine + each exercise",
+        "by name/alias, inserts every set). You do NOT write SQL or look up ids. Shape:",
+        "  { action:'log_workout', routine?:'Push Day A', date?:'today'|'YYYY-MM-DD', notes?:'...',",
+        "    exercises:[ { exercise:'Bench Press', sets:[ {weight:135, reps:12, rpe?:8}, {weight:135, reps:10} ] }, ... ] }",
+        "Returns workout_id, sets_logged, and unmatched_exercises (names that didn't resolve — fix the",
+        "name or create the exercise first). Use raw `sql` only for reads or edits log_workout can't express.",
+        "",
+        "Schema (for raw `sql`):",
         "  workouts (id serial, date date, workout_type text family, routine_id int FK workout_routines.id, started_at timestamptz, ended_at timestamptz, bodyweight_lbs numeric, notes text)",
         "  sets (id serial, workout_id int FK, exercise_id int FK, exercise_order int, set_number int, weight_lbs numeric, reps int, rpe numeric 1-10, volume numeric GENERATED weight*reps, notes text)",
         "  exercises (id serial, name text UNIQUE, muscle_group text, movement_pattern text, equipment text, aliases text[])",
@@ -656,12 +665,50 @@ export function createWorkoutTools(overrides?: WellnessToolPaths): AgentTool[] {
       inputSchema: {
         type: "object",
         properties: {
-          sql: { type: "string", description: "SQL query to run against the workout database" },
+          action: { type: "string", enum: ["log_workout"], description: "Set to 'log_workout' to use the structured logging path instead of raw SQL." },
+          sql: { type: "string", description: "Raw SQL to run (reads, or edits log_workout can't express). Omit when action='log_workout'." },
+          routine: { type: "string", description: "For log_workout: routine name (e.g. 'Push Day A'); resolved by name or alias. Optional." },
+          date: { type: "string", description: "For log_workout: 'today' (default), 'yesterday', or 'YYYY-MM-DD'." },
+          notes: { type: "string", description: "For log_workout: optional workout notes." },
+          exercises: {
+            type: "array",
+            description: "For log_workout: [{ exercise:'Bench Press', sets:[{weight,reps,rpe?}] }]",
+            items: {
+              type: "object",
+              properties: {
+                exercise: { type: "string" },
+                sets: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      weight: { type: "number" },
+                      reps: { type: "number" },
+                      rpe: { type: "number" },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
-        required: ["sql"],
       },
       handler: async (input) => {
+        // Structured logging path: build the multi-table SQL server-side so the model
+        // never has to hand-write INSERTs, resolve routine_id, or look up exercise_ids.
+        // One call: create the workout, resolve each exercise by name/alias, insert all
+        // sets, report sets logged + any unmatched exercise names.
+        if (String(input.action ?? "").trim().toLowerCase() === "log_workout") {
+          const built = buildLogWorkoutSql(input);
+          if ("error" in built) return built;
+          const stdout = await runShellCommand(paths.workoutScript, ["sql", built.sql]);
+          return { result: stdout, logged: true };
+        }
+
         const query = String(input.sql).trim();
+        if (!query) {
+          return { error: "Provide 'sql', or action:'log_workout' with structured params." };
+        }
         if (/^\s*(DROP|ALTER|CREATE|TRUNCATE)/i.test(query)) {
           return { error: "Schema modifications are not allowed." };
         }
@@ -670,6 +717,93 @@ export function createWorkoutTools(overrides?: WellnessToolPaths): AgentTool[] {
       },
     },
   ];
+}
+
+// SQL-string and number escaping for the structured log_workout builder (the workout
+// script takes a raw SQL string, so values must be escaped, not parameterized).
+function workoutSqlStr(value: unknown): string {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+function workoutSqlNum(value: unknown): string {
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : "NULL";
+}
+
+// Build one CTE statement that logs a full workout: insert the workout (resolving a named
+// routine via LATERAL LIMIT 1 so an ambiguous/absent name still yields exactly one row),
+// resolve each set's exercise by name/alias, insert matched sets, and return a summary
+// row (workout_id, sets_logged, unmatched_exercises). No stdout parsing needed.
+function buildLogWorkoutSql(
+  input: Record<string, unknown>,
+): { sql: string } | { error: string } {
+  const exercises = Array.isArray(input.exercises) ? input.exercises : [];
+  if (exercises.length === 0) {
+    return { error: "log_workout needs 'exercises': [{ exercise, sets: [{ weight, reps, rpe? }] }]." };
+  }
+
+  const dateRaw = typeof input.date === "string" ? input.date.trim().toLowerCase() : "";
+  const dateExpr = !dateRaw || dateRaw === "today"
+    ? "CURRENT_DATE"
+    : dateRaw === "yesterday"
+      ? "CURRENT_DATE - 1"
+      : /^\d{4}-\d{2}-\d{2}$/.test(dateRaw)
+        ? `DATE ${workoutSqlStr(dateRaw)}`
+        : "CURRENT_DATE";
+
+  const routine = typeof input.routine === "string" && input.routine.trim() ? input.routine.trim() : null;
+  const notes = typeof input.notes === "string" && input.notes.trim() ? input.notes.trim() : null;
+
+  const rows: string[] = [];
+  exercises.forEach((exRaw, exIdx) => {
+    const ex = (exRaw && typeof exRaw === "object" ? exRaw : {}) as Record<string, unknown>;
+    const name = String(ex.exercise ?? ex.name ?? "").trim();
+    if (!name) return;
+    const sets = Array.isArray(ex.sets) ? ex.sets : [];
+    sets.forEach((setRaw, setIdx) => {
+      const s = (setRaw && typeof setRaw === "object" ? setRaw : {}) as Record<string, unknown>;
+      rows.push(
+        `(${workoutSqlStr(name)}, ${exIdx + 1}, ${setIdx + 1}, ` +
+        `${workoutSqlNum(s.weight ?? s.weight_lbs)}, ${workoutSqlNum(s.reps)}, ` +
+        `${s.rpe != null ? workoutSqlNum(s.rpe) : "NULL"})`,
+      );
+    });
+  });
+  if (rows.length === 0) {
+    return { error: "log_workout: each exercise needs a non-empty 'sets' array (e.g. sets:[{weight:135,reps:12}])." };
+  }
+
+  const routineLateral = routine
+    ? `LEFT JOIN LATERAL (SELECT id, workout_type FROM workout_routines ` +
+      `WHERE name ILIKE ${workoutSqlStr(routine)} OR ${workoutSqlStr(routine)} ILIKE ANY(aliases) LIMIT 1) wr ON TRUE`
+    : `LEFT JOIN LATERAL (SELECT NULL::int AS id, NULL::text AS workout_type) wr ON TRUE`;
+
+  const sql = `
+WITH nw AS (
+  INSERT INTO workouts (date, workout_type, routine_id, notes)
+  SELECT ${dateExpr}, COALESCE(wr.workout_type, 'general'), wr.id, ${notes ? workoutSqlStr(notes) : "NULL"}
+  FROM (SELECT 1) one
+  ${routineLateral}
+  RETURNING id
+),
+sd (ex_name, ex_order, set_num, weight, reps, rpe) AS ( VALUES ${rows.join(", ")} ),
+resolved AS (
+  SELECT sd.*, e.id AS exercise_id
+  FROM sd
+  LEFT JOIN exercises e ON e.name ILIKE sd.ex_name OR sd.ex_name ILIKE ANY(e.aliases)
+),
+ins AS (
+  INSERT INTO sets (workout_id, exercise_id, exercise_order, set_number, weight_lbs, reps, rpe)
+  SELECT nw.id, r.exercise_id, r.ex_order, r.set_num, r.weight, r.reps, r.rpe
+  FROM resolved r CROSS JOIN nw
+  WHERE r.exercise_id IS NOT NULL
+  RETURNING id
+)
+SELECT (SELECT id FROM nw) AS workout_id,
+       (SELECT count(*) FROM ins) AS sets_logged,
+       COALESCE((SELECT string_agg(DISTINCT ex_name, ', ') FROM resolved WHERE exercise_id IS NULL), '') AS unmatched_exercises
+`.trim();
+
+  return { sql };
 }
 
 // ---------------------------------------------------------------------------
