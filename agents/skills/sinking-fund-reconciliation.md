@@ -1,8 +1,9 @@
 # sinking_fund_reconciliation
 
-Reconcile Watson's sinking-fund-backed Lunch Money spending against the three
-Ally sinking fund balances. Use this for weekly tracking, month-end pre-close,
-and ad-hoc requests like "run a sinking fund reconciliation for April."
+Reconcile Watson's sinking-fund-backed Lunch Money spending against the
+configured Ally sinking fund balances. Use this for weekly tracking, month-end
+pre-close, and ad-hoc requests like "run a sinking fund reconciliation for
+April."
 
 This skill is now a module inside the unified `finance_review` workflow. Use it
 for the sinking-fund section of rolling, close-prep, and close reviews.
@@ -15,10 +16,10 @@ that offsets a covered personal budget category in Lunch Money.
 
 Start every run by reading the Obsidian note titled `Sinking Fund Budget System`.
 Treat that note as the authoritative source for fund names, account suffixes,
-targets, floors, monthly contributions, and covered categories.
+targets, floors, contribution cadences, and covered categories.
 
 Execution order for the note:
-- First try `print 'Records/Finance/Sinking Fund Budget System' --vault main`.
+- First try `print 'References/Finance/Sinking Fund Budget System' --vault main`.
 - If that exact print fails, search for the exact title and then print the
   matching note path.
 - Do not conclude "note not found" if search results already show the dedicated
@@ -26,20 +27,33 @@ Execution order for the note:
 - Do not substitute `Net Income Financial Plan` for the dedicated sinking fund
   note when the dedicated note is present.
 
-Current baseline config from the note plus later user corrections:
+The note can evolve faster than this repo snapshot. Read the note first and let
+it override the fallback rows below. Current known fallback rows:
 
-| Fund | Ally account | Covered categories | Target | Floor | Monthly contribution |
+| Fund | Ally account | Covered categories | Target | Floor | Contribution |
 | --- | --- | --- | --- | --- | --- |
 | House SB | Ally `...5721` | Home Improvement, Home Repair | $20,000 | $10,000 | $700 |
 | Vehicles SB | Ally `...3271` | Auto Repair, Boat | $10,000 | $5,000 | $350 |
 | Recreation SB | Ally `...5846` | Fishing and Outdoors (`Fishing & Outdoors` in some reports) | $10,000 | none | $300 |
+| Kilo spending reserve | profile-configured backing account | profile-configured child spending category | note-defined | note-defined | note-defined |
 
 Important exclusions and context:
 - `Gas & Charging` is **not** covered by any sinking fund.
-- `Spending SB` is outside this workflow unless the user explicitly asks.
+- Any owner spending reserve is separate from the profile-configured Kilo
+  spending reserve; never merge them.
+- The Kilo spending reserve is in scope for this workflow when the note lists
+  it or when the user asks about Kilo child spending.
+- Kilo ledger bookkeeping for child spending review is governed by the private
+  Kilo spending runbook: recommend Kilo bucket draws, wait for owner approval,
+  then record approved current spends with `kilo_ledger record_spend`. Later
+  bank transfers out of the backing account are settlements of already-recorded
+  spends, not second debits.
 - Historical back-payments may exist, so do not assume older months were
   fully reconciled already.
-- Contributions land on the 16th of each month and should total $1,350.
+- Contribution cadences come from the note. Monthly contribution checks apply
+  to the monthly funds unless the note says otherwise. Kilo funding should be
+  verified from transaction history and backing-account activity after its
+  configured due date.
 
 If the note conflicts with a newer explicit user instruction, prefer the newer
 instruction and call out the override in the report.
@@ -63,22 +77,22 @@ At minimum:
 - Read `Sinking Fund Budget System` from Obsidian.
 - Fetch Lunch Money categories so category names and ids are current.
 - Fetch Lunch Money transactions for the reporting window.
-- Fetch current balances for the three Ally sinking fund accounts using the
-  account or asset endpoints available in this installation.
+- Fetch current balances for the note-defined Ally sinking fund accounts using
+  the account or asset endpoints available in this installation.
 
 Balances are required output fields for this workflow. If one Lunch Money
 balance endpoint fails, try another available account or asset endpoint before
 you finish. If balances still cannot be retrieved, say that explicitly.
 
 When you need contribution verification:
-- Check the current month's transaction history for the three SB contribution
-  categories instead of relying on recurring-item data.
+- Check the current month's transaction history for SB contribution categories
+  instead of relying on recurring-item data.
 - Check savings-side transfer activity before marking a contribution missing.
-  House SB and Recreation SB contributions may be visible on their dedicated
-  Ally savings accounts even when checking-account outflows are hard to match.
+  Contributions may be visible on their dedicated Ally savings accounts even
+  when checking-account outflows are hard to match.
 - Fetch `/plaid_accounts` and verify `last_import`, `last_fetch`, and
-  `plaid_last_successful_update` for checking and the three SB accounts. If
-  those timestamps are before the expected contribution date, trigger
+  `plaid_last_successful_update` for checking and the note-defined SB accounts.
+  If those timestamps are before the expected contribution date, trigger
   `POST /plaid_accounts/fetch` for the stale account IDs and contribution date
   window, wait about 20-60 seconds, then re-query account freshness and
   transactions. If the data is still stale or absent, report
@@ -92,10 +106,11 @@ Reconcile only these category-to-fund mappings unless the note has changed:
 - House SB: `Home Improvement`, `Home Repair`
 - Vehicles SB: `Auto Repair`, `Boat`
 - Recreation SB: `Fishing and Outdoors` (or `Fishing & Outdoors`)
+- Kilo spending reserve: profile-configured child spending category
 
 Do not pull `Gas & Charging` into any sinking fund totals.
-Do not include `Spending SB` in tables, totals, contribution checks, or
-follow-up recommendations unless the user explicitly asks for it.
+Do not merge any owner spending reserve and the Kilo spending reserve; they are
+separate reserves.
 
 ### 2. Calculate category spending
 
@@ -154,18 +169,19 @@ Warnings:
 - For House and Vehicles, remind the user that below-floor use should be
   essential-only based on the configured floor philosophy.
 
-### 6. Check the monthly contribution status
+### 6. Check contribution status
 
-Expected contribution timing:
+Expected fallback contribution timing:
 - House SB: $700 on the 16th
 - Vehicles SB: $350 on the 16th
 - Recreation SB: $300 on the 16th
+- Kilo spending reserve: note/profile-configured cadence and amount
 
 Contribution reporting rules:
-- If the run date is before the 16th of the current month, mark each
-  contribution as `not due yet`.
-- Otherwise, verify whether the expected amount posted this month and flag
-  anything missing or mismatched.
+- For monthly funds, if the run date is before the due date in the current
+  month, mark the contribution as `not due yet`.
+- Otherwise, verify whether the expected amount posted in the applicable
+  period and flag anything missing or mismatched.
 - For historical month requests, verify the contribution inside that month when
   possible and label any uncertainty.
 
@@ -188,7 +204,9 @@ Include:
 | Fund | Spend | Reimbursed | Outstanding | Current Balance | After Reimbursing | Floor | Target Gap | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-Only include `House SB`, `Vehicles SB`, and `Recreation SB`.
+Include the note-defined sinking funds that are in scope for the request or
+Finance Review phase. Keep owner spending reserves separate from the Kilo
+spending reserve.
 
 Status should be concise:
 - `On track`
@@ -213,8 +231,8 @@ Include:
 | Fund | Expected | Status |
 | --- | --- | --- |
 
-Only include `House SB`, `Vehicles SB`, and `Recreation SB` unless the user
-explicitly asks for another fund.
+Include the note-defined sinking funds that are in scope for the request or
+Finance Review phase.
 
 Status examples:
 - `posted`

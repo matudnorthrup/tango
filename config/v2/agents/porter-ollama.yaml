@@ -1,0 +1,113 @@
+id: porter-ollama
+enabled: true
+display_name: Porter (Ollama)
+type: lds-companion
+
+# System prompt = personality + domain + rules
+system_prompt_file: agents/assistants/porter/soul.md
+
+# MCP servers this agent can access
+mcp_servers:
+  - name: memory
+    command: node
+    args: ["packages/atlas-memory/dist/index.js"]
+  - name: attachments
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "attachments"]
+    env:
+      ALLOWED_TOOL_IDS: "attachment_search,attachment_read,attachment_status"
+  - name: google
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "google"]
+    env:
+      ALLOWED_TOOL_IDS: "gog_email"
+      WORKER_ID: "church-assistant"
+  - name: obsidian
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
+    env:
+      ALLOWED_TOOL_IDS: "obsidian"
+      WORKER_ID: "church-assistant"
+  - name: browser
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "browser"]
+    env:
+      ALLOWED_TOOL_IDS: "browser"
+      WORKER_ID: "church-assistant"
+  - name: gospel-library
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "gospel-library"]
+    env:
+      ALLOWED_TOOL_IDS: "gospel_library"
+      WORKER_ID: "church-assistant"
+  - name: onepassword
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "onepassword"]
+    env:
+      ALLOWED_TOOL_IDS: "onepassword"
+      WORKER_ID: "church-assistant"
+
+# Runtime configuration
+runtime:
+  mode: persistent
+  provider: claude-code-v2
+  fallback: codex
+  model: deepseek-v4-pro:cloud
+  reasoning_effort: high
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.80
+  timeout_seconds: 2700
+
+# Memory configuration
+memory:
+  post_turn_extraction: enabled
+  extraction_provider: ollama
+  extraction_model: gpt-oss:20b
+  importance_threshold: 0.4
+  scheduled_reflection: enabled
+
+# Discord routing
+discord:
+  default_channel_id: "1513207696331898981"
+
+# Restrict this clone to its own channel
+access:
+  mode: allowlist
+  allowlist_channel_ids:
+    - "1513207696331898981"
+
+# Legacy registry fields
+avatar_path: agents/assistants/porter/avatar.png
+default_topic: personal/lds-companion
+default_project: personal
+response_mode: explain
+
+provider:
+  default: ollama
+  model: deepseek-v4-pro:cloud
+  reasoning_effort: high
+  fallback: []
+
+tools:
+  mode: allowlist
+  allowlist:
+    - WebSearch
+    - WebFetch
+
+deterministic_routing:
+  enabled: false
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex
+
+# Voice addressing — distinct "Whiskey <Name>" wake word so it never
+# collides with the original porter's wake word (start-anchored matcher).
+voice:
+  call_signs:
+    - "Whiskey Porter"
+  kokoro_voice: am_liam
+  default_channel_id: "1513207696331898981"

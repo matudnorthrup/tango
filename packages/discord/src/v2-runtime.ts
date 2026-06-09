@@ -1,6 +1,7 @@
 import type {
   AgentRuntimeConfig,
   AttachmentStore,
+  ChatProvider,
   ColdStartContextBuilder,
   RuntimeResponse,
   SendOptions,
@@ -152,6 +153,8 @@ export function createAtlasColdStartContextBuilder(
 export function createV2PostTurnHook(input: {
   v2Configs: ReadonlyMap<string, V2AgentConfig>;
   atlasMemoryClient: AtlasMemoryClient;
+  /** Resolves a registered ChatProvider by name (e.g. "ollama", "claude-oauth"). */
+  resolveProvider: (name: string) => ChatProvider | undefined;
   extractAndStoreMemoriesImpl?: typeof extractAndStoreMemories;
 }): (context: {
   conversationKey: string;
@@ -167,8 +170,23 @@ export function createV2PostTurnHook(input: {
       return;
     }
 
+    // Resolve the extraction provider. Explicit config wins; otherwise derive from
+    // the agent backend so Ollama clones extract via the (cheap, off-Claude) Ollama
+    // provider rather than billing the Claude CLI on every turn.
+    const extractionProvider =
+      agentV2Config.memory.extractionProvider ??
+      (isOllamaBackedAgent(agentV2Config) ? "ollama" : "claude-oauth");
+    const provider = input.resolveProvider(extractionProvider);
+    if (!provider) {
+      console.warn(
+        `[memory-capture] no provider '${extractionProvider}' registered for agent ${context.agentId}; skipping post-turn extraction`,
+      );
+      return;
+    }
+
     const captureConfig: MemoryCaptureConfig = {
       enabled: true,
+      extractionProvider,
       extractionModel: agentV2Config.memory.extractionModel,
       importanceThreshold: agentV2Config.memory.importanceThreshold,
     };
@@ -185,6 +203,7 @@ export function createV2PostTurnHook(input: {
       },
       captureConfig,
       input.atlasMemoryClient,
+      provider,
     );
   };
 }

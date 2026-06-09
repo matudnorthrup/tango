@@ -495,6 +495,87 @@ function collectScheduleIssues(rows: ScheduleRunRow[], scheduleIds: string[]): s
   return issues;
 }
 
+function markdownSectionBody(
+  text: string,
+  headingMatches: (trimmedLine: string) => boolean,
+): string | null {
+  const lines = text.split(/\r?\n/u);
+  const start = lines.findIndex((line) => headingMatches(line.trim()));
+  if (start === -1) {
+    return null;
+  }
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^##\s+\S/u.test(lines[i]?.trim() ?? "")) {
+      end = i;
+      break;
+    }
+  }
+
+  return lines.slice(start + 1, end).join("\n");
+}
+
+function sectionHasFilledTask(body: string | null): boolean {
+  if (!body) {
+    return false;
+  }
+
+  return body.split(/\r?\n/u).some((line) => {
+    const match = line.trim().match(/^-\s+\[[ xX]\]\s*(.+)$/u);
+    return Boolean(match?.[1]?.trim());
+  });
+}
+
+function generatedPlanningSectionsAreBlank(noteText: string): boolean {
+  const priorities = markdownSectionBody(noteText, (line) => line === "## Today's Priorities");
+  const stretch = markdownSectionBody(noteText, (line) => line === "## Stretch (if capacity)");
+
+  return !sectionHasFilledTask(priorities) && !sectionHasFilledTask(stretch);
+}
+
+function briefHasFlaggedItems(briefText: string): boolean {
+  const flaggedHeader = briefText.match(/^## Flagged(?:\s*\((\d+)\))?/mu);
+  if (flaggedHeader?.[1]) {
+    return Number.parseInt(flaggedHeader[1], 10) > 0;
+  }
+
+  const flaggedBody = markdownSectionBody(briefText, (line) => line.startsWith("## Flagged"));
+  return Boolean(flaggedBody?.split(/\r?\n/u).some((line) => /^-\s+\S/u.test(line.trim())));
+}
+
+function collectMorningPlanningArtifactIssues(input: {
+  rows: ScheduleRunRow[];
+  flowDate: MorningFlowDate;
+  notePath: string;
+  briefPath: string;
+}): string[] {
+  const issues: string[] = [];
+  const planningRun = latestRowsBySchedule(input.rows).get("morning-planning");
+  const planningDateMatch = planningRun?.summary?.match(/Morning Planning Complete\s*[—-]\s*([^*\n]+)/u);
+  const reportedDate = planningDateMatch?.[1]?.trim();
+
+  if (planningRun?.status === "ok" && reportedDate && reportedDate !== input.flowDate.displayDate) {
+    issues.push(
+      `morning-planning reported ${reportedDate} instead of ${input.flowDate.displayDate}.`,
+    );
+  }
+
+  if (!fs.existsSync(input.notePath) || !fs.existsSync(input.briefPath)) {
+    return issues;
+  }
+
+  const noteText = fs.readFileSync(input.notePath, "utf8");
+  const briefText = fs.readFileSync(input.briefPath, "utf8");
+  if (briefHasFlaggedItems(briefText) && generatedPlanningSectionsAreBlank(noteText)) {
+    issues.push(
+      `morning-planning left generated daily-note planning sections blank for ${input.flowDate.date}.`,
+    );
+  }
+
+  return issues;
+}
+
 function renderScheduleLines(rows: ScheduleRunRow[], scheduleIds: string[]): string[] {
   const latest = latestRowsBySchedule(rows);
   return scheduleIds.map((scheduleId) => {
@@ -684,6 +765,15 @@ export function runMorningFlowSentinel(
     ].join(", ");
     issues.unshift(`Daily note was repaired${repairs ? ` (${repairs})` : ""}: ${note.notePath}`);
   }
+
+  issues.push(
+    ...collectMorningPlanningArtifactIssues({
+      rows,
+      flowDate,
+      notePath: note.notePath,
+      briefPath: targetBriefPath,
+    }),
+  );
 
   if (!fs.existsSync(targetBriefPath)) {
     writeFallbackBrief({

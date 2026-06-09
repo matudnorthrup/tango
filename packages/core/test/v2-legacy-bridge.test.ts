@@ -383,7 +383,7 @@ describe("loadUnifiedAgentConfigs", () => {
     expect(unifiedIds).toContain("dispatch");
   });
 
-  it("loads enabled bundled v2 configs while keeping older personal configs disabled", () => {
+  it("loads bundled v2 configs including canonical and Ollama variants", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     const v2Dir = path.join(repoRoot, "config", "v2", "agents");
     process.env.TANGO_CONFIG_DIR = defaultsDir;
@@ -395,24 +395,61 @@ describe("loadUnifiedAgentConfigs", () => {
     expect([...v2Configs.keys()].sort()).toEqual(
       [
         "charlie",
+        "charlie-ollama",
         "cod-e",
         "foxtrot",
+        "foxtrot-ollama",
         "jules",
         "juliet",
+        "juliet-ollama",
+        "kilo",
         "malibu",
+        "malibu-ollama",
+        "ollama-test",
         "piper",
         "porter",
+        "porter-ollama",
         "sierra",
+        "sierra-ollama",
         "victor",
+        "victor-ollama",
         "watson",
+        "watson-ollama",
       ],
     );
     const enabledV2Ids = [...v2Configs.values()]
       .filter((v2Config) => v2Config.enabled !== false)
       .map((v2Config) => v2Config.id)
       .sort();
-    expect(enabledV2Ids).toEqual(["cod-e", "jules", "piper"]);
-    expect([...unifiedById.keys()].sort()).toEqual(["cod-e", "dispatch", "jules", "piper"]);
+    expect(enabledV2Ids).toEqual([
+      "charlie-ollama",
+      "cod-e",
+      "foxtrot-ollama",
+      "jules",
+      "juliet-ollama",
+      "malibu-ollama",
+      "ollama-test",
+      "piper",
+      "porter-ollama",
+      "sierra-ollama",
+      "victor-ollama",
+      "watson-ollama",
+    ]);
+    expect([...unifiedById.keys()].sort()).toEqual([
+      "charlie-ollama",
+      "cod-e",
+      "dispatch",
+      "foxtrot-ollama",
+      "jules",
+      "juliet-ollama",
+      "malibu-ollama",
+      "ollama-test",
+      "piper",
+      "porter-ollama",
+      "sierra-ollama",
+      "victor-ollama",
+      "watson-ollama",
+    ]);
     expect(unifiedById.get("dispatch")).toMatchObject({
       id: "dispatch",
       type: "router",

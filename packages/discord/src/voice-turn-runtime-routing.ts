@@ -18,6 +18,14 @@ export const VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT = [
   "Avoid reading out IDs, URLs, or long reference numbers — paraphrase or omit them.",
 ].join(" ");
 
+function resolveVoiceProviderName(v2AgentConfig: V2AgentConfig): string {
+  // Mirror isOllamaBackedAgent: label Ollama-backed voice turns "ollama" instead of
+  // using runtime.provider ("claude-code-v2"), which was recorded for every clone.
+  return v2AgentConfig.legacyProvider?.default === "ollama"
+    ? "ollama"
+    : v2AgentConfig.runtime.provider;
+}
+
 function extractProviderSessionId(response: RuntimeResponse): string | undefined {
   const metadata = response.metadata;
   if (!metadata || typeof metadata !== "object") {
@@ -41,7 +49,7 @@ export function buildVoiceRouterResult(input: {
   const result: VoiceTurnResult = {
     deduplicated: false,
     responseText: input.routeResult.response.text,
-    providerName: input.v2AgentConfig.runtime.provider,
+    providerName: resolveVoiceProviderName(input.v2AgentConfig),
     providerSessionId: extractProviderSessionId(input.routeResult.response),
     providerUsedFailover: false,
   };
@@ -62,7 +70,7 @@ export function buildVoiceRouterErrorResult(input: {
   const result: VoiceTurnResult = {
     deduplicated: false,
     responseText: fallbackText,
-    providerName: input.v2AgentConfig.runtime.provider,
+    providerName: resolveVoiceProviderName(input.v2AgentConfig),
     providerUsedFailover: false,
   };
 

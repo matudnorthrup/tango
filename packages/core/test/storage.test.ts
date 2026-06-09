@@ -383,6 +383,34 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds Kilo governance with ledger access", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    const principal = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'worker:kilo'",
+    ).get() as { id: string; parent_id: string } | undefined;
+    const permission = db.prepare(
+      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'worker:kilo' AND tool_id = 'kilo_ledger'",
+    ).get() as { principal_id: string; tool_id: string; access_level: string } | undefined;
+
+    expect(principal).toEqual({
+      id: "worker:kilo",
+      parent_id: "agent:kilo",
+    });
+    expect(permission).toEqual({
+      principal_id: "worker:kilo",
+      tool_id: "kilo_ledger",
+      access_level: "write",
+    });
+    expect(checker.hasPermission("worker:kilo", "kilo_ledger", "read")).toBe(true);
+    expect(checker.hasPermission("worker:kilo", "kilo_ledger", "write")).toBe(true);
+
+    db.close();
+  });
+
   it("lists recoverable discord inbound messages that never reached execution", () => {
     const { storage } = createStorage();
     storage.bootstrapSessions([
