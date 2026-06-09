@@ -217,6 +217,7 @@ import {
   buildContextSlashReply,
 } from "./context-visibility.js";
 import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
+import { buildModelScorecard, loadEvaluatedModels } from "./model-scorecard.js";
 import { AtlasMemoryClient } from "./atlas-memory-client.js";
 import { TangoRouter } from "./tango-router.js";
 import {
@@ -1535,6 +1536,33 @@ registerDeterministicHandler("claude-artifact-cleanup", async (_ctx) => {
       `(${result.deletedJsonlCount} transcripts, ${result.deletedDirectoryCount} directories)` +
       (result.errors.length > 0 ? `, errors=${result.errors.length}` : ""),
     data: { ...result },
+  };
+});
+
+registerDeterministicHandler("model-scorecard", async (_ctx) => {
+  const now = new Date();
+  const windowDays = 7;
+  const utcBoundary = (daysAgo: number) =>
+    new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
+  const currentSince = utcBoundary(windowDays);
+  const allSince = storage.listModelRunStats(utcBoundary(windowDays * 2));
+  const current = allSince.filter((row) => row.createdAt >= currentSince);
+  const previous = allSince.filter((row) => row.createdAt < currentSince);
+  const scorecard = buildModelScorecard({
+    current,
+    previous,
+    evaluatedModels: loadEvaluatedModels(process.cwd()),
+    windowDays,
+    now,
+  });
+  return {
+    status: "ok",
+    summary: scorecard.summary,
+    data: {
+      pairs: scorecard.pairs.length,
+      totalRuns: current.length,
+      flags: scorecard.flags,
+    },
   };
 });
 
