@@ -19,6 +19,14 @@
       "sections": ["flagged", "overnightJobs"]
     },
     {
+      "scheduleId": "kilo-ledger-monitor",
+      "displayName": "Kilo Ledger Monitor",
+      "domain": "Finance",
+      "logPath": "Records/Jobs/Finance/YYYY-MM.md",
+      "critical": true,
+      "sections": ["flagged", "overnightJobs"]
+    },
+    {
       "scheduleId": "daily-email-review",
       "displayName": "Daily Email Review",
       "domain": "Email",

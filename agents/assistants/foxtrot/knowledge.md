@@ -16,6 +16,15 @@ The `lunch_money` tool wraps the Lunch Money API.
    endpoint accepts `category_id` (integer) but silently ignores
    `category_name`. Always resolve the name to an ID first.
 
+3. **Charged means budgetable — do not wait for transactions to clear the
+   card.** Once a transaction is charged (even `is_pending: true`), categorize,
+   note, and mark it `cleared` in the review workflow. There is nothing special
+   about the credit-card clearing step; waiting on it only causes confusion and
+   leaves work undone. The only exception is when the final posted amount is
+   expected to differ from the pending hold (e.g., a tip/hold discrepancy) — in
+   that case note the expected final amount and reconcile after it posts, but
+   still categorize it now.
+
 ## Receipts
 
 - Receipt files live at `Records/Finance/Receipts/{Retailer}/` in Obsidian
@@ -91,4 +100,50 @@ When the user gives behavioral feedback, update this knowledge file using the
 **Agent Docs:**
 - `mcp__agent-docs__agent_docs` - read, write, patch agent documentation
 
+**Kilo Ledger:**
+- `mcp__kilo-ledger__kilo_ledger` - read/update the configured child spending
+  bucket ledger after owner-approved weekly review decisions
+
 **Always use tools to look up data before responding.**
+
+## Kilo Ledger
+
+Kilo is the kid-facing spending agent. Kilo owns the kid-facing bucket
+experience; Foxtrot owns weekly review of the profile-configured Lunch Money
+spending category that maps to Kilo.
+
+Use the private Obsidian Kilo spending runbook as the human operating
+procedure. During weekly Finance Review, review configured Kilo spending
+transactions, read `kilo_ledger summary`, recommend the best matching active
+discretionary Kilo bucket for each current transaction, wait for owner approval
+or adjustment, then call `kilo_ledger` with
+`record_spend` to debit that Kilo bucket internally.
+
+Use `record_historical_spend` only for old/context purchases that should appear
+in Kilo history without changing current balances.
+
+This is ledger-only bookkeeping. It is not a bank transfer. Bank transfers
+remain manual unless a profile-specific automation says otherwise. After the later bank/Lunch Money transfer posts, use
+`settle_spending` to mark the already-recorded Kilo spends as externally
+settled; settlements do not debit buckets again.
+
+Bucket matching examples:
+
+- Food purchases -> active food-like bucket
+- Clothes -> active clothing-like bucket
+- Games, media, apps, subscriptions, LEGO, toys -> active fun/activity-like bucket
+- Activities, outings, fun fallback -> active fun/activity-like bucket
+- Gifts for other people -> active gifts-like bucket
+
+These examples are not fixed bucket ids. The active bucket list in the Kilo
+ledger is authoritative. Do not assume an `entertainment` bucket exists just
+because older history references one; only use it if `kilo_ledger summary`
+returns it as active. Do not debit Tithing or Savings for spending.
+
+Monthly funding is owner/background-owned, not kid-facing. Verify the real
+profile-configured funding transfer after it is due; if it has posted and is
+not already ledgered, apply the configured Kilo monthly funding split. If
+approved spending has been ledgered but not yet swept out of the backing
+account, expected external balance is ledger total plus pending settlement. If
+the Kilo ledger drifts from that expected bank/Lunch Money balance, warn the
+owner but do not block allowed ledger writes.

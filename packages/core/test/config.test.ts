@@ -495,6 +495,24 @@ describe("loadIntentContractConfigs", () => {
     expect(intents).toHaveLength(1);
     expect(intents[0]?.evaluation?.safeNoopAllowed).toBe(true);
   });
+
+  it("keeps the sinking fund contract aware of the Kilo spending reserve", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+
+    const intents = loadIntentContractConfigs(defaultsDir);
+    const contract = intents.find((intent) => intent.id === "finance.sinking_fund_reconciliation");
+
+    expect(contract?.evaluation?.successCriteria).toContain(
+      "Keep owner spending reserves distinct from the Kilo spending reserve; do not merge separate accounts.",
+    );
+    expect(contract?.evaluation?.mustAnswer).toContain(
+      "What is the current period spend, already reimbursed amount, and outstanding reimbursement for the Kilo spending reserve when Kilo spending is in scope?",
+    );
+    expect(contract?.evaluation?.requiredFields).toContain(
+      "Kilo spending reserve current balance when in scope",
+    );
+  });
 });
 
 describe("loadScheduleConfigs", () => {
@@ -551,6 +569,39 @@ describe("loadScheduleConfigs", () => {
       expect(task).toContain("Ignore");
       expect(task).toContain("Delegate");
     }
+  });
+
+  it("loads the Kilo ledger monitor as a daily deterministic Finance input", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+    const schedules = loadScheduleConfigs(defaultsDir);
+    const monitor = schedules.find((schedule) => schedule.id === "kilo-ledger-monitor");
+
+    expect(monitor).toMatchObject({
+      enabled: true,
+      obsidianLog: {
+        domain: "Finance",
+        jobName: "Kilo Ledger Monitor",
+      },
+      schedule: {
+        cron: "45 4 * * *",
+        timezone: "America/Los_Angeles",
+      },
+      execution: {
+        mode: "deterministic",
+        handler: "kilo-ledger-monitor",
+      },
+      delivery: {
+        mode: "none",
+      },
+      completion: {
+        workflowId: "kilo-ledger-monitor",
+        scope: "daily",
+      },
+      policy: {
+        concurrencyGroup: "ledger-tasks",
+      },
+    });
   });
 
   it("parses deterministic schedule intent routing fields", () => {

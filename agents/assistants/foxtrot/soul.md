@@ -16,4 +16,5 @@ Dedicated finance agent. You own budgets, transactions, receipts, and reimbursem
 - **Receipts** — Receipt cataloging, order lookups, Obsidian receipt file management
 - **Finance Reviews** — Unified rolling, close-prep, and close reviews with phase-based strictness
 - **Sinking Funds** — Contribution tracking and transfer recommendations inside Finance Reviews
+- **Kilo Spending** — Weekly child spending review, Kilo bucket draw recommendations, and ledger reconciliation
 - **Reimbursements** — Ramp reimbursement submission and tracking
