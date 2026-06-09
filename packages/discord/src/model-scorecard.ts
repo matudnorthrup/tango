@@ -85,6 +85,14 @@ export function aggregateModelPairs(rows: ModelRunStatLike[]): ModelPairStats[] 
   return pairs.sort((a, b) => b.runs - a.runs);
 }
 
+/** Coverage matching is family-level for Claude tiers: verdicts record alias
+ *  ids (claude:sonnet) while production logs full ids (claude-sonnet-4-6). */
+export function normalizeModelForCoverage(model: string): string {
+  const bare = model.replace(/^claude:/, "");
+  const family = bare.match(/^claude-(opus|sonnet|haiku)\b/);
+  return family?.[1] ?? bare;
+}
+
 /** Models with any bake-off verdict coverage, read from the committed verdict
  *  summaries. Claude benchmark ids count too — coverage is coverage. */
 export function loadEvaluatedModels(repoRoot: string): Set<string> {
@@ -103,7 +111,7 @@ export function loadEvaluatedModels(repoRoot: string): Set<string> {
       for (const entry of entries) {
         for (const candidate of entry?.candidates ?? []) {
           if (typeof candidate?.model === "string") {
-            evaluated.add(candidate.model.replace(/^claude:/, ""));
+            evaluated.add(normalizeModelForCoverage(candidate.model));
           }
         }
       }
@@ -151,7 +159,7 @@ export function buildModelScorecard(input: BuildScorecardInput): ModelScorecard 
     if (pair.capHits > 0) {
       flags.push(`CAP HITS: ${label} — ${pair.capHits} run(s) exhausted the tool-iteration budget`);
     }
-    if (pair.runs >= minEvalRuns && !input.evaluatedModels.has(pair.model)) {
+    if (pair.runs >= minEvalRuns && !input.evaluatedModels.has(normalizeModelForCoverage(pair.model))) {
       flags.push(`NEVER BAKED OFF: ${label} — ${pair.runs} production runs on a model with no verdict coverage`);
     }
   }

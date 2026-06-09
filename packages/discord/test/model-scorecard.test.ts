@@ -95,3 +95,19 @@ describe("buildModelScorecard flags", () => {
     expect(scorecard.summary).toContain("sierra-ollama deepseek-v4-pro:cloud");
   });
 });
+
+describe("coverage alias normalization", () => {
+  it("counts claude:sonnet verdict coverage for claude-sonnet-4-6 production runs", () => {
+    const current = Array.from({ length: 25 }, () =>
+      run({ agentId: "watson", model: "claude-sonnet-4-6" }),
+    );
+    const scorecard = buildModelScorecard({
+      current,
+      previous: [],
+      evaluatedModels: new Set(["sonnet"]),
+      windowDays: 7,
+      now: new Date("2026-06-09T12:00:00Z"),
+    });
+    expect(scorecard.flags.some((f) => f.startsWith("NEVER BAKED OFF"))).toBe(false);
+  });
+});
