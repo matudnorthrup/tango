@@ -1,0 +1,192 @@
+{
+  "latest": {
+    "when": "2026-06-09T21:47:04.886Z",
+    "harnessVersion": "2.0.0",
+    "fixtureSource": "model-bakeoff/tasks/shopping-walmart-equivalence.json",
+    "runsPerCandidate": 3,
+    "verdict": {
+      "fixtureId": "shopping.walmart.product-equivalence",
+      "passRateThreshold": 0.8,
+      "rubricThreshold": 0.7,
+      "rubricFloor": 0.6,
+      "recommendation": "minimax-m2.5",
+      "reason": "cheapest reliable candidate (passRate 100%, 604 out-tok/success (price unknown))",
+      "winner": "minimax-m2.5",
+      "incumbent": null,
+      "eligible": [
+        "minimax-m2.5",
+        "glm-5",
+        "deepseek-v4-pro:cloud",
+        "deepseek-v4-flash"
+      ],
+      "infraIncomplete": false
+    },
+    "candidates": [
+      {
+        "model": "minimax-m2.5",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 1,
+        "rubricMin": 1,
+        "rubricStdDev": 0,
+        "meanSeconds": 11.297000000000002,
+        "meanOutputTokens": 604.3333333333334,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "glm-5",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 1,
+        "rubricMin": 1,
+        "rubricStdDev": 0,
+        "meanSeconds": 9.71,
+        "meanOutputTokens": 677.3333333333334,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "deepseek-v4-pro:cloud",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9933333333333333,
+        "rubricMin": 0.98,
+        "rubricStdDev": 0.009428090415820642,
+        "meanSeconds": 16.272333333333332,
+        "meanOutputTokens": 778.3333333333334,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "deepseek-v4-flash",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.98,
+        "rubricMin": 0.97,
+        "rubricStdDev": 0.008164965809277268,
+        "meanSeconds": 9.796999999999999,
+        "meanOutputTokens": 818.6666666666666,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "claude:sonnet",
+        "benchmarkOnly": true,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 1,
+        "rubricMin": 1,
+        "rubricStdDev": 0,
+        "meanSeconds": 28.795666666666666,
+        "meanOutputTokens": 1095,
+        "meanCostUsd": null,
+        "gateFailures": []
+      }
+    ]
+  },
+  "history": [
+    {
+      "when": "2026-06-09T21:36:41.606Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/shopping-walmart-equivalence.json",
+      "runsPerCandidate": 3,
+      "verdict": {
+        "fixtureId": "shopping.walmart.product-equivalence",
+        "passRateThreshold": 0.8,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": "minimax-m2.5",
+        "reason": "cheapest reliable candidate (passRate 100%, 605 out-tok/success (price unknown))",
+        "winner": "minimax-m2.5",
+        "incumbent": null,
+        "eligible": [
+          "minimax-m2.5",
+          "glm-5"
+        ],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.7333333333333333,
+          "rubricMin": 0.67,
+          "rubricStdDev": 0.0758653778449402,
+          "meanSeconds": 13.433333333333332,
+          "meanOutputTokens": 605,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "glm-5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.7691666666666667,
+          "rubricMin": 0.735,
+          "rubricStdDev": 0.024692553983381795,
+          "meanSeconds": 21.939999999999998,
+          "meanOutputTokens": 659.3333333333334,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.6933333333333334,
+          "rubricMin": 0.67,
+          "rubricStdDev": 0.029533408577782225,
+          "meanSeconds": 16.265333333333334,
+          "meanOutputTokens": 813.6666666666666,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "deepseek-v4-flash",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.68,
+          "rubricMin": 0.62,
+          "rubricStdDev": 0.06480740698407861,
+          "meanSeconds": 17.78033333333333,
+          "meanOutputTokens": 953.3333333333334,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "claude:sonnet",
+          "benchmarkOnly": true,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.6766666666666667,
+          "rubricMin": 0.67,
+          "rubricStdDev": 0.009428090415820642,
+          "meanSeconds": 30.852999999999998,
+          "meanOutputTokens": 1197.3333333333333,
+          "meanCostUsd": null,
+          "gateFailures": []
+        }
+      ]
+    }
+  ]
+}

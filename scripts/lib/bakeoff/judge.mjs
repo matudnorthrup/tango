@@ -15,9 +15,23 @@ function truncate(value, max) {
   return s == null ? "" : s.length > max ? `${s.slice(0, max)}…[truncated]` : s;
 }
 
+// Evidence budget: the judge must SEE tool outputs to distinguish grounding
+// from fabrication — a 400-char cap once made it convict five models of
+// "fabricating" a history entry that was real but truncated out of view
+// (2026-06-09). Generous per-call caps under a total budget; sonnet's context
+// absorbs this easily.
+const TOOL_OUTPUT_CHAR_CAP = 6000;
+const TOOL_LOG_TOTAL_CHAR_CAP = 40000;
+
 export function buildJudgePrompt(fixture, run) {
+  let toolLogBudget = TOOL_LOG_TOTAL_CHAR_CAP;
   const toolLog = (run.toolCalls ?? [])
-    .map((c, i) => `${i + 1}. ${c.name}(${truncate(c.input, 400)})${c.output !== undefined ? ` → ${truncate(c.output, 400)}` : ""}`)
+    .map((c, i) => {
+      const outputCap = Math.max(500, Math.min(TOOL_OUTPUT_CHAR_CAP, toolLogBudget));
+      const line = `${i + 1}. ${c.name}(${truncate(c.input, 600)})${c.output !== undefined ? ` → ${truncate(c.output, outputCap)}` : " → (output not captured)"}`;
+      toolLogBudget -= line.length;
+      return line;
+    })
     .join("\n") || "(no tool calls)";
 
   return [
@@ -34,6 +48,7 @@ export function buildJudgePrompt(fixture, run) {
     ...(fixture.knownFailureModes ?? []).map((c) => `- ${c}`),
     "",
     "## Tool-call log (ground truth of what was actually verified)",
+    "If a call shows '(output not captured)', you cannot verify or refute claims sourced from that call — score grounding on what is verifiable and do NOT assume fabrication. Outputs may be truncated; absence of a detail inside a truncated output is not proof of fabrication.",
     toolLog,
     "",
     "## Assistant's final reply",
