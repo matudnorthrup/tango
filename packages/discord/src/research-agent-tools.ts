@@ -500,6 +500,165 @@ export function createTravelTools(): AgentTool[] {
     ? resolveConfiguredPath(configuredLocationFile)
     : profileLocationFile;
   const dieselScript = path.join(process.cwd(), "scripts/find-diesel.js");
+  const geocodeCache = new Map<string, Promise<ResolvedRoutePoint>>();
+
+  interface ResolvedRoutePoint {
+    input: string;
+    lat: number;
+    lon: number;
+    displayName?: string;
+    source: "coordinate" | "current_location" | "nominatim";
+    ageSec?: number | null;
+  }
+
+  interface RouteOption {
+    label?: string;
+    origin?: unknown;
+    destination?: unknown;
+    waypoints?: unknown;
+  }
+
+  interface RouteResult {
+    label: string;
+    distanceMiles: number;
+    durationHours: number;
+    durationText: string;
+    resolvedPoints: ResolvedRoutePoint[];
+    googleMapsUrl: string;
+    osrmUrl: string;
+  }
+
+  const readCurrentPosition = (): { lat: number; lon: number; ageSec: number | null } => {
+    const raw = fs.readFileSync(locationFile, "utf-8");
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof data.lat !== "number" || typeof data.lon !== "number") {
+      throw new Error("latest location is missing lat/lon");
+    }
+    const ageSec = typeof data.timestamp === "number"
+      ? Math.round(Date.now() / 1000 - data.timestamp)
+      : null;
+    return { lat: data.lat, lon: data.lon, ageSec };
+  };
+
+  const parseCoordinate = (value: string): { lat: number; lon: number } | null => {
+    const match = value.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/u);
+    if (!match) return null;
+    const lat = Number(match[1]);
+    const lon = Number(match[2]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return { lat, lon };
+  };
+
+  const resolvePlace = async (input: unknown): Promise<ResolvedRoutePoint> => {
+    const value = String(input ?? "").trim();
+    if (value.length === 0 || /^(current( location)?|here|gps)$/iu.test(value)) {
+      const current = readCurrentPosition();
+      return { input: value || "current location", ...current, source: "current_location" };
+    }
+
+    const coordinate = parseCoordinate(value);
+    if (coordinate) {
+      return { input: value, ...coordinate, source: "coordinate" };
+    }
+
+    const cacheKey = value.toLocaleLowerCase();
+    let geocode = geocodeCache.get(cacheKey);
+    if (!geocode) {
+      geocode = (async () => {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(value)}&format=json&limit=1`;
+        const response = await fetch(url, { headers: { "User-Agent": "tango-osrm-route/1.0" } });
+        if (!response.ok) {
+          throw new Error(`geocode failed for "${value}": HTTP ${response.status}`);
+        }
+        const results = await response.json() as Array<Record<string, unknown>>;
+        const first = results[0];
+        const lat = Number(first?.lat);
+        const lon = Number(first?.lon);
+        if (!first || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+          throw new Error(`could not geocode "${value}"`);
+        }
+        return {
+          input: value,
+          lat,
+          lon,
+          source: "nominatim" as const,
+          ...(typeof first.display_name === "string" ? { displayName: first.display_name } : {}),
+        };
+      })();
+      geocodeCache.set(cacheKey, geocode);
+    }
+    try {
+      return await geocode;
+    } catch (err) {
+      geocodeCache.delete(cacheKey);
+      throw err;
+    }
+  };
+
+  const buildGoogleMapsUrl = (points: Array<{ lat: number; lon: number }>): string => {
+    const origin = points[0]!;
+    const destination = points[points.length - 1]!;
+    const waypoints = points.slice(1, -1);
+    const params = new URLSearchParams({
+      api: "1",
+      origin: `${origin.lat},${origin.lon}`,
+      destination: `${destination.lat},${destination.lon}`,
+      travelmode: "driving",
+    });
+    if (waypoints.length > 0) {
+      params.set("waypoints", waypoints.map((point) => `${point.lat},${point.lon}`).join("|"));
+    }
+    return `https://www.google.com/maps/dir/?${params.toString()}`;
+  };
+
+  const formatDuration = (hours: number): string => {
+    const totalMinutes = Math.round(hours * 60);
+    const wholeHours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${wholeHours}h ${minutes}m`;
+  };
+
+  const routeOne = async (route: RouteOption, index: number): Promise<RouteResult> => {
+    const origin = route.origin ?? "current location";
+    const destination = route.destination;
+    if (typeof destination !== "string" || destination.trim().length === 0) {
+      throw new Error(`route ${index + 1} is missing destination`);
+    }
+    const waypointInputs = Array.isArray(route.waypoints) ? route.waypoints : [];
+    const resolvedPoints = await Promise.all([
+      resolvePlace(origin),
+      ...waypointInputs.map((waypoint) => resolvePlace(waypoint)),
+      resolvePlace(destination),
+    ]);
+    const coordinates = resolvedPoints.map((point) => `${point.lon},${point.lat}`).join(";");
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false`;
+    const response = await fetch(osrmUrl);
+    if (!response.ok) {
+      throw new Error(`OSRM route failed for route ${index + 1}: HTTP ${response.status}`);
+    }
+    const payload = await response.json() as {
+      code?: string;
+      routes?: Array<{ distance?: number; duration?: number }>;
+    };
+    const osrmRoute = payload.routes?.[0];
+    if (payload.code !== "Ok" || !osrmRoute || typeof osrmRoute.distance !== "number" || typeof osrmRoute.duration !== "number") {
+      throw new Error(`OSRM route failed for route ${index + 1}: ${payload.code ?? "no route"}`);
+    }
+
+    const distanceMiles = osrmRoute.distance / 1609.34;
+    const durationHours = osrmRoute.duration / 3600;
+    return {
+      label: typeof route.label === "string" && route.label.trim().length > 0
+        ? route.label.trim()
+        : `route ${index + 1}`,
+      distanceMiles: Number(distanceMiles.toFixed(1)),
+      durationHours: Number(durationHours.toFixed(2)),
+      durationText: formatDuration(durationHours),
+      resolvedPoints,
+      googleMapsUrl: buildGoogleMapsUrl(resolvedPoints),
+      osrmUrl,
+    };
+  };
 
   return [
     {
@@ -521,6 +680,85 @@ export function createTravelTools(): AgentTool[] {
           return { ...data, ageSec };
         } catch (err: unknown) {
           return { error: `Cannot read location: ${err instanceof Error ? err.message : err}` };
+        }
+      },
+    },
+
+    {
+      name: "osrm_route",
+      description: [
+        "Compute real driving distance and duration with OSRM. Use this for route planning, drive-time estimates, and route comparisons.",
+        "Never answer route/directions questions from mental geography when this tool is available.",
+        "",
+        "Parameters:",
+        "  origin: Address/place string, 'lat,lon', or omit/use 'current location' to use GPS.",
+        "  destination: Address/place string or 'lat,lon'.",
+        "  waypoints: Optional ordered places the route must pass through.",
+        "  routes: Optional array of route options, each with label/origin/destination/waypoints. Use this for comparisons.",
+        "",
+        "Returns resolved coordinates, OSRM miles/hours, Google Maps links, and the fastest option.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          origin: { type: "string", description: "Start place, lat,lon, or current location" },
+          destination: { type: "string", description: "End place or lat,lon" },
+          waypoints: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional ordered waypoint places or lat,lon strings",
+          },
+          routes: {
+            type: "array",
+            description: "Route options to compare. If present, origin/destination at top level are ignored.",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                origin: { type: "string" },
+                destination: { type: "string" },
+                waypoints: { type: "array", items: { type: "string" } },
+              },
+              required: ["destination"],
+            },
+          },
+        },
+        required: [],
+      },
+      handler: async (input) => {
+        try {
+          const routeInputs = Array.isArray(input.routes) && input.routes.length > 0
+            ? input.routes.slice(0, 6).map((route) => route as RouteOption)
+            : [{
+                origin: input.origin ?? "current location",
+                destination: input.destination,
+                waypoints: input.waypoints,
+              }];
+
+          const routes: RouteResult[] = [];
+          for (let i = 0; i < routeInputs.length; i++) {
+            routes.push(await routeOne(routeInputs[i]!, i));
+          }
+          const fastest = [...routes].sort((a, b) => a.durationHours - b.durationHours)[0] ?? null;
+          const staleLocation = routes.some((route) => route.resolvedPoints.some((point) => (
+            point.source === "current_location" &&
+            typeof point.ageSec === "number" &&
+            point.ageSec > 3600
+          )));
+          return {
+            routes,
+            fastest: fastest
+              ? {
+                  label: fastest.label,
+                  distanceMiles: fastest.distanceMiles,
+                  durationHours: fastest.durationHours,
+                  durationText: fastest.durationText,
+                }
+              : null,
+            ...(staleLocation ? { warning: "Current location is stale; tell the user before relying on it." } : {}),
+          };
+        } catch (err: unknown) {
+          return { error: err instanceof Error ? err.message : String(err) };
         }
       },
     },

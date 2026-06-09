@@ -2197,6 +2197,34 @@ const MIGRATIONS: Migration[] = [
         ('worker:kilo', 'kilo_ledger', 'write', 'Kilo bucket ledger operations');
     `,
   },
+  {
+    version: 47,
+    sql: `
+      INSERT OR IGNORE INTO principals (id, type, display_name)
+        VALUES ('user:owner', 'user', 'Owner');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+        ('agent:sierra-ollama', 'agent', 'user:owner', 'Sierra (Ollama)'),
+        ('worker:sierra-ollama', 'worker', 'agent:sierra-ollama', 'Sierra Ollama Runtime');
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('osrm_route', 'research', 'OSRM Route Planner', 'read');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:sierra-ollama', 'exa_search', 'read', 'Sierra Ollama research parity'),
+        ('worker:sierra-ollama', 'exa_answer', 'read', 'Sierra Ollama research parity'),
+        ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
+        ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
+        ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for shopping and research'),
+        ('worker:research-assistant', 'osrm_route', 'read', 'travel route planning and drive-time verification'),
+        ('worker:sierra-ollama', 'osrm_route', 'read', 'Sierra Ollama travel route planning and drive-time verification');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:research-coordinator', 'osrm_route', 'read', 'travel route planning and drive-time verification'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-coordinator')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'osrm_route');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
