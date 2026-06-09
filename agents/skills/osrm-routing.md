@@ -2,6 +2,9 @@
 
 OSRM (Open Source Routing Machine) — free driving distance and duration API. No API key required.
 
+Tango agents should normally call the `osrm_route` MCP tool instead of hand-building
+OSRM URLs. Use the direct API format below only when that tool is unavailable.
+
 ## Why use this
 
 **Never estimate driving distances from coordinates.** Lat/lon math gives straight-line distance which underestimates mountain and winding routes by 20-40%. Always use OSRM for actual road distances.
