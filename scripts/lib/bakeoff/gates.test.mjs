@@ -116,6 +116,12 @@ test("infraError short-circuits as infra, not a model failure", () => {
   assert.equal(result.infra, true);
 });
 
+test("tool-iteration cap fails under its own gate", () => {
+  const result = evaluateGates(baseFixture, run({ stopReason: "max_tool_iters", text: "(tool loop reached the step limit without a final answer)" }));
+  assert.equal(result.pass, false);
+  assert.equal(result.failures[0].gate, "cap");
+});
+
 test("model-level error fails the completion gate", () => {
   const result = evaluateGates(baseFixture, run({ error: "prompt too long" }));
   assert.equal(result.pass, false);

@@ -59,6 +59,12 @@ export function evaluateGates(fixture, run) {
   if (run.error) {
     failures.push({ gate: "completion", detail: String(run.error) });
   }
+  // Tool-loop cap: the model burned its iteration budget without finishing. At a
+  // fixed cap, needing fewer steps is a real model quality — but report it under
+  // its own gate so cap-bound tasks are visible as such (vs. wrong answers).
+  if (run.stopReason === "max_tool_iters") {
+    failures.push({ gate: "cap", detail: "hit the tool-iteration cap without a final answer" });
+  }
 
   const calls = run.toolCalls ?? [];
   for (const contract of fixture.toolContract ?? []) {

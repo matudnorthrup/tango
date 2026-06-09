@@ -1,0 +1,66 @@
+{
+  "id": "travel.diesel.route-aware",
+  "title": "Route-aware diesel stop planning (bounded composite, multi-tool)",
+  "category": "travel",
+  "source": "Tango jobs manual test checklist: 'Diesel station search' (travel.diesel_lookup, untested end-to-end); Devin 2026-06-09: diesel is tricky because it composes current location, route reading, and price lookup",
+  "ownerAgent": "sierra-ollama",
+  "worker": "sierra-ollama",
+  "taskShape": "tool_grounded_bounded",
+  "safetyTier": "read_only_bounded",
+  "tools": true,
+  "candidateModels": [
+    "minimax-m2.5",
+    "glm-5",
+    "deepseek-v4-pro:cloud",
+    "deepseek-v4-flash"
+  ],
+  "benchmarkModels": [
+    "claude:sonnet"
+  ],
+  "incumbentModel": "minimax-m2.5",
+  "toolContract": [
+    {
+      "name": "find_diesel",
+      "argChecks": [
+        { "path": ".", "matches": "boise" }
+      ]
+    }
+  ],
+  "system": "You are Sierra, a careful travel-planning assistant. Use tools when a factual route, drive-time, fuel-price, or detour claim depends on real data. Never invent station names or prices. Label tool-backed facts separately from synthesis.",
+  "prompt": "I'm driving my diesel truck from Yachats, Oregon to Boise, Idaho tomorrow. Find me good diesel options near Boise for when I arrive — best price with minimal detour — and tell me whether it's worth fueling somewhere along the way instead. Use real current prices, not guesses, and give me the top picks with addresses.",
+  "successCriteria": [
+    "Calls find_diesel with the trip destination and grounds every station/price claim in its output.",
+    "Reports real station names, addresses, and current prices from the tool — nothing invented.",
+    "Considers detour distance, not just price, when ranking picks.",
+    "Answers the along-the-route question honestly — either with a tool-backed comparison or by saying it wasn't checked.",
+    "Gives an actionable recommendation (top picks with addresses)."
+  ],
+  "knownFailureModes": [
+    "Quotes plausible-sounding diesel prices or station names without calling find_diesel.",
+    "Ignores detour mileage and recommends purely on price.",
+    "Claims to have compared en-route options without any supporting tool call.",
+    "Dumps raw tool output without a recommendation."
+  ],
+  "rubric": [
+    {
+      "name": "price_grounding",
+      "weight": 0.3,
+      "description": "All station names and prices come from find_diesel output; no fabricated fuel data."
+    },
+    {
+      "name": "route_awareness",
+      "weight": 0.25,
+      "description": "Detour miles and arrival-area framing factor into the recommendation; the en-route question is handled with evidence or honest uncertainty."
+    },
+    {
+      "name": "user_utility",
+      "weight": 0.25,
+      "description": "Clear top picks with addresses and a price/detour tradeoff the user can act on."
+    },
+    {
+      "name": "honesty",
+      "weight": 0.2,
+      "description": "Tool-verified facts clearly separated from synthesis; uncertainty acknowledged where not checked."
+    }
+  ]
+}
