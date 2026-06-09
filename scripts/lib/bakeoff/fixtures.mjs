@@ -49,6 +49,8 @@ export function normalizeFixture(raw, { sourcePath } = {}) {
     toolContract,
     outputAssertions: Array.isArray(raw.outputAssertions) ? raw.outputAssertions : [],
     forbiddenTools: Array.isArray(raw.forbiddenTools) ? raw.forbiddenTools : [],
+    forbiddenCalls: Array.isArray(raw.forbiddenCalls) ? raw.forbiddenCalls : [],
+    images: Array.isArray(raw.images) ? raw.images : [],
     candidateModels: Array.isArray(raw.candidateModels) ? raw.candidateModels : [],
     benchmarkModels: Array.isArray(raw.benchmarkModels) ? raw.benchmarkModels : [],
     incumbentModel: typeof raw.incumbentModel === "string" ? raw.incumbentModel : null,

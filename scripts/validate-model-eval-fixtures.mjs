@@ -3,7 +3,7 @@
 // Run via `npm run eval:validate`. Fails loudly on the first broken fixture so
 // CI can gate on it.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -142,6 +142,21 @@ for (const file of readdirSync(TASK_DIR).filter((name) => name.endsWith(".json")
   if (task.incumbentModel !== undefined) assertString(task.incumbentModel, file, "incumbentModel");
   if (task.benchmarkModels !== undefined) assertStringArray(task.benchmarkModels, file, "benchmarkModels", { allowEmpty: true });
   if (task.forbiddenTools !== undefined) assertStringArray(task.forbiddenTools, file, "forbiddenTools", { allowEmpty: true });
+  if (task.forbiddenCalls !== undefined) {
+    if (!Array.isArray(task.forbiddenCalls)) fail(file, "forbiddenCalls must be an array");
+    task.forbiddenCalls.forEach((forbidden, i) => {
+      validateContractBranch(forbidden, file, `forbiddenCalls[${i}]`, { requireName: true });
+      if (!Array.isArray(forbidden.argChecks) || forbidden.argChecks.length === 0) {
+        fail(file, `forbiddenCalls[${i}].argChecks must be a non-empty array (use forbiddenTools for whole-tool bans)`);
+      }
+    });
+  }
+  if (task.images !== undefined) {
+    assertStringArray(task.images, file, "images", { allowEmpty: true });
+    for (const image of task.images) {
+      if (!existsSync(join(ROOT, image))) fail(file, `images: ${image} does not exist (paths are repo-root relative)`);
+    }
+  }
   if (task.judge !== undefined) {
     if (!task.judge || typeof task.judge !== "object") fail(file, "judge must be an object");
     if (task.judge.model !== undefined) assertString(task.judge.model, file, "judge.model");

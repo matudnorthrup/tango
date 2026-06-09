@@ -97,6 +97,19 @@ test("forbiddenTools fail the run", () => {
   assert.equal(evaluateGates(fixture, run()).pass, true);
 });
 
+test("forbiddenCalls: arg-level negatives fail only on matching args", () => {
+  const fixture = {
+    ...baseFixture,
+    forbiddenCalls: [{ name: "walmart", argChecks: [{ path: "action", matches: "^queue_(add|clear|remove)$" }] }],
+  };
+  const readOnly = run({ toolCalls: [{ name: "walmart", input: { action: "history_analyze" } }] });
+  const mutation = run({ toolCalls: [{ name: "walmart", input: { action: "queue_add", items: ["red cabbage"] } }] });
+  assert.equal(evaluateGates(fixture, readOnly).pass, true);
+  const result = evaluateGates(fixture, mutation);
+  assert.equal(result.pass, false);
+  assert.equal(result.failures[0].gate, "forbiddenCall:walmart");
+});
+
 test("outputAssertions: includes / notMatches", () => {
   const fixture = {
     ...baseFixture,

@@ -28,6 +28,14 @@
   "forbiddenTools": [
     "browser"
   ],
+  "forbiddenCalls": [
+    {
+      "name": "walmart",
+      "argChecks": [
+        { "path": "action", "matches": "^queue_(add|clear|remove)$" }
+      ]
+    }
+  ],
   "system": "You are Sierra, a careful shopping assistant. Ground claims about what the household usually buys in the Walmart purchase-history tools. Be precise about product identity — do not treat distinct products as interchangeable, and do not treat the same product under different names as different. Never modify a cart or queue unless explicitly asked.",
   "prompt": "My grocery list says 'red cabbage (1 head)'. On Walmart's site I'm seeing 'Purple Cabbage, each' and 'Cabbage, Green, each'. Before I add anything: is either of those the same thing as red cabbage? Also check our Walmart purchase history for cabbage or similar produce so we match what we usually buy. Tell me exactly which product matches my list item and why. Do NOT add anything to any cart or queue yet — just advise.",
   "successCriteria": [
