@@ -78,6 +78,11 @@ export const config = {
   discordToken: required('DISCORD_TOKEN'),
   openaiApiKey: process.env['OPENAI_API_KEY'] || '',
   anthropicApiKey: process.env['ANTHROPIC_API_KEY'] || '',
+  // Off-Anthropic utility classifiers: a fast model served on the flat-rate Ollama
+  // Cloud sub (Haiku-class latency, no per-call API cost).
+  ollamaApiKey: process.env['OLLAMA_API_KEY'] || '',
+  ollamaBaseUrl: process.env['OLLAMA_BASE_URL'] || 'https://ollama.com/v1',
+  voiceClassifierModel: process.env['TANGO_VOICE_CLASSIFIER_MODEL'] || 'ministral-3:3b',
   whisperUrl: process.env['WHISPER_URL'] || '',
   whisperPartialsUrl: process.env['WHISPER_PARTIALS_URL'] || '',
   sttCommandUrl: process.env['STT_COMMAND_URL'] || '',

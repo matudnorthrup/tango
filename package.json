@@ -12,8 +12,8 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @tango/core && npm run build -w @tango/atlas-memory && npm run build -w @tango/tango-dev-mcp && npm run build -w @tango/discord-manage-mcp && npm run build -w @tango/voice && npm run build -w @tango/discord && npm run build -w @tango/cli",
-    "test": "npm run test -w @tango/core && npm run test -w @tango/discord && npm run test -w @tango/voice && npm run test -w @tango/atlas-memory && npm run test -w @tango/tango-dev-mcp && npm run test -w @tango/discord-manage-mcp",
+    "build": "npm run build -w @tango/core && npm run build -w @tango/atlas-memory && npm run build -w @tango/tango-dev-mcp && npm run build -w @tango/discord-manage-mcp && npm run build -w @tango/voice && npm run build -w @tango/discord && npm run build -w @tango/cli && npm run build -w @tango/kilo-ledger",
+    "test": "npm run test -w @tango/core && npm run test -w @tango/discord && npm run test -w @tango/voice && npm run test -w @tango/atlas-memory && npm run test -w @tango/tango-dev-mcp && npm run test -w @tango/discord-manage-mcp && npm run test -w @tango/kilo-ledger",
     "dev:discord": "tsx packages/discord/src/main.ts",
     "start:discord": "node packages/discord/dist/main.js",
     "build:voice-app": "npm run build -w @tango/core && npm run build -w @tango/voice && npm run build -w @tango/tango-voice",
@@ -70,6 +70,8 @@
     "vault:daily-check": "node --import tsx ./scripts/vault-daily-check.ts",
     "dev:voice-app": "npm run dev -w @tango/tango-voice",
     "start:voice-app": "npm run start -w @tango/tango-voice",
+    "dev:kilo-ledger": "npm run dev -w @tango/kilo-ledger",
+    "start:kilo-ledger": "npm run start -w @tango/kilo-ledger",
     "cli": "tsx packages/cli/src/index.ts",
     "bot:start": "bash scripts/tmux/start.sh",
     "bot:restart": "bash scripts/tmux/restart.sh",

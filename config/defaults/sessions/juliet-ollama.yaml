@@ -1,0 +1,5 @@
+id: juliet-ollama
+type: persistent
+agent: juliet-ollama
+channels:
+  - "discord:1513207684344582184"

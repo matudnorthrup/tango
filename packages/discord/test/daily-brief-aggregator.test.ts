@@ -212,6 +212,56 @@ describe("daily brief aggregation", () => {
     expect(brief).toContain("- Slack Saved Items Review -- Done -- 0 items found: No saved messages.");
   });
 
+  it("surfaces Kilo ledger monitor flags from the Finance job log", () => {
+    const vaultRoot = createVault();
+    const registryPath = path.join(vaultRoot, "daily-brief-inputs.json");
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 1,
+        lookbackHours: 24,
+        inputs: [
+          {
+            scheduleId: "kilo-ledger-monitor",
+            displayName: "Kilo Ledger Monitor",
+            domain: "Finance",
+            logPath: "Records/Jobs/Finance/YYYY-MM.md",
+            critical: true,
+            sections: ["flagged", "overnightJobs"],
+          },
+        ],
+      }),
+      "utf8",
+    );
+    writeJobLog(
+      vaultRoot,
+      "Records/Jobs/Finance/2026-07.md",
+      [
+        "# Finance Jobs",
+        "",
+        "## 2026-07-04 04:45 -- Kilo Ledger Monitor",
+        "**Status:** Done",
+        "**Summary:** Kilo ledger monitor checked the configured Kilo account; one item needs review.",
+        "",
+        "**Flagged:**",
+        "- Kilo monthly funding for 2026-07 is due, but no posted $80.00 transfer was found.",
+        "",
+      ].join("\n"),
+    );
+
+    const result = runDailyBriefAggregation({
+      vaultRoot,
+      inputRegistryPath: registryPath,
+      now: new Date("2026-07-04T12:00:00.000Z"),
+      fetchCalendarEvents: () => [],
+    });
+
+    expect(result.flaggedCount).toBe(1);
+    const brief = fs.readFileSync(result.briefPath, "utf8");
+    expect(brief).toContain("**Kilo Ledger Monitor:** Kilo monthly funding for 2026-07 is due");
+    expect(brief).toContain("- Kilo Ledger Monitor -- Done: Kilo ledger monitor checked the configured Kilo account; one item needs review.");
+  });
+
   it("fetches and renders all calendar events without a max-results cap", () => {
     const vaultRoot = createVault();
     const registryPath = writeRegistry(vaultRoot);

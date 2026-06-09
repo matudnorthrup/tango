@@ -1,3 +1,5 @@
+import type { ProviderImageInput } from "./provider.js";
+
 export class RuntimeAbortedError extends Error {
   readonly aborted = true;
 
@@ -71,6 +73,14 @@ export interface SendOptions {
   turnBriefingPrompt?: string;
   timeout?: number;
   onChunk?: (chunk: string) => void;
+  /**
+   * Inbound images for this turn, as raw bytes. Backends that can act on pixels
+   * (the Ollama path folds them through a vision model) populate
+   * ProviderRequest.images from this; the Claude path ignores it (it opens
+   * on-disk files via its own Read tool). Set by the Discord v2 turn for
+   * clone-backed agents so they get same-turn vision instead of OCR-only.
+   */
+  images?: ProviderImageInput[];
 }
 
 export interface RuntimeResponse {

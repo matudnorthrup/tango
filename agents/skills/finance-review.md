@@ -129,6 +129,8 @@ At minimum check:
 - Vehicles SB
 - Recreation SB
 - Spending SB when discretionary spending is in scope
+- profile-configured Kilo spending reserve when Kilo spending or sinking budget
+  coverage is in scope
 
 If a relevant account has not fetched/imported data after a date needed for the
 review, trigger:
@@ -224,9 +226,46 @@ Always check:
 - current fund balances when available
 - covered-category spend
 - outstanding SB draw/reimbursement needs
+- Profile-configured Kilo spending reserve separately from any owner spending
+  reserve. The Kilo reserve covers the configured Kilo spending category, uses
+  the ledger's configured backing account, and should produce draw
+  recommendations when child spending needs to be offset.
+- Kilo ledger bookkeeping for approved configured child-spending items. Read the
+  private Obsidian Kilo spending runbook when Kilo spending is in scope.
+- Kilo review subroutine:
+  1. Verify the configured Kilo contribution from real account activity once it
+     is due.
+  2. Read `kilo_ledger summary` and treat the returned active bucket list as
+     authoritative. Do not assume discretionary buckets from documentation or
+     history still exist.
+  3. Find current configured Kilo spending Lunch Money transactions in the
+     review window.
+  4. Recommend the best matching active discretionary Kilo bucket for each
+     transaction. If no active bucket fits, ask the owner whether to use an
+     existing bucket, create one, or defer the debit.
+  5. Use `kilo_ledger record_spend` for approved current transactions only.
+     This immediately lowers the Kilo spendable ledger even if the real
+     bank/Lunch Money movement happens later.
+  6. When the later bank/Lunch Money transfer out posts, use
+     `kilo_ledger settle_spending` to mark already-recorded spends as settled.
+     Do not debit buckets twice.
+  7. Use `kilo_ledger record_historical_spend` only for old/context purchases
+     that should appear in history without changing current balances.
+  8. Reconcile expected external balance against the configured backing account.
+     Expected external balance is ledger total plus pending settlement. Report
+     drift as a warning, not a write blocker.
+- Kilo bucket matching examples: food/treats -> active food-like bucket,
+  clothes/shoes -> active clothing-like bucket,
+  games/media/apps/subscriptions/LEGO/toys/activities/fun fallback -> active
+  fun/activity-like bucket, gifts -> active gifts-like bucket. These are
+  semantic examples, not fixed bucket ids. Never debit Tithing or Savings for
+  spending. Do not assume an `entertainment` bucket exists just because older
+  history references one; only use it if the current summary says it is active.
 
 Contribution rule:
-- Contributions are monthly and should be verified after their due date.
+- Contributions should be verified according to the cadence in the finance
+  source note. Monthly funds are verified after their due date; Kilo funding is
+  verified against the configured posted transfer after its due date.
 - Refresh stale Lunch Money/Plaid data before deciding.
 - Check both checking-side outflows and savings-side mirror activity.
 - Report stale data as unverified, not missing.
@@ -309,6 +348,8 @@ Return a concise scheduler/Discord summary:
 - data freshness / refreshes performed
 - top open flags
 - sinking fund recommendation summary
+- Kilo spending review summary when in scope: contribution status, approved
+  ledger debits, pending settlements, pending owner decisions, and drift status
 - reimbursement/receipt gaps
 - budget pace signals
 - review note path
