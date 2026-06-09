@@ -3,7 +3,7 @@
 // Run via `npm run eval:validate`. Fails loudly on the first broken fixture so
 // CI can gate on it.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,8 +42,8 @@ const CATEGORY_RULES = [
   {
     category: "travel",
     promptPattern: /route|drive|detour|waypoint|stop/i,
-    mustRequireTool: "osrm_route",
-    why: "travel route fixtures must gate on osrm_route (Sierra 2026-06-09 incident)",
+    mustRequireOneOf: ["osrm_route", "find_diesel"],
+    why: "travel route fixtures must gate on a routing-grounded tool — osrm_route or find_diesel (Sierra 2026-06-09 incident)",
   },
 ];
 
@@ -136,12 +136,28 @@ for (const file of readdirSync(TASK_DIR).filter((name) => name.endsWith(".json")
   }
   if (task.passRateThreshold !== undefined) assertFraction(task.passRateThreshold, file, "passRateThreshold");
   if (task.rubricThreshold !== undefined) assertFraction(task.rubricThreshold, file, "rubricThreshold");
+  if (task.rubricFloor !== undefined) assertFraction(task.rubricFloor, file, "rubricFloor");
   if (task.timeoutMs !== undefined && (!Number.isInteger(task.timeoutMs) || task.timeoutMs < 1000)) {
     fail(file, "timeoutMs must be an integer >= 1000");
   }
   if (task.incumbentModel !== undefined) assertString(task.incumbentModel, file, "incumbentModel");
   if (task.benchmarkModels !== undefined) assertStringArray(task.benchmarkModels, file, "benchmarkModels", { allowEmpty: true });
   if (task.forbiddenTools !== undefined) assertStringArray(task.forbiddenTools, file, "forbiddenTools", { allowEmpty: true });
+  if (task.forbiddenCalls !== undefined) {
+    if (!Array.isArray(task.forbiddenCalls)) fail(file, "forbiddenCalls must be an array");
+    task.forbiddenCalls.forEach((forbidden, i) => {
+      validateContractBranch(forbidden, file, `forbiddenCalls[${i}]`, { requireName: true });
+      if (!Array.isArray(forbidden.argChecks) || forbidden.argChecks.length === 0) {
+        fail(file, `forbiddenCalls[${i}].argChecks must be a non-empty array (use forbiddenTools for whole-tool bans)`);
+      }
+    });
+  }
+  if (task.images !== undefined) {
+    assertStringArray(task.images, file, "images", { allowEmpty: true });
+    for (const image of task.images) {
+      if (!existsSync(join(ROOT, image))) fail(file, `images: ${image} does not exist (paths are repo-root relative)`);
+    }
+  }
   if (task.judge !== undefined) {
     if (!task.judge || typeof task.judge !== "object") fail(file, "judge must be an object");
     if (task.judge.model !== undefined) assertString(task.judge.model, file, "judge.model");
@@ -205,7 +221,8 @@ for (const file of readdirSync(TASK_DIR).filter((name) => name.endsWith(".json")
   // ---- Per-category contract rules ------------------------------------------------
   for (const rule of CATEGORY_RULES) {
     if (task.category === rule.category && rule.promptPattern.test(task.prompt)) {
-      if (!requiredToolNames(task).has(rule.mustRequireTool)) {
+      const names = requiredToolNames(task);
+      if (!rule.mustRequireOneOf.some((tool) => names.has(tool))) {
         fail(file, `${rule.why}`);
       }
     }

@@ -47,9 +47,13 @@ the same fixture N times (defaults by safety tier — read tasks 3 runs @ 0.8
 pass-rate bar, write tasks 5 runs @ 1.0); each run is machine-scored against the
 fixture's gates (tool contract with argument checks, output assertions,
 forbidden actions) and quality-scored by a blind Claude-CLI judge against the
-fixture rubric. The verdict gates on pass-rate, ranks eligible candidates by
-pass rate → cost-per-successful-run → latency, and applies incumbent hysteresis
-(a challenger must strictly beat the current assignment, never tie into it).
+fixture rubric. The verdict gates on pass-rate AND on rubric consistency (both
+the mean and the worst single run must clear their bars — variance is a
+reliability property), ranks eligible candidates by pass rate →
+cost-per-successful-run → latency, and applies incumbent hysteresis (a
+challenger must strictly beat the current assignment, never tie into it).
+Policy changes re-apply to stored runs with `--recompute <results.json>` — no
+model re-runs needed.
 
 ```bash
 # Full bake-off from a fixture (candidates, runs, judge from the fixture):

@@ -59,6 +59,12 @@ export function evaluateGates(fixture, run) {
   if (run.error) {
     failures.push({ gate: "completion", detail: String(run.error) });
   }
+  // Tool-loop cap: the model burned its iteration budget without finishing. At a
+  // fixed cap, needing fewer steps is a real model quality — but report it under
+  // its own gate so cap-bound tasks are visible as such (vs. wrong answers).
+  if (run.stopReason === "max_tool_iters") {
+    failures.push({ gate: "cap", detail: "hit the tool-iteration cap without a final answer" });
+  }
 
   const calls = run.toolCalls ?? [];
   for (const contract of fixture.toolContract ?? []) {
@@ -80,6 +86,21 @@ export function evaluateGates(fixture, run) {
   for (const name of fixture.forbiddenTools ?? []) {
     if (calls.some((c) => c.name === name)) {
       failures.push({ gate: `forbidden:${name}`, detail: "forbidden tool was called" });
+    }
+  }
+
+  // forbiddenCalls: arg-level negatives — a tool that is allowed in general but
+  // must not be called with specific arguments (e.g. ramp_reimbursement with
+  // action=submit_reviewed*, walmart with action=queue_add on an advise-only task).
+  for (const forbidden of fixture.forbiddenCalls ?? []) {
+    const hit = calls.find(
+      (c) => c.name === forbidden.name && (forbidden.argChecks ?? []).every((check) => checkArg(c.input ?? {}, check)),
+    );
+    if (hit) {
+      failures.push({
+        gate: `forbiddenCall:${forbidden.name}`,
+        detail: `forbidden call matched ${JSON.stringify(forbidden.argChecks ?? [])}`,
+      });
     }
   }
 

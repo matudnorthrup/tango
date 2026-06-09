@@ -1,0 +1,41 @@
+{
+  "note": "Model assignment records: every entry links a task or agent-default to the bake-off evidence behind it. Maintained alongside verdicts/; the config writer (DEV-67) will generate these. Dates are when the assignment decision was made.",
+  "assignments": [
+    {
+      "scope": "agent-default",
+      "target": "sierra-ollama",
+      "seam": "config/v2/agents/sierra-ollama.yaml runtime.model",
+      "model": "deepseek-v4-pro:cloud",
+      "previous": "minimax-m2.5",
+      "decided": "2026-06-09",
+      "evidence": [
+        "verdicts/travel.itinerary.constraint-planning.json — minimax 0.60 mean (ineligible), deepseek-pro wins on consistency (0.81-0.83)",
+        "verdicts/travel.diesel.route-aware.json — minimax below quality bar; deepseek-pro only eligible candidate",
+        "verdicts/travel.route.sacramento-detour.json — all candidates pass; bounded tasks are model-insensitive",
+        "verdicts/shopping.walmart.product-equivalence.json — all candidates 0.97+; bounded reasoning is model-insensitive"
+      ],
+      "rationale": "The fallback default must pass the agent's whole task portfolio, not win on the cheapest subset. minimax stays available for per-task pins on bounded jobs.",
+      "appliedAt": null,
+      "requiresRestart": true
+    },
+    {
+      "scope": "task",
+      "target": "travel.route.sacramento-detour",
+      "seam": "per-task (no standing schedule); agent default covers it",
+      "model": "minimax-m2.5",
+      "decided": "2026-06-09",
+      "evidence": ["verdicts/travel.route.sacramento-detour.json — incumbent retained, cheapest reliable"],
+      "appliedAt": null,
+      "requiresRestart": false
+    }
+  ],
+  "recommendations": [
+    {
+      "target": "TANGO_MODEL_JUDGMENT (per-turn auto-router upgrade target)",
+      "current": "glm-5",
+      "proposed": "deepseek-v4-pro:cloud",
+      "evidence": "glm-5 failed the consistency floor on both quality-differentiated fixtures (worst runs 0.58, 0.51); deepseek-pro never dropped below 0.74. DEV-57 found them peers on one-shot quality — consistency data now separates them.",
+      "status": "proposed — operator .env change + restart; confirm with one more judgment-shaped fixture if desired"
+    }
+  ]
+}
