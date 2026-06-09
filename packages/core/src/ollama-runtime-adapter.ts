@@ -24,7 +24,14 @@ const OLLAMA_TOOL_EFFICIENCY_GUIDANCE =
   "\n\nTool efficiency: when you search or list (Slack, Obsidian, email, web, transactions), " +
   "run ONE broad query first and then drill into only the results that matter — do not loop a " +
   "tool one item, channel, or note at a time. Use batch/multi-target options when a tool offers " +
-  "them, and finish in as few tool calls as you can.";
+  "them, and finish in as few tool calls as you can." +
+  "\n\nNotion: for ANYTHING in Notion — a notion.so / notion.com / app.notion.com link, a Notion " +
+  "page, database, or the user's Notion workspace — ALWAYS use the `notion` tool (operation: " +
+  "\"search\" to find a page, then \"get_page\" with its page_id to read the full content; " +
+  "\"create_page\"/\"append\"/\"update_page\" to write). NEVER open or read Notion through the " +
+  "`browser` tool — Notion's web UI requires interactive login and renders blank to tools, so the " +
+  "browser will always fail. A blank Notion page in the browser means \"use the notion tool\", " +
+  "NOT \"ask the user to share to web.\"";
 
 const KNOWN_MCP_SERVER_TOOLS: Record<string, string[]> = {
   memory: ["memory_search", "memory_add", "memory_reflect"],
