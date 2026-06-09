@@ -87,11 +87,14 @@ runtime:
   mode: persistent
   provider: claude-code-v2
   fallback: codex
-  # Model bake-off live test (2026-06-08): sierra is operational (web/browse,
-  # shopping, research) where bounded tool tasks were identical across models but
-  # MiniMax M2.5 was ~1.8x faster than deepseek. watson (judgment) runs GLM-5;
-  # other clones stay on deepseek as the A/B baseline.
-  model: minimax-m2.5
+  # Portfolio bake-off (2026-06-09, harness v2, 4 fixtures): minimax-m2.5 wins
+  # bounded tasks (route, walmart-equivalence) but fails the quality/consistency
+  # gates on judgment (0.60 mean) and composite diesel tasks. The FALLBACK
+  # DEFAULT must pass the whole portfolio — deepseek-v4-pro:cloud is the only
+  # candidate that does (and the most consistent: itinerary rubric 0.81-0.83).
+  # Bounded jobs can still pin minimax per-schedule/per-task where verdicts say
+  # so. Evidence: agents/evals/model-bakeoff/verdicts/ + assignments.json.
+  model: deepseek-v4-pro:cloud
   reasoning_effort: high
   idle_timeout_hours: 24
   context_reset_threshold: 0.80
