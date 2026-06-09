@@ -76,6 +76,57 @@ describe("executeSchedule", () => {
     });
   });
 
+  it("writes an Obsidian job log after a successful deterministic run when configured", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-03T11:45:00Z"));
+    process.env.HOME = createTempHome();
+
+    registerDeterministicHandler("test-deterministic-obsidian-log", async () => ({
+      status: "ok",
+      summary: "Kilo ledger monitor checked the configured Kilo account cleanly.",
+      data: { checked: true },
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        id: "kilo-ledger-monitor",
+        obsidianLog: {
+          domain: "Finance",
+          jobName: "Kilo Ledger Monitor",
+        },
+        execution: {
+          mode: "deterministic",
+          handler: "test-deterministic-obsidian-log",
+          timeoutSeconds: 30,
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        db: {} as never,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+
+    const logPath = path.join(
+      process.env.HOME!,
+      "Documents",
+      "main",
+      "Records",
+      "Jobs",
+      "Finance",
+      "2026-07.md",
+    );
+    const logText = fs.readFileSync(logPath, "utf8");
+
+    expect(logText).toContain("areas:\n  - \"[[Finance]]\"");
+    expect(logText).toContain("## 2026-07-03");
+    expect(logText).toContain("Kilo Ledger Monitor");
+    expect(logText).toContain("**Status:** Done");
+    expect(logText).toContain("**Summary:** Kilo ledger monitor checked the configured Kilo account cleanly.");
+    expect(logText).toContain("No flagged items.");
+  });
+
   it("routes migrated explicit-intent agent schedules through executeV2Turn", async () => {
     const executeV2Turn = vi.fn(async () => ({
       text: "v2 schedule turn",
@@ -307,6 +358,57 @@ describe("executeSchedule", () => {
     expect(logText).toContain("Needs your review");
     expect(logText).toContain("Chipotle Mexican Grill");
     expect(logText).not.toContain("No flagged items.");
+  });
+
+  it("does not duplicate explicit Flagged sections in Obsidian job logs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-04T11:45:00Z"));
+    process.env.HOME = createTempHome();
+
+    const executeV2Turn = vi.fn(async () => ({
+      text: [
+        "Kilo ledger monitor checked the configured Kilo account; one item needs review.",
+        "",
+        "**Flagged:**",
+        "- Kilo monthly funding for 2026-07 is due.",
+        "",
+        "**Snapshot:**",
+        "- Ledger total: $0.00",
+      ].join("\n"),
+      durationMs: 12,
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        id: "kilo-ledger-monitor",
+        runtime: "v2",
+        obsidianLog: {
+          domain: "Finance",
+          jobName: "Kilo Ledger Monitor",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeV2Turn,
+        db: {} as never,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+
+    const logPath = path.join(
+      process.env.HOME!,
+      "Documents",
+      "main",
+      "Records",
+      "Jobs",
+      "Finance",
+      "2026-07.md",
+    );
+    const logText = fs.readFileSync(logPath, "utf8");
+    expect(logText.match(/\*\*Flagged:\*\*/gu)).toHaveLength(1);
+    expect(logText).toContain("**Summary:** Kilo ledger monitor checked the configured Kilo account; one item needs review.");
+    expect(logText).toContain("**Snapshot:**");
   });
 
   it("repairs existing Obsidian job logs that predate frontmatter", async () => {

@@ -48,6 +48,8 @@ import { createSlackTools } from "./slack-tools.js";
 import { createYouTubeTools } from "./youtube-agent-tools.js";
 import { createWellnessDbTools, wellnessDbToolLooksReadOnly } from "./wellness-db-tools.js";
 import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agent-tools.js";
+import { createKiloLedgerTools, kiloLedgerToolLooksReadOnly } from "./kilo-ledger-tools.js";
+import { createLatitudeTools } from "./latitude-tools.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { GovernanceChecker, resolveDatabasePath } from "@tango/core";
 import type { AgentTool, AccessLevel } from "@tango/core";
@@ -115,6 +117,8 @@ const allTools: AgentTool[] = [
   ...createYouTubeTools(),
   ...createWellnessDbTools(),
   ...createEmailAgentTools(),
+  ...createKiloLedgerTools(),
+  ...createLatitudeTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -334,6 +338,17 @@ function inferRequestedAccessLevel(
       return isReadOnlyIMessageCommand(args.command) ? "read" : "write";
     case "linear":
       return looksLikeLinearReadQuery(args.query) ? "read" : "write";
+    case "latitude_run": {
+      // Bridge to the Latitude remote MCP (Notion, etc.). Classify by the
+      // remote sub-tool name: discovery/reads need only read; mutations write.
+      const sub = typeof args.tool === "string" ? args.tool.trim().toLowerCase() : "";
+      if (!sub || sub === "list") return "read";
+      return /create|update|delete|append|patch|write|insert|comment|move|duplicate|archive|trash/.test(sub)
+        ? "write"
+        : "read";
+    }
+    case "kilo_ledger":
+      return kiloLedgerToolLooksReadOnly(args.operation) ? "read" : "write";
     case "attachment_reprocess":
       return "write";
     case "walmart": {

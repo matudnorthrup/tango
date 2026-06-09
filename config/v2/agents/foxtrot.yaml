@@ -55,6 +55,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
     env:
       ALLOWED_TOOL_IDS: "agent_docs"
+  - name: kilo-ledger
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "kilo-ledger"]
+    env:
+      ALLOWED_TOOL_IDS: "kilo_ledger"
 
 runtime:
   mode: persistent

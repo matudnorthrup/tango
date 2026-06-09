@@ -53,14 +53,22 @@ execution:
     4. For sinking fund draws, classify recommendations as monitor/defer,
        optional, do now, or month-end true-up. Do not create or manage Ramp
        drafts.
-    5. Create or overwrite the review note at
+    5. When the profile-configured Kilo spending category or reserve is in
+       scope, follow the private Kilo spending runbook: verify configured
+       contribution timing once due, read `kilo_ledger summary` for the active
+       bucket list, recommend active discretionary Kilo bucket draws for current
+       transactions, wait for owner approval before `record_spend`, use
+       `settle_spending` when the later bank/Lunch Money transfer out posts,
+       use `record_historical_spend` only for old/context entries, and reconcile
+       expected Kilo external balance against the configured backing account.
+    6. Create or overwrite the review note at
        Records/Finance/Reviews/YYYY-MM-DD Finance Review.md.
        Use the finance_review frontmatter standard:
        types: [[Record]], areas: [[Finance]], record_kind: finance_review,
        review_phase: rolling, dry_run: false.
-    6. Return a concise summary with review phase, data freshness, top flags,
+    7. Return a concise summary with review phase, data freshness, top flags,
        sinking fund recommendation summary, reimbursement/receipt gaps, budget
-       pace signals, and review note path.
+       pace signals, Kilo status when in scope, and review note path.
 
     Do not submit to Ramp or mutate Lunch Money categories/status unless the
     user explicitly approved a correction during the review.
