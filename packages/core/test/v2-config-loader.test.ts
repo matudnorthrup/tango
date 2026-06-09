@@ -416,11 +416,18 @@ describe("loadAllV2AgentConfigs", () => {
     });
   });
 
-  it("exposes read-only attachment tools to every repo v2 agent", () => {
+  it("exposes read-only attachment tools to every general repo v2 agent", () => {
     const configs = loadAllV2AgentConfigs(path.join(repoRoot, "config", "v2", "agents"));
     expect(configs.size).toBeGreaterThan(0);
 
     for (const config of configs.values()) {
+      if (config.type === "kid-finance") {
+        expect(config.mcpServers.map((server) => server.name)).toEqual(["kilo-ledger"]);
+        continue;
+      }
+      if (config.tools?.mode === "off") {
+        continue;
+      }
       const attachmentServer = config.mcpServers.find((server) => server.name === "attachments");
       expect(attachmentServer).toMatchObject({
         command: "node",
