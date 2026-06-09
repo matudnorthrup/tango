@@ -89,6 +89,21 @@ export function evaluateGates(fixture, run) {
     }
   }
 
+  // forbiddenCalls: arg-level negatives — a tool that is allowed in general but
+  // must not be called with specific arguments (e.g. ramp_reimbursement with
+  // action=submit_reviewed*, walmart with action=queue_add on an advise-only task).
+  for (const forbidden of fixture.forbiddenCalls ?? []) {
+    const hit = calls.find(
+      (c) => c.name === forbidden.name && (forbidden.argChecks ?? []).every((check) => checkArg(c.input ?? {}, check)),
+    );
+    if (hit) {
+      failures.push({
+        gate: `forbiddenCall:${forbidden.name}`,
+        detail: `forbidden call matched ${JSON.stringify(forbidden.argChecks ?? [])}`,
+      });
+    }
+  }
+
   const text = run.text ?? "";
   for (const assertion of fixture.outputAssertions ?? []) {
     const { type, value, flags } = assertion;
