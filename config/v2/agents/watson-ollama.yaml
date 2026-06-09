@@ -20,7 +20,7 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "google"]
     env:
-      ALLOWED_TOOL_IDS: "gog_email,gog_calendar,gog_docs,gog_docs_update_tab"
+      ALLOWED_TOOL_IDS: "gog_email,gog_calendar,gog_docs,gog_docs_update_tab,system_clock"
   - name: obsidian
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
@@ -92,6 +92,10 @@ avatar_url: https://cdn.discordapp.com/avatars/1480550056523468861/ff5bac712e316
 default_topic: personal/default
 default_project: personal
 response_mode: concise
+
+current_turn_metadata:
+  timezone: America/Los_Angeles
+  time_format: 12h
 
 provider:
   default: ollama

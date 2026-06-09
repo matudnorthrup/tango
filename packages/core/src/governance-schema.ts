@@ -234,11 +234,13 @@ export const GOVERNANCE_SEED = `
     ('worker:recipe-librarian', 'worker', 'agent:jules', 'Recipe Librarian'),
     ('worker:activity-tracker', 'worker', 'agent:jules', 'Activity Tracker'),
     ('worker:personal-assistant', 'worker', 'agent:watson', 'Personal Assistant'),
+    ('worker:watson-ollama', 'worker', 'agent:watson', 'Watson Ollama Runtime'),
     ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
     ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
     ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'),
     ('worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'),
     ('worker:note-librarian', 'worker', NULL, 'Note Librarian'),
+    ('worker:malibu-ollama', 'worker', 'agent:malibu', 'Malibu Ollama Runtime'),
     ('worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'),
     ('worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime'),
     ('worker:kilo', 'worker', 'agent:kilo', 'Kilo Runtime');
@@ -257,6 +259,7 @@ export const GOVERNANCE_SEED = `
     ('gog_calendar', 'personal', 'Google Calendar', 'write'),
     ('gog_docs', 'personal', 'Google Docs', 'write'),
     ('gog_docs_update_tab', 'personal', 'Google Docs Tab Updater', 'write'),
+    ('system_clock', 'runtime', 'System Clock', 'read'),
     ('obsidian', 'personal', 'Obsidian Vault', 'write'),
     ('gospel_library', 'personal', 'Gospel Library', 'write'),
     ('health_morning', 'personal', 'Health Morning Briefing', 'read'),
@@ -332,15 +335,18 @@ export const GOVERNANCE_SEED = `
     ('worker:nutrition-logger', 'fatsecret_api', 'write', 'seed from config'),
     ('worker:nutrition-logger', 'atlas_sql', 'write', 'seed from config'),
     ('worker:nutrition-logger', 'recipe_read', 'read', 'seed from config'),
+    ('worker:nutrition-logger', 'system_clock', 'read', 'runtime-local timestamp lookup'),
     ('worker:nutrition-logger', 'health_query', 'read', 'evening checkin: TDEE for calorie budget');
 
   -- health-analyst
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-    ('worker:health-analyst', 'health_query', 'read', 'seed from config');
+    ('worker:health-analyst', 'health_query', 'read', 'seed from config'),
+    ('worker:health-analyst', 'system_clock', 'read', 'runtime-local timestamp lookup');
 
   -- workout-recorder
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-    ('worker:workout-recorder', 'workout_sql', 'write', 'seed from config');
+    ('worker:workout-recorder', 'workout_sql', 'write', 'seed from config'),
+    ('worker:workout-recorder', 'system_clock', 'read', 'runtime-local timestamp lookup');
 
   -- recipe-librarian
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
@@ -348,7 +354,8 @@ export const GOVERNANCE_SEED = `
     ('worker:recipe-librarian', 'recipe_list', 'read', 'seed from config'),
     ('worker:recipe-librarian', 'recipe_read', 'read', 'seed from config'),
     ('worker:recipe-librarian', 'recipe_write', 'write', 'seed from config'),
-    ('worker:recipe-librarian', 'fatsecret_api', 'write', 'seed from config');
+    ('worker:recipe-librarian', 'fatsecret_api', 'write', 'seed from config'),
+    ('worker:recipe-librarian', 'system_clock', 'read', 'runtime-local timestamp lookup');
 
   -- personal-assistant (Watson)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
@@ -356,6 +363,7 @@ export const GOVERNANCE_SEED = `
     ('worker:personal-assistant', 'gog_calendar', 'write', 'seed from config'),
     ('worker:personal-assistant', 'gog_docs', 'write', 'seed from config'),
     ('worker:personal-assistant', 'gog_docs_update_tab', 'write', 'seed from config'),
+    ('worker:personal-assistant', 'system_clock', 'read', 'runtime-local timestamp lookup'),
     ('worker:personal-assistant', 'obsidian', 'write', 'seed from config'),
     ('worker:personal-assistant', 'health_morning', 'read', 'seed from config'),
     ('worker:personal-assistant', 'lunch_money', 'write', 'seed from config'),
@@ -366,6 +374,23 @@ export const GOVERNANCE_SEED = `
     ('worker:personal-assistant', 'linear', 'write', 'seed from config'),
     ('worker:personal-assistant', 'imessage', 'write', 'seed from config'),
     ('worker:personal-assistant', 'latitude_run', 'write', 'seed from config');
+
+  -- Watson Ollama runtime clone
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:watson-ollama', 'attachment_search', 'read', 'seed from config'),
+    ('worker:watson-ollama', 'attachment_read', 'read', 'seed from config'),
+    ('worker:watson-ollama', 'attachment_status', 'read', 'seed from config'),
+    ('worker:watson-ollama', 'gog_email', 'write', 'seed from config'),
+    ('worker:watson-ollama', 'gog_calendar', 'write', 'seed from config'),
+    ('worker:watson-ollama', 'gog_docs', 'write', 'seed from config'),
+    ('worker:watson-ollama', 'gog_docs_update_tab', 'write', 'seed from config'),
+    ('worker:watson-ollama', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+    ('worker:watson-ollama', 'obsidian', 'write', 'seed from config'),
+    ('worker:watson-ollama', 'browser', 'write', 'seed from config'),
+    ('worker:watson-ollama', 'onepassword', 'read', 'seed from config'),
+    ('worker:watson-ollama', 'linear', 'write', 'seed from config'),
+    ('worker:watson-ollama', 'slack', 'read', 'seed from config'),
+    ('worker:watson-ollama', 'agent_docs', 'write', 'seed from config');
 
   -- research-assistant (Sierra)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
@@ -387,6 +412,24 @@ export const GOVERNANCE_SEED = `
   -- personal-assistant browser access (Watson — receipt lookup, transaction categorization)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:personal-assistant', 'browser', 'write', 'web automation for receipt lookup and transaction categorization');
+
+  -- Malibu Ollama runtime clone
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:malibu-ollama', 'attachment_search', 'read', 'seed from config'),
+    ('worker:malibu-ollama', 'attachment_read', 'read', 'seed from config'),
+    ('worker:malibu-ollama', 'attachment_status', 'read', 'seed from config'),
+    ('worker:malibu-ollama', 'health_query', 'read', 'seed from config'),
+    ('worker:malibu-ollama', 'workout_sql', 'write', 'seed from config'),
+    ('worker:malibu-ollama', 'nutrition_log_items', 'write', 'seed from config'),
+    ('worker:malibu-ollama', 'recipe_list', 'read', 'seed from config'),
+    ('worker:malibu-ollama', 'recipe_read', 'read', 'seed from config'),
+    ('worker:malibu-ollama', 'recipe_write', 'write', 'seed from config'),
+    ('worker:malibu-ollama', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+    ('worker:malibu-ollama', 'health_morning', 'read', 'seed from config'),
+    ('worker:malibu-ollama', 'fatsecret_api', 'write', 'seed from config'),
+    ('worker:malibu-ollama', 'atlas_sql', 'write', 'seed from config'),
+    ('worker:malibu-ollama', 'obsidian', 'write', 'seed from config'),
+    ('worker:malibu-ollama', 'agent_docs', 'write', 'seed from config');
 
   -- Foxtrot finance agents — canonical and Ollama share the same finance MCP surface.
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
@@ -470,6 +513,7 @@ export const GOVERNANCE_SEED = `
     ('worker:activity-tracker', 'wellnessdb_log_weight', 'write', 'Jules wellness.db weight logging'),
     ('worker:activity-tracker', 'wellnessdb_log_activity', 'write', 'Jules wellness.db activity logging'),
     ('worker:activity-tracker', 'wellnessdb_log_hydration', 'write', 'Jules wellness.db hydration logging'),
+    ('worker:activity-tracker', 'system_clock', 'read', 'runtime-local timestamp lookup'),
     ('agent:jules', 'wellnessdb_log_presence', 'write', 'Jules direct presence check logging'),
     ('worker:note-librarian', 'memory_search', 'read', 'memory lookup while resolving notes'),
     ('worker:note-librarian', 'memory_add', 'write', 'memory capture for durable note context'),

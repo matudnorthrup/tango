@@ -6898,6 +6898,14 @@ async function handleMessage(
         searchFirst: Boolean(stateFilePointer) || process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
       });
       const sendContext = buildSendContextWithOptionalSavePass(warmStartPrompt, hasPendingSavePass);
+      const currentTurnMetadataChars = currentTurnMetadataPrompt.trim().length;
+      const turnBriefingChars = turnBriefingPrompt?.trim().length ?? 0;
+      const promptSnapshotText = [
+        sendContext ? `Context:\n${sendContext}` : undefined,
+        currentTurnMetadataChars > 0 ? currentTurnMetadataPrompt.trim() : undefined,
+        turnBriefingChars > 0 ? turnBriefingPrompt?.trim() : undefined,
+        prompt,
+      ].filter((section): section is string => Boolean(section && section.trim().length > 0)).join("\n\n");
       // Clone same-turn vision: hand inbound image bytes to the Ollama runtime so the
       // provider folds them through a vision model on the arrival turn (Claude agents
       // open files via their own Read tool, so this is clone-only).
@@ -6985,7 +6993,7 @@ async function handleMessage(
         },
       });
 
-      writeModelRun({
+      const modelRunId = writeModelRun({
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
         providerName: v2ProviderName,
@@ -7025,6 +7033,11 @@ async function handleMessage(
           turnWarmStartUsed: Boolean(warmStartPrompt),
           requestWarmStartUsed: Boolean(warmStartPrompt),
           warmStartContext: warmStartContext.diagnostics,
+          currentTurnMetadataIncluded: currentTurnMetadataChars > 0,
+          currentTurnMetadataChars,
+          currentTurnMetadataPrompt,
+          turnBriefingIncluded: turnBriefingChars > 0,
+          turnBriefingChars,
           runtimeExitCode: metadataNumber(runtimeMetadata, "exitCode") ?? null,
           runtimeSignal: metadataString(runtimeMetadata, "signal") ?? null,
           runtimeStderr: metadataString(runtimeMetadata, "stderr") ?? null,
@@ -7034,6 +7047,33 @@ async function handleMessage(
             ? rawRuntimeResponse
             : null,
       });
+
+      if (modelRunId !== null) {
+        writePromptSnapshot({
+          modelRunId,
+          sessionId: promptRoute.sessionId,
+          agentId: targetAgent.id,
+          providerName: v2ProviderName,
+          requestMessageId: inboundMessageId,
+          responseMessageId: outboundMessageId,
+          promptText: promptSnapshotText,
+          systemPrompt: null,
+          warmStartPrompt: warmStartPrompt ?? null,
+          metadata: {
+            inputSource: "discord-message",
+            responseMode,
+            runtimePath: "v2",
+            promptChars: promptSnapshotText.length,
+            warmStartPromptChars: warmStartPrompt?.length ?? 0,
+            currentTurnMetadataIncluded: currentTurnMetadataChars > 0,
+            currentTurnMetadataChars,
+            currentTurnMetadataPrompt,
+            turnBriefingIncluded: turnBriefingChars > 0,
+            turnBriefingChars,
+            warmStartContext: warmStartContext.diagnostics,
+          },
+        });
+      }
 
       console.log(
         `[tango-discord] v2 reply session=${promptRoute.sessionId} agent=${targetAgent.id} conversation=${v2Result.conversationKey} ms=${v2Result.response.durationMs} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks}`,

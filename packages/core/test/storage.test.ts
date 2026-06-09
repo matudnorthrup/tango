@@ -250,6 +250,37 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds runtime clock governance for timestamp-aware workers", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    const tool = db.prepare(
+      "SELECT id, access_type FROM governance_tools WHERE id = 'system_clock'",
+    ).get() as { id: string; access_type: string } | undefined;
+
+    expect(tool).toEqual({ id: "system_clock", access_type: "read" });
+    for (const workerId of [
+      "worker:personal-assistant",
+      "worker:watson-ollama",
+      "worker:nutrition-logger",
+      "worker:health-analyst",
+      "worker:workout-recorder",
+      "worker:recipe-librarian",
+      "worker:activity-tracker",
+      "worker:malibu-ollama",
+    ]) {
+      expect(checker.hasPermission(workerId, "system_clock", "read")).toBe(true);
+      expect(checker.hasPermission(workerId, "system_clock", "write")).toBe(false);
+    }
+
+    expect(checker.hasPermission("worker:watson-ollama", "gog_calendar", "write")).toBe(true);
+    expect(checker.hasPermission("worker:malibu-ollama", "health_query", "read")).toBe(true);
+
+    db.close();
+  });
+
   it("seeds Jules wellness worker browser access and parent assignment", () => {
     const { storage, dir } = createStorage();
     storage.close();
@@ -281,6 +312,60 @@ describe("TangoStorage", () => {
       id: "worker:workout-recorder",
       parent_id: "agent:malibu",
     });
+
+    db.close();
+  });
+
+  it("migrates version 45 governance databases to expose the runtime clock", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const dbPath = path.join(dir, "tango.sqlite");
+    const legacyDb = new DatabaseSync(dbPath);
+    legacyDb.exec(`
+      PRAGMA foreign_keys = OFF;
+
+      DELETE FROM permissions
+      WHERE tool_id = 'system_clock'
+        OR principal_id IN ('worker:watson-ollama', 'worker:malibu-ollama');
+      DELETE FROM principals
+      WHERE id IN ('worker:watson-ollama', 'worker:malibu-ollama');
+      DELETE FROM governance_tools WHERE id = 'system_clock';
+
+      PRAGMA user_version = 45;
+      PRAGMA foreign_keys = ON;
+    `);
+    legacyDb.close();
+
+    const migrated = new TangoStorage(dbPath);
+    migrated.close();
+
+    const db = new DatabaseSync(dbPath, { readonly: true });
+    const checker = new GovernanceChecker(db);
+    const userVersion = db.prepare("PRAGMA user_version;").get() as { user_version: number };
+    const watsonOllama = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'worker:watson-ollama'",
+    ).get() as { id: string; parent_id: string } | undefined;
+    const malibuOllama = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'worker:malibu-ollama'",
+    ).get() as { id: string; parent_id: string } | undefined;
+    const foreignKeyFailures = db.prepare("PRAGMA foreign_key_check;").all();
+
+    expect(userVersion.user_version).toBe(46);
+    expect(watsonOllama).toEqual({
+      id: "worker:watson-ollama",
+      parent_id: "agent:watson",
+    });
+    expect(malibuOllama).toEqual({
+      id: "worker:malibu-ollama",
+      parent_id: "agent:malibu",
+    });
+    expect(checker.hasPermission("worker:personal-assistant", "system_clock", "read")).toBe(true);
+    expect(checker.hasPermission("worker:watson-ollama", "system_clock", "read")).toBe(true);
+    expect(checker.hasPermission("worker:malibu-ollama", "system_clock", "read")).toBe(true);
+    expect(checker.hasPermission("worker:watson-ollama", "gog_calendar", "write")).toBe(true);
+    expect(checker.hasPermission("worker:malibu-ollama", "health_query", "read")).toBe(true);
+    expect(foreignKeyFailures).toEqual([]);
 
     db.close();
   });

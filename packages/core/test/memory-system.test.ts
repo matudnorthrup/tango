@@ -127,6 +127,33 @@ describe("memory-system", () => {
     expect(result.trace.recentMessages).toHaveLength(2);
   });
 
+  it("labels bare SQLite message timestamps as UTC in warm-start prompts", () => {
+    const result = assembleSessionMemoryPrompt({
+      sessionId: "watson-ollama",
+      agentId: "watson-ollama",
+      currentUserPrompt: "Reviewing the image guidelines",
+      memoryConfig: {
+        maxContextTokens: 4000,
+      },
+      messages: [
+        message({
+          id: 1,
+          sessionId: "watson-ollama",
+          agentId: "watson-ollama",
+          direction: "inbound",
+          content: "Reviewing the image guidelines",
+          createdAt: "2026-06-09 12:56:13",
+        }),
+      ],
+      summaries: [],
+      memories: [],
+      pinnedFacts: [],
+    });
+
+    expect(result.prompt).toContain("bare message timestamps are stored in UTC");
+    expect(result.prompt).toContain("[user at 2026-06-09 12:56:13 UTC]");
+  });
+
   it("preserves detailed content from the latest turns during full-history warm start", () => {
     const longAgenda = [
       "Review record created. Here is the close agenda.",

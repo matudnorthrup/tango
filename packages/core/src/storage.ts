@@ -2197,6 +2197,56 @@ const MIGRATIONS: Migration[] = [
         ('worker:kilo', 'kilo_ledger', 'write', 'Kilo bucket ledger operations');
     `,
   },
+  {
+    version: 46,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('system_clock', 'runtime', 'System Clock', 'read');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+        ('worker:watson-ollama', 'worker', 'agent:watson', 'Watson Ollama Runtime'),
+        ('worker:malibu-ollama', 'worker', 'agent:malibu', 'Malibu Ollama Runtime');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:personal-assistant', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+        ('worker:watson-ollama', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+        ('worker:nutrition-logger', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+        ('worker:health-analyst', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+        ('worker:workout-recorder', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+        ('worker:recipe-librarian', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+        ('worker:activity-tracker', 'system_clock', 'read', 'runtime-local timestamp lookup'),
+        ('worker:malibu-ollama', 'system_clock', 'read', 'runtime-local timestamp lookup');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:watson-ollama', 'attachment_search', 'read', 'seed from config'),
+        ('worker:watson-ollama', 'attachment_read', 'read', 'seed from config'),
+        ('worker:watson-ollama', 'attachment_status', 'read', 'seed from config'),
+        ('worker:watson-ollama', 'gog_email', 'write', 'seed from config'),
+        ('worker:watson-ollama', 'gog_calendar', 'write', 'seed from config'),
+        ('worker:watson-ollama', 'gog_docs', 'write', 'seed from config'),
+        ('worker:watson-ollama', 'gog_docs_update_tab', 'write', 'seed from config'),
+        ('worker:watson-ollama', 'obsidian', 'write', 'seed from config'),
+        ('worker:watson-ollama', 'browser', 'write', 'seed from config'),
+        ('worker:watson-ollama', 'onepassword', 'read', 'seed from config'),
+        ('worker:watson-ollama', 'linear', 'write', 'seed from config'),
+        ('worker:watson-ollama', 'slack', 'read', 'seed from config'),
+        ('worker:watson-ollama', 'agent_docs', 'write', 'seed from config'),
+        ('worker:malibu-ollama', 'attachment_search', 'read', 'seed from config'),
+        ('worker:malibu-ollama', 'attachment_read', 'read', 'seed from config'),
+        ('worker:malibu-ollama', 'attachment_status', 'read', 'seed from config'),
+        ('worker:malibu-ollama', 'health_query', 'read', 'seed from config'),
+        ('worker:malibu-ollama', 'workout_sql', 'write', 'seed from config'),
+        ('worker:malibu-ollama', 'nutrition_log_items', 'write', 'seed from config'),
+        ('worker:malibu-ollama', 'recipe_list', 'read', 'seed from config'),
+        ('worker:malibu-ollama', 'recipe_read', 'read', 'seed from config'),
+        ('worker:malibu-ollama', 'recipe_write', 'write', 'seed from config'),
+        ('worker:malibu-ollama', 'health_morning', 'read', 'seed from config'),
+        ('worker:malibu-ollama', 'fatsecret_api', 'write', 'seed from config'),
+        ('worker:malibu-ollama', 'atlas_sql', 'write', 'seed from config'),
+        ('worker:malibu-ollama', 'obsidian', 'write', 'seed from config'),
+        ('worker:malibu-ollama', 'agent_docs', 'write', 'seed from config');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

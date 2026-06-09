@@ -864,6 +864,7 @@ function renderMemoryPrompt(input: {
 
   if (input.recentLines.length > 0) {
     lines.push("recent_messages:");
+    lines.push("- timestamp_note: bare message timestamps are stored in UTC; use current user message metadata or a clock tool for local time.");
     lines.push(...input.recentLines);
   }
 
@@ -1136,7 +1137,21 @@ function formatMessageLine(
   maxChars = DEFAULT_MESSAGE_CONTEXT_CHARS,
 ): string {
   const speaker = message.direction === "inbound" ? "user" : "assistant";
-  return `- [${speaker} at ${message.createdAt}] ${truncateText(message.content, maxChars)}`;
+  return `- [${speaker} at ${formatPromptMessageTimestamp(message.createdAt)}] ${truncateText(message.content, maxChars)}`;
+}
+
+function formatPromptMessageTimestamp(createdAt: string): string {
+  const trimmed = createdAt.trim();
+  if (!trimmed) {
+    return createdAt;
+  }
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/u.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?/u.test(trimmed)) {
+    return `${trimmed} UTC`;
+  }
+  return trimmed;
 }
 
 function normalizeWhitespace(text: string): string {
