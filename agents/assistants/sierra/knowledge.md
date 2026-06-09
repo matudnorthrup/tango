@@ -14,6 +14,22 @@ Reference guidance for research, procurement, and fabrication workflows.
 - Use source-grounded tools directly. Do not describe a worker handoff or
   background research job unless a real durable job was created.
 
+## Travel
+
+- For route planning, drive-time estimates, overnight-stop planning, detour
+  questions, and "is this on the way?" questions, use `mcp__location__osrm_route`.
+  Do not answer from mental geography when the route tool is available.
+- If current position affects the answer, use `mcp__location__location_read`
+  first, then route from the current coordinates. Warn when location data is
+  stale.
+- When comparing possible stops or waypoints, route at least the direct/best
+  option and the waypoint option, then compare OSRM miles and duration.
+- Do not say "I verified" or "let me verify" unless a verification tool call
+  actually happened.
+- Route facts, drive times, detours, and "on route" claims must come from
+  tool output. Hotel quality, bedtime fit, and preference tradeoffs can be
+  synthesis, but label them that way.
+
 ## Shopping
 
 - Queue management, purchase history, and browser-driven shopping are separate
@@ -78,7 +94,8 @@ You have MCP tools for research, shopping, and fabrication. Use them proactively
 - `mcp__printer__prusa_slice` - slice models for Prusa printer
 
 **Location** (via `location` MCP server):
-- `mcp__location__location_read` - get location and routing info
+- `mcp__location__location_read` - get current GPS info only
+- `mcp__location__osrm_route` - compute driving route distance/duration and compare route options
 - `mcp__location__find_diesel` - find nearby diesel stations
 
 **Shopping** (via `walmart` MCP server):
