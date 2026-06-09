@@ -1,22 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mockProviderState = vi.hoisted(() => ({
-  generate: vi.fn(),
-}));
-
-vi.mock("@tango/core", async () => {
-  const actual = await vi.importActual<typeof import("@tango/core")>("@tango/core");
-
-  class MockClaudeCliProvider {
-    generate = mockProviderState.generate;
-  }
-
-  return {
-    ...actual,
-    ClaudeCliProvider: MockClaudeCliProvider,
-  };
-});
-
 import type { AtlasMemoryClient } from "../src/atlas-memory-client.js";
 import {
   extractAndStoreMemories,
@@ -24,8 +7,12 @@ import {
   type MemoryCaptureContext,
 } from "../src/memory-capture.js";
 
+const generate = vi.fn();
+const mockProvider = { generate } as unknown as Parameters<typeof extractAndStoreMemories>[3];
+
 const baseConfig: MemoryCaptureConfig = {
   enabled: true,
+  extractionProvider: "claude-oauth",
   extractionModel: "claude-haiku-4-5",
   importanceThreshold: 0.4,
 };
@@ -40,13 +27,13 @@ const baseContext: MemoryCaptureContext = {
 };
 
 afterEach(() => {
-  mockProviderState.generate.mockReset();
+  generate.mockReset();
   vi.restoreAllMocks();
 });
 
 describe("extractAndStoreMemories", () => {
-  it("extracts memories from the model response and stores them in Atlas", async () => {
-    mockProviderState.generate.mockResolvedValue({
+  it("extracts memories from the injected provider response and stores them in Atlas", async () => {
+    generate.mockResolvedValue({
       text: [
         "```json",
         JSON.stringify([
@@ -66,9 +53,10 @@ describe("extractAndStoreMemories", () => {
       baseContext,
       baseConfig,
       { memoryAdd } as unknown as AtlasMemoryClient,
+      mockProvider,
     );
 
-    expect(mockProviderState.generate).toHaveBeenCalledWith(expect.objectContaining({
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
       model: "claude-haiku-4-5",
       reasoningEffort: "low",
     }));
@@ -84,24 +72,41 @@ describe("extractAndStoreMemories", () => {
         conversation_key: "thread:thread-1",
         channel_id: "channel-1",
         thread_id: "thread-1",
+        extraction_provider: "claude-oauth",
         extraction_model: "claude-haiku-4-5",
       },
     });
   });
 
-  it("filters out memories below the importance threshold", async () => {
-    mockProviderState.generate.mockResolvedValue({
+  it("runs extraction through whichever provider/model is configured (e.g. Ollama)", async () => {
+    generate.mockResolvedValue({
       text: JSON.stringify([
-        {
-          content: "User likes coffee.",
-          importance: 0.2,
-          tags: ["preference"],
-        },
-        {
-          content: "Weekly review stays on Monday.",
-          importance: 0.7,
-          tags: ["decision"],
-        },
+        { content: "User drives an F-350 with a 29-gallon tank.", importance: 0.6, tags: ["vehicle"] },
+      ]),
+    });
+    const memoryAdd = vi.fn().mockResolvedValue({ id: "memory-ollama" });
+
+    await extractAndStoreMemories(
+      baseContext,
+      { ...baseConfig, extractionProvider: "ollama", extractionModel: "gpt-oss:20b" },
+      { memoryAdd } as unknown as AtlasMemoryClient,
+      mockProvider,
+    );
+
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-oss:20b" }));
+    expect(memoryAdd).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({
+        extraction_provider: "ollama",
+        extraction_model: "gpt-oss:20b",
+      }),
+    }));
+  });
+
+  it("filters out memories below the importance threshold", async () => {
+    generate.mockResolvedValue({
+      text: JSON.stringify([
+        { content: "User likes coffee.", importance: 0.2, tags: ["preference"] },
+        { content: "Weekly review stays on Monday.", importance: 0.7, tags: ["decision"] },
       ]),
     });
 
@@ -111,6 +116,7 @@ describe("extractAndStoreMemories", () => {
       baseContext,
       baseConfig,
       { memoryAdd } as unknown as AtlasMemoryClient,
+      mockProvider,
     );
 
     expect(memoryAdd).toHaveBeenCalledTimes(1);
@@ -121,9 +127,7 @@ describe("extractAndStoreMemories", () => {
   });
 
   it("does nothing when the extraction model returns an empty array", async () => {
-    mockProviderState.generate.mockResolvedValue({
-      text: "[]",
-    });
+    generate.mockResolvedValue({ text: "[]" });
 
     const memoryAdd = vi.fn().mockResolvedValue({ id: "memory-3" });
 
@@ -131,13 +135,14 @@ describe("extractAndStoreMemories", () => {
       baseContext,
       baseConfig,
       { memoryAdd } as unknown as AtlasMemoryClient,
+      mockProvider,
     );
 
     expect(memoryAdd).not.toHaveBeenCalled();
   });
 
   it("logs model errors without failing the turn", async () => {
-    mockProviderState.generate.mockRejectedValue(new Error("model unavailable"));
+    generate.mockRejectedValue(new Error("model unavailable"));
     const memoryAdd = vi.fn();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -145,6 +150,7 @@ describe("extractAndStoreMemories", () => {
       baseContext,
       baseConfig,
       { memoryAdd } as unknown as AtlasMemoryClient,
+      mockProvider,
     )).resolves.toBeUndefined();
 
     expect(memoryAdd).not.toHaveBeenCalled();
@@ -158,14 +164,12 @@ describe("extractAndStoreMemories", () => {
 
     await extractAndStoreMemories(
       baseContext,
-      {
-        ...baseConfig,
-        enabled: false,
-      },
+      { ...baseConfig, enabled: false },
       { memoryAdd } as unknown as AtlasMemoryClient,
+      mockProvider,
     );
 
-    expect(mockProviderState.generate).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
     expect(memoryAdd).not.toHaveBeenCalled();
   });
 });

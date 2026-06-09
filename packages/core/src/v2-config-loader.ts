@@ -44,6 +44,8 @@ export interface V2AgentConfig {
   };
   memory: {
     postTurnExtraction: V2FeatureToggle;
+    /** Optional provider name for post-turn extraction; defaults by agent backend. */
+    extractionProvider?: string;
     extractionModel: string;
     importanceThreshold: number;
     scheduledReflection: V2FeatureToggle;
@@ -143,6 +145,7 @@ const rawV2AgentConfigSchema = z.object({
   }),
   memory: z.object({
     post_turn_extraction: featureToggleSchema,
+    extraction_provider: z.string().min(1).optional(),
     extraction_model: z.string().min(1),
     importance_threshold: z.number().min(0).max(1),
     scheduled_reflection: featureToggleSchema,
@@ -258,6 +261,9 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
     },
     memory: {
       postTurnExtraction: parsed.memory.post_turn_extraction,
+      ...(parsed.memory.extraction_provider
+        ? { extractionProvider: parsed.memory.extraction_provider }
+        : {}),
       extractionModel: parsed.memory.extraction_model,
       importanceThreshold: parsed.memory.importance_threshold,
       scheduledReflection: parsed.memory.scheduled_reflection,

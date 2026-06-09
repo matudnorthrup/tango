@@ -401,4 +401,64 @@ describe("processAttachments", () => {
 
     expect(fs.existsSync(path.join("/tmp/tango-attachments", sessionId))).toBe(false);
   });
+
+  it("uses honest wording for images when the agent cannot view or read them", async () => {
+    const harness = createHarness();
+    const image = Buffer.from("ollama clone image bytes", "utf8");
+    const url = "https://cdn.discord.test/ollama-image.png";
+    stubFetch(new Map([[url, { body: image, contentType: "image/png" }]]));
+
+    const result = await processAttachments(
+      createAttachments(createAttachment({
+        id: "discord-attachment-ollama-image",
+        name: "screenshot.png",
+        url,
+        contentType: "image/png",
+        size: image.byteLength,
+      })),
+      "session-ollama-img",
+      {
+        attachmentStore: harness.store,
+        dataDir: harness.dataDir,
+        agentAttachmentAccess: { canReadLocalFiles: false, canUseAttachmentTools: false },
+        sourceRefs: { agentId: "sierra-ollama", channelId: "channel-ollama" },
+      },
+    );
+
+    expect(result.processed).toHaveLength(1);
+    expect(result.promptSuffix).toContain("screenshot.png");
+    expect(result.promptSuffix).not.toContain("Read the file at");
+    expect(result.promptSuffix).not.toContain("Use attachment_read");
+    expect(result.promptSuffix).toContain("You cannot view it directly");
+  });
+
+  it("uses honest wording for files when the agent has no attachment tools", async () => {
+    const harness = createHarness();
+    const pdf = Buffer.from("%PDF ollama clone file", "utf8");
+    const url = "https://cdn.discord.test/ollama-file.pdf";
+    stubFetch(new Map([[url, { body: pdf, contentType: "application/pdf" }]]));
+
+    const result = await processAttachments(
+      createAttachments(createAttachment({
+        id: "discord-attachment-ollama-file",
+        name: "report.pdf",
+        url,
+        contentType: "application/pdf",
+        size: pdf.byteLength,
+      })),
+      "session-ollama-file",
+      {
+        attachmentStore: harness.store,
+        dataDir: harness.dataDir,
+        agentAttachmentAccess: { canReadLocalFiles: false, canUseAttachmentTools: false },
+        sourceRefs: { agentId: "sierra-ollama", channelId: "channel-ollama" },
+      },
+    );
+
+    expect(result.processed).toHaveLength(1);
+    expect(result.promptSuffix).toContain("report.pdf");
+    expect(result.promptSuffix).not.toContain("Read the file at");
+    expect(result.promptSuffix).not.toContain("Use attachment_read");
+    expect(result.promptSuffix).toContain("You cannot open it directly");
+  });
 });
