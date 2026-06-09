@@ -1,0 +1,10 @@
+{
+  "note": "Per-Mtoken USD prices used by scripts/lib/bakeoff/pricing.mjs to compute cost-per-successful-run. ONLY enter prices you have verified against the provider's current price sheet — when a model's prices are null, the harness ranks by measured output tokens and says so in the report. Never guess a price. Claude models run on the Claude Code subscription (no marginal API cost) and are benchmarks only; they stay null on purpose.",
+  "models": {
+    "deepseek-v4-pro:cloud": { "inputPerMTokUSD": null, "outputPerMTokUSD": null },
+    "deepseek-v4-flash": { "inputPerMTokUSD": null, "outputPerMTokUSD": null },
+    "minimax-m2.5": { "inputPerMTokUSD": null, "outputPerMTokUSD": null },
+    "kimi-k2.6": { "inputPerMTokUSD": null, "outputPerMTokUSD": null },
+    "glm-5": { "inputPerMTokUSD": null, "outputPerMTokUSD": null }
+  }
+}

@@ -11,6 +11,19 @@ fleet.
 This is a first-class operating practice, on the same footing as
 [Done Means Live Tested](agent-operating-model.md#done-means-live-tested).
 
+## Reliability-adjusted cost
+
+Use raw model cost only after the task contract is satisfied. The actual cost of
+a model includes retries, repair turns, failed jobs, manual checking, and lost
+trust. For low-risk bounded tasks, cheap and fast models should win. For travel,
+finance, health, calendar commitments, purchases, and ambiguous planning, paying
+for a slower/deeper model is correct when it materially improves accuracy,
+consistency, or dependability.
+
+Tool-grounded tasks must also pass their tool contract. A model that gives a
+plausible route, price, finance, health, or schedule answer without the required
+verification tool has failed even if the prose looks good.
+
 ## The golden-path-first workflow
 
 When you stand up a **new** task or workflow:
@@ -27,27 +40,40 @@ When you stand up a **new** task or workflow:
    `runtime.model` in `config/v2/agents/<agent>.yaml`. Keep a baseline model on a
    sibling agent so you can A/B by `model_runs.model`.
 
-## The bake-off harness
+## The bake-off harness (v2)
 
-`scripts/model-bakeoff.mjs` runs one task across N models and prints a comparison
-(stop reason, tool-call count, wall-clock) plus, with `--full`, the complete
-outputs so you can judge quality.
+`scripts/model-bakeoff.mjs` measures **reliability first**: each candidate runs
+the same fixture N times (defaults by safety tier — read tasks 3 runs @ 0.8
+pass-rate bar, write tasks 5 runs @ 1.0); each run is machine-scored against the
+fixture's gates (tool contract with argument checks, output assertions,
+forbidden actions) and quality-scored by a blind Claude-CLI judge against the
+fixture rubric. The verdict gates on pass-rate, ranks eligible candidates by
+pass rate → cost-per-successful-run → latency, and applies incumbent hysteresis
+(a challenger must strictly beat the current assignment, never tie into it).
 
 ```bash
-# Quick: one prompt across the default candidate set, with tools + full outputs
+# Full bake-off from a fixture (candidates, runs, judge from the fixture):
+node scripts/model-bakeoff.mjs --task agents/evals/model-bakeoff/tasks/<fixture>.json
+
+# Add subscription benchmarks (comparison only, never assignable):
+node scripts/model-bakeoff.mjs --task <fixture> --benchmarks claude:sonnet,claude:opus
+
+# Quick ad-hoc comparison:
 node scripts/model-bakeoff.mjs --prompt "<the task>" --worker watson-ollama --full
-
-# Specific models, no tools
-node scripts/model-bakeoff.mjs --prompt "<task>" --models minimax-m2.5,glm-5 --no-tools
-
-# Reusable task spec: { "worker", "system", "prompt", "tools" }
-node scripts/model-bakeoff.mjs --task path/to/task.json --full
 ```
 
 Runs sequentially so timings are comparable. Needs `OLLAMA_API_KEY` in `.env`,
-and the `:9100` MCP server up when the task uses tools. List the live Ollama
-Cloud catalog with:
+the `:9100` MCP server up when the task uses tools, and a logged-in `claude` CLI
+for the judge/benchmarks. Infra failures (MCP down, auth, rate limits) are
+retried once and excluded from pass rates — they never count against a model.
+List the live Ollama Cloud catalog with:
 `curl -s -H "Authorization: Bearer $OLLAMA_API_KEY" https://ollama.com/v1/models`.
+
+Fixtures live in `agents/evals/model-bakeoff/tasks/` (contract documented in the
+README there); committed-safe verdict summaries land in
+`agents/evals/model-bakeoff/verdicts/`; full transcripts stay private under
+`~/.tango/evals/results/`. Validate fixtures with `npm run eval:validate`; the
+harness's own logic tests run with `npm run eval:test`.
 
 ## What the data shows (and why it generalizes)
 
