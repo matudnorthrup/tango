@@ -24,6 +24,26 @@ Tool-grounded tasks must also pass their tool contract. A model that gives a
 plausible route, price, finance, health, or schedule answer without the required
 verification tool has failed even if the prose looks good.
 
+## The operating rule: defaults are safe, downgrades require evidence
+
+Decided 2026-06-09 (after the spectrum-suite bake-offs kept finding the same
+shape: bounded well-tooled tasks are model-insensitive; ambiguity, composition,
+and long horizons are where models separate):
+
+1. **Default = dependability tier.** Every agent's `runtime.model` fallback is
+   the most consistent portfolio-safe model (currently `deepseek-v4-pro:cloud`).
+   No bake-off is needed to be *safe* — only to save money.
+2. **Downgrades require evidence.** Pinning a cheaper/faster model on any job,
+   task, or agent requires a fixture + verdict first. Bake-offs are the permit
+   process for economy, not a census — the corpus grows exactly where it pays.
+3. **Tier-0 tasks get proactive fixtures regardless** (finance writes, purchases,
+   comms-sending, travel, anything with a safety gate): even the default model
+   needs standing regression coverage there.
+4. **Production is the continuous eval.** The weekly model scorecard aggregates
+   `model_runs` (error rates, cap hits, latency, tokens per agent × model) and
+   flags regressions and never-evaluated assignments for re-bake-off. Incidents
+   always become regression fixtures.
+
 ## The golden-path-first workflow
 
 When you stand up a **new** task or workflow:

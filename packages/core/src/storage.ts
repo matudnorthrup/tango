@@ -153,6 +153,17 @@ export interface ModelRunInsertInput {
   rawResponse?: Record<string, unknown> | null;
 }
 
+export interface ModelRunStatRow {
+  agentId: string;
+  model: string | null;
+  providerName: string;
+  stopReason: string | null;
+  latencyMs: number | null;
+  outputTokens: number | null;
+  isError: boolean;
+  createdAt: string;
+}
+
 export type DeterministicRouteOutcome = "executed" | "clarification" | "fallback";
 
 export interface DeterministicTurnRecord {
@@ -3888,6 +3899,30 @@ export class TangoStorage {
 
     const rowId = result.lastInsertRowid;
     return typeof rowId === "bigint" ? Number(rowId) : rowId;
+  }
+
+  /** Lightweight per-run stats since a UTC "YYYY-MM-DD HH:MM:SS" boundary —
+   *  feeds the weekly model scorecard (production is the continuous eval). */
+  listModelRunStats(sinceUtc: string): ModelRunStatRow[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            agent_id AS agentId,
+            model,
+            provider_name AS providerName,
+            stop_reason AS stopReason,
+            latency_ms AS latencyMs,
+            output_tokens AS outputTokens,
+            is_error AS isError,
+            created_at AS createdAt
+          FROM model_runs
+          WHERE created_at >= ?
+          ORDER BY created_at ASC
+        `
+      )
+      .all(sinceUtc) as Array<Omit<ModelRunStatRow, "isError"> & { isError: number }>;
+    return rows.map((row) => ({ ...row, isError: row.isError === 1 }));
   }
 
   getModelRun(id: number): ModelRunRecord | null {
