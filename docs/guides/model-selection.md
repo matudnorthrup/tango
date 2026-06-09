@@ -67,7 +67,49 @@ So the default split:
 | Task shape | Use | Examples |
 | --- | --- | --- |
 | Bounded, tool-driven, latency-sensitive | **fast agentic** — MiniMax M2.5, `deepseek-v4-flash` | browse/shop, calendar, scripture marking, scheduled jobs |
-| Ambiguous, judgment, "what matters and why" | **thinking** — GLM-5 (Kimi K2.6 for the hardest) | chief-of-staff prioritization, morning briefing, finance-review reasoning |
+| Ambiguous, judgment, "what matters and why" | **thinking** — GLM-5 / `deepseek-v4-pro` (peers) | chief-of-staff prioritization, morning briefing, finance-review reasoning |
+
+### Judgment-model bake-off (2026-06-08)
+
+A head-to-head on judgment tasks (emotional advice; open-ended, constraint-laden
+trip planning) settled which "thinking" model to route judgment to:
+
+- **GLM-5 and `deepseek-v4-pro` are peers** — both produced deep, well-structured,
+  specific answers at comparable latency (~30s advice, ~70–75s planning). GLM-5
+  leaned slightly more interpretive/"surprising"; `deepseek-v4-pro` was slightly
+  better at grounding hard constraints (e.g. explicit fuel-range math). Either is
+  an excellent judgment target.
+- **Kimi K2.6 is too slow for interactive routing** — same task took **204s**
+  (~3× the others). Great prose, wrong tool for a per-turn path.
+
+Consequence: the earlier "`deepseek-v4-pro` is best for Juliet/Porter" finding was
+about the *alternatives that failed* (MiniMax deflected / made 0 tool calls; Flash
+500'd) — **not** GLM-5 losing. GLM-5 is the per-task judgment target; an agent
+already on `deepseek-v4-pro` loses nothing by staying (see "don't downgrade").
+
+## Per-task auto-routing (the runtime safety net)
+
+Static `runtime.model` is only the **default for operational (OTHER) turns**. On
+every Ollama turn, `ollama-runtime-adapter.ts` runs a cheap `ministral-3:3b`
+classifier (~0.9s, example-driven prompt, fully stable on the 16-task gold set)
+that labels the turn **JUDGMENT / DATA / OTHER**, then:
+
+- **JUDGMENT** → upgrade to GLM-5 *if* the agent's model isn't already strong at
+  judgment (`STRONG_JUDGMENT_MODELS`).
+- **DATA** (analyzing the user's own records) → upgrade to `deepseek-v4-pro` *if*
+  the agent's model isn't already strong at data (`STRONG_DATA_MODELS`).
+- **OTHER** → keep the agent's configured model.
+
+The "don't downgrade" guard is the key: the router only ever **upgrades a weak/fast
+fallback** for its weak shape; it never replaces a deliberately-assigned strong
+model with a worse one. It fails safe to the fallback on no-key / disabled / error,
+so it can never block a turn. Toggle with `TANGO_PER_TASK_MODEL_ROUTING=false`;
+override targets with `TANGO_MODEL_JUDGMENT` / `TANGO_MODEL_DATA` /
+`TANGO_TASK_ROUTER_MODEL`.
+
+Net effect: a per-persona default that's right for that persona's *common* work,
+with a per-turn correction for the off-shape turns — so even a fast operational
+persona handles an occasional "help me think through X" on a thinking model.
 
 ## Notes / gotchas
 
