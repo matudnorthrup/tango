@@ -25,6 +25,71 @@ const OLLAMA_TOOL_EFFICIENCY_GUIDANCE =
   "tool one item, channel, or note at a time. Use batch/multi-target options when a tool offers " +
   "them, and finish in as few tool calls as you can.";
 
+// Per-task model routing (Devin: "per task with a per-agent fallback"). A cheap classifier
+// labels the incoming task; clearly-judgment tasks route to a thinking model and
+// clearly-data-analysis tasks to a thorough model, while everything else falls back to the
+// agent's own configured runtime.model. Defaults are bake-off-backed; all env-overridable.
+// The classifier is one fast (~ministral) call and returns the fallback on any failure, so
+// routing can never break or block a turn.
+const PER_TASK_ROUTING = (process.env.TANGO_PER_TASK_MODEL_ROUTING ?? "true") !== "false";
+const TASK_ROUTER_MODEL = process.env.TANGO_TASK_ROUTER_MODEL?.trim() || "ministral-3:3b";
+const TASK_ROUTER_BASE_URL = process.env.OLLAMA_BASE_URL?.trim() || "https://ollama.com/v1";
+const MODEL_FOR_JUDGMENT = process.env.TANGO_MODEL_JUDGMENT?.trim() || "glm-5";
+const MODEL_FOR_DATA = process.env.TANGO_MODEL_DATA?.trim() || "deepseek-v4-pro:cloud";
+
+async function classifyTaskShape(task: string, apiKey: string): Promise<"JUDGMENT" | "DATA" | "OTHER"> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const res = await fetch(`${TASK_ROUTER_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: TASK_ROUTER_MODEL,
+        max_tokens: 4,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Classify the user's task into exactly one word. " +
+              "JUDGMENT = open-ended reasoning, planning, prioritization, recommendations, advice, weighing options, analyze-and-decide. " +
+              "DATA = analyzing the user's own structured records (finance, health metrics, transactions, workout/nutrition logs). " +
+              "OTHER = everything else: simple lookups, retrieval, tool actions, browsing, ordering, logging, short factual answers. " +
+              "Reply with ONLY one word: JUDGMENT, DATA, or OTHER.",
+          },
+          { role: "user", content: task.slice(0, 2000) },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return "OTHER";
+    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const out = (json.choices?.[0]?.message?.content ?? "").toUpperCase();
+    if (out.includes("JUDGMENT")) return "JUDGMENT";
+    if (out.includes("DATA")) return "DATA";
+    return "OTHER";
+  } catch {
+    return "OTHER";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Resolve the model for a turn: per-task override for JUDGMENT/DATA, else the agent's
+// configured model (fallback). Returns the fallback if routing is off, no key, or on error.
+async function resolveModelForTask(
+  task: string,
+  fallbackModel: string | undefined,
+): Promise<string | undefined> {
+  if (!PER_TASK_ROUTING) return fallbackModel;
+  const apiKey = process.env.OLLAMA_API_KEY?.trim();
+  if (!apiKey || !task.trim()) return fallbackModel;
+  const shape = await classifyTaskShape(task, apiKey);
+  if (shape === "JUDGMENT") return MODEL_FOR_JUDGMENT;
+  if (shape === "DATA") return MODEL_FOR_DATA;
+  return fallbackModel;
+}
+
 /**
  * Runs a v2 agent turn through a stateless {@link ChatProvider} (the
  * OllamaProvider) instead of the Claude Code CLI. Mirrors
@@ -81,12 +146,17 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     const prompt = this.buildPrompt(message, options);
 
     const tools = this.resolveTools();
+    // Per-task routing: clearly-judgment tasks -> a thinking model, clearly-data tasks
+    // -> a thorough model, everything else -> this agent's configured model (the
+    // fallback). On any failure the classifier returns the fallback, so it can never
+    // break a turn.
+    const routedModel = await resolveModelForTask(message, this.config.runtimePreferences.model);
     const request: ProviderRequest = {
       prompt,
       ...(this.config.systemPrompt.trim()
         ? { systemPrompt: this.config.systemPrompt + OLLAMA_TOOL_EFFICIENCY_GUIDANCE }
         : { systemPrompt: OLLAMA_TOOL_EFFICIENCY_GUIDANCE.trim() }),
-      ...(this.config.runtimePreferences.model ? { model: this.config.runtimePreferences.model } : {}),
+      ...(routedModel ? { model: routedModel } : {}),
       ...(tools ? { tools } : {}),
       // Inbound image bytes for same-turn vision. OllamaProvider folds these
       // through a vision model (qwen3-vl) and strips them before the tool loop,
