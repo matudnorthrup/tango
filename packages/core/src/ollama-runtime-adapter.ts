@@ -9,6 +9,7 @@ import {
 import type {
   AgentRuntime,
   AgentRuntimeConfig,
+  McpServerConfig,
   RuntimeResponse,
   RuntimeState,
   SendOptions,
@@ -24,6 +25,10 @@ const OLLAMA_TOOL_EFFICIENCY_GUIDANCE =
   "run ONE broad query first and then drill into only the results that matter — do not loop a " +
   "tool one item, channel, or note at a time. Use batch/multi-target options when a tool offers " +
   "them, and finish in as few tool calls as you can.";
+
+const KNOWN_MCP_SERVER_TOOLS: Record<string, string[]> = {
+  memory: ["memory_search", "memory_add", "memory_reflect"],
+};
 
 // Per-task model routing (Devin: "per task with a per-agent fallback"). A cheap classifier
 // labels the incoming task; clearly-judgment tasks route to a thinking model and
@@ -269,7 +274,8 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     if (this.config.mcpServers.length === 0) {
       return undefined;
     }
-    return { mode: "default" };
+    const allowlist = resolveMcpToolAllowlist(this.config.mcpServers);
+    return allowlist ? { mode: "allowlist", allowlist } : { mode: "default" };
   }
 
   private buildPrompt(message: string, options: SendOptions): string {
@@ -289,4 +295,31 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     sections.push(message);
     return sections.join("\n\n");
   }
+}
+
+function resolveMcpToolAllowlist(servers: McpServerConfig[]): string[] | undefined {
+  const allowlist: string[] = [];
+  for (const server of servers) {
+    const explicit = parseAllowedToolIds(server.env?.ALLOWED_TOOL_IDS);
+    if (explicit.length > 0) {
+      allowlist.push(...explicit);
+      continue;
+    }
+
+    const known = KNOWN_MCP_SERVER_TOOLS[server.name];
+    if (known) {
+      allowlist.push(...known);
+      continue;
+    }
+
+    return undefined;
+  }
+  return [...new Set(allowlist)];
+}
+
+function parseAllowedToolIds(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }

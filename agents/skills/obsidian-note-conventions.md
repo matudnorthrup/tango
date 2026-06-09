@@ -21,6 +21,7 @@ Reusable conventions for reading and writing notes in the main Obsidian vault.
 - Do not use `Travel`, `Projects`, or `Work` as areas. Use a specific approved area, and use `collections` for finite trips, events, initiatives, or bundles that cut across areas.
 - Do not use `Planning` or `Project` as types. Use `Project Plan` for plan artifacts, or the specific daily/weekly/quarterly type for temporal planning notes.
 - Do not add `tags` or `categories` to new notes unless Devin explicitly asks for that workflow. Categories are deprecated; collections are the preferred cross-cutting grouping field.
+- Do not add `source_kind: canonical` by default. Use `source_kind` only when provenance, source/derived review, log/record handling, or write-governance matters.
 - Frontmatter goes between `---` delimiters at the top of `.md` files only. Never add `---` delimiters to `.base` files.
 
 Current default pattern:
@@ -34,7 +35,6 @@ areas:
   - "[[Personal]]"
 collections:
   - "[[Hub Note]]"
-source_kind: canonical
 ---
 ```
 

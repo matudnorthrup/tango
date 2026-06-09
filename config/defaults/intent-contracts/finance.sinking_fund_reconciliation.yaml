@@ -27,23 +27,27 @@ classifier_hints:
 evaluation:
   task_class: reconciliation
   success_criteria:
-    - Read the dedicated Obsidian note `Records/Finance/Sinking Fund Budget System` before concluding.
-    - Reconcile only House SB, Vehicles SB, and Recreation SB unless the user explicitly broadens scope.
-    - Exclude Spending SB and Gas & Charging unless the user explicitly asks for them.
+    - Read the dedicated Obsidian note `References/Finance/Sinking Fund Budget System` before concluding.
+    - Reconcile note-defined sinking funds in scope for the request, including the profile-configured Kilo spending reserve when Kilo spending is in scope.
+    - Keep owner spending reserves distinct from the Kilo spending reserve; do not merge separate accounts.
+    - Exclude Gas & Charging unless the user explicitly asks for it.
     - Include balances, outstanding reimbursement needs, and contribution status in the final answer.
   must_answer:
     - What is the current period spend, already reimbursed amount, and outstanding reimbursement for House SB?
     - What is the current period spend, already reimbursed amount, and outstanding reimbursement for Vehicles SB?
     - What is the current period spend, already reimbursed amount, and outstanding reimbursement for Recreation SB?
-    - What are the current balances for Ally ...5721, ...3271, and ...5846?
-    - Are this month's 16th contributions posted, missing, mismatched, or not yet due?
+    - What is the current period spend, already reimbursed amount, and outstanding reimbursement for the Kilo spending reserve when Kilo spending is in scope?
+    - What are the current balances for the note-defined SB accounts, including the profile-configured Kilo backing account when Kilo spending is in scope?
+    - Are the expected contributions posted, missing, mismatched, or not yet due according to each fund's cadence?
   required_fields:
     - House SB current balance
     - Vehicles SB current balance
     - Recreation SB current balance
+    - Kilo spending reserve current balance when in scope
     - House SB outstanding reimbursement
     - Vehicles SB outstanding reimbursement
     - Recreation SB outstanding reimbursement
+    - Kilo spending reserve outstanding reimbursement when in scope
     - Contribution status
   quality_gate_required: true
   safe_noop_allowed: true
