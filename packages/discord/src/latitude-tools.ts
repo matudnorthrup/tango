@@ -75,12 +75,18 @@ export function createLatitudeTools(): AgentTool[] {
         "",
         "Call pattern — a single { category, tool, params } request:",
         "  category: the service. Use \"notion\" for the Notion workspace. (Other categories exist: slack, github, postgres, sentry, etc.)",
-        "  tool:     the operation within the category. Confirmed Notion ops: \"search\" (find pages/databases by query) and \"fetch\" (get a page's content by id or url). Create/update pages and comments follow the same { category:\"notion\", tool:\"<op>\", params } shape.",
-        "  params:   parameters for the operation. e.g. search → { query: \"...\" }; fetch → { id: \"...\" } or { url: \"...\" }.",
+        "  tool:     the operation within the category (hyphenated verb-noun).",
+        "  params:   parameters for the operation.",
         "",
-        "Optional universal filters (place inside params): _limit (max items), _fields ([\"id\",\"title\"]), _jq (a JQ expression to transform the output).",
+        "VERIFIED Notion operations:",
+        "  - search:   find pages/databases. params: { query: \"...\" }. Returns results[] each with id, title, url.",
+        "  - get-page: read a page's full content. params: { page_id: \"<id from search>\" }. NOTE the key is page_id (NOT id/url).",
+        "Typical flow: search to get a page_id, then get-page with that page_id.",
+        "Other ops follow the same hyphenated naming and id convention (e.g. create-page, update-page, query-database with database_id, append-block).",
+        "",
+        "Optional universal filters (place inside params): _limit (max items), _fields (top-level keys only), _jq (a JQ expression — best for per-item shaping, e.g. \".results | map({title,url})\").",
         "Example: latitude_run({ category: \"notion\", tool: \"search\", params: { query: \"offsite\", _limit: 5 } }).",
-        "Pass Notion page ids/urls exactly as the user gives them. Results come back as JSON.",
+        "Then: latitude_run({ category: \"notion\", tool: \"get-page\", params: { page_id: \"349105b8-...\" } }).",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -91,7 +97,7 @@ export function createLatitudeTools(): AgentTool[] {
           },
           tool: {
             type: "string",
-            description: "Operation within the category, e.g. \"search\" or \"fetch\".",
+            description: "Operation within the category, e.g. \"search\" or \"get-page\".",
           },
           params: {
             type: "object",
@@ -103,14 +109,31 @@ export function createLatitudeTools(): AgentTool[] {
       },
       handler: async (input) => {
         const category = String(input.category ?? "").trim();
-        const tool = String(input.tool ?? "").trim();
-        const params = (input.params as Record<string, unknown>) ?? {};
+        let tool = String(input.tool ?? "").trim();
+        const params = { ...((input.params as Record<string, unknown>) ?? {}) };
         if (!category || !tool) {
           return {
             error:
               "latitude_run requires 'category' (e.g. \"notion\") and 'tool' (e.g. \"search\"). " +
               "Example: { category: \"notion\", tool: \"search\", params: { query: \"...\" } }.",
           };
+        }
+        // Forgiving normalization for Notion: models often guess fetch/get/read for
+        // reading a page, but the real op is "get-page" keyed on page_id. Map common
+        // synonyms and id/url aliases so a reasonable guess still works.
+        if (category.toLowerCase() === "notion") {
+          if (/^(fetch|get|read|retrieve|get-?page|page)$/i.test(tool)) tool = "get-page";
+          if (tool === "get-page" && params.page_id == null) {
+            const alt = params.id ?? params.pageId ?? params.url;
+            if (typeof alt === "string" && alt) {
+              // Notion page urls end with a 32-char hex id; accept that or a raw id.
+              const m = alt.match(/([0-9a-fA-F]{32})(?:\?|$)/);
+              params.page_id = m ? m[1] : alt;
+            }
+            delete params.id;
+            delete params.pageId;
+            delete params.url;
+          }
         }
         try {
           const client = await getClient();
