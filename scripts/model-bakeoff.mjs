@@ -74,6 +74,32 @@ if (recomputePath) {
   process.exit(0);
 }
 
+// ---- Rejudge mode: re-run the judge over stored runs (judge-prompt iterations
+// shouldn't require re-running models), then recompute the verdict. ------------
+const rejudgePath = arg("rejudge");
+if (rejudgePath) {
+  const stored = JSON.parse(readFileSync(resolve(process.cwd(), rejudgePath), "utf8"));
+  const fx = normalizeFixture(stored.fixture, { sourcePath: stored.fixture.sourcePath });
+  const judgeModelOverride = arg("judge-model", fx.judge.model);
+  for (const candidate of stored.candidates) {
+    for (const run of candidate.runs) {
+      if (run.gates?.infra || !run.text) continue;
+      const result = await judgeRun({ fixture: fx, run, judgeModel: judgeModelOverride });
+      run.rubricScore = result.error ? null : result.weighted;
+      run.judge = result;
+    }
+    const scores = candidate.runs.map((r) => r.rubricScore).filter((s) => typeof s === "number");
+    console.log(`  ${candidate.model.padEnd(24)} rubric: ${scores.map((s) => s.toFixed(2)).join(", ") || "-"}`);
+  }
+  const summaries = stored.candidates.map((c) => summarizeCandidate(fx, c));
+  const verdict = computeVerdict(fx, summaries);
+  console.log(`\nVERDICT: ${verdict.recommendation ?? "NO ELIGIBLE MODEL"}\n  ${verdict.reason}`);
+  const rejudgedPath = persistFullResults({ fixture: fx, candidates: stored.candidates, summaries, verdict, resultsRoot: arg("results-dir") ?? defaultResultsRoot() });
+  const verdictPath = persistVerdictSummary({ fixture: fx, summaries, verdict, repoRoot: ROOT });
+  console.log(`Rejudged results: ${rejudgedPath}\nVerdict summary updated: ${verdictPath}`);
+  process.exit(0);
+}
+
 // ---- Build the fixture -------------------------------------------------------
 const taskFile = arg("task");
 let fixture;
