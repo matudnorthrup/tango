@@ -23,6 +23,7 @@ export * from "./claude-code-adapter.js";
 export * from "./ollama-runtime-adapter.js";
 export * from "./execution-trace.js";
 export * from "./embeddings.js";
+export * from "./kilo-ledger.js";
 export * from "./memory-compaction.js";
 export * from "./memory-backfill.js";
 export * from "./memory-eval.js";

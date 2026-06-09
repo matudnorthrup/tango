@@ -222,7 +222,10 @@ export const GOVERNANCE_SEED = `
     ('agent:dispatch', 'agent', 'user:owner', 'Tango'),
     ('agent:victor', 'agent', 'user:owner', 'Victor'),
     ('agent:porter', 'agent', 'user:owner', 'Porter'),
-    ('agent:wellness', 'agent', 'user:owner', 'Wellness');
+    ('agent:wellness', 'agent', 'user:owner', 'Wellness'),
+    ('agent:foxtrot', 'agent', 'user:owner', 'Foxtrot'),
+    ('agent:foxtrot-ollama', 'agent', 'user:owner', 'Foxtrot (Ollama)'),
+    ('agent:kilo', 'agent', 'user:owner', 'Kilo');
 
   INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
     ('worker:nutrition-logger', 'worker', 'agent:wellness', 'Nutrition Logger'),
@@ -235,7 +238,10 @@ export const GOVERNANCE_SEED = `
     ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
     ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'),
     ('worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'),
-    ('worker:note-librarian', 'worker', NULL, 'Note Librarian');
+    ('worker:note-librarian', 'worker', NULL, 'Note Librarian'),
+    ('worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'),
+    ('worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime'),
+    ('worker:kilo', 'worker', 'agent:kilo', 'Kilo Runtime');
 
   -- Tools (from MCP server)
   INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
@@ -257,6 +263,7 @@ export const GOVERNANCE_SEED = `
     ('lunch_money', 'personal', 'Lunch Money Finance', 'write'),
     ('receipt_registry', 'personal', 'Receipt Registry', 'write'),
     ('ramp_reimbursement', 'personal', 'Ramp Reimbursement Automation', 'write'),
+    ('kilo_ledger', 'personal', 'Kilo Ledger', 'write'),
     ('memory_search', 'shared', 'Memory Search', 'read'),
     ('memory_add', 'shared', 'Memory Add', 'write'),
     ('memory_reflect', 'shared', 'Memory Reflect', 'write'),
@@ -380,6 +387,43 @@ export const GOVERNANCE_SEED = `
   -- personal-assistant browser access (Watson — receipt lookup, transaction categorization)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:personal-assistant', 'browser', 'write', 'web automation for receipt lookup and transaction categorization');
+
+  -- Foxtrot finance agents — canonical and Ollama share the same finance MCP surface.
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:foxtrot', 'attachment_search', 'read', 'finance attachment lookup'),
+    ('worker:foxtrot', 'attachment_read', 'read', 'finance attachment lookup'),
+    ('worker:foxtrot', 'attachment_status', 'read', 'finance attachment lookup'),
+    ('worker:foxtrot', 'lunch_money', 'write', 'finance account and transaction operations'),
+    ('worker:foxtrot', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
+    ('worker:foxtrot', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
+    ('worker:foxtrot', 'browser', 'write', 'finance web automation'),
+    ('worker:foxtrot', 'obsidian', 'write', 'finance runbooks and notes'),
+    ('worker:foxtrot', 'onepassword', 'read', 'finance credential retrieval'),
+    ('worker:foxtrot', 'gog_email', 'write', 'finance email lookup and drafting'),
+    ('worker:foxtrot', 'agent_docs', 'write', 'agent documentation updates'),
+    ('worker:foxtrot', 'kilo_ledger', 'write', 'Kilo spending ledger operations'),
+    ('worker:foxtrot', 'memory_search', 'read', 'finance context retrieval'),
+    ('worker:foxtrot', 'memory_add', 'write', 'finance memory capture'),
+    ('worker:foxtrot', 'memory_reflect', 'write', 'finance memory reflection'),
+    ('worker:foxtrot-ollama', 'attachment_search', 'read', 'finance attachment lookup'),
+    ('worker:foxtrot-ollama', 'attachment_read', 'read', 'finance attachment lookup'),
+    ('worker:foxtrot-ollama', 'attachment_status', 'read', 'finance attachment lookup'),
+    ('worker:foxtrot-ollama', 'lunch_money', 'write', 'finance account and transaction operations'),
+    ('worker:foxtrot-ollama', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
+    ('worker:foxtrot-ollama', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
+    ('worker:foxtrot-ollama', 'browser', 'write', 'finance web automation'),
+    ('worker:foxtrot-ollama', 'obsidian', 'write', 'finance runbooks and notes'),
+    ('worker:foxtrot-ollama', 'onepassword', 'read', 'finance credential retrieval'),
+    ('worker:foxtrot-ollama', 'gog_email', 'write', 'finance email lookup and drafting'),
+    ('worker:foxtrot-ollama', 'agent_docs', 'write', 'agent documentation updates'),
+    ('worker:foxtrot-ollama', 'kilo_ledger', 'write', 'Kilo spending ledger operations'),
+    ('worker:foxtrot-ollama', 'memory_search', 'read', 'finance context retrieval'),
+    ('worker:foxtrot-ollama', 'memory_add', 'write', 'finance memory capture'),
+    ('worker:foxtrot-ollama', 'memory_reflect', 'write', 'finance memory reflection');
+
+  -- Kilo kid-facing finance agent
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:kilo', 'kilo_ledger', 'write', 'Kilo bucket ledger operations');
 
   -- Wellness wellness workers — browser + exa for macro/recipe/health lookups at worker cost
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kilo</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <img src="kilo-mark.svg" alt="" class="mark">
+          <div>
+            <h1>Kilo</h1>
+            <p id="syncStatus">Loading ledger</p>
+          </div>
+        </div>
+        <div class="total">
+          <span>Total</span>
+          <strong id="totalBalance">$0.00</strong>
+        </div>
+      </header>
+
+      <section class="status-band" id="statusBand" hidden></section>
+
+      <section class="workspace">
+        <section class="bucket-panel">
+          <div class="section-heading">
+            <h2>Buckets</h2>
+            <button id="refreshButton" type="button" class="icon-button" title="Refresh" aria-label="Refresh">↻</button>
+          </div>
+          <div class="unallocated-panel" id="unallocatedPanel"></div>
+          <div class="bucket-grid" id="bucketGrid"></div>
+
+          <section class="history-panel" aria-labelledby="historyHeading">
+            <div class="section-heading compact">
+              <h2 id="historyHeading">History</h2>
+            </div>
+            <ol class="history-list" id="historyList"></ol>
+          </section>
+        </section>
+
+        <aside class="actions">
+          <section class="tool">
+            <h2>Move Money</h2>
+            <form id="transferForm">
+              <label>
+                From
+                <select name="from_bucket_id" id="fromBucket"></select>
+              </label>
+              <label>
+                To
+                <select name="to_bucket_id" id="toBucket"></select>
+              </label>
+              <label>
+                Amount
+                <input name="amount" inputmode="decimal" autocomplete="off" placeholder="5.00">
+              </label>
+              <label>
+                Note
+                <input name="description" autocomplete="off" placeholder="Optional">
+              </label>
+              <button type="submit">Move</button>
+            </form>
+          </section>
+
+          <section class="tool">
+            <h2>Buckets</h2>
+            <form id="createBucketForm" class="inline-form">
+              <label>
+                New Bucket
+                <input name="bucket_name" autocomplete="off" placeholder="Books">
+              </label>
+              <button type="submit">Create</button>
+            </form>
+            <form id="deleteBucketForm" class="inline-form">
+              <label>
+                Delete Bucket
+                <select name="bucket_id" id="deleteBucket"></select>
+              </label>
+              <label>
+                Move Balance To
+                <select name="transfer_to_bucket_id" id="deleteDestination"></select>
+              </label>
+              <button type="submit" class="secondary">Delete</button>
+            </form>
+          </section>
+
+          <section class="tool auth-tool" id="authTool" hidden>
+            <h2>Access</h2>
+            <form id="tokenForm">
+              <label>
+                Token
+                <input name="token" type="password" autocomplete="off">
+              </label>
+              <button type="submit">Save</button>
+            </form>
+          </section>
+        </aside>
+      </section>
+    </main>
+    <script src="app.js" type="module"></script>
+  </body>
+</html>

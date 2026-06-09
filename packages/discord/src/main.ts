@@ -1477,7 +1477,14 @@ startPersistentMcpServer().then((port) => {
       await adapter.initialize(runtimeConfig);
 
       try {
-        const response = await adapter.send(input.task);
+        const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt({
+          timestamp: new Date(),
+          timestampSource: `scheduler:${input.config.id}`,
+          config: v2Entry.currentTurnMetadata,
+        });
+        const response = await adapter.send(input.task, {
+          currentTurnMetadataPrompt,
+        });
         const runtimeMetadata = asRecord(response.metadata);
         const providerMetadata = asRecord(runtimeMetadata?.providerMetadata);
         const providerUsage = asRecord(providerMetadata?.usage);
