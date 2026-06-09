@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createFileOpsTools, createPrintingTools } from "../src/research-agent-tools.js";
+import { createFileOpsTools, createPrintingTools, createTravelTools } from "../src/research-agent-tools.js";
 
 describe("find-diesel script", () => {
   it("loads and prints help without missing runtime dependencies", () => {
@@ -47,6 +47,50 @@ describe("printing tools", () => {
       preview: "Would upload /tmp/example.gcode to printer printer.local",
     });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("travel tools", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("routes coordinate inputs through OSRM with lon-lat order", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        code: "Ok",
+        routes: [{ distance: 160934, duration: 7200 }],
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const tools = createTravelTools();
+    const osrmRoute = tools.find((tool) => tool.name === "osrm_route");
+    expect(osrmRoute).toBeDefined();
+
+    const result = await osrmRoute!.handler({
+      origin: "44.311,-124.104",
+      destination: "37.563,-122.325",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
+      "https://router.project-osrm.org/route/v1/driving/-124.104,44.311;-122.325,37.563?overview=false",
+    );
+    expect(result).toMatchObject({
+      routes: [{
+        distanceMiles: 100,
+        durationHours: 2,
+        durationText: "2h 0m",
+      }],
+      fastest: {
+        label: "route 1",
+        distanceMiles: 100,
+        durationHours: 2,
+        durationText: "2h 0m",
+      },
+    });
   });
 });
 

@@ -17,7 +17,7 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `chipotle-ordering.md` | `chipotle_ordering` | Sierra / shopping | Browser navigation for Chipotle ordering (favorites, location selection) |
 | `daily-planning.md` | `daily_planning` | Watson / planning | Morning planning, evening check-in, weekly planning workflows |
 | `open-meteo-weather.md` | `open_meteo_weather` | Sierra / research | Open-Meteo free weather API (current + forecast) |
-| `osrm-routing.md` | `osrm_routing` | Sierra / routing | OSRM free driving distance/duration API — never estimate distances |
+| `osrm-routing.md` | `osrm_route` | Sierra / routing | OSRM free driving distance/duration API — never estimate distances |
 | `email-review.md` | `email_review` | Watson / email | Email triage phases, drafting voice, reply conventions |
 | `evening-checkin.md` | `evening_checkin` | Malibu / nutrition | Pre-dinner calorie budget (TDEE + FatSecret intake) |
 | `health-baselines.md` | `health_baselines` | Malibu / Watson health summaries | Baseline comparisons for health summaries |
@@ -28,7 +28,7 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `sinking-fund-reconciliation.md` | `sinking_fund_reconciliation` | Foxtrot / finance | Lunch Money and Obsidian workflow for SB-backed expense reconciliation |
 | `recipe-format.md` | `recipe_format` | Malibu / recipes | Recipe markdown structure and write rules |
 | `transaction-categorization.md` | `transaction_categorization` | Foxtrot / finance | Lunch Money categorization, rules, splits |
-| `travel-routing.md` | `travel_routing` | Sierra / travel | Current-location and diesel-stop heuristics |
+| `travel-routing.md` | `travel_routing` | Sierra / travel | Current-location, route-comparison, and diesel-stop heuristics |
 | `walmart-orders.md` | `walmart_orders` | Sierra / shopping | Browser navigation for Walmart order lookup |
 
 Rules:
