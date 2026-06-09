@@ -26,9 +26,9 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { loadFixture, adHocFixture, isClaudeModel, HARNESS_VERSION } from "./lib/bakeoff/fixtures.mjs";
+import { loadFixture, adHocFixture, normalizeFixture, isClaudeModel, HARNESS_VERSION } from "./lib/bakeoff/fixtures.mjs";
 import { evaluateGates } from "./lib/bakeoff/gates.mjs";
-import { runOllamaOnce, runClaudeOnce } from "./lib/bakeoff/runners.mjs";
+import { runOllamaOnce, runClaudeOnce, loadFixtureImages } from "./lib/bakeoff/runners.mjs";
 import { judgeRun } from "./lib/bakeoff/judge.mjs";
 import { loadPricing, runCostUsd } from "./lib/bakeoff/pricing.mjs";
 import { summarizeCandidate, computeVerdict, isEligible, pct, costLabel } from "./lib/bakeoff/verdict.mjs";
@@ -50,6 +50,55 @@ const DEFAULT_MODELS = [
   "kimi-k2.6",
   "glm-5",
 ];
+
+// ---- Recompute mode: re-apply the current verdict policy to stored results ----
+// Policy changes (thresholds, floors, ranking) shouldn't require re-running
+// models: `--recompute <results.json>` re-summarizes and re-verdicts a stored
+// run from ~/.tango/evals/results/ and refreshes the committed verdict summary.
+const recomputePath = arg("recompute");
+if (recomputePath) {
+  const stored = JSON.parse(readFileSync(resolve(process.cwd(), recomputePath), "utf8"));
+  const fx = normalizeFixture(stored.fixture, { sourcePath: stored.fixture.sourcePath });
+  const summaries = stored.candidates.map((c) => summarizeCandidate(fx, c));
+  const verdict = computeVerdict(fx, summaries);
+  console.log(`Recompute (policy v${HARNESS_VERSION}) from ${recomputePath} — original run ${stored.when}`);
+  console.log("model".padEnd(24) + "| pass | rubric mean(min) | eligible");
+  for (const s of summaries) {
+    const eligible = s.benchmarkOnly ? "benchmark" : isEligible(fx, s) ? "yes" : "no";
+    const rubric = s.rubricMean == null ? "-" : `${s.rubricMean.toFixed(2)}(${s.rubricMin?.toFixed(2) ?? "-"})`;
+    console.log(s.model.padEnd(24) + `| ${pct(s.passRate).padStart(4)} | ${rubric.padStart(16)} | ${eligible}`);
+  }
+  console.log(`\nVERDICT: ${verdict.recommendation ?? "NO ELIGIBLE MODEL"}\n  ${verdict.reason}`);
+  const verdictPath = persistVerdictSummary({ fixture: fx, summaries, verdict, repoRoot: ROOT });
+  console.log(`Verdict summary updated: ${verdictPath}`);
+  process.exit(0);
+}
+
+// ---- Rejudge mode: re-run the judge over stored runs (judge-prompt iterations
+// shouldn't require re-running models), then recompute the verdict. ------------
+const rejudgePath = arg("rejudge");
+if (rejudgePath) {
+  const stored = JSON.parse(readFileSync(resolve(process.cwd(), rejudgePath), "utf8"));
+  const fx = normalizeFixture(stored.fixture, { sourcePath: stored.fixture.sourcePath });
+  const judgeModelOverride = arg("judge-model", fx.judge.model);
+  for (const candidate of stored.candidates) {
+    for (const run of candidate.runs) {
+      if (run.gates?.infra || !run.text) continue;
+      const result = await judgeRun({ fixture: fx, run, judgeModel: judgeModelOverride });
+      run.rubricScore = result.error ? null : result.weighted;
+      run.judge = result;
+    }
+    const scores = candidate.runs.map((r) => r.rubricScore).filter((s) => typeof s === "number");
+    console.log(`  ${candidate.model.padEnd(24)} rubric: ${scores.map((s) => s.toFixed(2)).join(", ") || "-"}`);
+  }
+  const summaries = stored.candidates.map((c) => summarizeCandidate(fx, c));
+  const verdict = computeVerdict(fx, summaries);
+  console.log(`\nVERDICT: ${verdict.recommendation ?? "NO ELIGIBLE MODEL"}\n  ${verdict.reason}`);
+  const rejudgedPath = persistFullResults({ fixture: fx, candidates: stored.candidates, summaries, verdict, resultsRoot: arg("results-dir") ?? defaultResultsRoot() });
+  const verdictPath = persistVerdictSummary({ fixture: fx, summaries, verdict, repoRoot: ROOT });
+  console.log(`Rejudged results: ${rejudgedPath}\nVerdict summary updated: ${verdictPath}`);
+  process.exit(0);
+}
 
 // ---- Build the fixture -------------------------------------------------------
 const taskFile = arg("task");
@@ -77,10 +126,25 @@ const benchmarkModels = arg("benchmarks") === "none"
   ? []
   : csv(arg("benchmarks")).length > 0 ? csv(arg("benchmarks")) : fixture.benchmarkModels;
 const seen = new Set();
-const allModels = [
+let allModels = [
   ...candidateModels.map((model) => ({ model, benchmarkOnly: isClaudeModel(model) })),
   ...benchmarkModels.map((model) => ({ model: isClaudeModel(model) ? model : `claude:${model}`, benchmarkOnly: true })),
 ].filter(({ model }) => (seen.has(model) ? false : (seen.add(model), true)));
+
+let fixtureImages = [];
+if (fixture.images.length > 0) {
+  try {
+    fixtureImages = loadFixtureImages(fixture, ROOT);
+  } catch (e) {
+    console.error(`INFRA: cannot load fixture images (${String(e?.message || e)})`);
+    process.exit(3);
+  }
+  const excluded = allModels.filter(({ model }) => isClaudeModel(model));
+  if (excluded.length > 0) {
+    console.log(`NOTE: vision fixture — excluding claude:* candidates (print-mode runner has no image input): ${excluded.map((m) => m.model).join(", ")}`);
+    allModels = allModels.filter(({ model }) => !isClaudeModel(model));
+  }
+}
 
 const judgeEnabled = fixture.judge.enabled && !has("no-judge");
 const judgeModel = arg("judge-model", fixture.judge.model);
@@ -147,7 +211,7 @@ async function runOnce(model) {
   if (isClaudeModel(model)) {
     return runClaudeOnce({ model, fixture });
   }
-  return runOllamaOnce({ model, fixture, makeProvider });
+  return runOllamaOnce({ model, fixture, makeProvider, images: fixtureImages });
 }
 
 const candidates = [];
@@ -197,12 +261,13 @@ const summaries = candidates.map((c) => summarizeCandidate(fixture, c));
 const verdict = computeVerdict(fixture, summaries);
 
 console.log(`\n=== SUMMARY (${fixture.runs} runs/candidate) ===`);
-console.log("model".padEnd(24) + "| pass | rubric | secs | out-tok | cost/success | eligible");
+console.log("model".padEnd(24) + "| pass | rubric mean(min) | secs | out-tok | cost/success | eligible");
 for (const s of summaries) {
   const eligible = s.benchmarkOnly ? "benchmark" : isEligible(fixture, s) ? "yes" : "no";
+  const rubric = s.rubricMean == null ? "-" : `${s.rubricMean.toFixed(2)}(${s.rubricMin?.toFixed(2) ?? "-"})`;
   console.log(
     s.model.padEnd(24) +
-    `| ${pct(s.passRate).padStart(4)} | ${(s.rubricMean == null ? "-" : s.rubricMean.toFixed(2)).padStart(6)} | ${String(s.meanSeconds == null ? "-" : Math.round(s.meanSeconds)).padStart(4)} | ${String(s.meanOutputTokens == null ? "-" : Math.round(s.meanOutputTokens)).padStart(7)} | ${costLabel(s).padEnd(12)} | ${eligible}`,
+    `| ${pct(s.passRate).padStart(4)} | ${rubric.padStart(16)} | ${String(s.meanSeconds == null ? "-" : Math.round(s.meanSeconds)).padStart(4)} | ${String(s.meanOutputTokens == null ? "-" : Math.round(s.meanOutputTokens)).padStart(7)} | ${costLabel(s).padEnd(12)} | ${eligible}`,
   );
   if (s.infraRuns > 0) console.log(`  ⚠ ${s.model}: ${s.infraRuns} run(s) excluded as infra failures`);
 }

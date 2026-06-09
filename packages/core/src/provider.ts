@@ -1420,7 +1420,8 @@ export class OllamaProvider implements ChatProvider {
       const results = await Promise.all(
         turn.toolCalls.map(async (call) => {
           const args = safeParseToolArgs(call.function.arguments);
-          executedToolCalls.push({ name: call.function.name, input: args });
+          const executed = { name: call.function.name, input: args } as ProviderToolCall;
+          executedToolCalls.push(executed);
           let output: string;
           try {
             output = await toolClient.callTool(call.function.name, args, workerId, allowlist);
@@ -1431,6 +1432,7 @@ export class OllamaProvider implements ChatProvider {
               error: error instanceof Error ? error.message : String(error),
             });
           }
+          executed.output = output;
           return { id: call.id, output };
         }),
       );

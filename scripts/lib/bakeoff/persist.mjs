@@ -52,6 +52,8 @@ export function persistVerdictSummary({ fixture, summaries, verdict, repoRoot })
       infraRuns: s.infraRuns,
       passRate: s.passRate,
       rubricMean: s.rubricMean,
+      rubricMin: s.rubricMin,
+      rubricStdDev: s.rubricStdDev,
       meanSeconds: s.meanSeconds,
       meanOutputTokens: s.meanOutputTokens,
       meanCostUsd: s.meanCostUsd,
