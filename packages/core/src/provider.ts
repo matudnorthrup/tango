@@ -154,7 +154,11 @@ export const OLLAMA_CONTEXT_WINDOW_TOKENS = 800_000;
  * the cap was reached with no final text, {@link TOOL_LOOP_CAP_FALLBACK_TEXT} and
  * `stopReason:"max_tool_iters"` — so a misbehaving model can never spin forever.
  */
-export const MAX_TOOL_ITERS = Number(process.env.TANGO_MAX_TOOL_ITERS) || 25;
+// 40 (was 25): browser-heavy ordering flows legitimately need more steps — e.g.
+// building a Chipotle order from scratch (store select + per-ingredient clicks) hit
+// the 25 cap mid-customization. Still a bounded runaway-loop backstop. Override via
+// TANGO_MAX_TOOL_ITERS.
+export const MAX_TOOL_ITERS = Number(process.env.TANGO_MAX_TOOL_ITERS) || 40;
 
 /**
  * Deterministic reply substituted when the tool loop hits {@link MAX_TOOL_ITERS}
