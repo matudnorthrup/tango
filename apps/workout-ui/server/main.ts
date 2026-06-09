@@ -8,10 +8,13 @@ import { startChangeListener } from './db.js';
 import { broadcast } from './sse.js';
 
 const PORT = Number(process.env.WORKOUT_UI_PORT ?? 9330);
-// 127.0.0.1: tailnet access goes through `tailscale serve`, which holds the
-// tailscale-IP:9330 socket itself — a wildcard bind would collide with it.
+// 127.0.0.1: tailnet access goes through `tailscale serve`, which proxies to
+// localhost — no reason to listen on other interfaces.
 const HOST = process.env.WORKOUT_UI_HOST ?? '127.0.0.1';
 const TOKEN = process.env.WORKOUT_UI_TOKEN ?? '';
+// Mount path used by `tailscale serve --set-path`. Tailscale strips it before
+// proxying; we strip it here too so direct localhost access works the same.
+const BASE_PATH = process.env.WORKOUT_UI_BASE_PATH ?? '/tango-workout';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 // dist/server/main.js -> dist/client (built), server/main.ts -> dist/client (dev via tsx)
@@ -68,6 +71,21 @@ app.get('*', async (c) => {
 
 startChangeListener((payload) => broadcast('change', payload));
 
-serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
-  console.log(`[workout-ui] serving on http://${HOST}:${info.port} (client: ${clientDir})`);
+const fetchWithBasePath = (request: Request): Response | Promise<Response> => {
+  const url = new URL(request.url);
+  if (url.pathname === BASE_PATH || url.pathname.startsWith(`${BASE_PATH}/`)) {
+    url.pathname = url.pathname.slice(BASE_PATH.length) || '/';
+    return app.fetch(new Request(url, request));
+  }
+  // Tailscale strips the mount path, so proxied requests for the app root
+  // arrive as '/' — serve the app. Only direct localhost hits get redirected
+  // onto the base path so the router sees the URL it expects.
+  if (url.pathname === '/' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost')) {
+    return Response.redirect(new URL(`${BASE_PATH}/`, url).toString(), 302);
+  }
+  return app.fetch(request);
+};
+
+serve({ fetch: fetchWithBasePath, port: PORT, hostname: HOST }, (info) => {
+  console.log(`[workout-ui] serving on http://${HOST}:${info.port}${BASE_PATH} (client: ${clientDir})`);
 });
