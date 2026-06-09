@@ -13,6 +13,7 @@ import * as path from "node:path";
 export interface ModelRunStatLike {
   agentId: string;
   model: string | null;
+  providerName?: string;
   stopReason: string | null;
   latencyMs: number | null;
   outputTokens: number | null;
@@ -125,6 +126,9 @@ export function loadEvaluatedModels(repoRoot: string): Set<string> {
 export interface BuildScorecardInput {
   current: ModelRunStatLike[];
   previous: ModelRunStatLike[];
+  /** Most-recent sub-window (e.g. 24h) — reported separately so window
+   *  artifacts (like pre-migration history) are visible at a glance. */
+  recent?: ModelRunStatLike[];
   evaluatedModels: Set<string>;
   windowDays: number;
   now: Date;
@@ -169,7 +173,7 @@ export function buildModelScorecard(input: BuildScorecardInput): ModelScorecard 
     generatedAt: input.now.toISOString(),
     pairs,
     flags,
-    summary: renderSummary(pairs, flags, input.windowDays),
+    summary: renderSummary(pairs, flags, input.windowDays, input.recent),
   };
 }
 
@@ -177,10 +181,19 @@ function fmt(value: number | null, digits = 0): string {
   return value == null ? "-" : value.toFixed(digits);
 }
 
-function renderSummary(pairs: ModelPairStats[], flags: string[], windowDays: number): string {
+function renderSummary(pairs: ModelPairStats[], flags: string[], windowDays: number, recent?: ModelRunStatLike[]): string {
   const lines: string[] = [];
   const totalRuns = pairs.reduce((sum, p) => sum + p.runs, 0);
   lines.push(`**Model scorecard** — last ${windowDays}d, ${totalRuns} runs across ${pairs.length} agent x model pairs`);
+  if (recent && recent.length > 0) {
+    const byProvider = new Map<string, number>();
+    for (const row of recent) {
+      const provider = row.providerName ?? "(unknown)";
+      byProvider.set(provider, (byProvider.get(provider) ?? 0) + 1);
+    }
+    const split = [...byProvider.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${k}`).join(", ");
+    lines.push(`Last 24h: ${recent.length} runs (${split})`);
+  }
   lines.push("");
   if (flags.length > 0) {
     lines.push("Flagged:");
