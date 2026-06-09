@@ -91,6 +91,22 @@ For docs-only work, replace live product testing with the relevant validation:
 link checks, inventory checks, privacy scans, and review of rendered or indexed
 documentation.
 
+## Match the Model to the Task
+
+Tango runs on multiple backends (Claude + open-weight Ollama Cloud models). The
+right model is **task-dependent** — do not standardize the whole fleet on one.
+Bounded, tool-driven tasks should run on the **fastest** capable model (all
+candidates complete identically, so speed is free); ambiguous, judgment-heavy
+tasks should run on a **thinking** model that reasons deeper.
+
+When building a new task or workflow, follow the **golden-path-first** practice:
+a capable model (Claude, or by hand) establishes the correct process first, then
+bake off cheaper candidates on that *same* process and assign the cheapest that
+meets the quality bar — per persona, via `runtime.model`. Use
+`scripts/model-bakeoff.mjs` to compare models on one task.
+
+Full strategy: [Per-Task Model Selection](model-selection.md).
+
 ## Documentation
 
 Repo docs are for durable knowledge, not active project tracking.

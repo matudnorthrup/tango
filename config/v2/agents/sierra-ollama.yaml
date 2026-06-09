@@ -1,6 +1,6 @@
-id: sierra
-enabled: false
-display_name: Sierra
+id: sierra-ollama
+enabled: true
+display_name: Sierra (Ollama)
 type: research
 
 # System prompt = personality + domain + rules
@@ -76,16 +76,17 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
     env:
       ALLOWED_TOOL_IDS: "agent_docs"
-  - name: latitude
-    command: mcp-remote
-    args: ["https://mcp.preview.aidungeon.com/oauth/mcp"]
 
 # Runtime configuration
 runtime:
   mode: persistent
   provider: claude-code-v2
   fallback: codex
-  model: claude-opus-4-8
+  # Model bake-off live test (2026-06-08): sierra is operational (web/browse,
+  # shopping, research) where bounded tool tasks were identical across models but
+  # MiniMax M2.5 was ~1.8x faster than deepseek. watson (judgment) runs GLM-5;
+  # other clones stay on deepseek as the A/B baseline.
+  model: minimax-m2.5
   reasoning_effort: high
   idle_timeout_hours: 24
   context_reset_threshold: 0.80
@@ -93,34 +94,31 @@ runtime:
 # Memory configuration
 memory:
   post_turn_extraction: enabled
-  extraction_model: claude-haiku-4-5
+  extraction_provider: ollama
+  extraction_model: gpt-oss:20b
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
-# Voice configuration
-voice:
-  call_signs:
-    - Sierra
-  kokoro_voice: af_heart
-  default_channel_id: "100000000000000003"
-  smoke_test_channel_id: "100000000000001003"
-
 # Discord routing
 discord:
-  default_channel_id: "100000000000000003"
-  smoke_test_channel_id: "100000000000001003"
+  default_channel_id: "1513207667479285850"
+
+# Restrict this clone to its own channel
+access:
+  mode: allowlist
+  allowlist_channel_ids:
+    - "1513207667479285850"
 
 # Legacy registry fields
-avatar_url: https://example.com/tango/avatars/sierra.png
+avatar_url: https://cdn.discordapp.com/avatars/1480558437502025750/f5bda507de881e739d0db4bb5262f8c2.webp
 default_project: personal
 response_mode: concise
 
 provider:
-  default: claude-oauth
+  default: ollama
+  model: deepseek-v4-pro:cloud
   reasoning_effort: high
-  fallback:
-    - claude-oauth-secondary
-    - codex
+  fallback: []
 
 tools:
   mode: allowlist
@@ -129,7 +127,7 @@ tools:
     - WebFetch
 
 deterministic_routing:
-  enabled: true
+  enabled: false
   confidence_threshold: 0.8
   provider:
     default: claude-oauth
@@ -137,3 +135,11 @@ deterministic_routing:
     fallback:
       - claude-oauth-secondary
       - codex
+
+# Voice addressing — distinct "Whiskey <Name>" wake word so it never
+# collides with the original sierra's wake word (start-anchored matcher).
+voice:
+  call_signs:
+    - "Whiskey Sierra"
+  kokoro_voice: af_heart
+  default_channel_id: "1513207667479285850"

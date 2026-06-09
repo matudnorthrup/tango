@@ -342,6 +342,7 @@ describe("createV2PostTurnHook", () => {
       atlasMemoryClient: {
         close: vi.fn(),
       } as never,
+      resolveProvider: () => ({ generate: vi.fn() }) as never,
       extractAndStoreMemoriesImpl,
     });
 
@@ -365,9 +366,11 @@ describe("createV2PostTurnHook", () => {
       },
       {
         enabled: true,
+        extractionProvider: "claude-oauth",
         extractionModel: "claude-haiku-4-5",
         importanceThreshold: 0.4,
       },
+      expect.any(Object),
       expect.any(Object),
     );
   });
@@ -384,6 +387,7 @@ describe("createV2PostTurnHook", () => {
       atlasMemoryClient: {
         close: vi.fn(),
       } as never,
+      resolveProvider: () => ({ generate: vi.fn() }) as never,
       extractAndStoreMemoriesImpl,
     });
 
