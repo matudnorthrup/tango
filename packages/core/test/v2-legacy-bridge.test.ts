@@ -399,6 +399,7 @@ describe("loadUnifiedAgentConfigs", () => {
         "foxtrot",
         "jules",
         "juliet",
+        "kilo",
         "malibu",
         "piper",
         "porter",

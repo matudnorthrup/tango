@@ -1,0 +1,69 @@
+id: kilo
+enabled: false
+display_name: Kilo
+type: kid-finance
+
+system_prompt_file: agents/assistants/kilo/soul.md
+
+mcp_servers:
+  - name: kilo-ledger
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "kilo-ledger"]
+    env:
+      ALLOWED_TOOL_IDS: "kilo_ledger"
+      WORKER_ID: "kilo"
+
+runtime:
+  mode: persistent
+  provider: claude-code-v2
+  fallback: codex
+  model: claude-sonnet-4-6
+  reasoning_effort: low
+  idle_timeout_hours: 24
+  context_reset_threshold: 0.70
+  timeout_seconds: 600
+
+memory:
+  post_turn_extraction: disabled
+  extraction_model: claude-haiku-4-5
+  importance_threshold: 0.9
+  scheduled_reflection: disabled
+
+voice:
+  call_signs:
+    - Kilo
+  default_channel_id: "100000000000000009"
+  smoke_test_channel_id: "100000000000001009"
+
+discord:
+  default_channel_id: "100000000000000009"
+  smoke_test_channel_id: "100000000000001009"
+
+access:
+  mode: allowlist
+  allowlist_channel_ids:
+    - "100000000000000009"
+    - "100000000000001009"
+
+default_project: personal
+response_mode: concise
+
+provider:
+  default: claude-oauth
+  reasoning_effort: low
+  fallback:
+    - claude-oauth-secondary
+    - codex
+
+tools:
+  mode: off
+
+deterministic_routing:
+  enabled: false
+  confidence_threshold: 0.8
+  provider:
+    default: claude-oauth
+    reasoning_effort: low
+    fallback:
+      - claude-oauth-secondary
+      - codex

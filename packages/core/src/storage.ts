@@ -2118,6 +2118,85 @@ const MIGRATIONS: Migration[] = [
         ('worker:health-analyst', 'browser', 'write', 'Jules worker health research');
     `,
   },
+  {
+    version: 43,
+    sql: `
+      INSERT OR IGNORE INTO principals (id, type, display_name)
+        VALUES ('user:owner', 'user', 'Owner');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+        ('agent:foxtrot', 'agent', 'user:owner', 'Foxtrot'),
+        ('agent:foxtrot-ollama', 'agent', 'user:owner', 'Foxtrot (Ollama)');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+        ('worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'),
+        ('worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime');
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('kilo_ledger', 'personal', 'Kilo Ledger', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:foxtrot', 'attachment_search', 'read', 'finance attachment lookup'),
+        ('worker:foxtrot', 'attachment_read', 'read', 'finance attachment lookup'),
+        ('worker:foxtrot', 'attachment_status', 'read', 'finance attachment lookup'),
+        ('worker:foxtrot', 'lunch_money', 'write', 'finance account and transaction operations'),
+        ('worker:foxtrot', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
+        ('worker:foxtrot', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
+        ('worker:foxtrot', 'browser', 'write', 'finance web automation'),
+        ('worker:foxtrot', 'obsidian', 'write', 'finance runbooks and notes'),
+        ('worker:foxtrot', 'onepassword', 'read', 'finance credential retrieval'),
+        ('worker:foxtrot', 'gog_email', 'write', 'finance email lookup and drafting'),
+        ('worker:foxtrot', 'agent_docs', 'write', 'agent documentation updates'),
+        ('worker:foxtrot', 'kilo_ledger', 'write', 'Kilo spending ledger operations'),
+        ('worker:foxtrot', 'memory_search', 'read', 'finance context retrieval'),
+        ('worker:foxtrot', 'memory_add', 'write', 'finance memory capture'),
+        ('worker:foxtrot', 'memory_reflect', 'write', 'finance memory reflection'),
+        ('worker:foxtrot-ollama', 'attachment_search', 'read', 'finance attachment lookup'),
+        ('worker:foxtrot-ollama', 'attachment_read', 'read', 'finance attachment lookup'),
+        ('worker:foxtrot-ollama', 'attachment_status', 'read', 'finance attachment lookup'),
+        ('worker:foxtrot-ollama', 'lunch_money', 'write', 'finance account and transaction operations'),
+        ('worker:foxtrot-ollama', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
+        ('worker:foxtrot-ollama', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
+        ('worker:foxtrot-ollama', 'browser', 'write', 'finance web automation'),
+        ('worker:foxtrot-ollama', 'obsidian', 'write', 'finance runbooks and notes'),
+        ('worker:foxtrot-ollama', 'onepassword', 'read', 'finance credential retrieval'),
+        ('worker:foxtrot-ollama', 'gog_email', 'write', 'finance email lookup and drafting'),
+        ('worker:foxtrot-ollama', 'agent_docs', 'write', 'agent documentation updates'),
+        ('worker:foxtrot-ollama', 'kilo_ledger', 'write', 'Kilo spending ledger operations'),
+        ('worker:foxtrot-ollama', 'memory_search', 'read', 'finance context retrieval'),
+        ('worker:foxtrot-ollama', 'memory_add', 'write', 'finance memory capture'),
+        ('worker:foxtrot-ollama', 'memory_reflect', 'write', 'finance memory reflection');
+    `,
+  },
+  {
+    version: 44,
+    sql: `
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:foxtrot', 'memory_search', 'read', 'finance context retrieval'),
+        ('worker:foxtrot', 'memory_add', 'write', 'finance memory capture'),
+        ('worker:foxtrot', 'memory_reflect', 'write', 'finance memory reflection'),
+        ('worker:foxtrot-ollama', 'memory_search', 'read', 'finance context retrieval'),
+        ('worker:foxtrot-ollama', 'memory_add', 'write', 'finance memory capture'),
+        ('worker:foxtrot-ollama', 'memory_reflect', 'write', 'finance memory reflection');
+    `,
+  },
+  {
+    version: 45,
+    sql: `
+      INSERT OR IGNORE INTO principals (id, type, display_name)
+        VALUES ('user:owner', 'user', 'Owner');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+        ('agent:kilo', 'agent', 'user:owner', 'Kilo'),
+        ('worker:kilo', 'worker', 'agent:kilo', 'Kilo Runtime');
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('kilo_ledger', 'personal', 'Kilo Ledger', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:kilo', 'kilo_ledger', 'write', 'Kilo bucket ledger operations');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

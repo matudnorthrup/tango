@@ -259,4 +259,74 @@ describe("morning flow deterministic helpers", () => {
 
     expect(result.issues).toEqual(["daily-email-review has no run in the last 24 hours."]);
   });
+
+  it("flags morning planning success when it used the wrong date and left the note blank", () => {
+    const vaultRoot = createVault();
+    ensureDailyNote({
+      vaultRoot,
+      now: new Date("2026-05-25T12:01:00.000Z"),
+    });
+
+    const briefPath = path.join(vaultRoot, "Records", "Briefs", "2026-05-25.md");
+    fs.mkdirSync(path.dirname(briefPath), { recursive: true });
+    fs.writeFileSync(
+      briefPath,
+      [
+        "---",
+        "date: 2026-05-25",
+        "types:",
+        "  - \"[[Brief]]\"",
+        "areas:",
+        "  - \"[[Personal]]\"",
+        "---",
+        "",
+        "# Morning Brief -- Mon May 25",
+        "",
+        "## Flagged (1)",
+        "- Review a time-sensitive item.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const registryPath = path.join(vaultRoot, "daily-brief-inputs.json");
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 1,
+        inputs: [
+          {
+            scheduleId: "morning-planning",
+            domain: "Planning",
+            logPath: "Records/Jobs/Planning/YYYY-MM.md",
+            critical: true,
+          },
+        ],
+      }),
+      "utf8",
+    );
+
+    const db = createScheduleDb();
+    db.prepare(
+      "INSERT INTO schedule_runs (schedule_id, started_at, finished_at, status, error, summary) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      "morning-planning",
+      "2026-05-25T12:15:00.000Z",
+      "2026-05-25T12:16:00.000Z",
+      "ok",
+      null,
+      "**Morning Planning Complete — Thu Apr 30**\n\nDaily note updated.",
+    );
+
+    const result = runMorningFlowSentinel({
+      vaultRoot,
+      db,
+      inputRegistryPath: registryPath,
+      now: new Date("2026-05-25T12:25:00.000Z"),
+    });
+
+    expect(result.issues).toContain("morning-planning reported Thu Apr 30 instead of Mon May 25.");
+    expect(result.issues).toContain("morning-planning left generated daily-note planning sections blank for 2026-05-25.");
+    expect(result.updatedBriefWarnings).toBe(true);
+  });
 });

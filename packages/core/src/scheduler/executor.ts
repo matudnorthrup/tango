@@ -60,7 +60,7 @@ function writeObsidianLog(config: ScheduleConfig, summary: string): void {
   fs.mkdirSync(jobsDir, { recursive: true });
   ensureObsidianJobLogFrontmatter(filePath, domain, `${yyyy}-${mm}`);
 
-  const truncatedSummary = truncateText(summary, 2000);
+  const truncatedSummary = truncateText(stripExplicitFlaggedSection(summary), 2000);
   const flaggedSection = buildFlaggedSection(summary);
 
   const entry = [
@@ -213,6 +213,28 @@ function extractExplicitFlaggedSection(summary: string): string | undefined {
   return rendered.length > 0 ? truncateText(rendered, 1000) : undefined;
 }
 
+function stripExplicitFlaggedSection(summary: string): string {
+  const lines = summary.split(/\r?\n/u);
+  const startIndex = lines.findIndex((line) => isFlagHeading(line));
+  if (startIndex === -1) {
+    return summary;
+  }
+
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (index > startIndex + 1 && isSectionHeading(lines[index] ?? "")) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  const stripped = [
+    ...lines.slice(0, startIndex),
+    ...lines.slice(endIndex),
+  ].join("\n").trim();
+  return stripped || "Completed.";
+}
+
 function extractSignalExcerpt(summary: string): string | undefined {
   const lines = summary
     .split(/\r?\n/u)
@@ -316,6 +338,14 @@ async function executeDeterministic(
 
   const timeoutMs = (config.execution.timeoutSeconds ?? 30) * 1000;
   const result = await withTimeout(handler(ctx), timeoutMs, `Handler '${handlerName}' timed out`);
+
+  if (config.obsidianLog && (result.status === "ok" || result.status === "skipped")) {
+    try {
+      writeObsidianLog(config, result.summary ?? `Completed with status ${result.status}`);
+    } catch (err) {
+      console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
+    }
+  }
 
   return {
     status: result.status,
