@@ -23,7 +23,13 @@ export function summarizeCandidate(fixture, { model, benchmarkOnly = false, runs
   const valid = runs.filter((r) => !r.gates?.infra);
   const passes = valid.filter((r) => r.gates?.pass);
   const passRate = valid.length === 0 ? 0 : passes.length / valid.length;
-  const rubricMean = mean(valid.map((r) => r.rubricScore));
+  const rubricValues = valid.map((r) => r.rubricScore).filter((v) => typeof v === "number" && Number.isFinite(v));
+  const rubricMean = mean(rubricValues);
+  const rubricMin = rubricValues.length > 0 ? Math.min(...rubricValues) : null;
+  const rubricStdDev =
+    rubricValues.length > 1
+      ? Math.sqrt(rubricValues.reduce((s, v) => s + (v - rubricMean) ** 2, 0) / rubricValues.length)
+      : null;
   const meanSeconds = mean(valid.map((r) => r.seconds));
   const meanOutputTokens = mean(valid.map((r) => r.usage?.outputTokens));
   const costs = valid.map((r) => r.costUsd);
@@ -37,6 +43,8 @@ export function summarizeCandidate(fixture, { model, benchmarkOnly = false, runs
     passes: passes.length,
     passRate,
     rubricMean,
+    rubricMin,
+    rubricStdDev,
     meanSeconds,
     meanOutputTokens,
     meanCostUsd,
@@ -72,6 +80,12 @@ export function isEligible(fixture, summary) {
   if (summary.validRuns === 0) return false;
   if (summary.passRate < fixture.passRateThreshold) return false;
   if (summary.rubricMean != null && summary.rubricMean < fixture.rubricThreshold) return false;
+  // Consistency gate: the WORST run must clear the floor. A model that swings
+  // between brilliant and below-bar is not dependable enough to build a
+  // workflow on, regardless of its average.
+  if (summary.rubricMin != null && typeof fixture.rubricFloor === "number" && summary.rubricMin < fixture.rubricFloor) {
+    return false;
+  }
   return true;
 }
 
@@ -108,6 +122,7 @@ export function computeVerdict(fixture, summaries) {
     fixtureId: fixture.id,
     passRateThreshold: fixture.passRateThreshold,
     rubricThreshold: fixture.rubricThreshold,
+    rubricFloor: fixture.rubricFloor ?? null,
     recommendation,
     reason,
     winner: winner?.model ?? null,

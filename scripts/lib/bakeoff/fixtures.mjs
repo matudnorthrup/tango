@@ -46,6 +46,13 @@ export function normalizeFixture(raw, { sourcePath } = {}) {
     runs: Number.isInteger(raw.runs) && raw.runs > 0 ? raw.runs : tierDefaults.runs,
     passRateThreshold: typeof raw.passRateThreshold === "number" ? raw.passRateThreshold : tierDefaults.passRateThreshold,
     rubricThreshold: typeof raw.rubricThreshold === "number" ? raw.rubricThreshold : DEFAULT_RUBRIC_THRESHOLD,
+    // Worst-run quality floor: dependability means bounded downside, not a good
+    // average. A model whose quality swings below the floor on any run is not
+    // eligible, even if its mean clears the threshold (Devin 2026-06-09).
+    rubricFloor:
+      typeof raw.rubricFloor === "number"
+        ? raw.rubricFloor
+        : Math.max(0, (typeof raw.rubricThreshold === "number" ? raw.rubricThreshold : DEFAULT_RUBRIC_THRESHOLD) - 0.1),
     toolContract,
     outputAssertions: Array.isArray(raw.outputAssertions) ? raw.outputAssertions : [],
     forbiddenTools: Array.isArray(raw.forbiddenTools) ? raw.forbiddenTools : [],

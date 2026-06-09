@@ -7,6 +7,7 @@ const fixture = (overrides = {}) => ({
   id: "test.fixture",
   passRateThreshold: 0.8,
   rubricThreshold: 0.7,
+  rubricFloor: 0.6,
   incumbentModel: null,
   ...overrides,
 });
@@ -40,6 +41,17 @@ test("eligibility respects passRateThreshold and rubricThreshold", () => {
   assert.equal(isEligible(f, flaky), false);
   assert.equal(isEligible(f, solid), true);
   assert.equal(isEligible(f, shallow), false);
+});
+
+test("worst-run rubric floor gates eligibility even when the mean clears the bar", () => {
+  const f = fixture();
+  // mean 0.73 but one run at 0.58 — below the 0.6 floor (the glm-5 itinerary case)
+  const swingy = candidate("swingy", [mkRun({ rubric: 0.58 }), mkRun({ rubric: 0.85 }), mkRun({ rubric: 0.76 })]);
+  const steady = candidate("steady", [mkRun({ rubric: 0.8 }), mkRun({ rubric: 0.92 }), mkRun({ rubric: 0.88 })]);
+  assert.equal(isEligible(f, swingy), false);
+  assert.equal(isEligible(f, steady), true);
+  const v = computeVerdict(f, [swingy, steady]);
+  assert.equal(v.recommendation, "steady");
 });
 
 test("benchmark candidates are never eligible", () => {
