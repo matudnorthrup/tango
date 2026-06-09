@@ -189,7 +189,7 @@ describe("OllamaProvider tool loop", () => {
 
     expect(res.text).toBe("Logged 182 lbs.");
     expect(toolClient.calls).toEqual([{ name: "log_weight", args: { lbs: 182 } }]);
-    expect(res.toolCalls).toEqual([{ name: "log_weight", input: { lbs: 182 } }]);
+    expect(res.toolCalls).toEqual([{ name: "log_weight", input: { lbs: 182 }, output: '{"logged":182}' }]);
 
     // Two round-trips. The second body must carry the assistant tool_calls turn
     // and the role:"tool" result keyed by the tool_call_id.
