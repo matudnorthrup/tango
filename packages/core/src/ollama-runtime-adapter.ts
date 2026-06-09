@@ -51,10 +51,14 @@ async function classifyTaskShape(task: string, apiKey: string): Promise<"JUDGMEN
           {
             role: "system",
             content:
-              "Classify the user's task into exactly one word. " +
-              "JUDGMENT = open-ended reasoning, planning, prioritization, recommendations, advice, weighing options, analyze-and-decide. " +
-              "DATA = analyzing the user's own structured records (finance, health metrics, transactions, workout/nutrition logs). " +
-              "OTHER = everything else: simple lookups, retrieval, tool actions, browsing, ordering, logging, short factual answers. " +
+              "Classify the user's task into exactly one word: JUDGMENT, DATA, or OTHER.\n" +
+              "JUDGMENT = the answer needs open-ended reasoning, interpretation, or composition. " +
+              "Examples: planning a trip or itinerary, weighing options or deciding, giving advice or recommendations, " +
+              "prioritizing, teaching or explaining a concept in depth, drafting or writing a thoughtful message.\n" +
+              "DATA = analyzing the user's own structured records to find patterns or insights " +
+              "(finances, transactions, health metrics, workout or nutrition logs, sleep data).\n" +
+              "OTHER = a single obvious action with one correct result: factual lookups, retrieval, browsing, " +
+              "placing an order, logging an entry, adding to a list, short factual answers.\n" +
               "Reply with ONLY one word: JUDGMENT, DATA, or OTHER.",
           },
           { role: "user", content: task.slice(0, 2000) },
