@@ -99,6 +99,59 @@ function hasAnthropicApi(): boolean {
   return config.anthropicApiKey.trim().length > 0;
 }
 
+/**
+ * Whether a fast Ollama-served classifier model is configured. Preferred over the
+ * Anthropic path so utility classifiers don't bill Anthropic on every utterance.
+ */
+function hasOllamaClassifier(): boolean {
+  return config.ollamaApiKey.trim().length > 0 && config.voiceClassifierModel.trim().length > 0;
+}
+
+async function requestOllamaApi(params: {
+  systemPrompt?: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  maxTokens: number;
+  model: string;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+  if (params.systemPrompt) {
+    messages.push({ role: 'system', content: params.systemPrompt });
+  }
+  messages.push(...params.messages);
+
+  const init: RequestInit = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.ollamaApiKey}`,
+    },
+    body: JSON.stringify({
+      model: params.model,
+      max_tokens: params.maxTokens,
+      messages,
+      stream: false,
+    }),
+  };
+  if (params.signal) {
+    init.signal = params.signal;
+  }
+
+  const response = await fetch(`${config.ollamaBaseUrl}/chat/completions`, init);
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    throw new Error(`Ollama API ${response.status}: ${errorBody || response.statusText}`);
+  }
+
+  const result = await response.json() as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  let content = result.choices?.[0]?.message?.content ?? '';
+  // Strip markdown code fences that small models sometimes wrap JSON in.
+  content = content.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  return content;
+}
+
 // ---------------------------------------------------------------------------
 // Tango bridge helpers
 // ---------------------------------------------------------------------------
@@ -241,6 +294,33 @@ export async function getResponse(
  */
 export async function quickCompletion(systemPrompt: string, userMessage: string, maxTokens = 50, signal?: AbortSignal, model?: string, assistantPrefill?: string): Promise<string> {
   const start = Date.now();
+
+  // Preferred path: a fast Ollama-served classifier model (off Anthropic, no API
+  // cost). Applies to model-tagged utility completions (route/command/inbox
+  // classifiers). The no-model summary/matcher calls still use the bridge below.
+  if (model && hasOllamaClassifier()) {
+    // Note: unlike Anthropic, the Ollama OpenAI endpoint rejects a trailing
+    // assistant "prefill" message, and these small models return clean JSON
+    // without it. Send only the user turn; prepend the prefill to the result
+    // below if the model omitted it.
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      { role: 'user', content: userMessage },
+    ];
+    const result = await requestOllamaApi({
+      systemPrompt,
+      messages,
+      maxTokens,
+      model: config.voiceClassifierModel,
+      signal,
+    });
+    const finalResult =
+      assistantPrefill && !result.trimStart().startsWith(assistantPrefill)
+        ? assistantPrefill + result
+        : result;
+    const elapsed = Date.now() - start;
+    console.log(`Quick completion via Ollama/${config.voiceClassifierModel} (${elapsed}ms): "${finalResult}"`);
+    return finalResult.trim();
+  }
 
   // Fast path: direct Anthropic API (sub-second vs 5-7s through CLI)
   if (model && hasAnthropicApi()) {

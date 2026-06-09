@@ -9,10 +9,112 @@ import {
 import type {
   AgentRuntime,
   AgentRuntimeConfig,
+  McpServerConfig,
   RuntimeResponse,
   RuntimeState,
   SendOptions,
 } from "./agent-runtime.js";
+
+// Appended to every Ollama-backed agent's system prompt. DeepSeek tends to fan out
+// search/list tools serially (validation saw a one-day Slack digest fire the slack tool
+// 20× and a notes lookup hit obsidian 8×), which is slow though not wrong. This nudges it
+// toward broad-query-then-drill and batching, cutting latency/iteration use. Ollama-only:
+// the adapter is only constructed for clones, so the Claude originals' souls are untouched.
+const OLLAMA_TOOL_EFFICIENCY_GUIDANCE =
+  "\n\nTool efficiency: when you search or list (Slack, Obsidian, email, web, transactions), " +
+  "run ONE broad query first and then drill into only the results that matter — do not loop a " +
+  "tool one item, channel, or note at a time. Use batch/multi-target options when a tool offers " +
+  "them, and finish in as few tool calls as you can.";
+
+const KNOWN_MCP_SERVER_TOOLS: Record<string, string[]> = {
+  memory: ["memory_search", "memory_add", "memory_reflect"],
+};
+
+// Per-task model routing (Devin: "per task with a per-agent fallback"). A cheap classifier
+// labels the incoming task; clearly-judgment tasks route to a thinking model and
+// clearly-data-analysis tasks to a thorough model, while everything else falls back to the
+// agent's own configured runtime.model. Defaults are bake-off-backed; all env-overridable.
+// The classifier is one fast (~ministral) call and returns the fallback on any failure, so
+// routing can never break or block a turn.
+const PER_TASK_ROUTING = (process.env.TANGO_PER_TASK_MODEL_ROUTING ?? "true") !== "false";
+const TASK_ROUTER_MODEL = process.env.TANGO_TASK_ROUTER_MODEL?.trim() || "ministral-3:3b";
+const TASK_ROUTER_BASE_URL = process.env.OLLAMA_BASE_URL?.trim() || "https://ollama.com/v1";
+const MODEL_FOR_JUDGMENT = process.env.TANGO_MODEL_JUDGMENT?.trim() || "glm-5";
+const MODEL_FOR_DATA = process.env.TANGO_MODEL_DATA?.trim() || "deepseek-v4-pro:cloud";
+
+async function classifyTaskShape(task: string, apiKey: string): Promise<"JUDGMENT" | "DATA" | "OTHER"> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const res = await fetch(`${TASK_ROUTER_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: TASK_ROUTER_MODEL,
+        max_tokens: 4,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Classify the user's task into exactly one word: JUDGMENT, DATA, or OTHER.\n" +
+              "JUDGMENT = the answer needs open-ended reasoning, interpretation, or composition. " +
+              "Examples: planning a trip or itinerary, weighing options or deciding, giving advice or recommendations, " +
+              "prioritizing, teaching or explaining a concept in depth, drafting or writing a thoughtful message.\n" +
+              "DATA = analyzing the user's own structured records to find patterns or insights " +
+              "(finances, transactions, health metrics, workout or nutrition logs, sleep data).\n" +
+              "OTHER = a single obvious action with one correct result: factual lookups, retrieval, browsing, " +
+              "placing an order, logging an entry, adding to a list, short factual answers.\n" +
+              "Reply with ONLY one word: JUDGMENT, DATA, or OTHER.",
+          },
+          { role: "user", content: task.slice(0, 2000) },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return "OTHER";
+    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const out = (json.choices?.[0]?.message?.content ?? "").toUpperCase();
+    if (out.includes("JUDGMENT")) return "JUDGMENT";
+    if (out.includes("DATA")) return "DATA";
+    return "OTHER";
+  } catch {
+    return "OTHER";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Models already strong enough at a shape that the router must NOT downgrade them. A bake-off
+// showed deepseek-v4-pro is the BEST model for emotional-judgment (juliet) and teaching
+// (porter) — so a blanket "JUDGMENT -> glm-5" would replace their deliberately-assigned strong
+// model with a worse one. So the router only OVERRIDES to upgrade a weak/fast fallback for its
+// weak shape; an agent already on a strong model for that shape keeps it.
+const STRONG_JUDGMENT_MODELS = new Set([
+  "glm-5", "glm-4.7", "deepseek-v4-pro:cloud", "deepseek-v4-pro", "kimi-k2.6", "kimi-k2:1t",
+]);
+const STRONG_DATA_MODELS = new Set([
+  "deepseek-v4-pro:cloud", "deepseek-v4-pro", "deepseek-v4-flash",
+]);
+
+// Resolve the model for a turn: a per-task UPGRADE for JUDGMENT/DATA when the agent's
+// configured (fallback) model is weak at that shape, else the agent's own model. Returns the
+// fallback if routing is off, no key, or on error — so it can never break or block a turn.
+async function resolveModelForTask(
+  task: string,
+  fallbackModel: string | undefined,
+): Promise<string | undefined> {
+  if (!PER_TASK_ROUTING) return fallbackModel;
+  const apiKey = process.env.OLLAMA_API_KEY?.trim();
+  if (!apiKey || !task.trim()) return fallbackModel;
+  const shape = await classifyTaskShape(task, apiKey);
+  if (shape === "JUDGMENT" && !(fallbackModel && STRONG_JUDGMENT_MODELS.has(fallbackModel))) {
+    return MODEL_FOR_JUDGMENT;
+  }
+  if (shape === "DATA" && !(fallbackModel && STRONG_DATA_MODELS.has(fallbackModel))) {
+    return MODEL_FOR_DATA;
+  }
+  return fallbackModel;
+}
 
 /**
  * Runs a v2 agent turn through a stateless {@link ChatProvider} (the
@@ -70,11 +172,22 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     const prompt = this.buildPrompt(message, options);
 
     const tools = this.resolveTools();
+    // Per-task routing: clearly-judgment tasks -> a thinking model, clearly-data tasks
+    // -> a thorough model, everything else -> this agent's configured model (the
+    // fallback). On any failure the classifier returns the fallback, so it can never
+    // break a turn.
+    const routedModel = await resolveModelForTask(message, this.config.runtimePreferences.model);
     const request: ProviderRequest = {
       prompt,
-      ...(this.config.systemPrompt.trim() ? { systemPrompt: this.config.systemPrompt } : {}),
-      ...(this.config.runtimePreferences.model ? { model: this.config.runtimePreferences.model } : {}),
+      ...(this.config.systemPrompt.trim()
+        ? { systemPrompt: this.config.systemPrompt + OLLAMA_TOOL_EFFICIENCY_GUIDANCE }
+        : { systemPrompt: OLLAMA_TOOL_EFFICIENCY_GUIDANCE.trim() }),
+      ...(routedModel ? { model: routedModel } : {}),
       ...(tools ? { tools } : {}),
+      // Inbound image bytes for same-turn vision. OllamaProvider folds these
+      // through a vision model (qwen3-vl) and strips them before the tool loop,
+      // so DeepSeek can reason over image content on the turn it arrives.
+      ...(options.images && options.images.length > 0 ? { images: options.images } : {}),
       // Governance principal for the HTTP MCP tool loop. The persistent server
       // resolves this agent's tool permissions from X-Worker-ID. The provider's
       // shared fixed-port tool client targets the server; no port is passed here.
@@ -161,7 +274,8 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     if (this.config.mcpServers.length === 0) {
       return undefined;
     }
-    return { mode: "default" };
+    const allowlist = resolveMcpToolAllowlist(this.config.mcpServers);
+    return allowlist ? { mode: "allowlist", allowlist } : { mode: "default" };
   }
 
   private buildPrompt(message: string, options: SendOptions): string {
@@ -181,4 +295,31 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     sections.push(message);
     return sections.join("\n\n");
   }
+}
+
+function resolveMcpToolAllowlist(servers: McpServerConfig[]): string[] | undefined {
+  const allowlist: string[] = [];
+  for (const server of servers) {
+    const explicit = parseAllowedToolIds(server.env?.ALLOWED_TOOL_IDS);
+    if (explicit.length > 0) {
+      allowlist.push(...explicit);
+      continue;
+    }
+
+    const known = KNOWN_MCP_SERVER_TOOLS[server.name];
+    if (known) {
+      allowlist.push(...known);
+      continue;
+    }
+
+    return undefined;
+  }
+  return [...new Set(allowlist)];
+}
+
+function parseAllowedToolIds(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }

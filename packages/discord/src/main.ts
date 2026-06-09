@@ -108,6 +108,7 @@ import {
   isV2RuntimeEnabled,
   shouldSendContextPressureAlert,
   type V2AgentConfig,
+  type ProviderImageInput,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
@@ -116,8 +117,10 @@ import {
   createMorningFlowSentinelHandler,
 } from "./morning-flow.js";
 import { createDailyBriefAggregationHandler } from "./daily-brief-aggregator.js";
+import { createKiloLedgerMonitorHandler } from "./kilo-ledger-monitor.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
+import { coerceWorkerReplyForDisplay } from "./worker-text-sanitizer.js";
 import { z } from "zod";
 import {
   buildDefaultAccessPolicy,
@@ -465,6 +468,54 @@ const captureProviderRaw = env.TANGO_CAPTURE_PROVIDER_RAW === "true";
 const providerRetryLimit = env.TANGO_PROVIDER_RETRY_LIMIT;
 const providerTimeoutMs = env.TANGO_PROVIDER_TIMEOUT_MS ?? DEFAULT_PROVIDER_TIMEOUT_MS;
 const claudeTimeoutMs = env.CLAUDE_TIMEOUT_MS ?? providerTimeoutMs;
+// Run agent-mode scheduled/proactive turns on the Ollama clone (DeepSeek) instead of
+// the Claude base agent, so background traffic gets the same off-Anthropic treatment
+// as interactive turns. Default on; set TANGO_SCHEDULER_USE_OLLAMA=false to revert.
+const SCHEDULER_USE_OLLAMA = (process.env.TANGO_SCHEDULER_USE_OLLAMA ?? "true") !== "false";
+// Schedules too heavy for DeepSeek to finish inside the scheduler timeout stay on the
+// Claude base agent even when SCHEDULER_USE_OLLAMA is on. The weekly/month-end finance
+// reviews are the known offenders: Claude completes the multi-account Plaid+reconcile flow
+// in ~280s, but DeepSeek timed out at 600s. These run weekly/monthly so the metering cost
+// of keeping them on Claude is negligible, and finance accuracy favors the proven path.
+// Comma-separated schedule ids; the "manual-test-" prefix is matched too. Override via env.
+const SCHEDULER_OLLAMA_EXCLUDE = new Set(
+  (process.env.TANGO_SCHEDULER_OLLAMA_EXCLUDE
+    ?? "weekly-finance-review,sinking-fund-reconciliation,sinking-fund-reconciliation-month-end")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean),
+);
+// Give Ollama clones same-turn vision: pass inbound image attachment bytes to the
+// runtime so the provider folds them through a vision model (qwen3-vl) on the arrival
+// turn, instead of relying on async OCR text only (which misses visual/spatial images
+// like maps and diagrams). Default on; set TANGO_CLONE_INLINE_VISION=false to revert.
+// Caps below bound the base64 payload sent to the vision model.
+const CLONE_INLINE_VISION = (process.env.TANGO_CLONE_INLINE_VISION ?? "true") !== "false";
+const CLONE_INLINE_VISION_MAX_IMAGES = Number(process.env.TANGO_CLONE_INLINE_VISION_MAX_IMAGES) || 4;
+const CLONE_INLINE_VISION_MAX_BYTES = Number(process.env.TANGO_CLONE_INLINE_VISION_MAX_BYTES) || 12_000_000;
+
+// Read inbound image attachments off disk as base64 for same-turn clone vision.
+// Skips non-images, empty/oversized files, and unreadable temp files (those still reach
+// the clone via the async OCR/attachment_read path). Bounded by the caps above.
+function buildCloneInlineImages(
+  processed: ReadonlyArray<{ localPath: string; contentType: string | null; type: "image" | "file" }>,
+): ProviderImageInput[] {
+  const images: ProviderImageInput[] = [];
+  for (const att of processed) {
+    if (images.length >= CLONE_INLINE_VISION_MAX_IMAGES) break;
+    if (att.type !== "image") continue;
+    const mediaType = att.contentType && att.contentType.startsWith("image/") ? att.contentType : "image/png";
+    try {
+      const bytes = fs.readFileSync(att.localPath);
+      if (bytes.length === 0 || bytes.length > CLONE_INLINE_VISION_MAX_BYTES) continue;
+      images.push({ dataBase64: bytes.toString("base64"), mediaType });
+    } catch {
+      // Unreadable temp file — skip; the OCR/attachment_read path still applies.
+    }
+  }
+  return images;
+}
+
 const claudeSecondaryTimeoutMs = env.CLAUDE_SECONDARY_TIMEOUT_MS ?? claudeTimeoutMs;
 const claudeHarnessTimeoutMs = env.CLAUDE_HARNESS_TIMEOUT_MS ?? claudeTimeoutMs;
 const codexTimeoutMs = env.CODEX_TIMEOUT_MS ?? providerTimeoutMs;
@@ -515,6 +566,27 @@ const sessionManager = new SessionManager(sessionConfigs);
 const sessionConfigById = new Map(sessionConfigs.map((session) => [session.id, session]));
 const agentConfigs = loadUnifiedAgentConfigs(configDir);
 const dbPath = resolveDatabasePath(env.TANGO_DB_PATH);
+// Single OllamaProvider instance shared by the voice + text v2 runtimes
+// (OllamaRuntimeAdapter via TangoRouter -> RuntimePool) and the legacy provider
+// registry below. Built BEFORE the voice router so voice turns to -ollama agents
+// resolve the ollama backend instead of throwing "no ollamaProvider supplied".
+// The 1Password apiKey resolver caches its first result, so sharing one instance
+// avoids resolving twice. The Ollama tool loop talks to the persistent HTTP MCP
+// server (:9100, same as the Claude CLI path).
+const ollamaToolClient = new McpHttpToolClient({
+  port: DEFAULT_MCP_HTTP_PORT,
+  timeoutMs: claudeTimeoutMs,
+});
+const ollamaProviderOptions = {
+  baseUrl: env.OLLAMA_BASE_URL,
+  defaultModel: env.OLLAMA_MODEL,
+  apiKey:
+    env.OLLAMA_API_KEY ??
+    (async () => (await getSecret("Watson", "Ollama API Credential Tango")) ?? undefined),
+  timeoutMs: claudeTimeoutMs,
+  toolClient: ollamaToolClient,
+};
+const ollamaProvider = new OllamaProvider(ollamaProviderOptions);
 const voiceV2AgentRuntimeConfigs = loadEnabledVoiceV2AgentRuntimeConfigs({
   dbPath,
   configDir,
@@ -528,6 +600,7 @@ const voiceTangoRouter = voiceV2AgentRuntimeConfigs.size > 0
           entry.runtimeConfig,
         ]),
       ),
+      ollamaProvider,
     })
   : null;
 const scheduleConfigs = loadScheduleConfigs(configDir);
@@ -572,28 +645,6 @@ const v2LifecycleConfig = {
   idleTimeoutHours: 24,
   contextResetThreshold: 0.80,
 };
-// Single OllamaProvider instance shared by the v2 runtime (OllamaRuntimeAdapter,
-// via TangoRouter -> RuntimePool) and the legacy provider registry below. The
-// 1Password apiKey resolver caches its first result, so sharing one instance
-// avoids resolving the secret twice.
-// Phase 2: the Ollama tool loop talks to the persistent HTTP MCP server (the
-// same `mcp-wellness-server --http --port=9100` the Claude CLI path forks). One
-// shared client keeps every Ollama-backed turn pointed at that server so the
-// model can invoke wellness tools via OpenAI function-calling.
-const ollamaToolClient = new McpHttpToolClient({
-  port: DEFAULT_MCP_HTTP_PORT,
-  timeoutMs: claudeTimeoutMs,
-});
-const ollamaProviderOptions = {
-  baseUrl: env.OLLAMA_BASE_URL,
-  defaultModel: env.OLLAMA_MODEL,
-  apiKey:
-    env.OLLAMA_API_KEY ??
-    (async () => (await getSecret("Watson", "Ollama API Credential Tango")) ?? undefined),
-  timeoutMs: claudeTimeoutMs,
-  toolClient: ollamaToolClient,
-};
-const ollamaProvider = new OllamaProvider(ollamaProviderOptions);
 const tangoRouter = new TangoRouter({
   agentConfigs: buildV2RuntimeConfigs(v2Configs),
   lifecycleConfig: v2LifecycleConfig,
@@ -605,6 +656,10 @@ const tangoRouter = new TangoRouter({
   onPostTurn: createV2PostTurnHook({
     v2Configs,
     atlasMemoryClient,
+    // Resolve the extraction provider lazily at turn time from the shared registry
+    // (defined just below); lets Ollama clones extract via the cheap Ollama model
+    // instead of billing the Claude CLI every turn.
+    resolveProvider: (name) => providers.get(name),
   }),
   ollamaProvider,
 });
@@ -680,6 +735,18 @@ function resolveMemoryEvalAuditProvider(): ChatProvider {
   throw new Error("No provider available for memory-eval audit.");
 }
 
+// Model-agnostic image vision. For image attachments the fallback worker sends the
+// actual image bytes to a configurable vision model (default qwen3-vl on Ollama)
+// instead of the Claude-CLI "Read the local file path" trick. deepseek-v4-pro is NOT
+// vision-capable, so the vision model is a separate knob (TANGO_VISION_MODEL).
+const ATTACHMENT_VISION_MODEL = process.env.TANGO_VISION_MODEL?.trim() || "qwen3-vl:235b-cloud";
+const ATTACHMENT_VISION_SYSTEM_PROMPT = [
+  "You are Tango's fresh-context attachment vision worker.",
+  "Analyze the provided image together with the attachment metadata.",
+  "Return exactly one compact JSON object matching the requested schema.",
+  "Do not include local filesystem paths in the returned JSON.",
+].join("\n");
+
 function createProviderAttachmentLlmFallbackRunner(): AttachmentLlmFallbackRunner {
   return async (input) => {
     const fallbackAgent = resolveAttachmentFallbackAgent(input.attachment.agentId);
@@ -694,6 +761,56 @@ function createProviderAttachmentLlmFallbackRunner(): AttachmentLlmFallbackRunne
     const providerChain = resolveProviderChain(providerNames);
     const prompt = buildAttachmentLlmFallbackPrompt(input);
     const startedAt = Date.now();
+
+    // Model-agnostic vision: for image attachments, send the actual image bytes to
+    // the configured Ollama vision model (qwen3-vl) first — no Claude dependency on
+    // the common path. Only falls through to the provider chain below on failure.
+    const visionContentType = (input.attachment.contentType ?? input.file.contentType ?? "").toLowerCase();
+    if (ATTACHMENT_VISION_MODEL && visionContentType.startsWith("image/")) {
+      try {
+        const imageBytes = await fs.promises.readFile(input.filePath);
+        const visionResponse = await ollamaProvider.generate({
+          prompt,
+          systemPrompt: ATTACHMENT_VISION_SYSTEM_PROMPT,
+          images: [{ dataBase64: imageBytes.toString("base64"), mediaType: visionContentType }],
+          model: ATTACHMENT_VISION_MODEL,
+        });
+        if (visionResponse.text.trim().length > 0) {
+          return buildAttachmentLlmFallbackResultFromProviderOutput(visionResponse.text, {
+            metadata: compactAttachmentFallbackMetadata({
+              promptVersion: LLM_VISION_FALLBACK_PROMPT_VERSION,
+              providerName: "ollama",
+              model: visionResponse.metadata?.model ?? ATTACHMENT_VISION_MODEL,
+              providerSessionId: visionResponse.providerSessionId ?? null,
+              attempts: 1,
+              attemptErrors: [],
+              failures: [],
+              usedFailover: false,
+              warmStartUsed: false,
+              durationMs: Date.now() - startedAt,
+              providerMetadata: visionResponse.metadata ?? null,
+              toolCalls: [],
+              promptChars: prompt.length,
+              source: {
+                attachmentId: input.attachment.id,
+                fileId: input.file.id,
+                sha256: input.file.sha256,
+                contentType: input.attachment.contentType ?? input.file.contentType,
+                bytes: input.attachment.bytes ?? input.file.bytes,
+              },
+              previousExtractionId: input.previousExtraction?.id ?? null,
+              fallbackReason: input.reason,
+            }),
+          });
+        }
+      } catch (error) {
+        console.warn(
+          `[attachment-vision] ${ATTACHMENT_VISION_MODEL} vision failed for attachment ${input.attachment.id}, falling back to provider chain: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
 
     const result = await generateWithFailover(
       providerChain,
@@ -759,7 +876,14 @@ function resolveAttachmentFallbackAgent(agentId: string | null): AgentConfig {
 }
 
 function appendDefaultVisionFallbackProviders(providerNames: string[]): string[] {
-  const defaults = ["claude-oauth", "claude-oauth-secondary", "claude-harness", "codex"];
+  // De-hardcoded: TANGO_VISION_FALLBACK_PROVIDERS (comma-separated) overrides the
+  // default chain, so Claude can be removed from the vision fallback entirely. This
+  // chain is now only the text/path-based backstop; primary image vision goes
+  // through ATTACHMENT_VISION_MODEL (qwen3-vl) above.
+  const configured = process.env.TANGO_VISION_FALLBACK_PROVIDERS?.trim();
+  const defaults = configured
+    ? configured.split(",").map((name) => name.trim()).filter(Boolean)
+    : ["claude-oauth", "claude-oauth-secondary", "claude-harness", "codex"];
   return [...new Set([...providerNames, ...defaults])];
 }
 
@@ -807,6 +931,7 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
         config,
         runtimeConfig: {
           agentId: config.id,
+          backend: isOllamaBackedAgent(config) ? "ollama" : "claude-code",
           systemPrompt,
           mcpServers: config.mcpServers.map((server) => ({
             name: server.name,
@@ -848,6 +973,9 @@ registerDeterministicHandler("printer-monitor", printerMonitorHandler);
 registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
 registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
 registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
+registerDeterministicHandler("kilo-ledger-monitor", createKiloLedgerMonitorHandler({
+  getLunchMoneyAccessToken: getLunchMoneyApiKey,
+}));
 registerDeterministicHandler("attachment-retention-sweep", async (ctx) => {
   const store = new AttachmentStore(ctx.db);
   const report = runAttachmentRetentionSweep(store, {
@@ -1419,20 +1547,34 @@ startPersistentMcpServer().then((port) => {
   // Initialize and start the scheduler once MCP is ready
   if (scheduleConfigs.length > 0) {
     const executeV2TurnForScheduler: V2ScheduledTurnExecuteFn = async (input) => {
-      const v2Entry = v2Configs.get(input.agentId);
+      // Background migration: when enabled (default true, off via
+      // TANGO_SCHEDULER_USE_OLLAMA=false), run agent-mode schedules on the agent's
+      // Ollama clone (DeepSeek) instead of the Claude base agent, so scheduled/
+      // proactive traffic gets the same off-Anthropic treatment as interactive turns.
+      // Falls back to the base agent if no clone exists, and keeps SCHEDULER_OLLAMA_EXCLUDE
+      // schedules (e.g. the heavy finance reviews DeepSeek can't finish in time) on Claude.
+      const baseScheduleId = input.config.id.replace(/^manual-test-/, "");
+      const scheduleExcluded =
+        SCHEDULER_OLLAMA_EXCLUDE.has(input.config.id) || SCHEDULER_OLLAMA_EXCLUDE.has(baseScheduleId);
+      const scheduledAgentId =
+        SCHEDULER_USE_OLLAMA && !scheduleExcluded && !input.agentId.endsWith("-ollama") && v2Configs.has(`${input.agentId}-ollama`)
+          ? `${input.agentId}-ollama`
+          : input.agentId;
+      const v2Entry = v2Configs.get(scheduledAgentId);
       if (!v2Entry) {
         throw new Error(
-          `Schedule '${input.config.id}' requests v2 runtime but agent '${input.agentId}' has no v2 config.`,
+          `Schedule '${input.config.id}' requests v2 runtime but agent '${scheduledAgentId}' has no v2 config.`,
         );
       }
 
       const systemPrompt = assembleV2SystemPrompt(v2Entry, { repoRoot: process.cwd() }).trim();
       if (systemPrompt.length === 0) {
-        throw new Error(`System prompt file for agent '${input.agentId}' is empty.`);
+        throw new Error(`System prompt file for agent '${scheduledAgentId}' is empty.`);
       }
 
       const runtimeConfig: AgentRuntimeConfig = {
-        agentId: input.agentId,
+        agentId: scheduledAgentId,
+        backend: isOllamaBackedAgent(v2Entry) ? "ollama" : "claude-code",
         systemPrompt,
         mcpServers: v2Entry.mcpServers.map((server) => ({
           name: server.name,
@@ -1444,7 +1586,12 @@ startPersistentMcpServer().then((port) => {
           },
         })),
         runtimePreferences: {
-          model: input.config.provider?.model ?? v2Entry.runtime.model,
+          // Ollama-backed clones ignore the schedule's hardcoded Claude model
+          // (e.g. claude-sonnet-4-6) and use their own model, or it would be sent to
+          // the DeepSeek endpoint and hard-fail.
+          model: isOllamaBackedAgent(v2Entry)
+            ? v2Entry.runtime.model
+            : input.config.provider?.model ?? v2Entry.runtime.model,
           reasoningEffort: normalizeRuntimeReasoningEffort(
             input.config.provider?.reasoningEffort ?? v2Entry.runtime.reasoningEffort,
           ),
@@ -1472,8 +1619,13 @@ startPersistentMcpServer().then((port) => {
       }
       runtimeConfig.coldStartContext = coldStartContext || undefined;
 
-      const { ClaudeCodeAdapter } = await import("@tango/core");
-      const adapter = new ClaudeCodeAdapter();
+      // Backend-aware adapter selection (mirrors RuntimePool): scheduled/proactive
+      // turns for -ollama agents run on DeepSeek instead of wrongly spawning the
+      // Claude CLI with a deepseek model.
+      const core = await import("@tango/core");
+      const adapter = isOllamaBackedAgent(v2Entry)
+        ? new core.OllamaRuntimeAdapter(ollamaProvider, runtimeConfig)
+        : new core.ClaudeCodeAdapter();
       await adapter.initialize(runtimeConfig);
 
       try {
@@ -1505,7 +1657,7 @@ startPersistentMcpServer().then((port) => {
         writeModelRun({
           sessionId,
           agentId: input.agentId,
-          providerName: "claude-code-v2",
+          providerName: isOllamaBackedAgent(v2Entry) ? "ollama" : "claude-code-v2",
           conversationKey,
           providerSessionId,
           model: runtimeModel,
@@ -6571,9 +6723,21 @@ async function handleMessage(
   }
 
   const responseMode = resolveResponseMode(targetAgent, commandParse.responseModeOverride);
+  // Ollama-backed clones run the stateless OpenAI-compatible loop with no Claude-CLI
+  // Read tool, so they can't open a file by path. But they DO hold attachment_* tool
+  // grants (extracted text / OCR) and, when inline vision is on, are handed image
+  // bytes folded through qwen3-vl this turn. Pass access that reflects both so the
+  // suffix points them at attachment_read for files and states that image content is
+  // provided, instead of the stale "you cannot view/read it" wording.
+  const targetAgentIsOllama = isOllamaBackedAgent(v2Configs.get(targetAgent.id));
   const attachmentResult = await processAttachments(message.attachments, promptRoute.sessionId, {
     attachmentStore,
     dataDir: attachmentDataDir,
+    agentAttachmentAccess: {
+      canReadLocalFiles: !targetAgentIsOllama,
+      canUseAttachmentTools: true,
+      canViewImagesInline: targetAgentIsOllama && CLONE_INLINE_VISION,
+    },
     sourceRefs: {
       agentId: targetAgent.id,
       localMessageId: inboundMessageId,
@@ -6718,6 +6882,13 @@ async function handleMessage(
         searchFirst: Boolean(stateFilePointer) || process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
       });
       const sendContext = buildSendContextWithOptionalSavePass(warmStartPrompt, hasPendingSavePass);
+      // Clone same-turn vision: hand inbound image bytes to the Ollama runtime so the
+      // provider folds them through a vision model on the arrival turn (Claude agents
+      // open files via their own Read tool, so this is clone-only).
+      const inlineImages =
+        targetAgentIsOllama && CLONE_INLINE_VISION
+          ? buildCloneInlineImages(attachmentResult.processed)
+          : [];
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
@@ -6728,6 +6899,7 @@ async function handleMessage(
             ...(sendContext ? { context: sendContext } : {}),
             currentTurnMetadataPrompt,
             ...(turnBriefingPrompt ? { turnBriefingPrompt } : {}),
+            ...(inlineImages.length > 0 ? { images: inlineImages } : {}),
           },
         },
         {
@@ -6754,13 +6926,24 @@ async function handleMessage(
       const toolsUsed = v2Result.response.toolsUsed ?? [];
       const runtimeError = metadataBoolean(runtimeMetadata, "error") ?? false;
       const rawRuntimeResponse = asRecord(runtimeMetadata?.raw);
-      const replyDelivery = await sendPresentedReply(message.channel, v2Result.response.text, targetAgent);
+      // Ollama clones run a stateless OpenAI-compatible loop and occasionally wrap
+      // output in JSON / fenced structured blocks. Coerce to clean display text so
+      // raw JSON never leaks to the channel, and store the cleaned text so it does
+      // not pollute the next turn's warm-start. Claude replies pass through unchanged.
+      const replyText = targetAgentIsOllama
+        ? coerceWorkerReplyForDisplay(v2Result.response.text)
+        : v2Result.response.text;
+      // Label the turn by backend so Ollama clone turns are not miscounted as the
+      // Claude path. provider_name was hardcoded "claude-code-v2" for every v2 turn,
+      // which made the cost A/B (the reason this project exists) unmeasurable.
+      const v2ProviderName = targetAgentIsOllama ? "ollama" : "claude-code-v2";
+      const replyDelivery = await sendPresentedReply(message.channel, replyText, targetAgent);
       ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
 
       const outboundMessageId = writeMessage({
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
-        providerName: "claude-code-v2",
+        providerName: v2ProviderName,
         direction: "outbound",
         source: "tango",
         visibility: "public",
@@ -6768,7 +6951,7 @@ async function handleMessage(
         discordChannelId: message.channelId,
         discordUserId: replyDelivery.delivery === "bot" ? client.user?.id ?? null : null,
         discordUsername: replyDelivery.actualDisplayName,
-        content: v2Result.response.text,
+        content: replyText,
         metadata: {
           replyToDiscordMessageId: message.id,
           sentChunks: replyDelivery.sentChunks,
@@ -6789,7 +6972,7 @@ async function handleMessage(
       writeModelRun({
         sessionId: promptRoute.sessionId,
         agentId: targetAgent.id,
-        providerName: "claude-code-v2",
+        providerName: v2ProviderName,
         conversationKey: v2Result.conversationKey,
         providerSessionId,
         model: runtimeModel,
@@ -6806,7 +6989,8 @@ async function handleMessage(
         isError: runtimeError,
         errorMessage:
           runtimeError
-            ? metadataString(runtimeMetadata, "stderr") ?? "Claude Code runtime returned an error response."
+            ? metadataString(runtimeMetadata, "stderr")
+              ?? `${targetAgentIsOllama ? "Ollama" : "Claude Code"} runtime returned an error response.`
             : null,
         requestMessageId: inboundMessageId,
         responseMessageId: outboundMessageId,

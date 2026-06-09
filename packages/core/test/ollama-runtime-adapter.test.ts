@@ -134,7 +134,8 @@ describe("OllamaRuntimeAdapter", () => {
       turnBriefingPrompt: "State file: bar",
     });
 
-    expect(captured?.systemPrompt).toBe("You are the Ollama-backed runtime.");
+    expect(captured?.systemPrompt?.split("\n\n")[0]).toBe("You are the Ollama-backed runtime.");
+    expect(captured?.systemPrompt).toContain("Tool efficiency:");
     expect(captured?.model).toBe("deepseek-v4-pro:cloud");
     expect(captured?.prompt).toBe(
       [
@@ -164,7 +165,7 @@ describe("OllamaRuntimeAdapter", () => {
     expect(response.toolsUsed?.sort()).toEqual(["list_meals", "log_weight"]);
   });
 
-  it("passes the agent tool policy and worker id when MCP servers are configured", async () => {
+  it("passes an MCP-derived allowlist and worker id when MCP servers are configured", async () => {
     let captured: ProviderRequest | undefined;
     const adapter = new OllamaRuntimeAdapter(
       createFakeProvider({ text: "ok", metadata: { usage: { inputTokens: 1 } } }, (request) => {
@@ -174,10 +175,44 @@ describe("OllamaRuntimeAdapter", () => {
         agentId: "watson",
         mcpServers: [
           {
-            name: "wellness",
+            name: "memory",
             command: "node",
-            args: ["mcp-wellness-server.js"],
-            env: { MCP_SERVER_PORT: "9100" },
+            args: ["atlas-memory.js"],
+          },
+          {
+            name: "lunch-money",
+            command: "node",
+            args: ["mcp-proxy.js", "lunch-money"],
+            env: { ALLOWED_TOOL_IDS: "lunch_money" },
+          },
+        ],
+      }),
+    );
+
+    await adapter.send("hi");
+
+    expect(captured?.tools).toEqual({
+      mode: "allowlist",
+      allowlist: ["memory_search", "memory_add", "memory_reflect", "lunch_money"],
+    });
+    expect(captured?.workerId).toBe("watson");
+    // The provider uses one shared fixed-port tool client; no port is passed
+    // per request.
+    expect("mcpServerPort" in (captured ?? {})).toBe(false);
+  });
+
+  it("falls back to default tools for unknown unconstrained MCP servers", async () => {
+    let captured: ProviderRequest | undefined;
+    const adapter = new OllamaRuntimeAdapter(
+      createFakeProvider({ text: "ok", metadata: { usage: { inputTokens: 1 } } }, (request) => {
+        captured = request;
+      }),
+      createConfig({
+        mcpServers: [
+          {
+            name: "custom",
+            command: "node",
+            args: ["custom-mcp-server.js"],
           },
         ],
       }),
@@ -186,10 +221,6 @@ describe("OllamaRuntimeAdapter", () => {
     await adapter.send("hi");
 
     expect(captured?.tools).toEqual({ mode: "default" });
-    expect(captured?.workerId).toBe("watson");
-    // The provider uses one shared fixed-port tool client; no port is passed
-    // per request.
-    expect("mcpServerPort" in (captured ?? {})).toBe(false);
   });
 
   it("omits tools (text-only) when the agent has no MCP servers", async () => {

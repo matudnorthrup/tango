@@ -1,0 +1,5 @@
+id: foxtrot-ollama
+type: persistent
+agent: foxtrot-ollama
+channels:
+  - "discord:1513207675935129862"

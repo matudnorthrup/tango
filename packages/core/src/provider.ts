@@ -6,6 +6,13 @@ import { z } from "zod";
 import type { ProviderReasoningEffort } from "./types.js";
 import type { McpHttpToolClient, OpenAIToolDefinition } from "./mcp-http-tool-client.js";
 
+export interface ProviderImageInput {
+  /** Base64-encoded image bytes (no `data:` prefix). */
+  dataBase64: string;
+  /** MIME type, e.g. "image/png" or "image/jpeg". */
+  mediaType: string;
+}
+
 export interface ProviderRequest {
   prompt: string;
   providerSessionId?: string;
@@ -13,6 +20,11 @@ export interface ProviderRequest {
   tools?: ProviderToolsConfig;
   model?: string;
   reasoningEffort?: ProviderReasoningEffort;
+  /**
+   * Inline images for multimodal/vision requests. Consumed by the Ollama provider
+   * (emitted as OpenAI `image_url` content parts); CLI providers ignore them.
+   */
+  images?: ProviderImageInput[];
   /**
    * Governance principal for the HTTP MCP tool loop (Ollama only). Sent as the
    * `X-Worker-ID` header so the persistent MCP server resolves the agent's tool
@@ -142,7 +154,11 @@ export const OLLAMA_CONTEXT_WINDOW_TOKENS = 800_000;
  * the cap was reached with no final text, {@link TOOL_LOOP_CAP_FALLBACK_TEXT} and
  * `stopReason:"max_tool_iters"` — so a misbehaving model can never spin forever.
  */
-export const MAX_TOOL_ITERS = 8;
+// 40 (was 25): browser-heavy ordering flows legitimately need more steps — e.g.
+// building a Chipotle order from scratch (store select + per-ingredient clicks) hit
+// the 25 cap mid-customization. Still a bounded runaway-loop backstop. Override via
+// TANGO_MAX_TOOL_ITERS.
+export const MAX_TOOL_ITERS = Number(process.env.TANGO_MAX_TOOL_ITERS) || 40;
 
 /**
  * Deterministic reply substituted when the tool loop hits {@link MAX_TOOL_ITERS}
@@ -1024,8 +1040,13 @@ export interface OpenAiToolCall {
  * text turns, the tool loop appends assistant messages carrying `tool_calls` and
  * `role:"tool"` results keyed by `tool_call_id`.
  */
+export type OllamaContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export type OllamaChatMessage =
-  | { role: "system" | "user"; content: string }
+  | { role: "system"; content: string }
+  | { role: "user"; content: string | OllamaContentPart[] }
   | { role: "assistant"; content: string | null; tool_calls?: OpenAiToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
 
@@ -1059,7 +1080,20 @@ export function buildOllamaChatBody(
     if (systemPrompt) {
       messages.push({ role: "system", content: systemPrompt });
     }
-    messages.push({ role: "user", content: request.prompt });
+    const images = request.images ?? [];
+    if (images.length > 0) {
+      // Multimodal: OpenAI-compatible content-parts array (text + image_url data URIs).
+      const parts: OllamaContentPart[] = [{ type: "text", text: request.prompt }];
+      for (const image of images) {
+        parts.push({
+          type: "image_url",
+          image_url: { url: `data:${image.mediaType};base64,${image.dataBase64}` },
+        });
+      }
+      messages.push({ role: "user", content: parts });
+    } else {
+      messages.push({ role: "user", content: request.prompt });
+    }
   }
   const body: OllamaChatBody = { model, messages, stream: false };
   if (options.tools && options.tools.length > 0) {
@@ -1262,7 +1296,50 @@ export class OllamaProvider implements ChatProvider {
     }
 
     // --- Phase 2 bounded agentic tool loop -----------------------------------
-    return this.runToolLoop(request, apiKey, toolClient);
+    // Inline vision: the tool loop is text-only and DeepSeek-class models can't see
+    // images. If the turn carries images, synchronously describe them with the
+    // configured vision model (qwen3-vl) and fold that text into the prompt so the
+    // tool-using model can reason over the image content while still calling tools.
+    let effectiveRequest = request;
+    if (request.images && request.images.length > 0) {
+      const description = await this.describeImages(request.images, apiKey);
+      if (description) {
+        effectiveRequest = {
+          ...request,
+          prompt:
+            `${request.prompt}\n\n[Vision] This turn includes ${request.images.length} image(s); a vision ` +
+            `model describes them as follows. Treat this as the image content:\n${description}`,
+          images: undefined,
+        };
+      }
+    }
+    return this.runToolLoop(effectiveRequest, apiKey, toolClient);
+  }
+
+  /**
+   * Synchronously describe inline images using the configured vision model
+   * (TANGO_VISION_MODEL, default qwen3-vl) so a text-only tool-using model can act on
+   * image content. Best-effort: returns "" on failure and the caller proceeds without.
+   */
+  private async describeImages(images: ProviderImageInput[], apiKey: string): Promise<string> {
+    const visionModel = process.env.TANGO_VISION_MODEL?.trim() || "qwen3-vl:235b-cloud";
+    const body = buildOllamaChatBody(
+      {
+        prompt:
+          "Describe the image(s) in thorough, precise detail for an assistant that will act on them: " +
+          "transcribe ALL visible text verbatim (numbers, dates, names, amounts, labels) and note layout, " +
+          "items, and anything actionable. Do not omit text.",
+        images,
+        model: visionModel,
+      },
+      { defaultModel: this.options.defaultModel },
+    );
+    try {
+      const payload = await this.postChat(body, apiKey);
+      return parseOllamaChatResponse(payload).text.trim();
+    } catch {
+      return "";
+    }
   }
 
   private async runToolLoop(
