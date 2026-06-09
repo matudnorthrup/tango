@@ -20,6 +20,9 @@ fixture (eval contract)
       → RUBRIC per run: blind Claude-CLI judge scores the fixture's weighted
                quality dimensions 0..1
   → eligibility: passRate ≥ passRateThreshold AND rubric mean ≥ rubricThreshold
+                 AND worst-run rubric ≥ rubricFloor (default threshold − 0.1) —
+                 consistency is a reliability property: a model that swings
+                 between brilliant and below-bar is not dependable
   → ranking: pass rate desc, then cost-per-successful-run, then latency
   → hysteresis: a challenger only displaces `incumbentModel` by strictly beating
     it (never ties) — assignments don't churn on marginal wins

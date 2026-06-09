@@ -136,6 +136,7 @@ for (const file of readdirSync(TASK_DIR).filter((name) => name.endsWith(".json")
   }
   if (task.passRateThreshold !== undefined) assertFraction(task.passRateThreshold, file, "passRateThreshold");
   if (task.rubricThreshold !== undefined) assertFraction(task.rubricThreshold, file, "rubricThreshold");
+  if (task.rubricFloor !== undefined) assertFraction(task.rubricFloor, file, "rubricFloor");
   if (task.timeoutMs !== undefined && (!Number.isInteger(task.timeoutMs) || task.timeoutMs < 1000)) {
     fail(file, "timeoutMs must be an integer >= 1000");
   }

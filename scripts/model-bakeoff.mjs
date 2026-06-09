@@ -26,7 +26,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { loadFixture, adHocFixture, isClaudeModel, HARNESS_VERSION } from "./lib/bakeoff/fixtures.mjs";
+import { loadFixture, adHocFixture, normalizeFixture, isClaudeModel, HARNESS_VERSION } from "./lib/bakeoff/fixtures.mjs";
 import { evaluateGates } from "./lib/bakeoff/gates.mjs";
 import { runOllamaOnce, runClaudeOnce, loadFixtureImages } from "./lib/bakeoff/runners.mjs";
 import { judgeRun } from "./lib/bakeoff/judge.mjs";
@@ -50,6 +50,29 @@ const DEFAULT_MODELS = [
   "kimi-k2.6",
   "glm-5",
 ];
+
+// ---- Recompute mode: re-apply the current verdict policy to stored results ----
+// Policy changes (thresholds, floors, ranking) shouldn't require re-running
+// models: `--recompute <results.json>` re-summarizes and re-verdicts a stored
+// run from ~/.tango/evals/results/ and refreshes the committed verdict summary.
+const recomputePath = arg("recompute");
+if (recomputePath) {
+  const stored = JSON.parse(readFileSync(resolve(process.cwd(), recomputePath), "utf8"));
+  const fx = normalizeFixture(stored.fixture, { sourcePath: stored.fixture.sourcePath });
+  const summaries = stored.candidates.map((c) => summarizeCandidate(fx, c));
+  const verdict = computeVerdict(fx, summaries);
+  console.log(`Recompute (policy v${HARNESS_VERSION}) from ${recomputePath} — original run ${stored.when}`);
+  console.log("model".padEnd(24) + "| pass | rubric mean(min) | eligible");
+  for (const s of summaries) {
+    const eligible = s.benchmarkOnly ? "benchmark" : isEligible(fx, s) ? "yes" : "no";
+    const rubric = s.rubricMean == null ? "-" : `${s.rubricMean.toFixed(2)}(${s.rubricMin?.toFixed(2) ?? "-"})`;
+    console.log(s.model.padEnd(24) + `| ${pct(s.passRate).padStart(4)} | ${rubric.padStart(16)} | ${eligible}`);
+  }
+  console.log(`\nVERDICT: ${verdict.recommendation ?? "NO ELIGIBLE MODEL"}\n  ${verdict.reason}`);
+  const verdictPath = persistVerdictSummary({ fixture: fx, summaries, verdict, repoRoot: ROOT });
+  console.log(`Verdict summary updated: ${verdictPath}`);
+  process.exit(0);
+}
 
 // ---- Build the fixture -------------------------------------------------------
 const taskFile = arg("task");
@@ -212,12 +235,13 @@ const summaries = candidates.map((c) => summarizeCandidate(fixture, c));
 const verdict = computeVerdict(fixture, summaries);
 
 console.log(`\n=== SUMMARY (${fixture.runs} runs/candidate) ===`);
-console.log("model".padEnd(24) + "| pass | rubric | secs | out-tok | cost/success | eligible");
+console.log("model".padEnd(24) + "| pass | rubric mean(min) | secs | out-tok | cost/success | eligible");
 for (const s of summaries) {
   const eligible = s.benchmarkOnly ? "benchmark" : isEligible(fixture, s) ? "yes" : "no";
+  const rubric = s.rubricMean == null ? "-" : `${s.rubricMean.toFixed(2)}(${s.rubricMin?.toFixed(2) ?? "-"})`;
   console.log(
     s.model.padEnd(24) +
-    `| ${pct(s.passRate).padStart(4)} | ${(s.rubricMean == null ? "-" : s.rubricMean.toFixed(2)).padStart(6)} | ${String(s.meanSeconds == null ? "-" : Math.round(s.meanSeconds)).padStart(4)} | ${String(s.meanOutputTokens == null ? "-" : Math.round(s.meanOutputTokens)).padStart(7)} | ${costLabel(s).padEnd(12)} | ${eligible}`,
+    `| ${pct(s.passRate).padStart(4)} | ${rubric.padStart(16)} | ${String(s.meanSeconds == null ? "-" : Math.round(s.meanSeconds)).padStart(4)} | ${String(s.meanOutputTokens == null ? "-" : Math.round(s.meanOutputTokens)).padStart(7)} | ${costLabel(s).padEnd(12)} | ${eligible}`,
   );
   if (s.infraRuns > 0) console.log(`  ⚠ ${s.model}: ${s.infraRuns} run(s) excluded as infra failures`);
 }
