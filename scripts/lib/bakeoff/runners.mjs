@@ -16,9 +16,21 @@
 // mcp-proxy scopes tools by the X-Worker-ID header.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, extname, isAbsolute, resolve } from "node:path";
+
+const IMAGE_MIME_BY_EXT = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
+
+/** Load fixture image paths (relative to repo root) as provider image inputs. */
+export function loadFixtureImages(fixture, repoRoot) {
+  return (fixture.images ?? []).map((p) => {
+    const path = isAbsolute(p) ? p : resolve(repoRoot, p);
+    const mimeType = IMAGE_MIME_BY_EXT[extname(path).toLowerCase()];
+    if (!mimeType) throw new Error(`unsupported image extension for ${path}`);
+    return { data: readFileSync(path).toString("base64"), mimeType };
+  });
+}
 
 const INFRA_ERROR_PATTERN =
   /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|fetch failed|socket hang up|terminated|API key|unauthorized|invalid[_ ]api|401|403|429|50[0-4]|MCP server|tool client|overloaded/i;
@@ -30,13 +42,14 @@ export function classifyError(message) {
 const CLAUDE_MCP_SERVER = "tango";
 const CLAUDE_TOOL_PREFIX = `mcp__${CLAUDE_MCP_SERVER}__`;
 
-export async function runOllamaOnce({ model, fixture, makeProvider }) {
+export async function runOllamaOnce({ model, fixture, makeProvider, images }) {
   const provider = makeProvider(model);
   const startedAt = Date.now();
   try {
     const r = await provider.generate({
       systemPrompt: fixture.system,
       prompt: fixture.prompt,
+      ...(images?.length ? { images } : {}),
       ...(fixture.tools ? { tools: { mode: "default" }, workerId: fixture.worker } : {}),
       model,
     });

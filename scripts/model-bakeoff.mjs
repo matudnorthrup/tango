@@ -28,7 +28,7 @@ import { spawnSync } from "node:child_process";
 
 import { loadFixture, adHocFixture, isClaudeModel, HARNESS_VERSION } from "./lib/bakeoff/fixtures.mjs";
 import { evaluateGates } from "./lib/bakeoff/gates.mjs";
-import { runOllamaOnce, runClaudeOnce } from "./lib/bakeoff/runners.mjs";
+import { runOllamaOnce, runClaudeOnce, loadFixtureImages } from "./lib/bakeoff/runners.mjs";
 import { judgeRun } from "./lib/bakeoff/judge.mjs";
 import { loadPricing, runCostUsd } from "./lib/bakeoff/pricing.mjs";
 import { summarizeCandidate, computeVerdict, isEligible, pct, costLabel } from "./lib/bakeoff/verdict.mjs";
@@ -77,10 +77,25 @@ const benchmarkModels = arg("benchmarks") === "none"
   ? []
   : csv(arg("benchmarks")).length > 0 ? csv(arg("benchmarks")) : fixture.benchmarkModels;
 const seen = new Set();
-const allModels = [
+let allModels = [
   ...candidateModels.map((model) => ({ model, benchmarkOnly: isClaudeModel(model) })),
   ...benchmarkModels.map((model) => ({ model: isClaudeModel(model) ? model : `claude:${model}`, benchmarkOnly: true })),
 ].filter(({ model }) => (seen.has(model) ? false : (seen.add(model), true)));
+
+let fixtureImages = [];
+if (fixture.images.length > 0) {
+  try {
+    fixtureImages = loadFixtureImages(fixture, ROOT);
+  } catch (e) {
+    console.error(`INFRA: cannot load fixture images (${String(e?.message || e)})`);
+    process.exit(3);
+  }
+  const excluded = allModels.filter(({ model }) => isClaudeModel(model));
+  if (excluded.length > 0) {
+    console.log(`NOTE: vision fixture — excluding claude:* candidates (print-mode runner has no image input): ${excluded.map((m) => m.model).join(", ")}`);
+    allModels = allModels.filter(({ model }) => !isClaudeModel(model));
+  }
+}
 
 const judgeEnabled = fixture.judge.enabled && !has("no-judge");
 const judgeModel = arg("judge-model", fixture.judge.model);
@@ -147,7 +162,7 @@ async function runOnce(model) {
   if (isClaudeModel(model)) {
     return runClaudeOnce({ model, fixture });
   }
-  return runOllamaOnce({ model, fixture, makeProvider });
+  return runOllamaOnce({ model, fixture, makeProvider, images: fixtureImages });
 }
 
 const candidates = [];
