@@ -42,8 +42,8 @@ const CATEGORY_RULES = [
   {
     category: "travel",
     promptPattern: /route|drive|detour|waypoint|stop/i,
-    mustRequireTool: "osrm_route",
-    why: "travel route fixtures must gate on osrm_route (Sierra 2026-06-09 incident)",
+    mustRequireOneOf: ["osrm_route", "find_diesel"],
+    why: "travel route fixtures must gate on a routing-grounded tool — osrm_route or find_diesel (Sierra 2026-06-09 incident)",
   },
 ];
 
@@ -205,7 +205,8 @@ for (const file of readdirSync(TASK_DIR).filter((name) => name.endsWith(".json")
   // ---- Per-category contract rules ------------------------------------------------
   for (const rule of CATEGORY_RULES) {
     if (task.category === rule.category && rule.promptPattern.test(task.prompt)) {
-      if (!requiredToolNames(task).has(rule.mustRequireTool)) {
+      const names = requiredToolNames(task);
+      if (!rule.mustRequireOneOf.some((tool) => names.has(tool))) {
         fail(file, `${rule.why}`);
       }
     }
