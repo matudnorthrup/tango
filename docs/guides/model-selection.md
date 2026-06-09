@@ -3,13 +3,32 @@
 **Hallmark strategy: match the model to the task; do not standardize on one.**
 
 Tango runs agents on multiple backends (Claude, and a catalog of open-weight
-Ollama Cloud models). The right model is **task-dependent**. The cheapest model
-that meets the quality bar for a given task is the correct choice — and that
-varies by task, so we choose **per persona / per task**, not once for the whole
-fleet.
+Ollama Cloud models). The right model is **task-dependent**. The fastest and
+cheapest model that can consistently handle a given task is the correct choice -
+and that varies by task, so we choose **per persona / per task**, not once for
+the whole fleet.
 
 This is a first-class operating practice, on the same footing as
 [Done Means Live Tested](agent-operating-model.md#done-means-live-tested).
+
+## Selection principle
+
+Optimize for dependable task completion, not raw per-call price. "Cheapest" means
+the lowest expected total cost among models that reliably clear the task's quality
+bar. Expected total cost includes model tokens, latency, retries, cleanup,
+operator attention, missed automations, incorrect writes, and loss of trust in
+Tango.
+
+- For simple, bounded, reversible work, prefer the lightweight model that is fast,
+  cheap, and consistently correct.
+- For ambiguous, high-impact, or failure-expensive work, prefer the more robust
+  model even when it is slower or more expensive.
+- A failed autonomous job is expensive twice: the wasted model run is minor
+  compared with Devin's time, interrupted life workflow, and the need to verify
+  or redo the work manually.
+- Do not promote a model from a single lucky pass. Bake-offs must measure
+  consistency, failure modes, retry risk, and tool-loop behavior across repeated
+  examples.
 
 ## The golden-path-first workflow
 
@@ -21,11 +40,11 @@ When you stand up a **new** task or workflow:
    is right. (Most of this repo's clone capabilities — scripture marking, the
    schedule audit, the cart flow — were established this way.)
 2. **Bake off cheaper candidates on that *same* process.** Run the identical task
-   across several models and compare completion, tool-call efficiency, latency,
-   and output quality.
-3. **Assign the cheapest model that clears the bar** for that task, via
-   `runtime.model` in `config/v2/agents/<agent>.yaml`. Keep a baseline model on a
-   sibling agent so you can A/B by `model_runs.model`.
+   across several models and compare completion consistency, tool-call
+   efficiency, latency, retry risk, failure mode, and output quality.
+3. **Assign the fastest/cheapest model that consistently clears the bar** for
+   that task, via `runtime.model` in `config/v2/agents/<agent>.yaml`. Keep a
+   baseline model on a sibling agent so you can A/B by `model_runs.model`.
 
 ## The bake-off harness
 
@@ -48,6 +67,25 @@ Runs sequentially so timings are comparable. Needs `OLLAMA_API_KEY` in `.env`,
 and the `:9100` MCP server up when the task uses tools. List the live Ollama
 Cloud catalog with:
 `curl -s -H "Authorization: Bearer $OLLAMA_API_KEY" https://ollama.com/v1/models`.
+
+## Eval coverage requirement
+
+Do not infer fleet-wide model fit from a narrow benchmark. Tango runs life-admin,
+finance, shopping, health, faith, research, operations, communications, memory,
+and background maintenance jobs; each has a different failure cost and task
+shape. A real bake-off suite must cover representative work across those
+surfaces before changing defaults broadly.
+
+Use the Obsidian `Tango Jobs - Manual Test Checklist` as the inventory source,
+but tier jobs before running them:
+
+- **Deterministic / no-model jobs:** validate separately; no model bake-off.
+- **Read-only bounded tasks:** safe first wave for automated model comparisons.
+- **Reversible writes:** require cleanup hooks and store-level verification.
+- **High-risk writes:** finance changes, purchases, credential/login flows,
+  printer starts, message sends, and similar actions need human-gated live tests.
+- **Judgment tasks:** require explicit rubrics and human review, not just latency
+  and tool-call counts.
 
 ## What the data shows (and why it generalizes)
 
