@@ -53,19 +53,26 @@ npm run workout-ui:restart           # rebuild happens in this script too
 ```
 
 Env (all optional): `WORKOUT_UI_PORT` (default 9330), `WORKOUT_UI_HOST`
-(default `127.0.0.1` — see note), `WORKOUT_UI_TOKEN` (if set, API requires
-bearer token or `?token=`), `WORKOUT_DB_URL`.
+(default `127.0.0.1`), `WORKOUT_UI_BASE_PATH` (default `/tango-workout`,
+must match the Vite `base`), `WORKOUT_UI_TOKEN` (if set, API requires bearer
+token or `?token=`), `WORKOUT_DB_URL`.
 
 ## Tailscale
 
-Served tailnet-only at **https://mac-studio.tailead658.ts.net:9330** via:
+Served tailnet-only at **https://mac-studio.tailead658.ts.net/tango-workout**
+via a path mount (leaves the root free for other sites, same pattern as
+`/kilo`):
 
 ```bash
-tailscale serve --bg --https=9330 http://127.0.0.1:9330
+tailscale serve --bg --set-path /tango-workout http://127.0.0.1:9330
 ```
 
-Note: tailscaled holds the tailscale-IP:9330 socket itself, so the app binds
-`127.0.0.1` (a wildcard bind would fail with EADDRINUSE).
+Tailscale strips the mount path before proxying; the server also strips
+`WORKOUT_UI_BASE_PATH` itself so direct localhost access
+(`http://127.0.0.1:9330/tango-workout/`) behaves identically, and bare
+localhost `/` redirects onto the base path. The SPA is built with Vite
+`base: '/tango-workout/'`, the router uses the matching basename, and all
+API/SSE calls are prefixed accordingly.
 
 ## Dev
 

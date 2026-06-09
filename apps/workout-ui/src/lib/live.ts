@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { BASE } from './api';
 
 /**
  * Live refresh: subscribes to /api/events (SSE fed by Postgres NOTIFY) and
@@ -34,7 +35,7 @@ export function useLiveRefresh() {
 
     const connect = () => {
       if (disposed) return;
-      source = new EventSource('/api/events');
+      source = new EventSource(`${BASE}/api/events`);
       source.addEventListener('change', invalidate);
       source.onerror = () => {
         source?.close();

@@ -7,6 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 const appDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  base: '/tango-workout/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

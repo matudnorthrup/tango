@@ -1,3 +1,6 @@
+/** App base path ('/tango-workout'), so API calls work behind the path-mounted proxy. */
+export const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 async function handle(res: Response) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -8,12 +11,12 @@ async function handle(res: Response) {
   return res.json();
 }
 
-export const apiGet = <T>(url: string): Promise<T> => fetch(url).then(handle) as Promise<T>;
+export const apiGet = <T>(url: string): Promise<T> => fetch(BASE + url).then(handle) as Promise<T>;
 
 const send =
   (method: string) =>
   <T>(url: string, body?: unknown): Promise<T> =>
-    fetch(url, {
+    fetch(BASE + url, {
       method,
       headers: { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
