@@ -20,6 +20,8 @@ export type SharedTopicSystemCommand =
 export interface InlineTopicReference {
   topicName: string;
   promptText: string;
+  /** True when the reference used the explicit "topic" keyword ("on topic X: ..."). */
+  usedTopicKeyword: boolean;
 }
 
 function normalizeSpacing(value: string): string {
@@ -172,15 +174,16 @@ export function extractInlineTopicReference(promptText: string): InlineTopicRefe
   const source = normalizeSpacing(promptText);
   if (!source) return null;
 
-  const match = source.match(/^(?:in|on)\s+(?:topic\s+)?(.+?)[,:]\s*(.+)$/i);
-  if (!match?.[1] || !match[2]) return null;
+  const match = source.match(/^(?:in|on)\s+(topic\s+)?(.+?)[,:]\s*(.+)$/i);
+  if (!match?.[2] || !match[3]) return null;
 
-  const topicName = normalizeSpacing(match[1]);
-  const remainder = normalizeSpacing(match[2]);
+  const topicName = normalizeSpacing(match[2]);
+  const remainder = normalizeSpacing(match[3]);
   if (!topicName || !remainder) return null;
 
   return {
     topicName,
-    promptText: remainder
+    promptText: remainder,
+    usedTopicKeyword: Boolean(match[1])
   };
 }

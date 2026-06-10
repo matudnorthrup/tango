@@ -15,7 +15,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import type { AgentTool } from "@tango/core";
+import { resolveDefaultObsidianVaultPath, type AgentTool } from "@tango/core";
 import yaml from "js-yaml";
 import { getBrowserManager } from "./browser-manager.js";
 import { getSecret } from "./op-secret.js";
@@ -340,7 +340,11 @@ const OBSIDIAN_FRONTMATTER_YAML_OPTIONS = {
 } as const;
 
 function resolveObsidianVaultRoot(_vaultName?: string): string {
-  return path.join(os.homedir(), "Documents", "main");
+  // Same resolution as the memory indexer (TANGO_OBSIDIAN_VAULT → profile
+  // notes → legacy ~/Documents/main) so the tool and the index never point at
+  // different vaults (TGO-695).
+  const resolved = resolveDefaultObsidianVaultPath();
+  return resolved.startsWith("~") ? path.join(os.homedir(), resolved.slice(2)) : resolved;
 }
 
 function parseObsidianAppUrlPath(candidate: string): string | undefined {
@@ -728,6 +732,8 @@ function missingGovernedFrontmatter(content: string): string[] {
   });
 }
 
+const MAX_VERSION_SNAPSHOTS_PER_NOTE = 20;
+
 async function snapshotNoteVersion(
   vaultRoot: string,
   notePath: string,
@@ -739,7 +745,25 @@ async function snapshotNoteVersion(
   await fs.mkdir(versionDir, { recursive: true });
   const versionPath = path.join(versionDir, `${stamp}.md`);
   await fs.writeFile(versionPath, content, "utf8");
+  await pruneNoteVersions(versionDir);
   return vaultRelative(vaultRoot, versionPath);
+}
+
+/** Keep snapshot growth bounded: retain the newest N versions per note (TGO-695). */
+async function pruneNoteVersions(versionDir: string): Promise<void> {
+  try {
+    const entries = (await fs.readdir(versionDir))
+      .filter((entry) => entry.endsWith(".md"))
+      .sort();
+    const excess = entries.length - MAX_VERSION_SNAPSHOTS_PER_NOTE;
+    for (let index = 0; index < excess; index += 1) {
+      const entry = entries[index];
+      if (!entry) continue;
+      await fs.rm(path.join(versionDir, entry), { force: true });
+    }
+  } catch {
+    // Retention is best-effort; never block the write that triggered it.
+  }
 }
 
 /**

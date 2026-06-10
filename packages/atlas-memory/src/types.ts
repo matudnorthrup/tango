@@ -7,7 +7,8 @@ export type MemorySource =
   | "reflection"
   | "manual"
   | "observation"
-  | "import";
+  | "import"
+  | "obsidian";
 
 export type PinnedFactScope = "global" | "agent" | "session";
 
