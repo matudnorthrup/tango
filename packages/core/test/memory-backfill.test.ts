@@ -118,7 +118,7 @@ describe("memory backfill", () => {
     const transcriptPath = path.join(dir, "rescued.txt");
     fs.writeFileSync(
       transcriptPath,
-      "Rescued voice transcript\nI need to send feedback to Nick about the trailer concept tomorrow morning.",
+      "Rescued voice transcript\nI need to send feedback to the project lead about the trailer concept tomorrow morning.",
       "utf8"
     );
 

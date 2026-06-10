@@ -1,6 +1,7 @@
 import type { SessionMemoryConfig } from "./types.js";
 import { cosineSimilarity, deserializeEmbedding } from "./embeddings.js";
 import type { EmbeddingProvider } from "./embeddings.js";
+import { readProfileConfigStringList } from "./profile-config.js";
 import type {
   ActiveContextItemRecord,
   PinnedFactRecord,
@@ -235,6 +236,8 @@ const WORKOUT_LOGGING_PATTERN =
 const OPERATIONAL_QUERY_PATTERN =
   /\b(plan|planning|review|status|task|tasks|todo|priority|priorities|calendar|schedule|weekly|cadence|workflow|thread|threads|active threads|budget|finance|inbox|email|roadmap)\b/iu;
 
+const PERSONAL_TOPIC_TERMS_CONFIG_PATH = "memory/personal-topic-terms.txt";
+
 const MEMORY_DOMAIN_PATTERNS: Array<{ domain: MemoryDomain; pattern: RegExp }> = [
   {
     domain: "wellness",
@@ -259,7 +262,7 @@ const MEMORY_DOMAIN_PATTERNS: Array<{ domain: MemoryDomain; pattern: RegExp }> =
   {
     domain: "relationships",
     pattern:
-      /\b(dolly|relationship|reconciliation|boundary|boundaries|therapy|texted|no contact|custody|family)\b/iu,
+      /\b(relationship|relationships|reconciliation|boundary|boundaries|therapy|texted|no contact|custody|family)\b/iu,
   },
   {
     domain: "mental-health",
@@ -1343,7 +1346,24 @@ function inferDomains(text: string): Set<MemoryDomain> {
       domains.add(entry.domain);
     }
   }
+  if (containsProfilePersonalTopicTerm(text)) {
+    domains.add("relationships");
+  }
   return domains;
+}
+
+function containsProfilePersonalTopicTerm(text: string): boolean {
+  const normalized = text.toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return readProfileConfigStringList({
+    relativePath: PERSONAL_TOPIC_TERMS_CONFIG_PATH,
+    envPathVar: "TANGO_MEMORY_PERSONAL_TOPIC_TERMS_FILE",
+    envValueVar: "TANGO_MEMORY_PERSONAL_TOPIC_TERMS",
+    lowercase: true,
+  }).some((term) => term.length > 1 && normalized.includes(term));
 }
 
 function buildMemoryAnalysisText(memory: StoredMemoryRecord): string {

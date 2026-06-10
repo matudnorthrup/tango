@@ -2,7 +2,7 @@ id: piper
 type: persistent
 agent: piper
 channels:
-  - discord:1510669963063722125
+  - discord:100000000000000003
 memory:
   max_context_tokens: 12000
   zones:

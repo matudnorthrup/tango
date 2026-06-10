@@ -82,7 +82,7 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
    - use the driver tip as the reimbursement amount
 3. For generic Gmail-backed reimbursements:
    - search the mailbox the user named, or the best inferred account if they named one
-   - normalize known mailbox aliases before searching. For example, `matu.northrup` should resolve to `[redacted]`.
+   - normalize known mailbox aliases from profile config before searching.
    - identify the matching message by merchant, amount, and approximate date
    - fetch the message details and attachment metadata
    - if there is a real attachment, download it with `gmail attachment ... --out /tmp --name ...`

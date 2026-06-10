@@ -38,12 +38,12 @@ That is correct for routing (one agent config per forum, isolated thread session
 It is wrong for allowlist checks if you only allowlist a **single thread** without
 opening the whole forum.
 
-Example ([redacted] production):
+Example:
 
 | Concept | ID |
 | --- | --- |
-| #infrastructure forum (parent) | `1469909960199503913` |
-| Cod-E canary thread | `1509320762287456457` |
+| #infrastructure forum (parent) | `100000000000000100` |
+| Cod-E canary thread | `100000000000000101` |
 
 Desired policy: Cod-E may respond **only** in the canary thread, not every post in
 #infrastructure.
@@ -52,7 +52,7 @@ If layer 2 only checks `routingChannelId` (parent), an allowlist containing the
 thread ID always fails:
 
 ```
-blocked mode=allowlist agent=cod-e reason=channel-not-allowlisted channel=1509320762287456457
+blocked mode=allowlist agent=cod-e reason=channel-not-allowlisted channel=100000000000000101
 ```
 
 The bot routes correctly (`routed=cod-e`) but access control denies before any
@@ -100,8 +100,7 @@ unit tests in isolation but does **not** fix live Discord — `main.ts` must pas
 Regression test: `packages/discord/test/access-control.test.ts` — *allows forum
 thread ID when parent channel is routed for allowlist*.
 
-This fix lives on the [redacted] fork / profile deployment today. It is a candidate for
-upstream PR (any deployment with forum-thread allowlists benefits).
+This fix benefits any deployment with forum-thread allowlists.
 
 ## Configuration
 
@@ -121,7 +120,7 @@ Per-agent yaml can override mode and allowlists via `access:`.
 access:
   mode: allowlist
   allowlist_channel_ids:
-    - "1509320762287456457"   # forum thread ID — OK with thread-level fix
+    - "100000000000000101"   # forum thread ID; OK with thread-level fix
 ```
 
 You do **not** need to add the parent forum ID when you only want one thread —
@@ -130,12 +129,12 @@ that would open the entire forum to the agent.
 ### Layer 1 (optional extra gate)
 
 ```bash
-DISCORD_ALLOWED_CHANNELS=1509320762287456457
+DISCORD_ALLOWED_CHANNELS=100000000000000101
 ```
 
 Use when you want the bot process to ignore all traffic outside specific channels
-before routing. [redacted]'s production `.env` often leaves this unset and relies on
-layer 2 + per-agent yaml instead.
+before routing. Some deployments leave this unset and rely on layer 2 +
+per-agent yaml instead.
 
 ## Access modes
 
@@ -174,5 +173,5 @@ layer 2 + per-agent yaml instead.
 
 | Date | Event |
 | --- | --- |
-| 2026-05-28 | Thread-level allowlist implemented ([redacted] + Claude Code) after Watson leaked into ops channels when `TANGO_ACCESS_MODE=off` |
+| 2026-05-28 | Thread-level allowlist implemented after a cross-agent routing leak when `TANGO_ACCESS_MODE=off` |
 | 2026-06-03 | Re-forward-ported during upstream memory migration; partial port (access-control only) caused recurrence; fixed with `main.ts` pass-through |
