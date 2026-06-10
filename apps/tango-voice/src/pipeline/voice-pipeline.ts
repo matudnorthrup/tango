@@ -98,7 +98,6 @@ type IndicateProbeDirectiveReason =
   | 'wake-close'
   | 'wake-empty'
   | 'wake-cancel'
-  | 'standalone-code'
   | 'standalone-dismiss'
   | 'standalone-close'
   | 'close-cluster';
@@ -223,17 +222,9 @@ export class VoicePipeline {
   private static readonly GATE_CLOSE_RECENT_AUDIO_RETRY_MS = 260;
   private static readonly GATE_CLOSE_RECENT_AUDIO_MAX_DEFERRAL_MS = 1_500;
   private static readonly INDICATE_TIMEOUT_ACTIVE_SPEECH_GRACE_MS = 1200;
-  private static readonly STANDALONE_CODE_WAKE_TOKENS = [
-    'whiskeyfoxtrot',
-    'whiskeydelta',
-    'whiskyfoxtrot',
-    'whiskydelta',
-  ];
   private static readonly COMPATIBILITY_CONVERSATIONAL_CLOSES = [
     'over',
     'over and out',
-    'whiskey foxtrot',
-    'whiskey delta',
   ];
   private static readonly SINGLE_SHOT_PROMPT_PREFIX = /^(?:what|whats|what is|when|where|who|why|how|which|can|could|would|will|do|does|did|is|are|am|should|have|has|had|please|tell me|help me|i need|i want|id like|i would like)\b/;
   private static readonly SINGLE_SHOT_INCOMPLETE_TRAILERS = new Set([
@@ -834,11 +825,10 @@ export class VoicePipeline {
 
   private classifyIndicateDirectiveTranscript(
     transcript: string,
-  ): { kind: 'close' | 'cancel'; reason: 'wake-close' | 'wake-empty' | 'wake-cancel' | 'standalone-code'; stripped: string } | null {
+  ): { kind: 'close' | 'cancel'; reason: 'wake-close' | 'wake-empty' | 'wake-cancel'; stripped: string } | null {
     const hasWakeWord = this.matchesAnyWakeWord(transcript);
     const stripped = hasWakeWord ? this.stripLeadingWakePhrase(transcript) : transcript.trim();
     const normalizedStripped = this.normalizeClosePhrase(stripped);
-    const standaloneCodeWake = this.isStandaloneCodeWakePhrase(stripped);
 
     const fullTrimmed = transcript.trim();
 
@@ -852,10 +842,6 @@ export class VoicePipeline {
 
     if (hasWakeWord && (this.isIndicateCloseCommand(stripped) || this.isIndicateCloseCommand(fullTrimmed))) {
       return { kind: 'close', reason: 'wake-close', stripped };
-    }
-
-    if (!hasWakeWord && standaloneCodeWake) {
-      return { kind: 'close', reason: 'standalone-code', stripped };
     }
 
     return null;
@@ -1181,28 +1167,6 @@ export class VoicePipeline {
     return null;
   }
 
-  private isStandaloneCodeWakePhrase(input: string): boolean {
-    const normalized = this.normalizeClosePhrase(input);
-    if (!normalized) return false;
-    const token = normalized.replace(/\s+/g, '');
-    if (VoicePipeline.STANDALONE_CODE_WAKE_TOKENS.includes(token)) return true;
-
-    const words = normalized.split(' ').filter(Boolean);
-    if (words.length < 2) return false;
-    const last = words[words.length - 1];
-    const secondLast = words.length > 1 ? words[words.length - 2] : '';
-    const splitFoxtrot = secondLast === 'fox' && last === 'trot';
-    const endsWithCode = last === 'foxtrot' || splitFoxtrot || last === 'delta';
-    if (!endsWithCode) return false;
-
-    const prefixWords = splitFoxtrot ? words.slice(0, -2) : words.slice(0, -1);
-    if (prefixWords.length === 0) return false;
-    const prefix = prefixWords.join(' ');
-
-    // Whisper sometimes hears "whiskey" as "what is key" near phrase boundaries.
-    return /^(?:what(?:s| is)?\s+)?(?:whiskey|whisky|key)$/.test(prefix);
-  }
-
   private armIndicateCaptureTimeout(): void {
     if (!this.ctx.indicateCaptureActive) return;
     const configured = getVoiceSettings().indicateTimeoutMs;
@@ -1340,7 +1304,6 @@ export class VoicePipeline {
   }> {
     const hasWakeWord = this.matchesAnyWakeWord(transcript);
     const stripped = hasWakeWord ? this.stripLeadingWakePhrase(transcript) : transcript.trim();
-    const standaloneCodeWake = this.isStandaloneCodeWakePhrase(stripped);
     const normalizedStripped = this.normalizeClosePhrase(stripped);
     const bareCommand = !hasWakeWord ? this.matchBareQueueCommand(stripped) : null;
     // Also check the full transcript for close phrases, because wake word
@@ -1481,22 +1444,9 @@ export class VoicePipeline {
       return { action: 'finalize', transcript: finalized, closeType: 'conversational' };
     }
 
-    // Radio-code override for experimentation: allow specific standalone codes
-    // to close indicate capture without a wake prefix.
-    if (!hasWakeWord && standaloneCodeWake) {
-      const finalized = this.flushIndicateCapture('standalone-code-close');
-      if (!finalized) {
-        await this.speakResponse('I heard the close code but no message content.', { inbox: true });
-        await this.playReadyEarcon();
-        return { action: 'cancel' };
-      }
-      console.log(`Indicate capture finalized via standalone code (${finalized.length} chars)`);
-      return { action: 'finalize', transcript: finalized, closeType: 'conversational' };
-    }
-
     // If user says a close/cancel phrase without wake word, ignore it so we
     // don't accidentally append command words into the prompt body.
-    if (!hasWakeWord && !standaloneCodeWake && !this.isDismissClose(stripped) && (this.isIndicateCloseCommand(stripped) || this.isCancelIntent(stripped))) {
+    if (!hasWakeWord && !this.isDismissClose(stripped) && (this.isIndicateCloseCommand(stripped) || this.isCancelIntent(stripped))) {
       console.log('Indicate capture: ignoring non-wake close/cancel phrase');
       return { action: 'continue' };
     }
@@ -2131,7 +2081,7 @@ export class VoicePipeline {
     let partialWakeCommandTranscript = '';
     const partialCommandEvidence = new Map<string, number>();
     let partialIndicateDirective:
-      { kind: 'close' | 'cancel'; reason: 'wake-close' | 'wake-empty' | 'wake-cancel' | 'standalone-code'; transcript: string } | null | undefined;
+      { kind: 'close' | 'cancel'; reason: 'wake-close' | 'wake-empty' | 'wake-cancel'; transcript: string } | null | undefined;
     let partialIndicateDirectiveHits = 0;
     let partialIndicateDirectiveKey = '';
 
@@ -2513,10 +2463,9 @@ export class VoicePipeline {
         // ("Malibu says he can't...") are likely subject references, not addresses.
         explicitAddress = this.downgradeWeakAddress(explicitAddress, transcript);
       }
-      const standaloneCodeWake = indicateFinalized ? false : this.isStandaloneCodeWakePhrase(transcript);
       const hasWakeWord = indicateFinalized
         ? true
-        : (explicitAddress !== null || standaloneCodeWake);
+        : explicitAddress !== null;
       const effectiveWakeWord = hasWakeWord || partialWakeWordDetected;
       const focusedPromptBypass = !explicitAddress && this.getFocusedAgent() !== null;
       const inGracePeriod = indicateFinalized
@@ -2605,8 +2554,7 @@ export class VoicePipeline {
 
       const parsedCommand = this.parseAddressedCommand(transcript, explicitAddress);
       const preParsedCommand: VoiceCommand | null = parsedCommand
-        ?? partialWakeCommandDetected
-        ?? (standaloneCodeWake ? { type: 'wake-check' } : null);
+        ?? partialWakeCommandDetected;
       const bareCommandInGrace = !effectiveWakeWord && inGracePeriod
         ? this.matchBareQueueCommand(transcript, { allowSwitch: true })
         : null;
