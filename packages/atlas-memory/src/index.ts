@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { openAtlasMemoryDatabase } from "./schema.js";
 import { createAtlasMemoryTools } from "./tools.js";
 
+export * from "./context-read.js";
 export * from "./obsidian-sync.js";
 export * from "./schema.js";
 export * from "./tools.js";
