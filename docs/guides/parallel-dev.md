@@ -5,11 +5,11 @@ Run multiple Tango feature branches simultaneously using git worktrees with isol
 ## Quick start
 
 ```bash
-# Spawn a dev slot with Codex
-scripts/dev/spawn.sh feature/my-thing --agent codex
+# Spawn a dev slot with Claude Code
+scripts/dev/spawn.sh feature/my-thing --agent claude-code
 
-# Spawn with Claude Code
-scripts/dev/spawn.sh fix/bug-123 --agent claude-code
+# Spawn with Codex
+scripts/dev/spawn.sh fix/bug-123 --agent codex
 
 # See all active slots
 scripts/dev/list.sh
@@ -140,7 +140,7 @@ scripts/dev/verify-slot-isolation.sh <slot> # verify DB isolation for a slot
 ### 1. Start a feature
 
 ```bash
-scripts/dev/spawn.sh feature/new-wellness-tool --agent codex
+scripts/dev/spawn.sh feature/new-wellness-tool --agent claude-code
 ```
 
 ### 2. Work on the feature
