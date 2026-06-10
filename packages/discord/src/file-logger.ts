@@ -121,5 +121,34 @@ export function installFileLogMirror(options: { dir: string; retainDays?: number
     writeLine("ERROR", args);
   };
 
+  // Node prints crash stacks via raw stderr, bypassing console.* — without
+  // these handlers a fatal error leaves no trace in the durable log (TGO-699).
+  // Append synchronously (an async stream write would be truncated by exit),
+  // then preserve the default behavior (print + exit 1).
+  const writeFatalSync = (kind: string, detail: string): void => {
+    if (!state) return;
+    try {
+      fs.mkdirSync(state.dir, { recursive: true });
+      fs.appendFileSync(
+        path.join(state.dir, `bot-${currentUtcDate()}.log`),
+        `${new Date().toISOString()} FATAL ${kind}: ${detail}\n`,
+      );
+    } catch {
+      // Last-resort logging must never mask the original crash.
+    }
+  };
+  process.on("uncaughtException", (error: unknown) => {
+    const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+    writeFatalSync("uncaughtException", detail);
+    originals.error("[fatal] uncaughtException:", detail);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason: unknown) => {
+    const detail = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+    writeFatalSync("unhandledRejection", detail);
+    originals.error("[fatal] unhandledRejection:", detail);
+    process.exit(1);
+  });
+
   originals.log(`[tango-discord] file log mirror active: ${options.dir}`);
 }

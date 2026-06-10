@@ -1,0 +1,108 @@
+import { describe, expect, it } from "vitest";
+import type { AtlasContextMemoryRow } from "@tango/atlas-memory";
+import type { AtlasMemoryClient } from "../src/atlas-memory-client.js";
+import {
+  loadAtlasWarmStartMemory,
+  mapAtlasContextRows,
+  resolveWarmStartMemorySubstrate,
+} from "../src/warm-start-memory-source.js";
+
+function makeRow(overrides: Partial<AtlasContextMemoryRow> & Pick<AtlasContextMemoryRow, "id" | "content" | "source">): AtlasContextMemoryRow {
+  return {
+    agentId: null,
+    importance: 0.6,
+    embedding: null,
+    embeddingModel: null,
+    createdAt: "2026-06-09T12:00:00.000Z",
+    lastAccessedAt: "2026-06-09T12:00:00.000Z",
+    accessCount: 0,
+    metadata: null,
+    ...overrides,
+  };
+}
+
+describe("warm-start memory source", () => {
+  it("resolves the substrate flag with atlas as default", () => {
+    expect(resolveWarmStartMemorySubstrate({})).toBe("atlas");
+    expect(resolveWarmStartMemorySubstrate({ TANGO_WARM_START_MEMORY_SOURCE: "core" })).toBe("core");
+    expect(resolveWarmStartMemorySubstrate({ TANGO_WARM_START_MEMORY_SOURCE: "Atlas" })).toBe("atlas");
+  });
+
+  it("maps atlas rows to core-shaped records with source folding and id translation", () => {
+    const { memories, idToAtlasId } = mapAtlasContextRows([
+      makeRow({ id: "a-1", content: "extraction", source: "conversation", agentId: "sierra", embedding: [0.1, 0.2] }),
+      makeRow({ id: "a-2", content: "watched", source: "observation" }),
+      makeRow({ id: "a-3", content: "imported", source: "import" }),
+      makeRow({
+        id: "a-4",
+        content: "vault chunk",
+        source: "obsidian",
+        metadata: { source_ref: "obsidian:Trips/PE.md#1", filePath: "/vault/Trips/PE.md" },
+      }),
+    ]);
+
+    expect(memories.map((memory) => memory.source)).toEqual([
+      "conversation",
+      "manual",
+      "backfill",
+      "obsidian",
+    ]);
+    // Pre-decoded embedding flows through; no JSON representation needed.
+    expect(memories[0]?.embedding).toEqual([0.1, 0.2]);
+    expect(memories[0]?.embeddingJson).toBeNull();
+    // Session-null keeps atlas records visible to session-scoped filters.
+    expect(memories.every((memory) => memory.sessionId === null)).toBe(true);
+    expect(memories[3]?.sourceRef).toBe("obsidian:Trips/PE.md#1");
+    expect(idToAtlasId.get(memories[0]!.id)).toBe("a-1");
+  });
+
+  it("builds a bundle whose touch() translates synthetic ids back to atlas ids", () => {
+    const touched: string[][] = [];
+    const client = {
+      listMemoriesForContext: () => [
+        makeRow({ id: "atlas-x", content: "fact x", source: "conversation", agentId: "sierra" }),
+        makeRow({ id: "atlas-y", content: "fact y", source: "reflection", agentId: "sierra" }),
+      ],
+      getConversationSummaryForContext: () => ({
+        id: "s1",
+        sessionId: "thread:123",
+        agentId: "sierra",
+        summary: "Recap of the trip planning thread.",
+        coversThrough: null,
+        createdAt: "2026-06-09T12:00:00.000Z",
+      }),
+      listPinnedFactsForWarmStart: () => [
+        {
+          id: "p1",
+          scope: "global" as const,
+          scopeId: null,
+          key: "vehicle",
+          value: "F-350 diesel",
+          createdAt: "2026-06-09T12:00:00.000Z",
+          updatedAt: "2026-06-09T12:00:00.000Z",
+        },
+      ],
+      touchMemoriesForContext: (ids: string[]) => {
+        touched.push(ids);
+        return ids.length;
+      },
+    } as unknown as AtlasMemoryClient;
+
+    const bundle = loadAtlasWarmStartMemory(client, {
+      sessionId: "topic:abc",
+      agentId: "sierra",
+      conversationKey: "thread:123",
+      memoryPoolLimit: 100,
+    });
+
+    expect(bundle.substrate).toBe("atlas");
+    expect(bundle.memories).toHaveLength(2);
+    expect(bundle.summaries[0]?.summaryText).toContain("Recap");
+    expect(bundle.summaries[0]?.tokenCount).toBeGreaterThan(0);
+    expect(bundle.pinnedFacts[0]?.key).toBe("vehicle");
+
+    const firstSyntheticId = bundle.memories[0]!.id;
+    bundle.touch([firstSyntheticId, 9999]);
+    expect(touched).toEqual([["atlas-x"]]);
+  });
+});
