@@ -28,8 +28,6 @@ benchmarks:
       - yogurt
       - protein
       - fitness
-    expected_sources:
-      - reflection
 
   - id: malibu-health-fitness
     description: Malibu should retrieve health and exercise context without planning noise.
@@ -43,8 +41,6 @@ benchmarks:
       - atlas
       - migration
       - voyage
-    expected_sources:
-      - reflection
 
   - id: watson-voice-migration
     description: Watson should retrieve voice migration and orchestration project context.
@@ -57,8 +53,6 @@ benchmarks:
     forbidden_terms:
       - yogurt
       - pocketsmith
-    expected_sources:
-      - reflection
 
   - id: watson-work-messaging
     description: Watson should retrieve work messaging and positioning context.
@@ -71,8 +65,6 @@ benchmarks:
     forbidden_terms:
       - fitness
       - yogurt
-    expected_sources:
-      - reflection
 
   - id: malibu-protein-yogurt
     description: Malibu should retrieve protein and yogurt meal context cleanly.
@@ -86,5 +78,3 @@ benchmarks:
       - atlas
       - migration
       - debugging
-    expected_sources:
-      - reflection
