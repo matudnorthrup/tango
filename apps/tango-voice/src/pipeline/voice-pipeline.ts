@@ -17,6 +17,7 @@ import { TextChannel } from 'discord.js';
 import { AudioReceiver } from '../discord/audio-receiver.js';
 import { DiscordAudioPlayer } from '../discord/audio-player.js';
 import { transcribe, transcribeCommandTail, type StreamingPartialEvent } from '../services/whisper.js';
+import { calculateRMSEnergy } from '../audio/silence-detector.js';
 import { getResponse, quickCompletion, type Message } from '../services/claude.js';
 import { textToSpeechStream } from '../services/tts.js';
 import { SessionTranscript } from '../services/session-transcript.js';
@@ -974,6 +975,13 @@ export class VoicePipeline {
    */
   private static readonly BARE_SAFE_CONVERSATIONAL_CLOSES = ['tango out'];
   private static readonly MAX_TAIL_CONVERSATIONAL_CLOSE_CONTENT_WORDS = 16;
+  /** Words that bind a trailing close phrase into the sentence as content. */
+  private static readonly TAIL_CLOSE_BINDING_PREDECESSORS = new Set([
+    'to', 'just', 'should', 'shouldnt', 'would', 'wouldnt', 'could', 'couldnt',
+    'can', 'cant', 'will', 'wont', 'might', 'may', 'shall', 'gonna', 'going',
+    'and', 'then', 'or', 'if', 'whether', 'lets', 'we', 'i', 'you', 'they',
+    'dont', 'not', 'never', 'said', 'say', 'says',
+  ]);
 
   private isStandaloneConversationalClose(text: string): boolean {
     const normalized = this.normalizeClosePhrase(text);
@@ -1065,6 +1073,17 @@ export class VoicePipeline {
         candidate.type === 'conversational'
         && contentWords.length > VoicePipeline.MAX_TAIL_CONVERSATIONAL_CLOSE_CONTENT_WORDS
       ) {
+        continue;
+      }
+      // Reject closes that are syntactically bound into the sentence: when
+      // the preceding word is a connective/modal ("...we should just go
+      // ahead", "...let me know if that's all"), the phrase is dictation
+      // content, not a deliberate close. A punctuated pause on the preceding
+      // word ("...book it, go ahead") always reads as deliberate.
+      const lastContentWord = contentWords[contentWords.length - 1] ?? '';
+      const hasPauseBoundary = /[.,!?;:]$/.test(lastContentWord);
+      const predecessor = this.normalizeClosePhrase(lastContentWord);
+      if (!hasPauseBoundary && VoicePipeline.TAIL_CLOSE_BINDING_PREDECESSORS.has(predecessor)) {
         continue;
       }
       const content = contentWords.join(' ');
@@ -1178,13 +1197,16 @@ export class VoicePipeline {
       .filter((segment) => segment.length > 0);
     const captured = segments.join(' ').trim();
     if (!captured) {
-      // Nothing captured yet — clear silently
+      // Nothing captured yet — clear, but audibly: a silent death here is
+      // indistinguishable from "still listening" and strands the user.
       this.clearIndicateCapture('timeout-empty');
+      void this.player.playEarcon('gate-closed');
       return;
     }
     if (segments.length === 1 && this.isLikelyAccidentalIndicateSeed(captured)) {
-      console.log('Indicate capture timed out with likely accidental short seed — cleared silently');
+      console.log('Indicate capture timed out with likely accidental short seed — cleared (gate-closed cue)');
       this.clearIndicateCapture('timeout-accidental');
+      void this.player.playEarcon('gate-closed');
       return;
     }
     // Nudge the user — never discard captured content.
@@ -2020,7 +2042,82 @@ export class VoicePipeline {
     }
   }
 
+  /** Cached strict-match transcript from the short-command rescue path. */
+  private shortCommandRescue: { wavBuffer: Buffer; transcript: string } | null = null;
+
+  private static readonly WAV_HEADER_BYTES = 44;
+
+  /**
+   * Strict acceptance list for sub-floor utterances: close/dismiss phrases,
+   * bare queue commands, and whole-utterance cancel words. Anything else is
+   * treated as the noise the old VAD floor existed to reject.
+   */
+  private matchesShortCommandPhrase(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    if (this.isDismissClose(trimmed)) return true;
+    if (this.isIndicateCloseCommand(trimmed)) return true;
+    if (this.isStandaloneConversationalClose(trimmed)) return true;
+    if (this.extractCloseOnlyUtterance(trimmed) !== null) return true;
+    if (this.matchBareQueueCommand(trimmed) !== null) return true;
+    const normalized = this.normalizeClosePhrase(trimmed);
+    return /^(?:cancel|stop|never ?mind|forget it)$/.test(normalized);
+  }
+
+  /**
+   * Sub-floor utterances (below minSpeechDurationMs) used to die as VAD
+   * misfires, which silently ate quick commands like "go ahead" and
+   * "thank you". Rescue them: transcribe on the command STT lane and accept
+   * only strict matches. The RMS gate blocks Whisper's notorious
+   * "Thank you." hallucination on near-silent blips.
+   */
+  private async tryShortCommandRescue(wavBuffer: Buffer, durationMs: number): Promise<boolean> {
+    const settings = getVoiceSettings();
+    if (!settings.shortCommandRescueEnabled) return false;
+
+    const rms = calculateRMSEnergy(wavBuffer.subarray(VoicePipeline.WAV_HEADER_BYTES));
+    if (rms <= settings.speechThreshold) {
+      console.log(`Short-command rescue skipped: low energy (rms=${Math.round(rms)}, ${durationMs}ms)`);
+      return false;
+    }
+
+    let text = '';
+    try {
+      // A sub-floor clip is far shorter than the tail window, so this
+      // transcribes the whole clip on the command/partials STT lane.
+      const result = await transcribeCommandTail(wavBuffer, { tailMs: settings.sttCommandTailMs });
+      text = result?.text.trim() ?? '';
+    } catch (err: any) {
+      console.warn(`Short-command rescue transcription failed: ${err?.message ?? err}`);
+      return false;
+    }
+    if (!text) return false;
+
+    if (!this.matchesShortCommandPhrase(text)) {
+      console.log(`Short-command rescue rejected: "${text}" (${durationMs}ms, no strict match)`);
+      return false;
+    }
+
+    console.log(`Short-command rescue accepted: "${text}" (${durationMs}ms)`);
+    this.shortCommandRescue = { wavBuffer, transcript: text };
+    return true;
+  }
+
   private async handleUtterance(userId: string, wavBuffer: Buffer, durationMs: number): Promise<void> {
+    // Short-utterance gate: clips below the normal speech floor only proceed
+    // when they strictly match a known short command; everything else takes
+    // the same silent-rejection path the VAD floor used to apply.
+    if (
+      durationMs < getVoiceSettings().minSpeechDurationMs
+      && (!this.shortCommandRescue || this.shortCommandRescue.wavBuffer !== wavBuffer)
+    ) {
+      const rescued = await this.tryShortCommandRescue(wavBuffer, durationMs);
+      if (!rescued) {
+        this.handleRejectedAudio(userId, durationMs);
+        return;
+      }
+    }
+
     this.counters.utterancesProcessed++;
     // Clear stale speculative queue item (safety net for timeout edge case)
     if (this.ctx.speculativeQueueItemId && !this.stateMachine.getQueueChoiceState()) {
@@ -2165,7 +2262,14 @@ export class VoicePipeline {
       ) {
         void this.startIndicateCloseWordProbe(wavBuffer);
       }
-      let transcript = await transcribe(
+      const rescuedShort = this.shortCommandRescue && this.shortCommandRescue.wavBuffer === wavBuffer
+        ? this.shortCommandRescue
+        : null;
+      if (rescuedShort) {
+        this.shortCommandRescue = null;
+        console.log(`Whisper STT (short-rescue cache): "${rescuedShort.transcript}"`);
+      }
+      let transcript = rescuedShort?.transcript ?? await transcribe(
         wavBuffer,
         this.shouldUseStreamingTranscription()
           ? {
