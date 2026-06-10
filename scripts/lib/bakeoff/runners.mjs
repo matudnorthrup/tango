@@ -26,9 +26,10 @@ const IMAGE_MIME_BY_EXT = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": 
 export function loadFixtureImages(fixture, repoRoot) {
   return (fixture.images ?? []).map((p) => {
     const path = isAbsolute(p) ? p : resolve(repoRoot, p);
-    const mimeType = IMAGE_MIME_BY_EXT[extname(path).toLowerCase()];
-    if (!mimeType) throw new Error(`unsupported image extension for ${path}`);
-    return { data: readFileSync(path).toString("base64"), mimeType };
+    const mediaType = IMAGE_MIME_BY_EXT[extname(path).toLowerCase()];
+    if (!mediaType) throw new Error(`unsupported image extension for ${path}`);
+    // Field names match ProviderImageInput (provider.ts): dataBase64 + mediaType.
+    return { dataBase64: readFileSync(path).toString("base64"), mediaType };
   });
 }
 
