@@ -47,6 +47,14 @@ Reference guidance for research, procurement, and fabrication workflows.
   and secret management setup.
 - Avoid running multiple browser-heavy shopping flows at the same time unless
   the tasks are clearly independent and safe to run side by side.
+- **Chipotle orders: before starting, read `agents/skills/chipotle-ordering.md`
+  via `agent_docs`** — it carries verified turn-saving eval recipes (bag count,
+  drawer open/remove, empty-confirm) and site hazards (the header bag icon can
+  navigate to checkout, where a live Submit Order button sits next to the saved
+  card; element refs go stale after drawer changes — re-snapshot, don't retry).
+  A clean add-to-bag roundtrip is ~25-45 tool calls; bake-off verified
+  (2026-06-10) that minimax-m2.5 and deepseek-v4-pro both complete it reliably
+  with these recipes.
 
 ## 3D Printing
 

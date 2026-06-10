@@ -16,6 +16,7 @@ schedule:
 
 execution:
   mode: agent
+  deterministic_agent_id: watson
   worker_id: personal-assistant
   intent_ids:
     - email.subscription_review

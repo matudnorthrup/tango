@@ -1,53 +1,157 @@
 {
   "latest": {
-    "when": "2026-06-10T03:21:42.286Z",
+    "when": "2026-06-10T04:22:12.861Z",
     "harnessVersion": "2.0.0",
     "fixtureSource": "model-bakeoff/tasks/food-chipotle-cart.json",
-    "runsPerCandidate": 2,
+    "runsPerCandidate": 3,
     "verdict": {
       "fixtureId": "food.chipotle.cart-roundtrip",
       "passRateThreshold": 1,
       "rubricThreshold": 0.7,
       "rubricFloor": 0.6,
-      "recommendation": null,
-      "reason": "no candidate met the reliability bar",
-      "winner": null,
+      "recommendation": "minimax-m2.5",
+      "reason": "cheapest reliable candidate (passRate 100%, 3339 out-tok/success (price unknown))",
+      "winner": "minimax-m2.5",
       "incumbent": null,
-      "eligible": [],
+      "eligible": [
+        "minimax-m2.5",
+        "deepseek-v4-pro:cloud"
+      ],
       "infraIncomplete": false
     },
     "candidates": [
       {
         "model": "deepseek-v4-pro:cloud",
         "benchmarkOnly": false,
-        "validRuns": 2,
+        "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.58175,
-        "rubricMin": 0.27249999999999996,
-        "rubricStdDev": 0.30925,
-        "meanSeconds": 371.938,
-        "meanOutputTokens": 7831.5,
+        "rubricMean": 0.9448333333333334,
+        "rubricMin": 0.9225000000000001,
+        "rubricStdDev": 0.025167218536995484,
+        "meanSeconds": 109.904,
+        "meanOutputTokens": 3721,
         "meanCostUsd": null,
         "gateFailures": []
       },
       {
         "model": "minimax-m2.5",
         "benchmarkOnly": false,
-        "validRuns": 2,
+        "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.5125,
-        "rubricMin": 0.2475,
-        "rubricStdDev": 0.265,
-        "meanSeconds": 312.2315,
-        "meanOutputTokens": 6099,
+        "rubricMean": 0.9433333333333334,
+        "rubricMin": 0.9375,
+        "rubricStdDev": 0.008249579113842984,
+        "meanSeconds": 155.73533333333333,
+        "meanOutputTokens": 3339.3333333333335,
         "meanCostUsd": null,
         "gateFailures": []
       }
     ]
   },
   "history": [
+    {
+      "when": "2026-06-10T04:20:58.153Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/food-chipotle-cart.json",
+      "runsPerCandidate": 3,
+      "verdict": {
+        "fixtureId": "food.chipotle.cart-roundtrip",
+        "passRateThreshold": 1,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": "minimax-m2.5",
+        "reason": "cheapest reliable candidate (passRate 100%, 3339 out-tok/success (price unknown))",
+        "winner": "minimax-m2.5",
+        "incumbent": null,
+        "eligible": [
+          "minimax-m2.5"
+        ],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0.3333333333333333,
+          "rubricMean": 0.9448333333333334,
+          "rubricMin": 0.9225000000000001,
+          "rubricStdDev": 0.025167218536995484,
+          "meanSeconds": 109.904,
+          "meanOutputTokens": 3721,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "tool:browser: no call satisfied argCheck {\"path\":\".\",\"matches\":\"chipotle\"}",
+            "tool:browser: no call satisfied argCheck {\"path\":\".\",\"matches\":\"chipotle\"}"
+          ]
+        },
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.9433333333333334,
+          "rubricMin": 0.9375,
+          "rubricStdDev": 0.008249579113842984,
+          "meanSeconds": 155.73533333333333,
+          "meanOutputTokens": 3339.3333333333335,
+          "meanCostUsd": null,
+          "gateFailures": []
+        }
+      ]
+    },
+    {
+      "when": "2026-06-10T03:21:42.286Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/food-chipotle-cart.json",
+      "runsPerCandidate": 2,
+      "verdict": {
+        "fixtureId": "food.chipotle.cart-roundtrip",
+        "passRateThreshold": 1,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": null,
+        "reason": "no candidate met the reliability bar",
+        "winner": null,
+        "incumbent": null,
+        "eligible": [],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 2,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.58175,
+          "rubricMin": 0.27249999999999996,
+          "rubricStdDev": 0.30925,
+          "meanSeconds": 371.938,
+          "meanOutputTokens": 7831.5,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 2,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.5125,
+          "rubricMin": 0.2475,
+          "rubricStdDev": 0.265,
+          "meanSeconds": 312.2315,
+          "meanOutputTokens": 6099,
+          "meanCostUsd": null,
+          "gateFailures": []
+        }
+      ]
+    },
     {
       "when": "2026-06-10T02:54:53.526Z",
       "harnessVersion": "2.0.0",
