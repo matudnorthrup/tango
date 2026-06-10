@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # npm dependencies — grouped into one PR per run to keep noise low.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+
+  # Keep GitHub Actions pinned versions current (and patched).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

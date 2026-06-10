@@ -14,9 +14,33 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - run: npm ci
       - run: npm run build
       - run: npm test
+
+  privacy-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Privacy scan (fail-closed)
+        env:
+          # Personal denylist terms live ONLY in this Actions secret, never in
+          # the repo. On fork PRs GitHub withholds secrets by design, so this
+          # gate fails closed there — fork PRs must be reviewed by hand.
+          PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PRIVACY_DENYLIST:-}" ]; then
+            echo "privacy-gate: PRIVACY_DENYLIST secret is empty or unavailable — failing closed." >&2
+            echo "  (Expected on fork PRs; review those manually. On same-repo PRs, set the secret.)" >&2
+            exit 2
+          fi
+          DENYLIST_FILE="$(mktemp)"
+          trap 'rm -f "$DENYLIST_FILE"' EXIT
+          printf '%s\n' "$PRIVACY_DENYLIST" > "$DENYLIST_FILE"
+          export TANGO_PRIVACY_DENYLIST_FILE="$DENYLIST_FILE"
+          bash scripts/privacy-scan.sh
