@@ -8,6 +8,7 @@ import type { EmbeddingProvider } from "./embeddings.js";
 import { searchMemories, type RetrievedMemoryRecord } from "./memory-system.js";
 import type {
   PromptSnapshotRecord,
+  StoredMemoryRecord,
   TangoStorage,
 } from "./storage.js";
 import type { MemorySource } from "./types.js";
@@ -193,17 +194,30 @@ export async function runMemoryEvalBenchmarks(input: {
   storage: TangoStorage;
   config: MemoryEvalConfig;
   embeddingProvider?: EmbeddingProvider | null;
+  /**
+   * Candidate-pool override so benchmarks measure the substrate the live
+   * read path uses (e.g. the Atlas store) instead of core storage (TGO-698).
+   */
+  listCandidates?: (filter: {
+    sessionId?: string;
+    agentId?: string;
+    source?: MemorySource | "all";
+    limit: number;
+  }) => StoredMemoryRecord[];
   now?: Date;
 }): Promise<MemoryEvalBenchmarkRun> {
   const results: MemoryEvalBenchmarkCaseResult[] = [];
 
   for (const benchmark of input.config.benchmarks) {
-    const candidateMemories = input.storage.listMemories({
+    const poolFilter = {
       sessionId: benchmark.sessionId,
       agentId: benchmark.agentId,
       source: benchmark.source,
       limit: benchmark.poolLimit ?? 4000,
-    });
+    };
+    const candidateMemories = input.listCandidates
+      ? input.listCandidates(poolFilter)
+      : input.storage.listMemories(poolFilter);
     const ranked = await searchMemories({
       query: benchmark.query,
       memories: candidateMemories,
