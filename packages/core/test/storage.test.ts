@@ -432,6 +432,18 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds notion write governance for research and personal assistants (v49)", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    expect(checker.hasPermission("worker:research-assistant", "notion", "write")).toBe(true);
+    expect(checker.hasPermission("worker:personal-assistant", "notion", "write")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "notion", "write")).toBe(false);
+    db.close();
+  });
+
   it("seeds OSRM route governance for Sierra travel workers", () => {
     const { storage, dir } = createStorage();
     storage.close();
