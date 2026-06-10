@@ -95,3 +95,24 @@ The checkout page shows **5 quick time slots** (e.g., 4:50pm through 5:30pm) as 
   before every click; if a ref-click times out, re-snapshot rather than retry.
 - Check for stale items at the START of any cart flow: previous sessions can
   leave items in the bag (two stale items were found on 2026-06-09).
+
+## Proven turn-saving recipes (verified working 2026-06-09)
+
+Browser flows die by burning the tool-iteration budget on trial-and-error. These
+`eval` snippets are verified against the live site — prefer them over
+snapshot-hunt-click cycles for STATE CHECKS (use snapshots before real clicks):
+
+- **Bag count without a snapshot** (1 call instead of snapshot+scan):
+  `(() => { const b = document.querySelector("[class*=bag] [class*=count], [class*=cart-count], [data-qa*=bag]"); return b ? b.textContent.trim() : "empty"; })()`
+- **Open the bag drawer from the order page** (do NOT click the header bag icon
+  — it can navigate to checkout):
+  `(() => { const t = document.querySelector("[class*=bag-icon-container]"); if (t) { t.click(); return "opened"; } return "no trigger"; })()`
+  …then wait 3s; the drawer shows each item with Remove / Edit / Duplicate links.
+- **Remove an item from the open drawer**:
+  `(() => { const r = [...document.querySelectorAll("a,button,[role=button]")].filter(e => /^\s*remove\s*$/i.test(e.textContent||"")); if (!r.length) return "none"; r[0].click(); return "removed, " + (r.length-1) + " left"; })()`
+- **Confirm empty bag**:
+  `(() => /bag is empty|nothing in your bag/i.test(document.body.textContent) ? "empty" : "not empty")()`
+
+Budget discipline: a clean roundtrip is ~25-45 calls; if you are past ~50 calls
+and not on the final verification, stop exploring, state exactly where you are
+and what remains.
