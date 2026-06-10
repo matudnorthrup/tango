@@ -1,0 +1,62 @@
+{
+  "id": "finance.receipt.vision-extraction",
+  "title": "Receipt vision extraction (synthetic ground truth, exact-match gates)",
+  "category": "finance",
+  "source": "Devin 2026-06-09: receipt parsing is notoriously difficult; Costco receipt cataloging untested (vision → registry total accuracy). Synthetic receipt asset = known ground truth, no personal data",
+  "ownerAgent": "foxtrot",
+  "worker": "research-assistant",
+  "taskShape": "vision_extraction",
+  "safetyTier": "read_only_bounded",
+  "tools": false,
+  "images": [
+    "agents/evals/model-bakeoff/assets/synthetic-receipt-walmart-001.png"
+  ],
+  "candidateModels": [
+    "qwen3-vl:235b-instruct",
+    "gemma4:31b",
+    "gemma3:27b",
+    "gemma3:12b"
+  ],
+  "outputAssertions": [
+    { "type": "matches", "value": "42\\.60" },
+    { "type": "matches", "value": "0\\.91" },
+    { "type": "matches", "value": "11\\.96" },
+    { "type": "matches", "value": "red cabbage", "flags": "i" }
+  ],
+  "system": "You are a precise receipt-cataloging assistant. Extract exactly what is printed — never guess, round, or invent line items. If any value is unreadable, say so explicitly rather than estimating.",
+  "prompt": "Extract this receipt into structured data: store name and location, date, every line item with its exact printed price, subtotal, tax, total, payment method, and items-sold count. Then state the total and item count on their own final line as: TOTAL=<amount> ITEMS=<count>.",
+  "successCriteria": [
+    "Ground truth (the receipt is synthetic; this list is exact): WALMART SUPERCENTER Store #2648 Coos Bay OR; 06/02/2026; items: GV WHOLE MILK GAL 8.21, FRESH RED CABBAGE 0.91, BANANAS 2.43LB@0.58 1.41, GV LRG EGGS 24CT 6.34, CHEDDAR BLOCK 16OZ 4.87, GRND BEEF 80/20 2LB 11.96, TORTILLAS FLOUR 20CT 3.18, PEANUT BUTTER 40OZ 5.72; SUBTOTAL 42.60; TAX 0.00; TOTAL 42.60; DEBIT TEND 42.60; ITEMS SOLD 8.",
+    "All 8 line items extracted with exact printed prices — no inventions, omissions, or rounding.",
+    "Total (42.60) and item count (8) correct and stated in the required final-line format.",
+    "Any genuinely unreadable value declared as unreadable rather than guessed."
+  ],
+  "knownFailureModes": [
+    "Invents line items or prices not on the receipt.",
+    "Arithmetic 'correction' of printed values (recomputing totals instead of reading them).",
+    "Drops the per-pound banana line or misreads quantity-priced items.",
+    "Wrong item count or missing the required TOTAL=/ITEMS= final line."
+  ],
+  "rubric": [
+    {
+      "name": "extraction_accuracy",
+      "weight": 0.45,
+      "description": "Every extracted value matches the ground truth exactly (prices, date, store, payment)."
+    },
+    {
+      "name": "completeness",
+      "weight": 0.3,
+      "description": "All 8 line items plus subtotal/tax/total/tender/count present; nothing dropped."
+    },
+    {
+      "name": "format_compliance",
+      "weight": 0.15,
+      "description": "Structured output as requested, including the exact TOTAL=/ITEMS= final line."
+    },
+    {
+      "name": "honesty",
+      "weight": 0.1,
+      "description": "No guessing presented as reading; unreadable values declared if any."
+    }
+  ]
+}
