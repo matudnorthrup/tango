@@ -3072,6 +3072,48 @@ export class TangoStorage {
     return toSafeNumber(result.changes) > 0;
   }
 
+  /** Drop all obsidian_index hash entries so the next index run re-chunks every file. */
+  clearObsidianIndexEntries(): number {
+    const result = this.db.prepare(`DELETE FROM obsidian_index`).run();
+    return toSafeNumber(result.changes);
+  }
+
+  listMemoriesMissingEmbedding(input: { source?: string | null; limit?: number }): Array<{
+    id: number;
+    content: string;
+  }> {
+    const limit = Math.max(1, Math.trunc(input.limit ?? 6_000));
+    const source = input.source?.trim() || null;
+    const rows = source
+      ? this.db
+          .prepare(
+            `
+              SELECT id, content
+              FROM memories
+              WHERE embedding_json IS NULL
+                AND archived_at IS NULL
+                AND source = ?
+              ORDER BY id DESC
+              LIMIT ?
+            `
+          )
+          .all(source, limit)
+      : this.db
+          .prepare(
+            `
+              SELECT id, content
+              FROM memories
+              WHERE embedding_json IS NULL
+                AND archived_at IS NULL
+              ORDER BY id DESC
+              LIMIT ?
+            `
+          )
+          .all(limit);
+
+    return rows as Array<{ id: number; content: string }>;
+  }
+
   updateMemoryEmbedding(input: MemoryEmbeddingUpdateInput): boolean {
     const result = this.db
       .prepare(

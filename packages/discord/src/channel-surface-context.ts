@@ -1,4 +1,4 @@
-import type { StoredMessageRecord } from "@tango/core";
+import { parseStoredTimestampMs, type StoredMessageRecord } from "@tango/core";
 
 export interface ChannelSurfaceSelection {
   messages: StoredMessageRecord[];
@@ -54,7 +54,7 @@ export function selectWarmStartMessages(input: {
     }
 
     // Skip supplemental messages older than the recency window
-    const messageTime = new Date(message.createdAt).getTime();
+    const messageTime = parseStoredTimestampMs(message.createdAt);
     if (messageTime > 0 && now - messageTime > RECENCY_WINDOW_MS) {
       continue;
     }
