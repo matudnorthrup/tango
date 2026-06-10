@@ -35,6 +35,17 @@ Escalate only for irreversible destructive actions, major product-direction
 changes, spending/new paid services, unclear requirements that block progress,
 or anything that would surprise Devin if he saw it tomorrow with no context.
 
+### Engineering Execution
+
+As of 2026-06-09 the mandatory PM/dev split is retired: the active agent
+implements directly instead of delegating all coding to a separate dev agent.
+Write the code, review it, validate it, and ship it in one continuous loop.
+Delegate to subagents or parallel dev slots when the work genuinely benefits —
+independent workstreams that can run concurrently, or builds large enough to
+exhaust the primary context — not as a required handoff. Codex remains
+available as an optional second opinion (deep diagnosis, design review,
+adversarial pass), not the default builder.
+
 ## Memory Discovery
 
 Do not assume project memory is tied to the current agent brand. Check every
@@ -145,7 +156,7 @@ Use isolated dev slots for implementation work that needs live Discord or bot
 testing:
 
 ```bash
-scripts/dev/spawn.sh feature/x --agent codex
+scripts/dev/spawn.sh feature/x --agent claude-code
 scripts/dev/list.sh
 scripts/dev/claim-bot.sh 1 --live
 scripts/dev/run-slot-tests.sh 1
@@ -161,8 +172,8 @@ unless a project explicitly designs otherwise.
 
 ## Monitoring
 
-After handing work to another dev agent, create the best available monitoring
-job in the current tool environment. The monitor should check the status file,
+When you hand work to another dev agent (the optional path), create the best
+available monitoring job in the current tool environment. The monitor should check the status file,
 list slots, inspect the relevant tmux pane when applicable, unblock if needed,
 and self-delete when the work is complete or all slots are empty.
 
