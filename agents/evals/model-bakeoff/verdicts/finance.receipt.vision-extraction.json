@@ -1,0 +1,205 @@
+{
+  "latest": {
+    "when": "2026-06-10T01:48:01.502Z",
+    "harnessVersion": "2.0.0",
+    "fixtureSource": "model-bakeoff/tasks/finance-receipt-vision.json",
+    "runsPerCandidate": 3,
+    "verdict": {
+      "fixtureId": "finance.receipt.vision-extraction",
+      "passRateThreshold": 0.8,
+      "rubricThreshold": 0.7,
+      "rubricFloor": 0.6,
+      "recommendation": "gemma4:31b",
+      "reason": "cheapest reliable candidate (passRate 100%, 225 out-tok/success (price unknown))",
+      "winner": "gemma4:31b",
+      "incumbent": null,
+      "eligible": [
+        "gemma4:31b",
+        "qwen3-vl:235b-instruct",
+        "gemma3:12b",
+        "gemma3:27b"
+      ],
+      "infraIncomplete": false
+    },
+    "candidates": [
+      {
+        "model": "qwen3-vl:235b-instruct",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9908333333333333,
+        "rubricMin": 0.9725,
+        "rubricStdDev": 0.012963624321753357,
+        "meanSeconds": 4.8773333333333335,
+        "meanOutputTokens": 240,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "gemma4:31b",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 1,
+        "rubricMin": 1,
+        "rubricStdDev": 0,
+        "meanSeconds": 17.162000000000003,
+        "meanOutputTokens": 225,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "gemma3:27b",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9295,
+        "rubricMin": 0.8840000000000001,
+        "rubricStdDev": 0.0325755532058423,
+        "meanSeconds": 14.916666666666666,
+        "meanOutputTokens": 328.6666666666667,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "gemma3:12b",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9445,
+        "rubricMin": 0.8975,
+        "rubricStdDev": 0.04227489404678228,
+        "meanSeconds": 8.673333333333334,
+        "meanOutputTokens": 277.3333333333333,
+        "meanCostUsd": null,
+        "gateFailures": []
+      }
+    ]
+  },
+  "history": [
+    {
+      "when": "2026-06-10T01:40:29.546Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/finance-receipt-vision.json",
+      "runsPerCandidate": 3,
+      "verdict": {
+        "fixtureId": "finance.receipt.vision-extraction",
+        "passRateThreshold": 0.8,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": null,
+        "reason": "no candidate met the reliability bar",
+        "winner": null,
+        "incumbent": null,
+        "eligible": [],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "qwen3-vl:235b-instruct",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": null,
+          "rubricMin": null,
+          "rubricStdDev": null,
+          "meanSeconds": 0.3013333333333333,
+          "meanOutputTokens": null,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "completion: Ollama request failed: status=400 body={\"error\":{\"message\":\"invalid image input\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}\n",
+            "output:matches: 42\\.60",
+            "output:matches: 0\\.91",
+            "output:matches: 11\\.96",
+            "output:matches: red cabbage",
+            "completion: Ollama request failed: status=400 body={\"error\":{\"message\":\"invalid image input\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}\n",
+            "output:matches: 42\\.60",
+            "output:matches: 0\\.91",
+            "output:matches: 11\\.96",
+            "output:matches: red cabbage"
+          ]
+        },
+        {
+          "model": "gemma4:31b",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": null,
+          "rubricMin": null,
+          "rubricStdDev": null,
+          "meanSeconds": 0.205,
+          "meanOutputTokens": null,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "completion: Ollama request failed: status=400 body={\"error\":{\"message\":\"invalid image input\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}\n",
+            "output:matches: 42\\.60",
+            "output:matches: 0\\.91",
+            "output:matches: 11\\.96",
+            "output:matches: red cabbage",
+            "completion: Ollama request failed: status=400 body={\"error\":{\"message\":\"invalid image input\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}\n",
+            "output:matches: 42\\.60",
+            "output:matches: 0\\.91",
+            "output:matches: 11\\.96",
+            "output:matches: red cabbage"
+          ]
+        },
+        {
+          "model": "gemma3:27b",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": null,
+          "rubricMin": null,
+          "rubricStdDev": null,
+          "meanSeconds": 0.20433333333333334,
+          "meanOutputTokens": null,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "completion: Ollama request failed: status=400 body={\"error\":{\"message\":\"invalid image input\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}\n",
+            "output:matches: 42\\.60",
+            "output:matches: 0\\.91",
+            "output:matches: 11\\.96",
+            "output:matches: red cabbage",
+            "completion: Ollama request failed: status=400 body={\"error\":{\"message\":\"invalid image input\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}\n",
+            "output:matches: 42\\.60",
+            "output:matches: 0\\.91",
+            "output:matches: 11\\.96",
+            "output:matches: red cabbage"
+          ]
+        },
+        {
+          "model": "gemma3:12b",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": null,
+          "rubricMin": null,
+          "rubricStdDev": null,
+          "meanSeconds": 0.19000000000000003,
+          "meanOutputTokens": null,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "completion: Ollama request failed: status=400 body={\"error\":{\"message\":\"invalid image input\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}\n",
+            "output:matches: 42\\.60",
+            "output:matches: 0\\.91",
+            "output:matches: 11\\.96",
+            "output:matches: red cabbage",
+            "completion: Ollama request failed: status=400 body={\"error\":{\"message\":\"invalid image input\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}\n",
+            "output:matches: 42\\.60",
+            "output:matches: 0\\.91",
+            "output:matches: 11\\.96",
+            "output:matches: red cabbage"
+          ]
+        }
+      ]
+    }
+  ]
+}
