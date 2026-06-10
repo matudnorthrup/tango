@@ -216,6 +216,61 @@ describe("selectWarmStartMessages", () => {
     expect(result.messages.map((m) => m.id)).toEqual([29, 30]);
   });
 
+  it("applies the recency window to SQLite-format UTC timestamps (no zone marker)", () => {
+    // storage persists datetime('now') as "YYYY-MM-DD HH:MM:SS" in UTC with no
+    // zone marker; naive Date parsing reads that as local time and disables the
+    // window entirely (TGO-689).
+    const sqliteUtc = (minutes: number): string =>
+      new Date(Date.now() - minutes * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
+    const sessionMessages = [
+      makeMessage({
+        id: 40,
+        sessionId: "topic:current",
+        agentId: "sierra",
+        direction: "inbound",
+        source: "discord",
+        visibility: "public",
+        discordChannelId: "thread-1",
+        content: "current question",
+        createdAt: sqliteUtc(1),
+      }),
+    ];
+    const recentChannelMessages = [
+      makeMessage({
+        id: 38,
+        sessionId: "topic:sibling",
+        agentId: "sierra",
+        direction: "outbound",
+        source: "tango",
+        visibility: "public",
+        discordChannelId: "thread-1",
+        content: "fishing report from four minutes ago",
+        createdAt: sqliteUtc(4),
+      }),
+      makeMessage({
+        id: 31,
+        sessionId: "topic:sibling",
+        agentId: "sierra",
+        direction: "outbound",
+        source: "tango",
+        visibility: "public",
+        discordChannelId: "thread-1",
+        content: "stale morning chatter",
+        createdAt: sqliteUtc(120),
+      }),
+    ];
+
+    const result = selectWarmStartMessages({
+      sessionMessages,
+      recentChannelMessages,
+      channelId: "thread-1",
+      agentId: "sierra",
+    });
+
+    expect(result.supplementalMessageCount).toBe(1);
+    expect(result.messages.map((m) => m.id)).toEqual([38, 40]);
+  });
+
   it("caps supplemental messages at 10", () => {
     const sessionMessages = [
       makeMessage({

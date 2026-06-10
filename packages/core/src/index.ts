@@ -42,6 +42,7 @@ export * from "./session-lifecycle.js";
 export * from "./session-manager.js";
 export * from "./storage.js";
 export * from "./sub-agent-runner.js";
+export * from "./time.js";
 export * from "./tool-telemetry.js";
 export * from "./types.js";
 export * from "./governance-schema.js";

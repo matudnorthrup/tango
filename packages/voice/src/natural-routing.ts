@@ -30,6 +30,10 @@ export interface NaturalTextRoute {
   promptText: string;
   addressedAgentId: string | null;
   topicName: string | null;
+  /** True when the inline topic used the explicit "topic" keyword ("on topic X: ..."). */
+  topicExplicit: boolean;
+  /** Prompt text before the inline-topic prefix was stripped (equals promptText when no topic matched). */
+  promptTextBeforeTopicStrip: string;
   systemCommand: NaturalTextSystemCommand | null;
 }
 
@@ -65,18 +69,27 @@ function parseSystemCommand(promptText: string): NaturalTextSystemCommand | null
   return null;
 }
 
-function resolvePromptTopic(promptText: string): { topicName: string | null; promptText: string } {
+function resolvePromptTopic(promptText: string): {
+  topicName: string | null;
+  promptText: string;
+  topicExplicit: boolean;
+  promptTextBeforeTopicStrip: string;
+} {
   const inlineTopic = extractInlineTopicReference(promptText);
   if (!inlineTopic) {
     return {
       topicName: null,
       promptText,
+      topicExplicit: false,
+      promptTextBeforeTopicStrip: promptText,
     };
   }
 
   return {
     topicName: inlineTopic.topicName,
     promptText: inlineTopic.promptText,
+    topicExplicit: inlineTopic.usedTopicKeyword,
+    promptTextBeforeTopicStrip: promptText,
   };
 }
 
@@ -102,12 +115,16 @@ export function parseNaturalTextRoute(input: {
 
   if (explicitAddress.kind === "system") {
     const systemCommand = parseSystemCommand(promptText);
-    const topicPrompt = systemCommand ? { topicName: null, promptText } : resolvePromptTopic(promptText);
+    const topicPrompt = systemCommand
+      ? { topicName: null, promptText, topicExplicit: false, promptTextBeforeTopicStrip: promptText }
+      : resolvePromptTopic(promptText);
     return {
       explicitAddress,
       promptText: topicPrompt.promptText,
       addressedAgentId: focusedAgentId,
       topicName: topicPrompt.topicName,
+      topicExplicit: topicPrompt.topicExplicit,
+      promptTextBeforeTopicStrip: topicPrompt.promptTextBeforeTopicStrip,
       systemCommand,
     };
   }
@@ -119,6 +136,8 @@ export function parseNaturalTextRoute(input: {
     promptText: topicPrompt.promptText,
     addressedAgentId: explicitAddress.agent.id,
     topicName: topicPrompt.topicName,
+    topicExplicit: topicPrompt.topicExplicit,
+    promptTextBeforeTopicStrip: topicPrompt.promptTextBeforeTopicStrip,
     systemCommand: null,
   };
 }
