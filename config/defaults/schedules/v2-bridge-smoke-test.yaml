@@ -3,7 +3,7 @@ display_name: V2 Bridge Smoke Test
 description: >
   One-shot test schedule to validate the v2 scheduled job bridge.
   Fires once at 10:00am PT on 2026-04-22, then auto-deletes.
-enabled: true
+enabled: false  # one-shot fire time (2026-04-22) expired; recreate with a future at: to reuse
 runtime: v2
 
 schedule:
