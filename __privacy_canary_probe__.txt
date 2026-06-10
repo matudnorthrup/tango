@@ -1,0 +1,3 @@
+Synthetic privacy-gate canary. The token below is in the PRIVACY_DENYLIST
+Actions secret (not the host denylist). CI privacy-gate must FAIL on this PR.
+CANARY-PII-PROBE-DO-NOT-SHIP-7f3a9c
