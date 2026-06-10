@@ -42,9 +42,9 @@ The user has saved favorite orders on their Chipotle account. Instead of buildin
 
 - Look for a **"Recent Orders"** or **"Favorites"** / **"Faves"** section on the order page.
 - Take a snapshot to find the saved orders.
-- Common favorites:
-  - **Double protein bowl** — the user's personal go-to
-  - **"Best Buddies"** — a named favorite
+- Current saved favorites (verified 2026-06-09):
+  - **"Best Buddies"** — Chicken Burrito and Chicken Bowl
+  - **"Family Usual"** — three Chicken Burritos
 - Click the matching favorite, then confirm or **"Add to Bag"**.
 
 If favorites aren't visible, check if there's a tab or link to switch from the menu to recent/favorite orders.
@@ -81,3 +81,17 @@ The checkout page shows **5 quick time slots** (e.g., 4:50pm through 5:30pm) as 
 - **Can't find favorites**: Make sure you're signed in. Check for a profile/account icon or "Recent Orders" link.
 - **Page seems stuck**: Try a fresh navigation to `https://www.chipotle.com/order` and snapshot again.
 - **Pickup time appears limited**: Click "More Times" to expand the full time slot list before telling the user no later times are available.
+
+## Removing items / emptying the bag (verified 2026-06-09)
+
+- Item removal lives in the **bag drawer** (the add-to-bag modal on the order
+  page), where each item row has **Remove / Edit / Duplicate** links — NOT on
+  the checkout page, whose accessibility tree shows only totals.
+- **Never navigate to `/order/checkout` to edit the bag.** That page has a live
+  "Submit Order" button with the saved payment method. Clicking the header bag
+  icon can navigate there directly — prefer re-opening the order page and using
+  the drawer.
+- Element refs go stale after any drawer/modal state change — re-snapshot
+  before every click; if a ref-click times out, re-snapshot rather than retry.
+- Check for stale items at the START of any cart flow: previous sessions can
+  leave items in the bag (two stale items were found on 2026-06-09).

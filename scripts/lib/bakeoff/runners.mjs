@@ -152,9 +152,12 @@ export async function runClaudeOnce({ model, fixture, claudeCommand = "claude", 
   // Neutral cwd: keeps repo CLAUDE.md context out of the candidate's prompt and
   // gives denied file tools nothing interesting to read.
   const workdir = mkdtempSync(join(tmpdir(), "bakeoff-claude-"));
+  // Browser/long-horizon fixtures need more turns than chat-shaped ones — a
+  // Chipotle roundtrip with a dirty starting cart blew the 40-turn budget.
+  const maxTurns = Number.isInteger(fixture.maxTurns) ? fixture.maxTurns : 40;
   // Prompt goes IMMEDIATELY after -p: --allowedTools/--disallowedTools are
   // variadic and would swallow a trailing positional prompt word-by-word.
-  const args = ["-p", fixture.prompt, "--model", cliModel, "--output-format", "stream-json", "--verbose", "--max-turns", "40"];
+  const args = ["-p", fixture.prompt, "--model", cliModel, "--output-format", "stream-json", "--verbose", "--max-turns", String(maxTurns)];
   if (fixture.system) args.push("--system-prompt", fixture.system);
   if (fixture.tools) {
     const mcpConfigPath = join(workdir, "mcp.json");
