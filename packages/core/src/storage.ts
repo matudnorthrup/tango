@@ -656,6 +656,12 @@ export interface StoredMemoryRecord {
   importance: number;
   sourceRef: string | null;
   embeddingJson: string | null;
+  /**
+   * Pre-decoded embedding vector. Adapters over stores that hold binary
+   * embeddings (Atlas) populate this instead of embeddingJson so ranking
+   * skips a JSON round-trip per row; when present it wins over embeddingJson.
+   */
+  embedding?: number[] | null;
   embeddingModel: string | null;
   createdAt: string;
   lastAccessedAt: string;
