@@ -1,8 +1,18 @@
 import {
+  addObsidianMemories,
   createAtlasMemoryTools,
+  deleteObsidianMemoriesBySourceRefPrefix,
+  getAtlasConversationSummary,
+  listAtlasMemoriesForContext,
+  listAtlasPinnedFactsForContext,
   openAtlasMemoryDatabase,
+  touchAtlasMemories,
+  type AtlasContextMemoryRow,
+  type AtlasContextPinnedFactRow,
+  type AtlasContextSummaryRow,
   type AtlasMemoryToolDefinition,
   type MemoryRecord,
+  type ObsidianChunkUpsert,
   type PinnedFactRecord,
   type PinnedFactScope,
   type MemorySource,
@@ -62,6 +72,39 @@ export class AtlasMemoryClient {
       memories_created: number;
       reflections: string[];
     }>("memory_reflect", params);
+  }
+
+  /** Candidate memories for warm-start ranking (agent-scoped + global, newest first). */
+  listMemoriesForContext(input: { agentId?: string | null; limit?: number }): AtlasContextMemoryRow[] {
+    return listAtlasMemoriesForContext(this.db, input);
+  }
+
+  getConversationSummaryForContext(input: {
+    sessionId: string;
+    agentId: string;
+  }): AtlasContextSummaryRow | null {
+    return getAtlasConversationSummary(this.db, input);
+  }
+
+  listPinnedFactsForWarmStart(input: {
+    sessionId?: string | null;
+    agentId?: string | null;
+  }): AtlasContextPinnedFactRow[] {
+    return listAtlasPinnedFactsForContext(this.db, input);
+  }
+
+  touchMemoriesForContext(ids: string[]): number {
+    return touchAtlasMemories(this.db, ids);
+  }
+
+  /** Remove Atlas copies of an Obsidian file's chunks before re-syncing (TGO-691). */
+  obsidianPrune(sourceRefPrefix: string): number {
+    return deleteObsidianMemoriesBySourceRefPrefix(this.db, sourceRefPrefix);
+  }
+
+  /** Mirror freshly indexed Obsidian chunks (with upstream embeddings) into Atlas. */
+  obsidianAddChunks(chunks: ObsidianChunkUpsert[]): number {
+    return addObsidianMemories(this.db, chunks).length;
   }
 
   close(): void {

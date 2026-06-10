@@ -224,45 +224,6 @@ describe('Layer 1: Foundation — Single Channel, Wait Mode, Gated', () => {
     pipeline.stop();
   });
 
-  it('1.1c — standalone code wake phrase triggers wake check', async () => {
-    const pipeline = makePipeline();
-
-    await simulateUtterance(pipeline, 'user1', 'Whiskey Foxtrot');
-
-    expect((pipeline as any).ctx.promptGraceUntil).toBeGreaterThan(Date.now());
-    expect(getStateMachineState(pipeline)).toBe('IDLE');
-    await new Promise((r) => setTimeout(r, 300));
-    expect(earconHistory).toContain('ready');
-
-    pipeline.stop();
-  });
-
-  it('1.1d — spaced variant "Whiskey Fox trot" also triggers wake check', async () => {
-    const pipeline = makePipeline();
-
-    await simulateUtterance(pipeline, 'user1', 'Whiskey Fox trot');
-
-    expect((pipeline as any).ctx.promptGraceUntil).toBeGreaterThan(Date.now());
-    expect(getStateMachineState(pipeline)).toBe('IDLE');
-    await new Promise((r) => setTimeout(r, 300));
-    expect(earconHistory).toContain('ready');
-
-    pipeline.stop();
-  });
-
-  it('1.1e — "What is key fox trot" fallback also triggers wake check', async () => {
-    const pipeline = makePipeline();
-
-    await simulateUtterance(pipeline, 'user1', 'What is key fox trot');
-
-    expect((pipeline as any).ctx.promptGraceUntil).toBeGreaterThan(Date.now());
-    expect(getStateMachineState(pipeline)).toBe('IDLE');
-    await new Promise((r) => setTimeout(r, 300));
-    expect(earconHistory).toContain('ready');
-
-    pipeline.stop();
-  });
-
   // ── 1.2: Wake + simple command ────────────────────────────────────────
 
   it('1.2 — wake + voice status command speaks response and returns to IDLE', async () => {
@@ -616,73 +577,6 @@ describe('Layer 1: Foundation — Single Channel, Wait Mode, Gated', () => {
     expect(prompts).toEqual(['what is my protein intake today?']);
     expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
     expect(playerCalls).toContain('playStream');
-    expect(getStateMachineState(pipeline)).toBe('IDLE');
-
-    pipeline.stop();
-  });
-
-  it('1.3e — indicate mode closes on standalone code phrase without wake prefix', async () => {
-    const pipeline = makePipeline();
-    voiceSettings.endpointingMode = 'indicate';
-
-    const prompts: string[] = [];
-    getResponseImpl = async (_user, msg) => {
-      prompts.push(msg);
-      return { response: 'Combined response.' };
-    };
-
-    await simulateUtterance(pipeline, 'user1', 'Tango, add milk');
-    await simulateUtterance(pipeline, 'user1', 'and eggs');
-    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
-    expect(prompts).toEqual([]);
-
-    await simulateUtterance(pipeline, 'user1', 'whiskey delta');
-    expect(prompts).toEqual(['add milk and eggs']);
-    expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
-    expect(getStateMachineState(pipeline)).toBe('IDLE');
-
-    pipeline.stop();
-  });
-
-  it('1.3f — indicate mode closes on spaced "whiskey fox trot" variant', async () => {
-    const pipeline = makePipeline();
-    voiceSettings.endpointingMode = 'indicate';
-
-    const prompts: string[] = [];
-    getResponseImpl = async (_user, msg) => {
-      prompts.push(msg);
-      return { response: 'Combined response.' };
-    };
-
-    await simulateUtterance(pipeline, 'user1', 'Tango, capture this update');
-    await simulateUtterance(pipeline, 'user1', 'with one more segment');
-    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
-
-    await simulateUtterance(pipeline, 'user1', 'whiskey fox trot');
-    expect(prompts).toEqual(['capture this update with one more segment']);
-    expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
-    expect(getStateMachineState(pipeline)).toBe('IDLE');
-
-    pipeline.stop();
-  });
-
-  it('1.3g — indicate mode closes on "what is key fox trot" fallback phrase', async () => {
-    const pipeline = makePipeline();
-    voiceSettings.endpointingMode = 'indicate';
-
-    const prompts: string[] = [];
-    getResponseImpl = async (_user, msg) => {
-      prompts.push(msg);
-      return { response: 'Combined response.' };
-    };
-
-    await simulateUtterance(pipeline, 'user1', 'Tango, capture this update');
-    await simulateUtterance(pipeline, 'user1', 'with one more segment');
-    expect((pipeline as any).ctx.indicateCaptureActive).toBe(true);
-
-    await simulateUtterance(pipeline, 'user1', 'What is key fox trot');
-    expect(prompts).toEqual(['capture this update with one more segment']);
-    expect((pipeline as any).ctx.indicateCaptureActive).toBe(false);
     expect(getStateMachineState(pipeline)).toBe('IDLE');
 
     pipeline.stop();

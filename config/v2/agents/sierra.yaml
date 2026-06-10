@@ -105,12 +105,12 @@ voice:
     - Sierra
   kokoro_voice: af_heart
   default_channel_id: "100000000000000003"
-  smoke_test_channel_id: "100000000000001003"
+  smoke_test_channel_id: "1488248024076648599"
 
 # Discord routing
 discord:
   default_channel_id: "100000000000000003"
-  smoke_test_channel_id: "100000000000001003"
+  smoke_test_channel_id: "1488248024076648599"
 
 # Legacy registry fields
 avatar_url: https://example.com/tango/avatars/sierra.png

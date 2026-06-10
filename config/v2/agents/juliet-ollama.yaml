@@ -83,10 +83,10 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — distinct "Whiskey <Name>" wake word so it never
+# Voice addressing — distinct "Bravo <Name>" wake word so it never
 # collides with the original juliet's wake word (start-anchored matcher).
 voice:
   call_signs:
-    - "Whiskey Juliet"
+    - "Bravo Juliet"
   kokoro_voice: af_bella
   default_channel_id: "1513207684344582184"

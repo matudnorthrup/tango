@@ -26,9 +26,10 @@ const IMAGE_MIME_BY_EXT = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": 
 export function loadFixtureImages(fixture, repoRoot) {
   return (fixture.images ?? []).map((p) => {
     const path = isAbsolute(p) ? p : resolve(repoRoot, p);
-    const mimeType = IMAGE_MIME_BY_EXT[extname(path).toLowerCase()];
-    if (!mimeType) throw new Error(`unsupported image extension for ${path}`);
-    return { data: readFileSync(path).toString("base64"), mimeType };
+    const mediaType = IMAGE_MIME_BY_EXT[extname(path).toLowerCase()];
+    if (!mediaType) throw new Error(`unsupported image extension for ${path}`);
+    // Field names match ProviderImageInput (provider.ts): dataBase64 + mediaType.
+    return { dataBase64: readFileSync(path).toString("base64"), mediaType };
   });
 }
 
@@ -41,6 +42,19 @@ export function classifyError(message) {
 
 const CLAUDE_MCP_SERVER = "tango";
 const CLAUDE_TOOL_PREFIX = `mcp__${CLAUDE_MCP_SERVER}__`;
+
+// Credential-tool outputs must never reach stored transcripts or the judge
+// prompt (a flailing model once self-served the Notion API key from 1Password
+// mid-eval, 2026-06-09). Redact at recording time — one choke point.
+const SENSITIVE_TOOL_PATTERN = /onepassword|1password|credential|secret/i;
+
+export function redactSensitiveToolCalls(toolCalls) {
+  return toolCalls.map((call) =>
+    SENSITIVE_TOOL_PATTERN.test(call.name) && call.output !== undefined
+      ? { ...call, output: "[REDACTED: credential tool output]" }
+      : call,
+  );
+}
 
 export async function runOllamaOnce({ model, fixture, makeProvider, images }) {
   const provider = makeProvider(model);
@@ -57,7 +71,7 @@ export async function runOllamaOnce({ model, fixture, makeProvider, images }) {
       model,
       seconds: (Date.now() - startedAt) / 1000,
       text: r.text ?? "",
-      toolCalls: (r.toolCalls ?? []).map((c) => ({ name: c.name, input: c.input ?? {}, output: c.output })),
+      toolCalls: redactSensitiveToolCalls((r.toolCalls ?? []).map((c) => ({ name: c.name, input: c.input ?? {}, output: c.output }))),
       stopReason: r.metadata?.stopReason ?? "?",
       usage: r.metadata?.usage ?? {},
     };
@@ -130,7 +144,7 @@ function parseClaudeStreamJson(stdout) {
     if (call.id && outputsById.has(call.id)) call.output = outputsById.get(call.id);
     delete call.id;
   }
-  return { toolCalls, text, usage, stopReason, isError, resultSeen };
+  return { toolCalls: redactSensitiveToolCalls(toolCalls), text, usage, stopReason, isError, resultSeen };
 }
 
 export async function runClaudeOnce({ model, fixture, claudeCommand = "claude", mcpPort = 9100, timeoutMs }) {
@@ -138,9 +152,12 @@ export async function runClaudeOnce({ model, fixture, claudeCommand = "claude", 
   // Neutral cwd: keeps repo CLAUDE.md context out of the candidate's prompt and
   // gives denied file tools nothing interesting to read.
   const workdir = mkdtempSync(join(tmpdir(), "bakeoff-claude-"));
+  // Browser/long-horizon fixtures need more turns than chat-shaped ones — a
+  // Chipotle roundtrip with a dirty starting cart blew the 40-turn budget.
+  const maxTurns = Number.isInteger(fixture.maxTurns) ? fixture.maxTurns : 40;
   // Prompt goes IMMEDIATELY after -p: --allowedTools/--disallowedTools are
   // variadic and would swallow a trailing positional prompt word-by-word.
-  const args = ["-p", fixture.prompt, "--model", cliModel, "--output-format", "stream-json", "--verbose", "--max-turns", "40"];
+  const args = ["-p", fixture.prompt, "--model", cliModel, "--output-format", "stream-json", "--verbose", "--max-turns", String(maxTurns)];
   if (fixture.system) args.push("--system-prompt", fixture.system);
   if (fixture.tools) {
     const mcpConfigPath = join(workdir, "mcp.json");
@@ -167,7 +184,7 @@ export async function runClaudeOnce({ model, fixture, claudeCommand = "claude", 
 
   const startedAt = Date.now();
   const result = await new Promise((resolvePromise) => {
-    const child = spawn(claudeCommand, args, { cwd: workdir, env: process.env });
+    const child = spawn(claudeCommand, args, { cwd: workdir, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;

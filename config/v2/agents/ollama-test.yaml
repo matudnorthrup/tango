@@ -34,6 +34,14 @@ memory:
 # Discord routing
 discord:
   default_channel_id: "1512999369866088518"
+  smoke_test_channel_id: "1512999369866088518"
+
+# Harness smoke-test registration (text-harness webhook acceptance reads voice.smoke_test_channel_id)
+voice:
+  call_signs:
+    - Ollama Test
+  default_channel_id: "1512999369866088518"
+  smoke_test_channel_id: "1512999369866088518"
 
 # Legacy registry fields
 avatar_url: https://example.com/tango/avatars/ollama.png

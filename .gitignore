@@ -19,6 +19,7 @@ data/tango.db-wal
 .claude/
 data/*.bak*
 data/walmart-queue.json
+data/_retired-*/
 docs/projects/imessage-analysis/
 *.tsbuildinfo
 

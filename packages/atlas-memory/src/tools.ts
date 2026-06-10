@@ -47,6 +47,7 @@ const MEMORY_SOURCES = new Set<MemorySource>([
   "manual",
   "observation",
   "import",
+  "obsidian",
 ]);
 const PINNED_FACT_SCOPES = new Set<PinnedFactScope>(["global", "agent", "session"]);
 
