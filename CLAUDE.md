@@ -14,6 +14,10 @@ behavior in the current Claude Code environment.
   tmux, and monitoring work. If an older instruction names a tool that is not
   present, use the equivalent available tool and record the limitation in
   Linear before reporting.
+- Linear access does not need an MCP or OAuth: use the `LINEAR_API_KEY` in the
+  repo `.env` (mirrored from 1Password vault `Watson`) against
+  `https://api.linear.app/graphql`. See the shared guide's "Connecting to
+  Linear" section for the resolution order and a ready-to-run snippet.
 - Do not assume Claude memory lives under only one directory. Use the memory
   discovery order in the shared guide.
 - Keep active project state in Linear, not in repo docs or local memory.

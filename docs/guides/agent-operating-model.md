@@ -90,6 +90,39 @@ workspace, Tango team.
   or cancellation rationale.
 - Update Linear before reporting completion to the stakeholder.
 
+### Connecting to Linear
+
+Every agent — Claude Code, Codex, and the Tango runtime — authenticates the same
+way: a Linear API key sent to the GraphQL endpoint. There is no OAuth step, so it
+does not expire or need re-authorization. Do not rely on per-tool OAuth Linear
+connectors (Codex's curated plugin, remote MCP) as the primary path; they lapse.
+
+- Endpoint: `POST https://api.linear.app/graphql`
+- Auth header: `Authorization: <key>` (the raw key, no `Bearer` prefix)
+- Key resolution order (mirrors the runtime's `linear-agent-tools.ts`):
+  1. `LINEAR_API_KEY` from the repo `.env` (gitignored; already populated).
+  2. 1Password fallback — vault `Watson`, item `Linear Seaside-HQ Tango API Key`,
+     field `credential`, read with the `OP_SERVICE_ACCOUNT_TOKEN` also in `.env`.
+
+Resolve the key and query from a shell (identical for Claude Code and Codex):
+
+```bash
+LINEAR_API_KEY="$(grep -m1 '^LINEAR_API_KEY=' .env | cut -d= -f2- | tr -d '"')"
+[ -n "$LINEAR_API_KEY" ] || LINEAR_API_KEY="$(
+  OP_SERVICE_ACCOUNT_TOKEN="$(grep -m1 '^OP_SERVICE_ACCOUNT_TOKEN=' .env | cut -d= -f2- | tr -d '"')" \
+  /opt/homebrew/bin/op item get 'Linear Seaside-HQ Tango API Key' \
+    --vault Watson --fields credential --reveal)"
+
+curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: $LINEAR_API_KEY" \
+  -d '{"query":"{ viewer { id name } teams { nodes { key name } } }"}'
+```
+
+Workspace identity: the Tango team key is `TGO`; the `viewer` is the "Tango"
+service user. See [`agents/tools/linear.md`](../../agents/tools/linear.md) for the
+GraphQL schema, entities, filtering, pagination, and read-before-write rules.
+
 ## Done Means Live Tested
 
 A fix or feature is not done until it is live tested end to end. Unit tests,
