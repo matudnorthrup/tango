@@ -35,6 +35,10 @@ packages/discord/src/op-secret.ts
 packages/discord/test/onepassword-agent-tools.test.ts
 docs/specs/ollama-provider-parallel-instance.md
 
+# Agent operating guide documents the Linear credential MECHANISM (env var
+# names + .env read snippet) for agents; contains no secret values.
+docs/guides/agent-operating-model.md
+
 # The scanner itself contains the structural patterns it greps for.
 scripts/privacy-scan.sh
 
@@ -68,3 +72,13 @@ config/v2/agents/porter-ollama.yaml
 config/v2/agents/sierra-ollama.yaml
 config/v2/agents/victor-ollama.yaml
 config/v2/agents/watson-ollama.yaml
+
+# Added 2026-06-10: smoke_test_channel_id fields (real -test channel ids)
+# landed on main via the eval/validation work merged into this branch; same
+# legacy class as above — migrate with the per-agent follow-up, do not copy
+# the pattern into new files.
+config/v2/agents/sierra.yaml
+config/v2/agents/watson.yaml
+# Validation harness script with a default -test channel id flag; same
+# follow-up migrates it to a required flag or profile-sourced default.
+scripts/validate-thread-continuity.ts
