@@ -54,6 +54,15 @@ const DEFAULT_MODELS = [
   "glm-5",
 ];
 
+// Judge + claude:* spawns must not depend on the interactive CLI login (it
+// expired mid-run 2026-06-10, silently breaking 40 judge calls): ride the
+// bot's long-lived token from .env, inherited by child processes. Must happen
+// before the --rejudge/--recompute early branches, which also spawn the judge.
+if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+  const oauthToken = readEnvKey("CLAUDE_CODE_OAUTH_TOKEN");
+  if (oauthToken) process.env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
+}
+
 // ---- Recompute mode: re-apply the current verdict policy to stored results ----
 // Policy changes (thresholds, floors, ranking) shouldn't require re-running
 // models: `--recompute <results.json>` re-summarizes and re-verdicts a stored

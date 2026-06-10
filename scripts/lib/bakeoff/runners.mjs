@@ -184,7 +184,7 @@ export async function runClaudeOnce({ model, fixture, claudeCommand = "claude", 
 
   const startedAt = Date.now();
   const result = await new Promise((resolvePromise) => {
-    const child = spawn(claudeCommand, args, { cwd: workdir, env: process.env });
+    const child = spawn(claudeCommand, args, { cwd: workdir, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
