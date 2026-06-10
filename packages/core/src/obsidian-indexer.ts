@@ -73,6 +73,8 @@ export interface ObsidianSinkChunk {
   metadata: Record<string, unknown> | null;
   embedding: number[] | null;
   embeddingModel: string | null;
+  /** Content age from the source note (frontmatter date / file mtime). */
+  createdAt: string | null;
 }
 
 /**
@@ -159,6 +161,7 @@ export async function indexObsidianVault(
           metadata: memory.metadata,
           embedding: deserializeEmbedding(memory.embeddingJson),
           embeddingModel: memory.embeddingModel,
+          createdAt: memory.createdAt ?? null,
         });
       }
       if (chunks.length > 0) {
