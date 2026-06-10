@@ -54,12 +54,16 @@ export function summarizeCandidate(fixture, { model, benchmarkOnly = false, runs
   };
 }
 
+// Displacing an incumbent on cost requires a MEANINGFUL saving (>10%) — a 1%
+// token difference is run-to-run noise, and assignment churn has its own cost.
+const MEANINGFUL_COST_MARGIN = 0.9;
+
 function cheaper(a, b) {
   if (a.costPerSuccessUsd != null && b.costPerSuccessUsd != null) {
-    return a.costPerSuccessUsd < b.costPerSuccessUsd;
+    return a.costPerSuccessUsd < b.costPerSuccessUsd * MEANINGFUL_COST_MARGIN;
   }
   if (a.tokensPerSuccess != null && b.tokensPerSuccess != null) {
-    return a.tokensPerSuccess < b.tokensPerSuccess;
+    return a.tokensPerSuccess < b.tokensPerSuccess * MEANINGFUL_COST_MARGIN;
   }
   return false;
 }

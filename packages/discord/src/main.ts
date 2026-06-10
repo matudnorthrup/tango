@@ -1613,12 +1613,14 @@ registerDeterministicHandler("model-scorecard", async (_ctx) => {
   const utcBoundary = (daysAgo: number) =>
     new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
   const currentSince = utcBoundary(windowDays);
+  const recentSince = utcBoundary(1);
   const allSince = storage.listModelRunStats(utcBoundary(windowDays * 2));
   const current = allSince.filter((row) => row.createdAt >= currentSince);
   const previous = allSince.filter((row) => row.createdAt < currentSince);
   const scorecard = buildModelScorecard({
     current,
     previous,
+    recent: current.filter((row) => row.createdAt >= recentSince),
     evaluatedModels: loadEvaluatedModels(process.cwd()),
     windowDays,
     now,

@@ -128,3 +128,11 @@ test("benchmarks-only run is not infra-incomplete", () => {
   assert.equal(v.infraIncomplete, false);
   assert.equal(v.recommendation, null);
 });
+
+test("hysteresis: marginal cost advantage (<10%) does not displace incumbent", () => {
+  const f = fixture({ incumbentModel: "incumbent" });
+  const incumbent = candidate("incumbent", Array.from({ length: 3 }, () => mkRun({ outTok: 1320 })));
+  const challenger = candidate("challenger", Array.from({ length: 3 }, () => mkRun({ outTok: 1306 })));
+  const v = computeVerdict(f, [challenger, incumbent]);
+  assert.equal(v.recommendation, "incumbent");
+});

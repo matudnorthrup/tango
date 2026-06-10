@@ -78,12 +78,12 @@ voice:
     - Watson
   kokoro_voice: bm_george
   default_channel_id: "100000000000000001"
-  smoke_test_channel_id: "100000000000001001"
+  smoke_test_channel_id: "1488248022335881390"
 
 # Discord routing
 discord:
   default_channel_id: "100000000000000001"
-  smoke_test_channel_id: "100000000000001001"
+  smoke_test_channel_id: "1488248022335881390"
 
 # Legacy registry fields (used by agentRegistry consumers)
 avatar_url: https://example.com/tango/avatars/watson.png
