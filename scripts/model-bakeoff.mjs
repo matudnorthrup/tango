@@ -188,6 +188,12 @@ if (needsClaude) {
   }
 }
 
+// Long-horizon fixtures can raise the Ollama tool-loop cap; the provider reads
+// this env at import time, so set it before the dynamic import below.
+if (Number.isInteger(fixture.maxTurns) && !process.env.TANGO_MAX_TOOL_ITERS) {
+  process.env.TANGO_MAX_TOOL_ITERS = String(fixture.maxTurns);
+}
+
 const { OllamaProvider } = await import(resolve(ROOT, "packages/core/dist/provider.js"));
 const { McpHttpToolClient } = await import(resolve(ROOT, "packages/core/dist/mcp-http-tool-client.js"));
 
