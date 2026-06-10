@@ -4,7 +4,7 @@ Step-by-step workflow for resolving foods and logging meals to wellness.db.
 
 ## When to use
 
-Any time Darla asks to log a meal, snack, supplement, or individual food item.
+Any time the user asks to log a meal, snack, supplement, or individual food item.
 
 ## Lookup cascade
 
@@ -12,7 +12,7 @@ Every item must be resolved through this cascade before logging. Do not skip ste
 
 ### Step 1: Shorthand check
 
-Darla uses shorthand names. Before anything else, check the `shorthand` column:
+The user may use shorthand names. Before anything else, check the `shorthand` column:
 
 ```sql
 SELECT id, name, shorthand FROM products WHERE shorthand LIKE '%keyword%';
@@ -36,7 +36,7 @@ Every item gets its own row. Never combine items into a single entry.
 
 ### Step 4: Supplement timing check
 
-When Darla reports a meal, check if supplements are due for that time of day per the supplement protocol. Compare what's been logged today against the protocol schedule.
+When the user reports a meal, check if supplements are due for that time of day per the supplement protocol. Compare what has been logged today against the protocol schedule.
 
 ### Step 5: FatSecret fallback (future)
 
@@ -44,23 +44,22 @@ If an item is not in wellness.db, search FatSecret API for nutrition data. This 
 
 ## Critical Shorthand Warnings
 
-- **lmeth** = L-Methionine. **NEVER** L-Methylfolate.
-- **HRT** = batch shortcut for 3 items: patch + pill + testosterone. Log as 3 separate rows. 2x weekly.
-- **progesterone** defaults to Compounded SR (Orem Family Pharmacy). Use "progRx" for Prometrium only when Darla specifies.
+Profile-specific shorthand warnings belong in private prompt overlays. If a
+shorthand is ambiguous or missing, ask before logging.
 
-## How to Parse Darla's Messages
+## How to Parse User Messages
 
-Darla types naturally. Translate into structured entries.
+The user may type naturally. Translate into structured entries.
 
-**Example input:** "smoothie, fig bar, electrolytes drops lmeth magnesium"
+**Example input:** "smoothie, fig bar, electrolyte drops magnesium"
 
 **Parse as:**
 1. "smoothie" → recipe (check recipes table)
 2. "fig bar" → product (check products table)
-3. "electrolytes drops lmeth magnesium" → 4 supplements (check supplements table, log each as its own row)
+3. "electrolyte drops magnesium" -> supplements (check supplements table, log each as its own row)
 
 **Rules:**
-- Use today's date unless Darla says otherwise
+- Use today's date unless the user says otherwise
 - If she says a meal name (breakfast, lunch, etc.), use it. If not, infer from time of day.
 - Supplements are always `meal = supplement`
 - Servings: "2 fig bars" = servings 2 (one row). "half a smoothie" = servings 0.5
@@ -74,7 +73,7 @@ Before logging supplements, check for these interactions:
 
 1. **Alpha + Berberine same meal?** → Flag it. Same day different meals is fine. If combining lunch + PM, space berberine 30 min from alpha.
 2. **Probiotic with food?** → Works best on an empty stomach (10-15 min before eating is enough).
-3. **Liver cycle check:** When logging lunch supplements or liver cycle items, surface how Darla is feeling to determine the combo.
+3. **Protocol check:** When logging supplements with protocol-dependent timing, surface how the user is feeling to determine the combo.
 
 | How she feels | Combo |
 |---|---|
@@ -102,7 +101,7 @@ Before logging supplements, check for these interactions:
 | with_meals | Must take with food |
 | as_needed | Symptom-based, not daily |
 
-Timing is a guideline. Darla may take supplements at any time based on her day. Do not flag "late" or "off schedule."
+Timing is a guideline. The user may take supplements at any time based on their day. Do not flag "late" or "off schedule."
 
 ## When Product Isn't in the DB
 

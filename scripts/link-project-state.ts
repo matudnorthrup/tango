@@ -8,9 +8,9 @@
  * Usage:
  *   node --import tsx scripts/link-project-state.ts \
  *     --key thread:<threadId>            # or channel:<channelId>
- *     --path "Italy Motorcycle Trip June 2026.md"   # vault-relative .md
- *     [--title "Italy Motorcycle Trip"] [--status planning] \
- *     [--quick-read "June route locked; Kalepo flight open."] [--agent sierra]
+ *     --path "Projects/Launch Plan.md"   # vault-relative .md
+ *     [--title "Launch Plan"] [--status planning] \
+ *     [--quick-read "Release path locked; vendor decision open."] [--agent sierra]
  *
  * The conversationKey is `thread:{threadId}` when the conversation is a Discord
  * thread/forum post, else `channel:{channelId}` — the same key TangoRouter uses.

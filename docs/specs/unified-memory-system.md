@@ -1,7 +1,7 @@
 # Unified Memory System — Spec
 
 **Status:** Draft for review (2026-06-02)
-**Owner:** Devin (PM) · design partner: Claude · implementation: Codex
+**Owner:** Tango PM · design partner: Claude · implementation: Codex
 **Tracking:** Linear project *Unified Memory System* (work breakdown + status live there; this doc is the durable spec)
 
 ---
@@ -33,7 +33,7 @@ Four substrates that don't yet form one system:
 |---|---|---|
 | Core store `tango.sqlite` (`packages/core/src/memory-system.ts`) | Rich: messages, ranked memories+embeddings, summaries, pinned facts, topics, `active_context_items` | per-turn warm-start `context` block |
 | Atlas `~/.tango/atlas/memory.db` (`packages/atlas-memory`) | V2 surface; Voyage embeddings; post-turn Haiku extraction (~3,276 memories) | cold-start / rotation reseed |
-| Obsidian vault `~/Documents/main` (`packages/discord/src/personal-agent-tools.ts:524`) | Daily notes, job logs, nightly index → memory DB; direct `fs` I/O | nothing directly |
+| Obsidian vault (profile-configured) | Daily notes, job logs, nightly index -> memory DB; direct `fs` I/O | nothing directly |
 | Identity files (`packages/core/src/system-prompt.ts:99`) | soul + RULES + USER + knowledge, assembled once per runtime | static system prompt |
 
 **Findings that drive the design** (load-bearing ones verified in source):
@@ -99,7 +99,7 @@ L0  GOVERNANCE            source-vs-working protection; versioning; append-only
                           guards
 ```
 
-**Guiding principle (Devin):** collaborative content → Obsidian markdown
+**Guiding principle:** collaborative content -> Obsidian markdown
 (human+AI); AI-only content → machine-optimized (DB/embeddings). This becomes the
 L1 split and gives each store a job: **markdown is canonical for narrative; the
 DB is the index + fast-recall cache.**
@@ -112,8 +112,8 @@ DB is the index + fast-recall cache.**
 |---|---|---|
 | Arc scope | **Tango `project:{id}`** | A project spans threads/topics and outlives any one thread; matches existing project routing and the real Master-Plan→trip portfolio shape. Threads/topics attach to a project. |
 | State-file substrate | **Hybrid: DB head + Obsidian body** | DB head is source of truth for *recall* (status, open items, pointer); Obsidian body is the human-collaborative narrative. Robust to concurrent agents and off-vault-machine operation. |
-| Slice-1 proving ground | **Sierra motorcycle-trip planning** (Devin's vault, tested before merge) | A bounded, low-stakes project with a real evolving arc and an existing Obsidian doc; a bad write costs nothing while the new plumbing is shaken out. Devin validates. |
-| Governance anchor (Slice 2) | **Victor / legal-matter project**, staged after the spine | Legal documents make source-protection + versioning non-negotiable, so they drive the governance design — and transfer directly to Darla's legal use case. Runs on plumbing already proven by the trip. Validated on Devin's private vault; **no legal content enters the repo spec, Linear, or agent context beyond what is operationally necessary**. |
+| Slice-1 proving ground | **A bounded planning project** | A low-stakes project with a real evolving arc and an existing markdown doc; a bad write costs little while the new plumbing is shaken out. |
+| Governance anchor (Slice 2) | **A sensitive-operations project**, staged after the spine | Sensitive documents make source-protection + versioning non-negotiable, so they drive the governance design. No private content enters the repo spec, Linear, or agent context beyond what is operationally necessary. |
 
 ---
 
@@ -128,7 +128,7 @@ granular working set: open items, decisions, entities — keyed by `project_id`)
 
 `project_state` (proposed):
 - `project_id` (PK), `title`, `status` (active|planning|waiting|deferred|evergreen|reference|closed)
-- `quick_read` (short current-state summary — Darla's "Quick Read")
+- `quick_read` (short current-state summary)
 - `obsidian_path` (pointer to the markdown body), `template_id`
 - `prev_session_id` (session chaining for deep recall), `lead_agent_id`
 - `created_at`, `updated_at`, `last_saved_at`
@@ -146,7 +146,7 @@ Add a minimal state-managed header:
 
 Required body anchor (minimal, not rigid): a `## Quick Read` / current-state
 section and an `## Open Items` section. The rest of the body evolves freely —
-honoring Darla's "messy at first, refined over time." The contract enforces the
+honoring the workflow pattern of rough capture first, refinement later. The contract enforces the
 *header + anchors*, not the whole document.
 
 **Machine-consumed contract (as built, Slice 1).** The reseed reads, from the
@@ -245,7 +245,7 @@ On cold-start and after rotation, build context from:
 - **Write-time schema validation:** the obsidian write tool validates frontmatter
   against the `_Schema/` catalog *before* writing and returns actionable errors so
   the agent self-corrects (replaces reliance on the 4:55am `vault-audit.ts` cron).
-- **Versioning:** version history for working docs (Darla's legal-draft use case)
+- **Versioning:** version history for working docs in sensitive drafting use cases
   — keep prior versions retrievable; never silently overwrite a working draft.
 
 ---

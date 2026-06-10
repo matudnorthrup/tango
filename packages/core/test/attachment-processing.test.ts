@@ -99,7 +99,7 @@ describe("createAttachmentProcessingHandlers", () => {
       bytes: Buffer.from(
         [
           "# Project Plan",
-          "Owner: Darla",
+          "Owner: User",
           "Total $12.34",
           "",
           "Item,Qty,Price",
@@ -131,7 +131,7 @@ describe("createAttachmentProcessingHandlers", () => {
     expect(harness.store.listExtractions(attachment.id)).toHaveLength(1);
     expect(harness.store.listExtractions(attachment.id)[0]).toMatchObject({
       method: "utf8_text",
-      text: expect.stringContaining("Owner: Darla"),
+      text: expect.stringContaining("Owner: User"),
     });
     expect(harness.store.listChunks(attachment.id).length).toBeGreaterThan(0);
 
@@ -161,7 +161,7 @@ describe("createAttachmentProcessingHandlers", () => {
     expect(directory.key_facts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          text: "Owner: Darla",
+          text: "Owner: User",
           source_ref: expect.stringMatching(/^text:\d+:chars:\d+-\d+$/u),
           chunk_ref: expect.stringMatching(/^chunk:\d+$/u),
         }),
@@ -181,7 +181,7 @@ describe("createAttachmentProcessingHandlers", () => {
     expect(directory.snippets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          text: "Owner: Darla",
+          text: "Owner: User",
           source_ref: expect.stringMatching(/^chunk:\d+$/u),
           text_ref: expect.stringMatching(/^text:\d+:chars:\d+-\d+$/u),
         }),
@@ -469,10 +469,10 @@ describe("createAttachmentProcessingHandlers", () => {
           return buildAttachmentLlmFallbackResultFromProviderOutput(
             JSON.stringify({
               summary: "Screenshot of a whiteboard planning diagram.",
-              extracted_text: "Launch plan\nOwner: Darla\nDecision: use compact directories",
+              extracted_text: "Launch plan\nOwner: User\nDecision: use compact directories",
               key_facts: [
                 {
-                  text: "Owner: Darla",
+                  text: "Owner: User",
                   source_ref: `attachment:${input.attachment.id}`,
                 },
                 {
@@ -517,7 +517,7 @@ describe("createAttachmentProcessingHandlers", () => {
     });
     expect(extractions[1]).toMatchObject({
       method: LLM_VISION_FALLBACK_METHOD,
-      text: expect.stringContaining("Owner: Darla"),
+      text: expect.stringContaining("Owner: User"),
       confidence: 0.82,
       metadata: expect.objectContaining({
         fallbackReason: "empty",
@@ -548,7 +548,7 @@ describe("createAttachmentProcessingHandlers", () => {
     expect(directory.key_facts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          text: expect.stringContaining("Owner: Darla"),
+          text: expect.stringContaining("Owner: User"),
           source_ref: expect.stringMatching(/^text:\d+:chars:\d+-\d+$/u),
         }),
       ]),

@@ -30,7 +30,7 @@ mcp_servers:
   #   args: ["packages/core/dist/mcp-proxy.js", "wellness"]
   #   env:
   #     ALLOWED_TOOL_IDS: "email_inbox_scan,email_search,email_thread_brief"
-  #     PIPER_GMAIL_ACCOUNT: "darla@latitude.io"
+  #     PIPER_GMAIL_ACCOUNT: "work@example.test"
   # - name: slack
   #   command: node
   #   args: ["packages/core/dist/mcp-proxy.js", "slack"]
@@ -43,7 +43,7 @@ mcp_servers:
   #     ALLOWED_TOOL_IDS: "TBD"
 
 current_turn_metadata:
-  timezone: America/Denver
+  timezone: UTC
   time_format: 12h
 
 runtime:
@@ -61,15 +61,13 @@ memory:
   scheduled_reflection: disabled
 
 discord:
-  # Discord setup complete (bot, token, guild, forum perms). Smoke test pending.
-  default_channel_id: "1510669963063722125"
+  default_channel_id: "100000000000000003"
   typing_token_env: PIPER_DISCORD_TOKEN
 
 access:
   mode: allowlist
   allowlist_channel_ids:
-    - "1510669963063722125"
-  # Only Piper (and Sage when migrated) may operate in this forum — not Penn/Jules/other agents.
+    - "100000000000000003"
 
 provider:
   default: claude-oauth

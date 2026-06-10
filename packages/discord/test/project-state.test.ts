@@ -39,37 +39,37 @@ describe("project-state integration", () => {
 
   it("builds a whisper pointer and a reseed block from the head + open items", () => {
     const storage = createStorage();
-    const key = "thread:italy";
+    const key = "thread:launch";
     storage.upsertProjectState({
       projectId: key,
-      title: "Italy Motorcycle Trip",
+      title: "Launch Plan",
       status: "planning",
-      quickRead: "June route locked; Kalepo flight decision open.",
-      obsidianPath: "Italy Motorcycle Trip June 2026.md",
+      quickRead: "Release path locked; vendor decision open.",
+      obsidianPath: "Launch Plan.md",
     });
 
     const pointer = buildStateFilePointer(storage, key);
     expect(pointer).toEqual({
-      path: "Italy Motorcycle Trip June 2026.md",
-      project: "Italy Motorcycle Trip",
+      path: "Launch Plan.md",
+      project: "Launch Plan",
       status: "planning",
     });
 
     storage.upsertActiveContextItem({
-      key: "kalepo-flight",
+      key: "vendor-decision",
       kind: "decision",
-      title: "Kalepo flight",
-      summary: "Decide whether to move return +1/+2 days.",
+      title: "Vendor decision",
+      summary: "Decide whether to keep the current vendor or switch.",
       scope: { projectId: key },
     });
 
     const block = renderProjectStateBlock(storage, key)!;
-    expect(block).toContain("Project: Italy Motorcycle Trip (status: planning)");
-    expect(block).toContain("Quick read: June route locked");
-    expect(block).toContain("State file: Italy Motorcycle Trip June 2026.md");
+    expect(block).toContain("Project: Launch Plan (status: planning)");
+    expect(block).toContain("Quick read: Release path locked");
+    expect(block).toContain("State file: Launch Plan.md");
     expect(block).toContain("read it before responding");
     expect(block).toContain("Open items:");
-    expect(block).toContain("[decision] Kalepo flight: Decide whether to move return");
+    expect(block).toContain("[decision] Vendor decision: Decide whether to keep");
     storage.close();
   });
 
@@ -101,28 +101,28 @@ describe("project-state integration", () => {
     const storage = createStorage();
     const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tango-vault-"));
     tempDirs.push(vaultRoot);
-    const rel = "Trips/Italy.md";
-    fs.mkdirSync(path.join(vaultRoot, "Trips"), { recursive: true });
+    const rel = "Projects/Launch.md";
+    fs.mkdirSync(path.join(vaultRoot, "Projects"), { recursive: true });
     fs.writeFileSync(
       path.join(vaultRoot, rel),
       [
         "---", "status: planning", "---", "",
-        "## Quick Read", "Route locked; +2 days added for Tre Cime.", "",
-        "## Open Items", "- Book Cortina (pricey in summer)", "- Decide Kalepo return flight", "",
+        "## Quick Read", "Release path locked; staging buffer added.", "",
+        "## Open Items", "- Confirm launch checklist", "- Decide vendor owner", "",
         "## Notes", "misc",
       ].join("\n"),
     );
 
-    const key = "thread:italy";
+    const key = "thread:launch";
     storage.upsertProjectState({
-      projectId: key, title: "Italy", status: "active", quickRead: "stale head text", obsidianPath: rel,
+      projectId: key, title: "Launch", status: "active", quickRead: "stale head text", obsidianPath: rel,
     });
 
     const block = renderProjectStateBlock(storage, key, { vaultRoot })!;
-    expect(block).toContain("Quick read: Route locked; +2 days added for Tre Cime.");
+    expect(block).toContain("Quick read: Release path locked; staging buffer added.");
     expect(block).not.toContain("stale head text"); // live body overrides the head
-    expect(block).toContain("- Book Cortina (pricey in summer)");
-    expect(block).toContain("- Decide Kalepo return flight");
+    expect(block).toContain("- Confirm launch checklist");
+    expect(block).toContain("- Decide vendor owner");
 
     // Missing file → graceful fallback to the head's quick read.
     storage.upsertProjectState({
@@ -158,10 +158,10 @@ describe("project-state integration", () => {
 
   it("the cold-start builder injects the project reseed block (end-to-end wiring)", async () => {
     const storage = createStorage();
-    const key = "thread:italy";
+    const key = "thread:launch";
     storage.upsertProjectState({
-      projectId: key, title: "Italy Trip", status: "planning",
-      quickRead: "June route locked.", obsidianPath: "Italy.md",
+      projectId: key, title: "Launch Plan", status: "planning",
+      quickRead: "Release path locked.", obsidianPath: "Launch.md",
     });
     const atlasStub = { pinnedFactGet: async () => [], memorySearch: async () => [] };
     const builder = createAtlasColdStartContextBuilder(atlasStub as never, {
@@ -170,9 +170,9 @@ describe("project-state integration", () => {
 
     const ctx = await builder(key, "sierra");
     expect(ctx.recentMessages).toContain("Project state:");
-    expect(ctx.recentMessages).toContain("Project: Italy Trip (status: planning)");
-    expect(ctx.recentMessages).toContain("Quick read: June route locked.");
-    expect(ctx.recentMessages).toContain("State file: Italy.md");
+    expect(ctx.recentMessages).toContain("Project: Launch Plan (status: planning)");
+    expect(ctx.recentMessages).toContain("Quick read: Release path locked.");
+    expect(ctx.recentMessages).toContain("State file: Launch.md");
 
     // Unbound conversation → no project block.
     const empty = await builder("thread:unbound", "sierra");

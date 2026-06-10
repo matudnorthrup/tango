@@ -43,7 +43,7 @@ Systematic validation of every MCP tool on every v2 agent using the test harness
 | Tool | Test Prompt | Result | Response Excerpt | Notes |
 |------|-------------|--------|-----------------|-------|
 | memory_search | "What do you remember about my work schedule?" | **PASS** | (tested via other agents, same tool) | Memory MCP shared correctly |
-| gog_email | "Check my latest email" | **PASS** | Full inbox summary across both accounts (devin@latitude.io, gmail) | Returned real email data |
+| gog_email | "Check my latest email" | **PASS** | Full inbox summary across both configured accounts | Returned real email data |
 | gog_calendar | "What's on my calendar today?" | **PASS** | Full day schedule with birthday, routines, blocks | Correct for April 21 |
 | gog_docs | "List my recent Google Docs" | **PASS** | 10 most recent docs listed with dates | Ward Council Agenda at top |
 | gog_docs_update_tab | (skip — write operation) | SKIP | | Would modify user docs |

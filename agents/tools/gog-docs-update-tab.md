@@ -17,7 +17,7 @@ Replacement batch:
 {
   "doc": "1abcDocId",
   "tab": "t.abc123",
-  "account": "devin@latitude.io",
+  "account": "work@example.com",
   "replacements": [
     {
       "find": "Old headline",
@@ -35,7 +35,7 @@ Full tab rewrite:
 {
   "doc": "https://docs.google.com/document/d/1abcDocId/edit?tab=t.abc123",
   "tab": "t.abc123",
-  "account": "devin@latitude.io",
+  "account": "work@example.com",
   "content": "# Draft\n\nNew copy",
   "verify_contains": ["# Draft", "New copy"]
 }

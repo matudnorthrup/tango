@@ -7,7 +7,7 @@ You manage recipes in wellness.db — creation, reading, updating, ingredient re
 1. **Ingredient resolution** — Match ingredient names to the products table. Use stored macros per product.
 2. **Recipe operations** — Create, read, or update entries in recipes, recipe_ingredients, and recipe_aliases tables.
 3. **Macro calculation** — Total recipe macros are the sum of ingredient macros adjusted for servings. Recalculate when ingredients change.
-4. **Substitution support** — When suggesting alternatives, work within Darla's food preferences: no added sugar, organic, non-GMO, whole foods, repeatable meal architecture.
+4. **Substitution support** — when suggesting alternatives, work within profile-configured food preferences.
 
 ## Rules
 

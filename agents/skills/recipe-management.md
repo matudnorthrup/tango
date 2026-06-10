@@ -4,7 +4,7 @@ Step-by-step workflow for creating, reading, updating, and managing recipes in w
 
 ## When to use
 
-Any time Darla asks to create a recipe, modify an existing one, check recipe macros, substitute ingredients, or plan meals using recipes.
+Any time the user asks to create a recipe, modify an existing one, check recipe macros, substitute ingredients, or plan meals using recipes.
 
 ## Tables
 
@@ -25,7 +25,7 @@ Any time Darla asks to create a recipe, modify an existing one, check recipe mac
 2. **Calculate macros** — sum ingredient macros for total recipe macros. Divide by servings for per-serving.
 3. **Write the recipe** — insert into recipes table with name, servings, total macros.
 4. **Write ingredients** — insert each ingredient into recipe_ingredients with recipe_id, product_id, quantity, and per-ingredient macros.
-5. **Add shorthand** — if Darla provides a shorthand name, set it on the recipe.
+5. **Add shorthand** — if the user provides a shorthand name, set it on the recipe.
 6. **Add aliases** — if the recipe has common alternative names, add to recipe_aliases.
 
 ## Recipe Update
@@ -37,17 +37,15 @@ Any time Darla asks to create a recipe, modify an existing one, check recipe mac
 
 ## Ingredient Substitution
 
-When suggesting alternatives, work within Darla's food preferences:
-- No added sugar
-- Organic and non-GMO when possible
-- Whole, minimally processed foods
-- Check the products table for available alternatives before suggesting anything external
+When suggesting alternatives, work within configured food preferences from the
+profile overlay. Check the products table for available alternatives before
+suggesting anything external.
 
 For each substitution: show the macro impact (what changes in calories, protein, carbs, fat per serving).
 
 ## Meal Planning and Grocery Lists
 
-1. **Build a meal plan** — select recipes and meals for the timeframe based on Darla's food preferences, rotation rules, and what's in season/available.
+1. **Build a meal plan** — select recipes and meals for the timeframe based on configured food preferences, rotation rules, and what's in season/available.
 2. **Generate a grocery list** — pull ingredients from the planned recipes, aggregate quantities, and organize by store or category.
 3. **Save the plan** — write to `nutrition/meal-plans/` with the date range in the filename.
 
