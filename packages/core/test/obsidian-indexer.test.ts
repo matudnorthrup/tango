@@ -139,4 +139,94 @@ describe("obsidian indexer", () => {
 
     storage.close();
   });
+
+  it("mirrors indexed chunks (embeddings included) into the secondary sink", async () => {
+    const { storage, vaultDir } = createFixture();
+    const notePath = path.join(vaultDir, "Trip Plan.md");
+    fs.writeFileSync(
+      notePath,
+      "# Trip Plan\n\nPuerto Escondido fishing charters: inshore and offshore options.",
+      "utf8"
+    );
+
+    const pruned: string[] = [];
+    const added: Array<{ sourceRef: string; embedding: number[] | null }> = [];
+    const sink = {
+      prune: (prefix: string) => pruned.push(prefix),
+      addChunks: (chunks: Array<{ sourceRef: string; embedding: number[] | null }>) => {
+        added.push(...chunks.map((chunk) => ({ sourceRef: chunk.sourceRef, embedding: chunk.embedding })));
+      },
+    };
+    const embeddingProvider = {
+      model: "test-embed",
+      async embed(inputs: string[]): Promise<number[][]> {
+        return inputs.map(() => [0.25, 0.5, 0.75]);
+      },
+    };
+
+    const firstRun = await indexObsidianVault({
+      storage,
+      paths: [vaultDir],
+      embeddingProvider,
+      secondarySink: sink,
+    });
+    expect(firstRun.sinkSyncedCount).toBeGreaterThan(0);
+    expect(firstRun.sinkErrorCount).toBe(0);
+    expect(pruned.length).toBeGreaterThan(0);
+    expect(added.length).toBe(firstRun.sinkSyncedCount);
+    expect(added.every((chunk) => chunk.sourceRef.startsWith("obsidian:"))).toBe(true);
+    expect(added.every((chunk) => Array.isArray(chunk.embedding) && chunk.embedding.length === 3)).toBe(true);
+
+    // Unchanged files do not re-sync.
+    pruned.length = 0;
+    added.length = 0;
+    const secondRun = await indexObsidianVault({
+      storage,
+      paths: [vaultDir],
+      embeddingProvider,
+      secondarySink: sink,
+    });
+    expect(secondRun.sinkSyncedCount).toBe(0);
+    expect(pruned).toHaveLength(0);
+
+    // Removed files prune the sink copy too.
+    fs.rmSync(notePath);
+    const thirdRun = await indexObsidianVault({
+      storage,
+      paths: [vaultDir],
+      embeddingProvider,
+      secondarySink: sink,
+    });
+    expect(thirdRun.removedFileCount).toBe(1);
+    expect(pruned.length).toBeGreaterThan(0);
+
+    storage.close();
+  });
+
+  it("treats secondary sink failures as warnings, not index failures", async () => {
+    const { storage, vaultDir } = createFixture();
+    fs.writeFileSync(
+      path.join(vaultDir, "Note.md"),
+      "# Note\n\nEnough body text in this note for the chunker to produce one indexed memory entry.",
+      "utf8"
+    );
+
+    const result = await indexObsidianVault({
+      storage,
+      paths: [vaultDir],
+      secondarySink: {
+        prune: () => {
+          throw new Error("atlas unavailable");
+        },
+        addChunks: () => undefined,
+      },
+    });
+
+    expect(result.indexedFileCount).toBe(1);
+    expect(result.insertedMemoryCount).toBeGreaterThan(0);
+    expect(result.sinkErrorCount).toBeGreaterThan(0);
+    expect(result.sinkSyncedCount).toBe(0);
+
+    storage.close();
+  });
 });
