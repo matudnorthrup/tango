@@ -37,7 +37,11 @@ runtime:
   mode: persistent
   provider: claude-code-v2
   fallback: codex
-  model: deepseek-v4-flash
+  # Operating rule (2026-06-09): defaults are the dependability tier; downgrades
+  # require evidence. flash never earned default status and carries adverse
+  # evidence (intermittent fabrication on travel.diesel, 0.60 rubric on the
+  # write-chain fixture). flash stays available for per-task pins it earns.
+  model: deepseek-v4-pro:cloud
   reasoning_effort: low
   idle_timeout_hours: 4
   context_reset_threshold: 0.50
@@ -87,10 +91,10 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — distinct "Whiskey <Name>" wake word so it never
+# Voice addressing — distinct "Bravo <Name>" wake word so it never
 # collides with the original charlie's wake word (start-anchored matcher).
 voice:
   call_signs:
-    - "Whiskey Charlie"
+    - "Bravo Charlie"
   kokoro_voice: af_aoede
   default_channel_id: "1513207671615000586"

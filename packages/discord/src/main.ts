@@ -23,6 +23,7 @@ import {
   AttachmentStore,
   type AgentRuntimeConfig,
   assembleSessionMemoryPrompt,
+  memoryHasEmbedding,
   buildAttachmentDirectoryContext,
   buildDeterministicConversationMemory,
   buildDeterministicConversationSummary,
@@ -50,6 +51,8 @@ import {
   DEFAULT_PROVIDER_TIMEOUT_MS,
   formatExecutionTraceForLog,
   indexObsidianVault,
+  backfillMissingMemoryEmbeddings,
+  resolveTangoProfileDir,
   type ModelRunRecord,
   type MessageInsertInput,
   type ModelRunInsertInput,
@@ -180,7 +183,11 @@ import {
 } from "./agent-typing-presenter.js";
 import { resolveVoiceWatermarkTarget } from "./voice-watermarks.js";
 import { IMessageListener, type IMessageInboundMessage } from "./imessage-listener.js";
-import { parseNaturalTextRoute, type NaturalTextSystemCommand } from "./natural-routing.js";
+import {
+  parseNaturalTextRoute,
+  type NaturalTextRoute,
+  type NaturalTextSystemCommand,
+} from "./natural-routing.js";
 import { resolveTargetAgent } from "./target-agent.js";
 import { processAttachments, cleanupAttachments } from "./attachment-processor.js";
 import {
@@ -252,10 +259,28 @@ import {
   waitForVictorResponse,
   type VictorBridgeMessage,
 } from "./victor-bridge.js";
+import { installFileLogMirror } from "./file-logger.js";
+import {
+  loadAtlasWarmStartMemory,
+  loadCoreWarmStartMemory,
+  mapAtlasContextRows,
+  resolveWarmStartMemorySubstrate,
+  type WarmStartMemoryBundle,
+} from "./warm-start-memory-source.js";
 
 export * from "./tango-router.js";
 
 dotenv.config();
+
+installFileLogMirror({ dir: path.join(resolveTangoProfileDir(), "logs") });
+
+// Set when the scheduler wires its Discord alert sink; lets deterministic
+// handlers (e.g. memory-eval-report) raise alerts beyond job-crash cases.
+let schedulerAlert: ((channelId: string, content: string) => Promise<void>) | undefined;
+
+// Store consolidation: which substrate backs warm-start distilled memory.
+const warmStartMemorySubstrate = resolveWarmStartMemorySubstrate();
+console.log(`[tango-memory] warm-start memory substrate=${warmStartMemorySubstrate}`);
 
 const slotModeActive = isSlotModeActive(process.env);
 let allowedChannels = parseAllowedChannels(process.env.DISCORD_ALLOWED_CHANNELS);
@@ -269,6 +294,8 @@ type ResponseMode = "concise" | "explain";
 interface WarmStartContextDiagnostics {
   strategy: "session-memory-prompt" | "context-packet" | "attachment-directory-context" | "none";
   orchestratorContinuityMode: OrchestratorContinuityMode;
+  /** Which store backed the distilled-memory zones for this turn. */
+  memorySubstrate?: "atlas" | "core";
   channelSurfaceSupplementalMessages?: number;
   error?: string;
   memoryPrompt?: {
@@ -1363,9 +1390,37 @@ registerDeterministicHandler("memory-index-obsidian", async (_ctx) => {
   const result = await indexObsidianVault({
     storage,
     embeddingProvider: getEmbeddingProvider(),
+    // Mirror indexed chunks (embeddings included) into Atlas so agent
+    // memory_search sees fresh vault content (TGO-691).
+    secondarySink: {
+      prune: (sourceRefPrefix) => atlasMemoryClient.obsidianPrune(sourceRefPrefix),
+      addChunks: (chunks) => atlasMemoryClient.obsidianAddChunks(chunks),
+    },
   });
 
-  if (result.indexedFileCount === 0 && result.removedFileCount === 0) {
+  // Drain memories left without embeddings by historical silent batch failures
+  // (TGO-692) — and any rows the run above failed to embed after retries.
+  const missingEmbeddings = await backfillMissingMemoryEmbeddings({
+    storage,
+    embeddingProvider: getEmbeddingProvider(),
+    source: "obsidian",
+  });
+  const embedSummary =
+    `; embeddings: ${result.embeddedMemoryCount}/${result.insertedMemoryCount} new` +
+    (missingEmbeddings.scannedCount > 0
+      ? `, backfilled ${missingEmbeddings.embeddedCount}/${missingEmbeddings.scannedCount} missing`
+      : "") +
+    (result.embedFailedCount + missingEmbeddings.failedCount > 0
+      ? `, ${result.embedFailedCount + missingEmbeddings.failedCount} FAILED (${[...result.embedErrors, ...missingEmbeddings.embedErrors].slice(0, 2).join("; ") || "unknown"})`
+      : "") +
+    `; atlas sync: ${result.sinkSyncedCount} chunks` +
+    (result.sinkErrorCount > 0 ? `, ${result.sinkErrorCount} sync ERRORS` : "");
+
+  if (
+    result.indexedFileCount === 0 &&
+    result.removedFileCount === 0 &&
+    missingEmbeddings.scannedCount === 0
+  ) {
     return {
       status: "skipped",
       summary: `No Obsidian memory index changes across ${result.scannedFileCount} scanned files`,
@@ -1376,7 +1431,7 @@ registerDeterministicHandler("memory-index-obsidian", async (_ctx) => {
     status: "ok",
     summary:
       `Indexed ${result.indexedFileCount} Obsidian files, removed ${result.removedFileCount}, ` +
-      `left ${result.unchangedFileCount} unchanged`,
+      `left ${result.unchangedFileCount} unchanged${embedSummary}`,
     data: {
       scannedFileCount: result.scannedFileCount,
       indexedFileCount: result.indexedFileCount,
@@ -1384,6 +1439,13 @@ registerDeterministicHandler("memory-index-obsidian", async (_ctx) => {
       removedFileCount: result.removedFileCount,
       insertedMemoryCount: result.insertedMemoryCount,
       deletedMemoryCount: result.deletedMemoryCount,
+      embeddedMemoryCount: result.embeddedMemoryCount,
+      embedFailedCount: result.embedFailedCount,
+      missingEmbeddingsScanned: missingEmbeddings.scannedCount,
+      missingEmbeddingsBackfilled: missingEmbeddings.embeddedCount,
+      missingEmbeddingsFailed: missingEmbeddings.failedCount,
+      atlasSyncedCount: result.sinkSyncedCount,
+      atlasSyncErrorCount: result.sinkErrorCount,
     },
   };
 });
@@ -1457,8 +1519,39 @@ registerDeterministicHandler("memory-eval-report", async (_ctx) => {
     storage,
     config: memoryEvalConfig,
     embeddingProvider: getEmbeddingProvider(),
+    // Benchmarks measure the same substrate the live warm-start reads (TGO-698).
+    listCandidates:
+      warmStartMemorySubstrate === "atlas"
+        ? (filter) =>
+            mapAtlasContextRows(
+              atlasMemoryClient.listMemoriesForContext({
+                agentId: filter.agentId ?? null,
+                limit: filter.limit,
+              }),
+            ).memories
+        : undefined,
     now,
   });
+
+  // Benchmark regressions previously sat red for days because the scheduler
+  // only alerts when the job itself crashes (TGO-696). Alert on failed cases.
+  if (benchmarkRun.failedCount > 0) {
+    const failedLines = benchmarkRun.cases
+      .filter((caseResult) => !caseResult.passed)
+      .map((caseResult) => `- ${caseResult.caseId}: ${caseResult.failureReasons.join("; ") || "failed"}`)
+      .join("\n");
+    const alertMessage =
+      `**Memory Eval Alert**\n${benchmarkRun.failedCount}/${benchmarkRun.cases.length} retrieval benchmarks failing:\n${failedLines}`;
+    try {
+      await schedulerAlert?.("", alertMessage);
+    } catch (error) {
+      console.warn(
+        `[tango-discord] memory-eval benchmark alert failed to send: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
   const snapshotSamples = collectPromptSnapshotAuditSamples({
     storage,
     config: memoryEvalConfig,
@@ -1545,12 +1638,14 @@ registerDeterministicHandler("model-scorecard", async (_ctx) => {
   const utcBoundary = (daysAgo: number) =>
     new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
   const currentSince = utcBoundary(windowDays);
+  const recentSince = utcBoundary(1);
   const allSince = storage.listModelRunStats(utcBoundary(windowDays * 2));
   const current = allSince.filter((row) => row.createdAt >= currentSince);
   const previous = allSince.filter((row) => row.createdAt < currentSince);
   const scorecard = buildModelScorecard({
     current,
     previous,
+    recent: current.filter((row) => row.createdAt >= recentSince),
     evaluatedModels: loadEvaluatedModels(process.cwd()),
     windowDays,
     now,
@@ -1794,6 +1889,7 @@ startPersistentMcpServer().then((port) => {
           await sendPresentedReply(channel as Message["channel"], content, systemSpeaker);
         }
       : undefined;
+    schedulerAlert = sendAlert;
 
     // --- Scheduler system log: post one-liner for every run to #system-log ---
     const logChannelId = env.TANGO_SCHEDULER_LOG_CHANNEL_ID;
@@ -2199,6 +2295,28 @@ function getChannelTopicByName(channelKey: string, topicName: string): TopicReco
   const slug = normalizeTopicSlug(topicName);
   if (!slug) return null;
   return storage.getTopicByChannelAndSlug(channelKey, slug);
+}
+
+// Inline "on X:"/"in X," prefixes count as topic references only when they name
+// an existing topic for the channel or use the explicit "topic" keyword.
+// Without this, ordinary prose like "On the return, there are a couple of
+// ways..." spawns a junk topic and strands the turn in a fresh session
+// (TGO-690, Puerto Escondido incident).
+function applyInlineTopicGuard(
+  naturalRoute: NaturalTextRoute | null,
+  channelKey: string,
+): NaturalTextRoute | null {
+  if (!naturalRoute?.topicName) return naturalRoute;
+  if (naturalRoute.topicExplicit) return naturalRoute;
+  if (getChannelTopicByName(channelKey, naturalRoute.topicName)) return naturalRoute;
+  console.log(
+    `[tango-discord] inline topic ignored (no existing topic, no "topic" keyword): "${naturalRoute.topicName.slice(0, 80)}"`,
+  );
+  return {
+    ...naturalRoute,
+    topicName: null,
+    promptText: naturalRoute.promptTextBeforeTopicStrip,
+  };
 }
 
 function resolveActiveTextRoute(
@@ -4957,9 +5075,16 @@ async function buildWarmStartContext(input: {
 }): Promise<WarmStartContextResult> {
   try {
     const allMessages = storage.listMessagesForSession(input.sessionId, 5000);
+    // Messages persist with discord_channel_id = the surface they arrived on
+    // (the thread id for thread/forum-post messages), while discordChannelId
+    // here is the routing id (the parent channel for threads). Select recent
+    // surface messages by the thread id when present, or session messages get
+    // filtered out and the supplement reads the wrong surface (TGO-688).
+    const messageSurfaceChannelId =
+      input.discordThreadId?.trim() || input.discordChannelId?.trim() || null;
     const recentChannelMessages =
-      input.discordChannelId
-        ? storage.listRecentMessagesForDiscordChannel(input.discordChannelId, 80)
+      messageSurfaceChannelId
+        ? storage.listRecentMessagesForDiscordChannel(messageSurfaceChannelId, 80)
         : [];
     const {
       messages,
@@ -4967,7 +5092,7 @@ async function buildWarmStartContext(input: {
     } = selectWarmStartMessages({
       sessionMessages: allMessages,
       recentChannelMessages,
-      channelId: input.discordChannelId,
+      channelId: messageSurfaceChannelId,
       agentId: input.agentId,
     });
     const attachmentContext = buildAttachmentDirectoryContext({
@@ -4990,14 +5115,38 @@ async function buildWarmStartContext(input: {
     const sessionConfig = resolveEffectiveSessionConfig(input.sessionId);
     const memoryConfig = resolveSessionMemoryConfig(sessionConfig?.memory);
     const orchestratorContinuityMode = input.orchestratorContinuityMode ?? "provider";
-    const memories = storage.listMemories({
+    // Store consolidation: distilled memory (memories/pinned/summaries) reads
+    // the Atlas substrate — where extraction, reflections, and the obsidian
+    // mirror all write — with per-call fallback to the legacy core tables.
+    // TANGO_WARM_START_MEMORY_SOURCE=core flips back without a deploy.
+    const memoryQuery = {
       sessionId: input.sessionId,
       agentId: input.agentId,
-      limit: Math.max(memoryConfig.memoryLimit * 25, 5000),
-    });
+      conversationKey: input.discordThreadId
+        ? `thread:${input.discordThreadId}`
+        : input.discordChannelId
+          ? `channel:${input.discordChannelId}`
+          : null,
+      memoryPoolLimit: Math.max(memoryConfig.memoryLimit * 25, 5000),
+    };
+    let memoryBundle: WarmStartMemoryBundle;
+    if (warmStartMemorySubstrate === "atlas") {
+      try {
+        memoryBundle = loadAtlasWarmStartMemory(atlasMemoryClient, memoryQuery);
+      } catch (error) {
+        console.warn(
+          `[tango-memory] atlas warm-start source failed; falling back to core: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        memoryBundle = loadCoreWarmStartMemory(storage, memoryQuery);
+      }
+    } else {
+      memoryBundle = loadCoreWarmStartMemory(storage, memoryQuery);
+    }
+    const memories = memoryBundle.memories;
     const queryEmbedding =
-      input.currentUserPrompt &&
-      memories.some((memory) => typeof memory.embeddingJson === "string" && memory.embeddingJson.length > 0)
+      input.currentUserPrompt && memories.some(memoryHasEmbedding)
         ? await maybeEmbedText(input.currentUserPrompt, "query", "warm-start query")
         : null;
     const memoryPrompt = assembleSessionMemoryPrompt({
@@ -5008,14 +5157,22 @@ async function buildWarmStartContext(input: {
       allowFullHistoryBypass: orchestratorContinuityMode !== "stateless",
       memoryConfig,
       messages,
-      summaries: storage.listSessionMemorySummaries(input.sessionId, input.agentId, 24),
+      summaries: memoryBundle.summaries,
       memories,
-      pinnedFacts: storage.listPinnedFactsForContext(input.sessionId, input.agentId),
+      pinnedFacts: memoryBundle.pinnedFacts,
       excludeMessageIds: input.excludeMessageIds,
     });
 
     if (memoryPrompt.accessedMemoryIds.length > 0) {
-      storage.touchMemories(memoryPrompt.accessedMemoryIds);
+      try {
+        memoryBundle.touch(memoryPrompt.accessedMemoryIds);
+      } catch (error) {
+        console.warn(
+          `[tango-memory] memory access touch failed (${memoryBundle.substrate}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     const memoryPromptText = memoryPrompt.prompt.trim();
@@ -5026,6 +5183,7 @@ async function buildWarmStartContext(input: {
         diagnostics: {
           strategy: "session-memory-prompt",
           orchestratorContinuityMode,
+          memorySubstrate: memoryBundle.substrate,
           channelSurfaceSupplementalMessages: supplementalMessageCount,
           attachmentDirectoryContext,
           memoryPrompt: {
@@ -6604,14 +6762,16 @@ async function handleMessage(
     );
   }
   const commandParse = parseLeadingCommands(effectiveContent);
-  const naturalRoute =
+  const naturalRoute = applyInlineTopicGuard(
     commandParse.agentOverride === null
       ? parseNaturalTextRoute({
           text: commandParse.promptText,
           voiceTargets,
           focusedAgentId: getFocusedTextAgentId(channelKey)
         })
-      : null;
+      : null,
+    channelKey
+  );
   const replyReferent = resolveReplyReferent(message);
   const reactionReferent = takeReactionReferent(message);
   const messageReferent = replyReferent ?? reactionReferent;

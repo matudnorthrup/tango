@@ -64,11 +64,22 @@ describe("topic routing helpers", () => {
   it("extracts inline topic references from prompts", () => {
     expect(extractInlineTopicReference("in auth redesign, draft acceptance criteria")).toEqual({
       topicName: "auth redesign",
-      promptText: "draft acceptance criteria"
+      promptText: "draft acceptance criteria",
+      usedTopicKeyword: false
     });
     expect(extractInlineTopicReference("on topic workout log: log bench 135 for 8")).toEqual({
       topicName: "workout log",
-      promptText: "log bench 135 for 8"
+      promptText: "log bench 135 for 8",
+      usedTopicKeyword: true
+    });
+    expect(
+      extractInlineTopicReference(
+        "On the return there are a couple of ways to think about this: 1. Coming home June 30th."
+      )
+    ).toEqual({
+      topicName: "the return there are a couple of ways to think about this",
+      promptText: "1. Coming home June 30th.",
+      usedTopicKeyword: false
     });
   });
 

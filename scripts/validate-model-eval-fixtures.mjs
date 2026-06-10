@@ -140,6 +140,9 @@ for (const file of readdirSync(TASK_DIR).filter((name) => name.endsWith(".json")
   if (task.timeoutMs !== undefined && (!Number.isInteger(task.timeoutMs) || task.timeoutMs < 1000)) {
     fail(file, "timeoutMs must be an integer >= 1000");
   }
+  if (task.maxTurns !== undefined && (!Number.isInteger(task.maxTurns) || task.maxTurns < 1 || task.maxTurns > 200)) {
+    fail(file, "maxTurns must be an integer in [1, 200]");
+  }
   if (task.incumbentModel !== undefined) assertString(task.incumbentModel, file, "incumbentModel");
   if (task.benchmarkModels !== undefined) assertStringArray(task.benchmarkModels, file, "benchmarkModels", { allowEmpty: true });
   if (task.forbiddenTools !== undefined) assertStringArray(task.forbiddenTools, file, "forbiddenTools", { allowEmpty: true });

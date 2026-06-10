@@ -656,6 +656,12 @@ export interface StoredMemoryRecord {
   importance: number;
   sourceRef: string | null;
   embeddingJson: string | null;
+  /**
+   * Pre-decoded embedding vector. Adapters over stores that hold binary
+   * embeddings (Atlas) populate this instead of embeddingJson so ranking
+   * skips a JSON round-trip per row; when present it wins over embeddingJson.
+   */
+  embedding?: number[] | null;
   embeddingModel: string | null;
   createdAt: string;
   lastAccessedAt: string;
@@ -2236,6 +2242,41 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'osrm_route');
     `,
   },
+  {
+    version: 48,
+    sql: `
+      INSERT OR IGNORE INTO principals (id, type, display_name)
+        VALUES ('user:owner', 'user', 'Owner');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+        ('agent:watson-ollama', 'agent', 'user:owner', 'Watson (Ollama)'),
+        ('worker:watson-ollama', 'worker', 'agent:watson-ollama', 'Watson Ollama Runtime');
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('email_inbox_scan', 'personal', 'Email Inbox Scan (read-only)', 'read'),
+        ('email_search', 'personal', 'Email Search (read-only)', 'read'),
+        ('email_thread_brief', 'personal', 'Email Thread Brief (read-only)', 'read');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:personal-assistant', 'email_inbox_scan', 'read', 'email triage: read-only inbox scan'),
+        ('worker:personal-assistant', 'email_search', 'read', 'email triage: read-only search'),
+        ('worker:personal-assistant', 'email_thread_brief', 'read', 'email triage: read-only thread brief'),
+        ('worker:watson-ollama', 'email_inbox_scan', 'read', 'Watson Ollama email parity (read-only)'),
+        ('worker:watson-ollama', 'email_search', 'read', 'Watson Ollama email parity (read-only)'),
+        ('worker:watson-ollama', 'email_thread_brief', 'read', 'Watson Ollama email parity (read-only)');
+    `,
+  },
+  {
+    version: 49,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('notion', 'personal', 'Notion (direct API)', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:research-assistant', 'notion', 'write', 'Sierra research filing: Notion read/create/update with cleanup'),
+        ('worker:personal-assistant', 'notion', 'write', 'Watson notes domain: Notion read/create/update');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
@@ -3070,6 +3111,48 @@ export class TangoStorage {
       .run(memoryId);
 
     return toSafeNumber(result.changes) > 0;
+  }
+
+  /** Drop all obsidian_index hash entries so the next index run re-chunks every file. */
+  clearObsidianIndexEntries(): number {
+    const result = this.db.prepare(`DELETE FROM obsidian_index`).run();
+    return toSafeNumber(result.changes);
+  }
+
+  listMemoriesMissingEmbedding(input: { source?: string | null; limit?: number }): Array<{
+    id: number;
+    content: string;
+  }> {
+    const limit = Math.max(1, Math.trunc(input.limit ?? 6_000));
+    const source = input.source?.trim() || null;
+    const rows = source
+      ? this.db
+          .prepare(
+            `
+              SELECT id, content
+              FROM memories
+              WHERE embedding_json IS NULL
+                AND archived_at IS NULL
+                AND source = ?
+              ORDER BY id DESC
+              LIMIT ?
+            `
+          )
+          .all(source, limit)
+      : this.db
+          .prepare(
+            `
+              SELECT id, content
+              FROM memories
+              WHERE embedding_json IS NULL
+                AND archived_at IS NULL
+              ORDER BY id DESC
+              LIMIT ?
+            `
+          )
+          .all(limit);
+
+    return rows as Array<{ id: number; content: string }>;
   }
 
   updateMemoryEmbedding(input: MemoryEmbeddingUpdateInput): boolean {

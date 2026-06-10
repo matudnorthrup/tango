@@ -61,12 +61,7 @@ export async function extractAndStoreMemories(
   }
 
   try {
-    const response = await provider.generate({
-      prompt: buildExtractionPrompt(context),
-      model: config.extractionModel,
-      reasoningEffort: "low",
-    });
-    const extractedMemories = parseExtractionResponse(response.text);
+    const extractedMemories = await extractWithRetry(context, config, provider);
 
     for (const memory of extractedMemories) {
       if (memory.importance < config.importanceThreshold) {
@@ -99,12 +94,47 @@ export async function extractAndStoreMemories(
       }
     }
   } catch (error) {
+    extractionFailureCount += 1;
     console.warn(
-      `[memory-capture] extraction failed for ${context.conversationKey}: ${
+      `[memory-capture] extraction failed for ${context.conversationKey} after ${EXTRACTION_MAX_ATTEMPTS} attempts: ${
         error instanceof Error ? error.message : String(error)
-      }`,
+      } (since boot: ${extractionFailureCount} failed / ${extractionSuccessCount} ok)`,
     );
   }
+}
+
+const EXTRACTION_MAX_ATTEMPTS = 2;
+const EXTRACTION_RETRY_DELAY_MS = 2_000;
+
+let extractionSuccessCount = 0;
+let extractionFailureCount = 0;
+
+async function extractWithRetry(
+  context: MemoryCaptureContext,
+  config: MemoryCaptureConfig,
+  provider: ChatProvider,
+): Promise<ExtractedMemory[]> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= EXTRACTION_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await provider.generate({
+        prompt: buildExtractionPrompt(context),
+        model: config.extractionModel,
+        reasoningEffort: "low",
+      });
+      const extracted = parseExtractionResponse(response.text);
+      extractionSuccessCount += 1;
+      return extracted;
+    } catch (error) {
+      lastError = error;
+      if (attempt < EXTRACTION_MAX_ATTEMPTS) {
+        // Empty/garbled extraction responses are usually transient provider
+        // hiccups (e.g. "Ollama returned an empty response") — retry once.
+        await new Promise((resolve) => setTimeout(resolve, EXTRACTION_RETRY_DELAY_MS));
+      }
+    }
+  }
+  throw lastError;
 }
 
 function buildExtractionPrompt(context: MemoryCaptureContext): string {

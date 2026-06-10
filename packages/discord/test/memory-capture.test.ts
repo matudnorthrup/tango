@@ -141,7 +141,7 @@ describe("extractAndStoreMemories", () => {
     expect(memoryAdd).not.toHaveBeenCalled();
   });
 
-  it("logs model errors without failing the turn", async () => {
+  it("retries once, then logs model errors without failing the turn", async () => {
     generate.mockRejectedValue(new Error("model unavailable"));
     const memoryAdd = vi.fn();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -153,10 +153,30 @@ describe("extractAndStoreMemories", () => {
       mockProvider,
     )).resolves.toBeUndefined();
 
+    expect(generate).toHaveBeenCalledTimes(2);
     expect(memoryAdd).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("[memory-capture] extraction failed for thread:thread-1: model unavailable"),
+      expect.stringContaining("[memory-capture] extraction failed for thread:thread-1 after 2 attempts: model unavailable"),
     );
+  });
+
+  it("recovers when extraction succeeds on the retry", async () => {
+    generate
+      .mockRejectedValueOnce(new Error("Ollama returned an empty response"))
+      .mockResolvedValueOnce({
+        text: JSON.stringify([{ content: "Devin prefers inshore fishing", importance: 0.8, tags: ["travel"] }]),
+      });
+    const memoryAdd = vi.fn().mockResolvedValue({ id: "memory-retry" });
+
+    await extractAndStoreMemories(
+      baseContext,
+      baseConfig,
+      { memoryAdd } as unknown as AtlasMemoryClient,
+      mockProvider,
+    );
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(memoryAdd).toHaveBeenCalledTimes(1);
   });
 
   it("skips extraction entirely when memory capture is disabled", async () => {

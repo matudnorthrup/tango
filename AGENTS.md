@@ -15,6 +15,10 @@ behavior in the current Codex environment.
   automation work. If an older instruction names a Claude-only tool such as
   `CronCreate`, use the equivalent available Codex automation/monitoring tool,
   or record the limitation in Linear before reporting.
+- For Linear, prefer the OAuth-free API-key path over the curated Linear plugin
+  (its OAuth lapses): use the `LINEAR_API_KEY` in the repo `.env` (mirrored from
+  1Password vault `Watson`) against `https://api.linear.app/graphql`. See the
+  shared guide's "Connecting to Linear" section for the snippet.
 - Do not assume Codex memory lives under only one directory. Use the memory
   discovery order in the shared guide.
 - Keep active project state in Linear, not in repo docs or local memory.

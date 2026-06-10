@@ -98,10 +98,10 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — distinct "Whiskey <Name>" wake word so it never
+# Voice addressing — distinct "Bravo <Name>" wake word so it never
 # collides with the original malibu's wake word (start-anchored matcher).
 voice:
   call_signs:
-    - "Whiskey Malibu"
+    - "Bravo Malibu"
   kokoro_voice: am_puck
   default_channel_id: "1513207688086028469"

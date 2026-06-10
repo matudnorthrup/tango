@@ -95,3 +95,33 @@ describe("buildModelScorecard flags", () => {
     expect(scorecard.summary).toContain("sierra-ollama deepseek-v4-pro:cloud");
   });
 });
+
+describe("coverage alias normalization", () => {
+  it("counts claude:sonnet verdict coverage for claude-sonnet-4-6 production runs", () => {
+    const current = Array.from({ length: 25 }, () =>
+      run({ agentId: "watson", model: "claude-sonnet-4-6" }),
+    );
+    const scorecard = buildModelScorecard({
+      current,
+      previous: [],
+      evaluatedModels: new Set(["sonnet"]),
+      windowDays: 7,
+      now: new Date("2026-06-09T12:00:00Z"),
+    });
+    expect(scorecard.flags.some((f) => f.startsWith("NEVER BAKED OFF"))).toBe(false);
+  });
+});
+
+describe("recent-window sub-line", () => {
+  it("reports the last-24h provider split when recent rows are provided", () => {
+    const scorecard = buildModelScorecard({
+      current: [run(), run()],
+      previous: [],
+      recent: [run({ providerName: "ollama" }), run({ providerName: "ollama" }), run({ providerName: "claude-code-v2" })],
+      evaluatedModels: new Set(["deepseek-v4-pro:cloud"]),
+      windowDays: 7,
+      now: new Date("2026-06-09T12:00:00Z"),
+    });
+    expect(scorecard.summary).toContain("Last 24h: 3 runs (2 ollama, 1 claude-code-v2)");
+  });
+});

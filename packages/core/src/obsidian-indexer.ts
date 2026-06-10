@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { EmbeddingProvider } from "./embeddings.js";
+import { deserializeEmbedding, type EmbeddingProvider } from "./embeddings.js";
 import { backfillMarkdownFiles } from "./memory-backfill.js";
 import { resolveTangoProfileDir } from "./runtime-paths.js";
 import { TangoStorage } from "./storage.js";
@@ -28,6 +28,7 @@ export interface ObsidianIndexInput {
   includeAiTranscripts?: boolean;
   excludePrefixes?: string[];
   embeddingProvider?: EmbeddingProvider | null;
+  secondarySink?: ObsidianIndexSecondarySink | null;
   now?: Date;
 }
 
@@ -50,8 +51,39 @@ export interface ObsidianIndexResult {
   removedFileCount: number;
   insertedMemoryCount: number;
   deletedMemoryCount: number;
+  /** Inserted memories that received an embedding. */
+  embeddedMemoryCount: number;
+  /** Inserted memories left without an embedding after retries. */
+  embedFailedCount: number;
+  /** Unique embedding error messages (capped) for job summaries. */
+  embedErrors: string[];
+  /** Chunks mirrored into the secondary sink (Atlas), when one is configured. */
+  sinkSyncedCount: number;
+  /** Secondary-sink failures — sync is best-effort and never fails the index run. */
+  sinkErrorCount: number;
   indexedFiles: IndexedObsidianFile[];
   removedFiles: RemovedObsidianFile[];
+}
+
+/** A chunk handed to the secondary sink, embedding included (computed upstream). */
+export interface ObsidianSinkChunk {
+  content: string;
+  sourceRef: string;
+  importance: number;
+  metadata: Record<string, unknown> | null;
+  embedding: number[] | null;
+  embeddingModel: string | null;
+  /** Content age from the source note (frontmatter date / file mtime). */
+  createdAt: string | null;
+}
+
+/**
+ * Optional mirror target for indexed chunks (e.g. the Atlas store) so agent
+ * memory_search sees fresh vault content without re-embedding (TGO-691).
+ */
+export interface ObsidianIndexSecondarySink {
+  prune(sourceRefPrefix: string): unknown;
+  addChunks(chunks: ObsidianSinkChunk[]): unknown;
 }
 
 type PruneScope = {
@@ -59,7 +91,12 @@ type PruneScope = {
   kind: "directory" | "file";
 };
 
-function resolveDefaultVaultPath(): string {
+/**
+ * Resolve the Obsidian vault root used across indexing and the agent-facing
+ * obsidian tool: TANGO_OBSIDIAN_VAULT, then the profile notes dir, then the
+ * legacy ~/Documents/main vault.
+ */
+export function resolveDefaultObsidianVaultPath(): string {
   const configured = process.env.TANGO_OBSIDIAN_VAULT?.trim();
   if (configured && configured.length > 0) {
     return configured;
@@ -82,7 +119,7 @@ export async function indexObsidianVault(
   input: ObsidianIndexInput
 ): Promise<ObsidianIndexResult> {
   const nowIso = (input.now ?? new Date()).toISOString();
-  const inputPaths = input.paths ?? [resolveDefaultVaultPath()];
+  const inputPaths = input.paths ?? [resolveDefaultObsidianVaultPath()];
   const files = collectEligibleFiles(inputPaths, {
     includeClippings: input.includeClippings === true,
     includeAiTranscripts: input.includeAiTranscripts === true,
@@ -99,8 +136,46 @@ export async function indexObsidianVault(
     removedFileCount: 0,
     insertedMemoryCount: 0,
     deletedMemoryCount: 0,
+    embeddedMemoryCount: 0,
+    embedFailedCount: 0,
+    embedErrors: [],
+    sinkSyncedCount: 0,
+    sinkErrorCount: 0,
     indexedFiles: [],
     removedFiles: [],
+  };
+  const embedErrors = new Set<string>();
+
+  const syncToSink = (sourceRefPrefix: string, insertedIds: number[]): void => {
+    if (!input.secondarySink) return;
+    try {
+      input.secondarySink.prune(sourceRefPrefix);
+      const chunks: ObsidianSinkChunk[] = [];
+      for (const memoryId of insertedIds) {
+        const memory = input.storage.getMemory(memoryId);
+        if (!memory?.sourceRef?.startsWith(sourceRefPrefix)) continue;
+        chunks.push({
+          content: memory.content,
+          sourceRef: memory.sourceRef,
+          importance: memory.importance,
+          metadata: memory.metadata,
+          embedding: deserializeEmbedding(memory.embeddingJson),
+          embeddingModel: memory.embeddingModel,
+          createdAt: memory.createdAt ?? null,
+        });
+      }
+      if (chunks.length > 0) {
+        input.secondarySink.addChunks(chunks);
+        result.sinkSyncedCount += chunks.length;
+      }
+    } catch (error) {
+      result.sinkErrorCount += 1;
+      console.warn(
+        `[tango-memory] obsidian secondary sink sync failed for ${sourceRefPrefix}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   };
 
   for (const filePath of files) {
@@ -144,9 +219,16 @@ export async function indexObsidianVault(
       lastIndexedAt: nowIso,
     });
 
+    syncToSink(sourceRefPrefix, backfillResult.insertedIds);
+
     result.indexedFileCount += 1;
     result.insertedMemoryCount += backfillResult.insertedCount;
     result.deletedMemoryCount += deletedMemoryCount;
+    result.embeddedMemoryCount += backfillResult.embeddedCount;
+    result.embedFailedCount += backfillResult.embedFailedCount;
+    for (const message of backfillResult.embedErrors) {
+      if (embedErrors.size < 3) embedErrors.add(message);
+    }
     result.indexedFiles.push({
       filePath,
       status,
@@ -154,6 +236,7 @@ export async function indexObsidianVault(
       deletedMemoryCount,
     });
   }
+  result.embedErrors = [...embedErrors];
 
   for (const entry of indexedEntries) {
     if (liveFiles.has(entry.filePath)) continue;
@@ -168,11 +251,13 @@ export async function indexObsidianVault(
       continue;
     }
 
+    const removedSourceRefPrefix = buildSourceRefPrefix(entry.filePath);
     const deletedMemoryCount = input.storage.deleteMemoriesBySourceRefPrefix(
       "obsidian",
-      buildSourceRefPrefix(entry.filePath)
+      removedSourceRefPrefix
     );
     input.storage.deleteObsidianIndexEntry(entry.filePath);
+    syncToSink(removedSourceRefPrefix, []);
 
     result.removedFileCount += 1;
     result.deletedMemoryCount += deletedMemoryCount;
