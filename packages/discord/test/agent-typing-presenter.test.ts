@@ -55,11 +55,11 @@ describe("triggerAgentTyping", () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
 
     await expect(
-      triggerAgentTyping("1510457828853416176", "wellness-token", { fetchImpl })
+      triggerAgentTyping("100000000000000202", "wellness-token", { fetchImpl })
     ).resolves.toBe(true);
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      "https://discord.com/api/v10/channels/1510457828853416176/typing",
+      "https://discord.com/api/v10/channels/100000000000000202/typing",
       {
         method: "POST",
         headers: {

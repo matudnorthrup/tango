@@ -703,14 +703,14 @@ describe("TangoStorage", () => {
       projectId: "project:italy-trip",
       title: "Italy Motorcycle Trip",
       status: "active",
-      quickRead: "Planning the June route; [redacted] flight decision open.",
+      quickRead: "Planning the launch route; vendor decision open.",
       obsidianPath: "Italy Motorcycle Trip June 2026.md",
       templateId: "trip",
       leadAgentId: "sierra",
     });
     expect(created.projectId).toBe("project:italy-trip");
     expect(created.title).toBe("Italy Motorcycle Trip");
-    expect(created.quickRead).toContain("[redacted]");
+    expect(created.quickRead).toContain("vendor");
     expect(created.lastSavedAt).toBeNull();
 
     // Partial update: only status + quickRead change; title/path/agent preserved.

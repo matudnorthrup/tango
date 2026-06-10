@@ -442,7 +442,7 @@ const SEED_MEMORIES: SeedMemory[] = [
 
   // --- Personal domain (should appear for Watson, not Malibu) ---
   { content: "User has a weekly Monday standup with the engineering team at 9:30 AM. Usually runs 30 minutes.", source: "conversation", importance: 0.70, agentId: "watson", domain: "personal" },
-  { content: "User's manager is Nick. They communicate primarily via email at the latitude.io domain.", source: "conversation", importance: 0.80, agentId: "watson", domain: "personal" },
+  { content: "User's manager is a configured stakeholder. They communicate primarily via the configured work email domain.", source: "conversation", importance: 0.80, agentId: "watson", domain: "personal" },
   { content: "User tracks finances through Lunch Money. Monthly grocery budget target is around $600.", source: "reflection", importance: 0.75, agentId: "watson", domain: "personal" },
   { content: "User has an orthodontist appointment at Paventy and Brown in Newport, recurring every 6-8 weeks.", source: "conversation", importance: 0.65, agentId: "watson", domain: "personal" },
   { content: "User prefers to batch email replies on Monday and Thursday mornings. Does not want to be interrupted for non-urgent email.", source: "reflection", importance: 0.85, agentId: "watson", domain: "personal" },

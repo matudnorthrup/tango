@@ -13,7 +13,7 @@ import { chromium, type Browser, type Locator, type Page } from "playwright-core
 import { spawn, execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { resolveLegacyDataDir, resolveTangoDataPath } from "@tango/core";
+import { readProfileConfigString, resolveLegacyDataDir, resolveTangoDataPath } from "@tango/core";
 import {
   buildEmailEvidenceHtml,
   buildRampReviewUrl,
@@ -49,10 +49,19 @@ const PAGE_READY_TIMEOUT_MS = 10_000;
 const RAMP_DRAFT_FIELD_TIMEOUT_MS = 120_000;
 const RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS = 60_000;
 const RAMP_GOOGLE_LOGIN_TIMEOUT_MS = 60_000;
-const RAMP_GOOGLE_ACCOUNT_EMAIL =
-  process.env.TANGO_RAMP_GOOGLE_ACCOUNT_EMAIL?.trim()
-  || process.env.TANGO_WORK_GOOGLE_ACCOUNT_EMAIL?.trim()
-  || "devin@latitude.io";
+function resolveRampGoogleAccountEmail(): string {
+  const account = readProfileConfigString({
+    relativePath: "browser/ramp-google-account.txt",
+    envPathVar: "TANGO_RAMP_GOOGLE_ACCOUNT_EMAIL_FILE",
+    envValueVar: "TANGO_RAMP_GOOGLE_ACCOUNT_EMAIL",
+  }) || process.env.TANGO_WORK_GOOGLE_ACCOUNT_EMAIL?.trim();
+  if (!account) {
+    throw new Error(
+      "Ramp Google login account is not configured. Set TANGO_RAMP_GOOGLE_ACCOUNT_EMAIL or profile config browser/ramp-google-account.txt.",
+    );
+  }
+  return account;
+}
 
 export interface WalmartHistoryCandidate {
   orderId: string;
@@ -2376,14 +2385,15 @@ export class BrowserManager {
 
   private async selectRampGoogleAccount(loginPage: Page): Promise<boolean> {
     await loginPage.waitForLoadState("domcontentloaded", { timeout: 30_000 }).catch(() => undefined);
-    const account = loginPage.getByText(new RegExp(escapeRegex(RAMP_GOOGLE_ACCOUNT_EMAIL), "iu")).first();
+    const rampGoogleAccountEmail = resolveRampGoogleAccountEmail();
+    const account = loginPage.getByText(new RegExp(escapeRegex(rampGoogleAccountEmail), "iu")).first();
     try {
       await account.waitFor({ state: "visible", timeout: 20_000 });
       await account.click({ timeout: 10_000 });
       return true;
     } catch (error) {
       debug(
-        `Ramp Google login account '${RAMP_GOOGLE_ACCOUNT_EMAIL}' was not selectable: ${error instanceof Error ? error.message : String(error)}`,
+        `Ramp Google login account '${rampGoogleAccountEmail}' was not selectable: ${error instanceof Error ? error.message : String(error)}`,
       );
       return false;
     }

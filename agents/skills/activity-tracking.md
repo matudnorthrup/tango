@@ -4,7 +4,7 @@ Step-by-step workflow for logging movement, weight, hydration, and body-care act
 
 ## When to use
 
-Any time [redacted] reports movement, exercise, a weigh-in, water intake, meditation, journaling, or any body-care activity.
+Any time the user reports movement, exercise, a weigh-in, water intake, meditation, journaling, or any body-care activity.
 
 ## Activity Logging
 
@@ -12,7 +12,7 @@ Any time [redacted] reports movement, exercise, a weigh-in, water intake, medita
 
 Valid types: walk, weights, yoga, stretching, rebounder, meditation, journaling, other.
 
-If [redacted] describes something that doesn't fit a named type, use `other` and capture the description in notes.
+If the user describes something that doesn't fit a named type, use `other` and capture the description in notes.
 
 ### Step 2: Capture the details
 
@@ -27,7 +27,7 @@ If [redacted] describes something that doesn't fit a named type, use `other` and
 | journaling | duration_min (optional — may just be logged as "did it") |
 | other | duration_min, notes (what it was) |
 
-Not every field is required for every type. A walk might have distance but no duration. Meditation might have duration but no distance. Log what [redacted] provides.
+Not every field is required for every type. A walk might have distance but no duration. Meditation might have duration but no distance. Log what the user provides.
 
 ### Step 3: Write to the appropriate table
 
@@ -39,9 +39,9 @@ Not every field is required for every type. A walk might have distance but no du
 
 Pull same-day and same-week totals when available. "Third walk this week" or "5 glasses so far today" gives the entry meaning.
 
-## Parsing [redacted]'s Messages
+## Parsing User Messages
 
-[redacted] types naturally. Examples:
+The user may type naturally. Examples:
 
 - "walked 2 miles" → activity_log: walk, distance_miles=2
 - "20 min rebounder" → activity_log: rebounder, duration_min=20
@@ -49,7 +49,7 @@ Pull same-day and same-week totals when available. "Third walk this week" or "5 
 - "168.5" (in weight context) → weight_log: weight_lbs=168.5
 - "20 oz water" → hydration_log: oz=20
 
-Use today's date unless she says otherwise.
+Use today's date unless the user says otherwise.
 
 ## Rules
 

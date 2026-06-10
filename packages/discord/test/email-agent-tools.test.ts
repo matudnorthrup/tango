@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildThreadBrief,
   buildTimelineOneLiner,
@@ -8,17 +11,85 @@ import {
   resolveEmailAccount,
 } from "../src/email-agent-tools.js";
 
+const tempDirs: string[] = [];
+const originalEnv = { ...process.env };
+
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
+    }
+  }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function createTempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
 describe("resolveEmailAccount", () => {
-  it("allows [redacted]", () => {
-    expect(resolveEmailAccount("[redacted]")).toBe("[redacted]");
+  it("allows the configured account", () => {
+    expect(
+      resolveEmailAccount("piper.ops@example.test", {
+        defaultAccount: "piper.ops@example.test",
+      }),
+    ).toBe("piper.ops@example.test");
   });
 
-  it("firewalls [redacted]", () => {
-    expect(() => resolveEmailAccount("[redacted]")).toThrow(/firewalled/i);
+  it("firewalls configured blocked accounts", () => {
+    expect(() =>
+      resolveEmailAccount("private.inbox@example.test", {
+        defaultAccount: "piper.ops@example.test",
+        firewalledAccounts: ["private.inbox@example.test"],
+      }),
+    ).toThrow(/firewalled/i);
   });
 
   it("rejects other accounts", () => {
-    expect(() => resolveEmailAccount("other@example.com")).toThrow(/only support/i);
+    expect(() =>
+      resolveEmailAccount("other@example.test", {
+        defaultAccount: "piper.ops@example.test",
+      }),
+    ).toThrow(/only support/i);
+  });
+
+  it("loads account and firewall values from profile config", () => {
+    const homeDir = createTempDir("tango-email-profile-");
+    process.env.TANGO_HOME = homeDir;
+    process.env.TANGO_PROFILE = "default";
+    delete process.env.PIPER_GMAIL_ACCOUNT;
+    delete process.env.TANGO_EMAIL_ACCOUNT;
+    delete process.env.TANGO_PIPER_FIREWALLED_GMAIL_ACCOUNTS;
+
+    const configDir = path.join(homeDir, "profiles", "default", "config", "email");
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "piper-account.txt"), "piper.ops@example.test\n");
+    fs.writeFileSync(path.join(configDir, "piper-firewalled-accounts.txt"), "private.inbox@example.test\n");
+
+    expect(resolveEmailAccount()).toBe("piper.ops@example.test");
+    expect(() => resolveEmailAccount("private.inbox@example.test")).toThrow(/firewalled/i);
+  });
+
+  it("fails closed when no account is configured", () => {
+    const homeDir = createTempDir("tango-email-empty-profile-");
+    process.env.TANGO_HOME = homeDir;
+    process.env.TANGO_PROFILE = "default";
+    delete process.env.PIPER_GMAIL_ACCOUNT;
+    delete process.env.TANGO_EMAIL_ACCOUNT;
+
+    expect(() => resolveEmailAccount()).toThrow(/not configured/i);
   });
 });
 
@@ -41,14 +112,14 @@ describe("parseGogThreadJson", () => {
         {
           id: "m1",
           from: "Kerri <kerri@example.com>",
-          to: "[redacted] <[redacted]>",
+          to: "Ops Lead <piper.ops@example.test>",
           subject: "Budget review",
           date: "2026-05-28T10:00:00Z",
           body: "First message in thread.",
         },
         {
           id: "m2",
-          from: "[redacted] <[redacted]>",
+          from: "Ops Lead <piper.ops@example.test>",
           to: "Kerri <kerri@example.com>",
           subject: "Re: Budget review",
           date: "2026-05-28T11:00:00Z",
@@ -64,7 +135,7 @@ describe("parseGogThreadJson", () => {
 
     const brief = buildThreadBrief({
       threadId: "t1",
-      account: "[redacted]",
+      account: "piper.ops@example.test",
       messages,
       sessionId: "test-session",
       writeBody: () => {},
@@ -78,7 +149,7 @@ describe("parseGogThreadJson", () => {
   });
 
   it("parses live gog Gmail API thread JSON with payload headers and multipart bodies", () => {
-    const plainBody = "Hi [redacted],\n\nHappy Friday!";
+    const plainBody = "Hi there,\n\nHappy Friday!";
     const plainBodyData = Buffer.from(plainBody, "utf8").toString("base64");
     const raw = JSON.stringify({
       thread: {
@@ -91,7 +162,7 @@ describe("parseGogThreadJson", () => {
               mimeType: "text/plain",
               headers: [
                 { name: "From", value: "Stephanie Bridges <steph@eventhive.biz>" },
-                { name: "To", value: "[redacted] [redacted] <[redacted]>" },
+                { name: "To", value: "Ops Lead <piper.ops@example.test>" },
                 { name: "Subject", value: "Happy Friday!" },
                 { name: "Date", value: "Fri, 29 May 2026 15:26:18 -0500" },
               ],
@@ -111,7 +182,7 @@ describe("parseGogThreadJson", () => {
 
     const brief = buildThreadBrief({
       threadId: "t-simple",
-      account: "[redacted]",
+      account: "piper.ops@example.test",
       messages,
       sessionId: "test-gmail-api",
       writeBody: () => {},

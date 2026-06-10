@@ -4,21 +4,21 @@
  * Spike 1a: hybrid email_thread_brief (metadata inline, full body on disk).
  * Spike 1a-search: email_inbox_scan, email_search.
  *
- * Account firewall: [redacted] only.
+ * Account firewall: configured Piper Gmail account only.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import type { AgentTool } from "@tango/core";
+import { readProfileConfigString, readProfileConfigStringList, type AgentTool } from "@tango/core";
 import {
   decodeHtmlEntities,
   parseGogEmailFullOutput,
   stripHtmlToText,
 } from "./reimbursement-automation.js";
 
-const ALLOWED_GMAIL_ACCOUNT = "[redacted]";
-const FIREWALLED_GMAIL_ACCOUNTS = new Set(["[redacted]"]);
+const PIPER_ACCOUNT_CONFIG_PATH = "email/piper-account.txt";
+const PIPER_FIREWALLED_ACCOUNTS_CONFIG_PATH = "email/piper-firewalled-accounts.txt";
 const ATTACHMENT_BASE_DIR = "/tmp/tango-attachments";
 const DEFAULT_GOG_COMMAND = "gog";
 const ONE_LINER_MAX_CHARS = 140;
@@ -34,6 +34,7 @@ const DRIVE_LINK_PATTERNS = [
 export interface EmailAgentToolOptions {
   gogCommand?: string;
   defaultAccount?: string;
+  firewalledAccounts?: string[];
   runGog?: GogRunner;
 }
 
@@ -105,20 +106,54 @@ interface SessionFileRegistration {
   label: string;
 }
 
-export function resolveEmailAccount(override?: string | null): string {
-  const candidate =
-    override?.trim()
-    || process.env.PIPER_GMAIL_ACCOUNT?.trim()
+function loadConfiguredPiperAccount(defaultAccount?: string): string | undefined {
+  return defaultAccount?.trim()
+    || readProfileConfigString({
+      relativePath: PIPER_ACCOUNT_CONFIG_PATH,
+      envPathVar: "TANGO_PIPER_GMAIL_ACCOUNT_FILE",
+      envValueVar: "PIPER_GMAIL_ACCOUNT",
+    })
     || process.env.TANGO_EMAIL_ACCOUNT?.trim()
-    || ALLOWED_GMAIL_ACCOUNT;
+    || undefined;
+}
+
+function loadFirewalledGmailAccounts(extraAccounts: string[] = []): Set<string> {
+  return new Set([
+    ...extraAccounts,
+    ...readProfileConfigStringList({
+      relativePath: PIPER_FIREWALLED_ACCOUNTS_CONFIG_PATH,
+      envPathVar: "TANGO_PIPER_FIREWALLED_GMAIL_ACCOUNTS_FILE",
+      envValueVar: "TANGO_PIPER_FIREWALLED_GMAIL_ACCOUNTS",
+      lowercase: true,
+    }),
+  ].map((account) => account.trim().toLowerCase()).filter(Boolean));
+}
+
+export function resolveEmailAccount(
+  override?: string | null,
+  options: Pick<EmailAgentToolOptions, "defaultAccount" | "firewalledAccounts"> = {},
+): string {
+  const allowedAccount = loadConfiguredPiperAccount(options.defaultAccount);
+  if (!allowedAccount) {
+    throw new Error(
+      `Piper email account is not configured. Set PIPER_GMAIL_ACCOUNT or profile config ${PIPER_ACCOUNT_CONFIG_PATH}.`,
+    );
+  }
+  const normalizedAllowed = allowedAccount.toLowerCase();
+  const firewalledAccounts = loadFirewalledGmailAccounts(options.firewalledAccounts);
+  if (firewalledAccounts.has(normalizedAllowed)) {
+    throw new Error("Configured Piper Gmail account is firewalled.");
+  }
+
+  const candidate = override?.trim() || allowedAccount;
   const normalized = candidate.toLowerCase();
-  if (FIREWALLED_GMAIL_ACCOUNTS.has(normalized)) {
+  if (firewalledAccounts.has(normalized)) {
     throw new Error(`Gmail account is firewalled for Piper email tools: ${candidate}`);
   }
-  if (normalized !== ALLOWED_GMAIL_ACCOUNT) {
-    throw new Error(`Piper email tools only support ${ALLOWED_GMAIL_ACCOUNT}`);
+  if (normalized !== normalizedAllowed) {
+    throw new Error("Piper email tools only support the configured Piper Gmail account.");
   }
-  return ALLOWED_GMAIL_ACCOUNT;
+  return allowedAccount;
 }
 
 export function registerSessionFile(_entry: SessionFileRegistration): void {
@@ -685,6 +720,10 @@ function ensureArchiveScope(query: string): string {
 export function createEmailAgentTools(options: EmailAgentToolOptions = {}): AgentTool[] {
   const gogCommand = options.gogCommand ?? DEFAULT_GOG_COMMAND;
   const runGog = options.runGog ?? defaultGogRunner(gogCommand);
+  const accountOptions = {
+    defaultAccount: options.defaultAccount,
+    firewalledAccounts: options.firewalledAccounts,
+  };
 
   return [
     {
@@ -695,7 +734,7 @@ export function createEmailAgentTools(options: EmailAgentToolOptions = {}): Agen
         "Returns metadata inline (timeline one-liners, participants, attachment inventory, drive_links).",
         "Writes the full latest message body to disk at latest_body_path — use Read on that path for full content.",
         "",
-        `Account firewall: ${ALLOWED_GMAIL_ACCOUNT} only.`,
+        "Account firewall: configured Piper Gmail account only.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -707,7 +746,7 @@ export function createEmailAgentTools(options: EmailAgentToolOptions = {}): Agen
           },
           account: {
             type: "string",
-            description: `Optional account override (must be ${ALLOWED_GMAIL_ACCOUNT})`,
+            description: "Optional account override (must match configured Piper Gmail account)",
           },
         },
         required: ["thread_id"],
@@ -718,7 +757,10 @@ export function createEmailAgentTools(options: EmailAgentToolOptions = {}): Agen
           throw new Error("thread_id is required");
         }
         const sessionId = String(input.session_id ?? "co-working").trim() || "co-working";
-        const account = resolveEmailAccount(typeof input.account === "string" ? input.account : null);
+        const account = resolveEmailAccount(
+          typeof input.account === "string" ? input.account : null,
+          accountOptions,
+        );
         const messages = await fetchThreadMessages(runGog, threadId, account);
         const brief = buildThreadBrief({ threadId, account, messages, sessionId });
         return { result: brief };
@@ -730,7 +772,7 @@ export function createEmailAgentTools(options: EmailAgentToolOptions = {}): Agen
         "Search Gmail with Gmail query syntax. Includes archived mail via in:anywhere unless already present.",
         "",
         "Returns numbered ThreadCards (thread_id, message_id, from, subject, date, snippet).",
-        `Account firewall: ${ALLOWED_GMAIL_ACCOUNT} only.`,
+        "Account firewall: configured Piper Gmail account only.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -747,7 +789,10 @@ export function createEmailAgentTools(options: EmailAgentToolOptions = {}): Agen
           throw new Error("query is required");
         }
         const max = clampMax(input.max, 20);
-        const account = resolveEmailAccount(typeof input.account === "string" ? input.account : null);
+        const account = resolveEmailAccount(
+          typeof input.account === "string" ? input.account : null,
+          accountOptions,
+        );
         const cards = await searchMessages(runGog, query, account, max);
         return {
           result: {
@@ -764,7 +809,7 @@ export function createEmailAgentTools(options: EmailAgentToolOptions = {}): Agen
         "Scan unread inbox metadata for co-working triage.",
         "",
         "Returns numbered ThreadCards only — no full bodies.",
-        `Account firewall: ${ALLOWED_GMAIL_ACCOUNT} only.`,
+        "Account firewall: configured Piper Gmail account only.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -775,7 +820,10 @@ export function createEmailAgentTools(options: EmailAgentToolOptions = {}): Agen
       },
       handler: async (input) => {
         const max = clampMax(input.max, 25);
-        const account = resolveEmailAccount(typeof input.account === "string" ? input.account : null);
+        const account = resolveEmailAccount(
+          typeof input.account === "string" ? input.account : null,
+          accountOptions,
+        );
         const cards = await searchMessages(runGog, "is:unread in:inbox", account, max);
         return {
           result: {

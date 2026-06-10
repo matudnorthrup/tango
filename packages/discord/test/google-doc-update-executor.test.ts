@@ -22,7 +22,7 @@ describe("executeGoogleDocTabUpdate", () => {
       {
         doc: "https://docs.google.com/document/d/1abcDocId/edit?tab=t.original",
         tab: "https://docs.google.com/document/d/1abcDocId/edit?tab=t.target",
-        account: "devin@latitude.io",
+        account: "work@example.test",
         replacements: [{ find: "Old headline", replace: "New headline", first: true }],
         verify_contains: ["New headline", "Body copy"],
       },
@@ -36,7 +36,7 @@ describe("executeGoogleDocTabUpdate", () => {
       status: "confirmed",
       docId: "1abcDocId",
       tabId: "t.target",
-      account: "devin@latitude.io",
+      account: "work@example.test",
       appliedReplacementCount: 1,
       verificationCount: 2,
       missingVerifications: [],
@@ -57,7 +57,7 @@ describe("executeGoogleDocTabUpdate", () => {
       {
         doc: "1abcDocId",
         tab: "t.target",
-        account: "devin@latitude.io",
+        account: "work@example.test",
         replacements: [{ find: "Missing headline", replace: "New headline" }],
       },
       {
@@ -70,7 +70,7 @@ describe("executeGoogleDocTabUpdate", () => {
       status: "precondition_failed",
       docId: "1abcDocId",
       tabId: "t.target",
-      account: "devin@latitude.io",
+      account: "work@example.test",
       missing: ["Missing headline"],
     });
     expect(runCommand).toHaveBeenCalledTimes(1);
@@ -94,7 +94,7 @@ describe("executeGoogleDocTabUpdate", () => {
       {
         doc: "1abcDocId",
         tab: "t.target",
-        account: "devin@latitude.io",
+        account: "work@example.test",
         content: "Fresh content",
         verify_contains: ["Fresh content"],
       },
@@ -134,7 +134,7 @@ describe("executeGoogleDocTabUpdate", () => {
       {
         doc: "1abcDocId",
         tab: "t.target",
-        account: "devin@latitude.io",
+        account: "work@example.test",
         replacements: [{ find: "Old headline", replace: "New headline", first: true }],
       },
       {

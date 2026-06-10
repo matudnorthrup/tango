@@ -15,7 +15,9 @@ The architecture deliberately separates three layers:
 2. **Atlas attachment domain:** structured metadata, source refs, processing state, jobs, extraction records, chunks, directory payloads, retention decisions, and audit history.
 3. **Agent-facing directory and tools:** compact versioned JSON records support context-safe discovery; explicit retrieval tools provide exact text, source refs, status, and reprocessing.
 
-[redacted]'s image-heavy workflow is the power-user validation case: 50-100 images per day, frequent `/new` resets, multi-day project continuation, and retrieval of older images without flooding the model context.
+High-volume image-heavy workflows are the power-user validation case: many images
+per day, frequent `/new` resets, multi-day project continuation, and retrieval
+of older images without flooding the model context.
 
 ## Goals
 
@@ -37,16 +39,13 @@ The architecture deliberately separates three layers:
 - Do not make the scheduler the main processing engine; it is a watchdog and maintenance layer.
 - Do not perform destructive retention deletion during initial validation.
 - Do not attempt full audio/video media understanding in the first architecture pass, beyond recording unsupported media metadata and status.
-- Do not copy the [redacted]/Sage fork wholesale; use its failures and usage evidence as requirements.
+- Do not copy a private deployment wholesale; use its failures and usage
+  evidence as requirements.
 
 ## Reference Inputs
 
-Local handoff notes used as background and cautionary evidence:
-
-- `/Users/devinnorthrup/Downloads/2026-05-26-devin-image-START-HERE.md`
-- `/Users/devinnorthrup/Downloads/2026-05-26-tango-image-system-for-devin.md`
-- `/Users/devinnorthrup/Downloads/2026-05-26-native-image-attachment-support-design.md`
-- `/Users/devinnorthrup/Downloads/2026-05-26-cursor-image-system-audit-request.md`
+Private handoff notes used as background and cautionary evidence are stored
+outside the repo. Do not commit machine-local handoff paths.
 
 Existing repo context:
 
@@ -385,7 +384,7 @@ Lifecycle maintenance implementation note, 2026-06-02:
 - `attachment-retention-sweep` and `attachment-backlog-watchdog` are deterministic scheduler handlers registered during Discord startup. The schedules live under `config/defaults/schedules/` and never delete or retire artifacts.
 - Scheduler deterministic execution now preserves handler `data` as run metadata so sweep/watchdog summaries and decision ids are auditable from schedule run records.
 
-Live validation on 2026-06-02 used the wt-2 profile database at `/Users/devinnorthrup/.tango/profiles/wt-2/data/tango.sqlite`:
+Live validation on 2026-06-02 used an isolated worktree profile database:
 
 - The loaded `attachment-retention-sweep` schedule created proposed retention decision `1` for live attachment `7` from a user-requested-delete rule, with `destructiveActionsApplied: false`.
 - The loaded `attachment-backlog-watchdog` schedule recovered stale job `21` from `running` to `pending`, cleared its lock, and created proposed watchdog review decision `2` for stuck partial attachment `8`.
@@ -405,7 +404,9 @@ Minimum validation gates:
 - **Agent tools:** search/read/status/reprocess work from every agent that should access attachments.
 - **Context behavior:** compact directory injection helps discovery without raw document/image flooding or duplicate reinjection.
 - **Retention dry run:** scoped rules produce review/audit/grace records without deleting artifacts.
-- **[redacted] scenario:** high-volume image-heavy workflow validates multi-image, multi-day retrieval across `/new` resets and normal continuation.
+- **Power-user scenario:** high-volume image-heavy workflow validates
+  multi-image, multi-day retrieval across `/new` resets and normal
+  continuation.
 
 Ship is blocked until validation milestone issues are Done with evidence.
 
@@ -421,19 +422,19 @@ Automated coverage implemented by 2026-06-02:
 
 Live Discord validation, 2026-06-02:
 
-- Slot 2 Watson thread `1511365837410533446` received two real Discord attachments in message `1511366287056699552`: image `1511366286494666883` and Markdown document `1511366286758776942`.
+- Slot 2 Watson thread `100000000000000401` received two real Discord attachments in message `100000000000000402`: image `100000000000000403` and Markdown document `100000000000000404`.
 - The image became `attachment:10`, processed through `apple_vision_ocr` extraction `7`, chunk `8`, and ready directory `8`.
 - The Markdown document became `attachment:11`, processed through `utf8_text` extraction `8`, chunks `9` and `10`, and ready directory `9`.
 - Watson's stricter retrieval turn used `mcp__attachments__attachment_search` and `mcp__attachments__attachment_read`, returned `attachment:10`, `attachment:11`, the shared Discord source ref, and the four filenames visible in image chunk `8`.
 - The retrieval model run selected the two new attachment directories in warm-start context with `attachmentDirectoryContext.promptChars=2242`, `warmStartPromptChars=2436`, selected count `2`, and omitted count `7`, demonstrating bounded directory context rather than raw file injection.
 
-[redacted] high-volume validation, 2026-06-02:
+High-volume validation, 2026-06-02:
 
-- The wt-2 profile seeded 128 ready image attachments for marker `tgo-586-operator-volume-1780408500000`, split across two simulated project days with 64 images per day and mixed screenshot, reference-photo, document-like, swatch, whiteboard, receipt, layout, and annotated-image categories.
+- The isolated profile seeded 128 ready image attachments for marker `tgo-586-volume-1780408500000`, split across two simulated project days with 64 images per day and mixed screenshot, reference-photo, document-like, swatch, whiteboard, receipt, layout, and annotated-image categories.
 - The older day-one target is `attachment:29` / chunk `28` / directory `27`, with codename `cerulean-loom`; the recent day-two target is `attachment:128` / chunk `127` / directory `126`, with codename `amber-invoice`.
 - Direct tool sanity check found `attachment:29` from the full corpus with `attachment_search` and returned the exact cobalt boucle/brushed brass/Mara facts through `attachment_read` chunk `28`.
 - Live Watson old-thread retrieval response `messages.id=1638` found `attachment:29` from the high-volume corpus even though warm-start directory context selected only recent attachments `139` and `138`. The run used `mcp__attachments__attachment_search`, recorded `attachmentDirectoryContext.promptChars=2190`, `warmStartPromptChars=2384`, selected count `2`, and omitted count `29`.
-- After restarting the wt-2 Discord slot to simulate a reset/new thread, fresh Watson thread `1511368772341203025` answered response `messages.id=1640` from the same durable corpus. Model run `1039` used both `mcp__attachments__attachment_search` and `mcp__attachments__attachment_read`, returned `attachment:29`, filename `tgo-586-operator-volume-1780408500000-day1-18-reference_photo.png`, source ref `text:26:chars:0-423`, and the grounded fabric/finish/owner/condition facts.
+- After restarting the wt-2 Discord slot to simulate a reset/new thread, fresh Watson thread `100000000000000405` answered response `messages.id=1640` from the same durable corpus. Model run `1039` used both `mcp__attachments__attachment_search` and `mcp__attachments__attachment_read`, returned `attachment:29`, filename `tgo-586-volume-1780408500000-day1-18-reference_photo.png`, source ref `text:26:chars:0-423`, and the grounded fabric/finish/owner/condition facts.
 - The post-reset run used a new provider session id `4ad5f323-f8d4-447d-89d1-196bddaa971e`; warm-start context stayed bounded at `attachmentDirectoryContext.promptChars=2093`, `warmStartPromptChars=2287`, selected count `2`, and omitted count `24`. The selected directory ids did not include `attachment:29`, so the old target was recovered through tools rather than raw or repeated image context.
 
 ## Risks and Open Questions
@@ -466,4 +467,4 @@ Live Discord validation, 2026-06-02:
 | [TGO-583](https://linear.app/seaside-hq/issue/TGO-583/update-agent-and-shared-instructions-for-attachment-usage) | Agent retrieval tools and context integration | Teach agents to search/read/status attachments, cite source refs, handle pending/failed states, and avoid unnecessary resend requests. |
 | [TGO-584](https://linear.app/seaside-hq/issue/TGO-584/implement-editable-scoped-retention-rules-for-attachments) | Retention policy and lifecycle maintenance | Implement scoped editable retention rules for originals, derived artifacts, chunks, directories, and sidecars. |
 | [TGO-585](https://linear.app/seaside-hq/issue/TGO-585/add-retention-review-queue-audit-trail-and-sweepwatchdog-jobs) | Retention policy and lifecycle maintenance | Add review queue, audit trail, grace period, dry-run reporting, backlog watchdog, and retention sweeps. |
-| [TGO-586](https://linear.app/seaside-hq/issue/TGO-586/validate-operator-high-volume-multi-day-image-workflow) | Validation and ship | Validate high-volume image-heavy, multi-day retrieval without context flooding. |
+| [TGO-586](https://linear.app/seaside-hq/issue/TGO-586/validate-high-volume-multi-day-image-workflow) | Validation and ship | Validate high-volume image-heavy, multi-day retrieval without context flooding. |
