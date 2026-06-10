@@ -47,7 +47,7 @@ interface StreamingChunkSpec {
 }
 
 let cachedPromptHint: string | null = null;
-const COMPATIBILITY_INDICATE_CLOSE_WORDS = ['over', 'over and out', 'whiskey foxtrot', 'whiskey delta'];
+const COMPATIBILITY_INDICATE_CLOSE_WORDS = ['over', 'over and out'];
 
 function buildWhisperPromptHint(): string {
   if (cachedPromptHint !== null) return cachedPromptHint;
