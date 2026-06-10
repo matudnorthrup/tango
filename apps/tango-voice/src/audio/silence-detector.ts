@@ -19,8 +19,13 @@ export function calculateRMSEnergy(pcm: Buffer): number {
 }
 
 export function isLikelySpeech(pcm: Buffer): boolean {
-  const { speechThreshold, minSpeechDurationMs } = getVoiceSettings();
-  const minSamples = 48000 * (minSpeechDurationMs / 1000);
+  const { speechThreshold, minSpeechDurationMs, shortCommandRescueEnabled, shortCommandMinDurationMs } = getVoiceSettings();
+  // With short-command rescue on, audio down to the rescue floor reaches the
+  // pipeline, which strict-matches anything below minSpeechDurationMs.
+  const effectiveMinMs = shortCommandRescueEnabled
+    ? Math.min(minSpeechDurationMs, shortCommandMinDurationMs)
+    : minSpeechDurationMs;
+  const minSamples = 48000 * (effectiveMinMs / 1000);
 
   const samples = pcm.length / 2;
   if (samples < minSamples) return false;

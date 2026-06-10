@@ -30,6 +30,51 @@ describe('computeLocalVadRuntimeOptions', () => {
     expect(options.negativeSpeechThreshold).toBe(1);
   });
 
+  it('lowers the speech floor to the rescue threshold when short-command rescue is on', () => {
+    const options = computeLocalVadRuntimeOptions({
+      silenceDurationMs: 200,
+      minSpeechDurationMs: 400,
+      vadFrameSamples: 1536,
+      vadPositiveSpeechThreshold: 0.3,
+      vadNegativeSpeechThreshold: 0.15,
+      shortCommandRescueEnabled: true,
+      shortCommandMinDurationMs: 280,
+    });
+
+    // 1536 samples @ 16kHz = 96ms/frame; ceil(280/96) = 3 frames (288ms)
+    // instead of ceil(400/96) = 5 frames (480ms).
+    expect(options.minSpeechFrames).toBe(3);
+  });
+
+  it('keeps the configured floor when short-command rescue is off', () => {
+    const options = computeLocalVadRuntimeOptions({
+      silenceDurationMs: 200,
+      minSpeechDurationMs: 400,
+      vadFrameSamples: 1536,
+      vadPositiveSpeechThreshold: 0.3,
+      vadNegativeSpeechThreshold: 0.15,
+      shortCommandRescueEnabled: false,
+      shortCommandMinDurationMs: 280,
+    });
+
+    expect(options.minSpeechFrames).toBe(5);
+  });
+
+  it('never raises the floor when the rescue threshold exceeds min speech', () => {
+    const options = computeLocalVadRuntimeOptions({
+      silenceDurationMs: 200,
+      minSpeechDurationMs: 250,
+      vadFrameSamples: 1536,
+      vadPositiveSpeechThreshold: 0.3,
+      vadNegativeSpeechThreshold: 0.15,
+      shortCommandRescueEnabled: true,
+      shortCommandMinDurationMs: 280,
+    });
+
+    // min(250, 280) = 250 → ceil(250/96) = 3
+    expect(options.minSpeechFrames).toBe(3);
+  });
+
   it('ensures at least one frame for silence/min-speech', () => {
     const options = computeLocalVadRuntimeOptions({
       silenceDurationMs: 1,

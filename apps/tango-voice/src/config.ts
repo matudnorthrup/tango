@@ -126,6 +126,8 @@ export const config = {
   vadNegativeSpeechThreshold: parseFloatWithFallback(process.env['VAD_NEGATIVE_SPEECH_THRESHOLD'], 0.35),
   vadFrameSamples: parseVadFrameSamples(process.env['VAD_FRAME_SAMPLES']),
   localStreamIdleMs: parseIntWithFallback(process.env['LOCAL_STREAM_IDLE_MS'], 4000),
+  shortCommandRescueEnabled: parseBooleanWithFallback(process.env['SHORT_COMMAND_RESCUE_ENABLED'], true),
+  shortCommandMinDurationMs: Math.max(200, parseIntWithFallback(process.env['SHORT_COMMAND_MIN_DURATION_MS'], 280)),
   botName: process.env['BOT_NAME'] || 'Assistant',
   logChannelId: process.env['LOG_CHANNEL_ID'] || '',
   utilityChannelId: process.env['UTILITY_CHANNEL_ID'] || process.env['DISCORD_VOICE_CHANNEL_ID'] || '',
