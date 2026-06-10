@@ -28,9 +28,13 @@ jobs:
 
       - name: Privacy scan (fail-closed)
         env:
-          # Personal denylist terms live ONLY in this Actions secret, never in
-          # the repo. On fork PRs GitHub withholds secrets by design, so this
-          # gate fails closed there — fork PRs must be reviewed by hand.
+          # Personal denylist terms live ONLY in GitHub secrets, never in the
+          # repo — and in BOTH stores: Actions secrets (normal pushes/PRs) and
+          # Dependabot secrets (dependabot-actor runs only read the latter).
+          # Sync both from the host profile copy:
+          #   gh secret set PRIVACY_DENYLIST [--app dependabot] < ~/.tango/profiles/default/config/privacy/denylist.txt
+          # On fork PRs GitHub withholds all secrets by design, so this gate
+          # fails closed there — fork PRs must be reviewed by hand.
           PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
         run: |
           set -euo pipefail
