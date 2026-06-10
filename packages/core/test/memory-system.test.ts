@@ -809,3 +809,41 @@ describe("memory-system", () => {
     expect(result).not.toContain("|");
   });
 });
+
+describe("pre-decoded embedding support (atlas adapter records)", () => {
+  it("ranks semantically from the embedding field when embeddingJson is absent", async () => {
+    const aligned = {
+      ...memory({
+        id: 1,
+        source: "conversation",
+        content: "Offshore fishing charter pricing for the Puerto Escondido trip.",
+      }),
+      embedding: [1, 0, 0],
+    };
+    const orthogonal = {
+      ...memory({
+        id: 2,
+        source: "conversation",
+        content: "Completely unrelated gardening note about tomato seedlings.",
+      }),
+      embedding: [0, 1, 0],
+    };
+
+    const results = await searchMemories({
+      query: "fishing charter prices",
+      memories: [aligned, orthogonal],
+      embeddingProvider: {
+        model: "test-embed",
+        async embed(): Promise<number[][]> {
+          return [[1, 0, 0]];
+        },
+      },
+      sessionId: "tango-default",
+      agentId: "watson",
+      limit: 2,
+    });
+
+    expect(results[0]?.id).toBe(1);
+    expect(results[0]?.semanticScore ?? 0).toBeGreaterThan(0.9);
+  });
+});

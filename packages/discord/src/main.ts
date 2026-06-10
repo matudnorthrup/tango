@@ -23,6 +23,7 @@ import {
   AttachmentStore,
   type AgentRuntimeConfig,
   assembleSessionMemoryPrompt,
+  memoryHasEmbedding,
   buildAttachmentDirectoryContext,
   buildDeterministicConversationMemory,
   buildDeterministicConversationSummary,
@@ -259,6 +260,13 @@ import {
   type VictorBridgeMessage,
 } from "./victor-bridge.js";
 import { installFileLogMirror } from "./file-logger.js";
+import {
+  loadAtlasWarmStartMemory,
+  loadCoreWarmStartMemory,
+  mapAtlasContextRows,
+  resolveWarmStartMemorySubstrate,
+  type WarmStartMemoryBundle,
+} from "./warm-start-memory-source.js";
 
 export * from "./tango-router.js";
 
@@ -269,6 +277,10 @@ installFileLogMirror({ dir: path.join(resolveTangoProfileDir(), "logs") });
 // Set when the scheduler wires its Discord alert sink; lets deterministic
 // handlers (e.g. memory-eval-report) raise alerts beyond job-crash cases.
 let schedulerAlert: ((channelId: string, content: string) => Promise<void>) | undefined;
+
+// Store consolidation: which substrate backs warm-start distilled memory.
+const warmStartMemorySubstrate = resolveWarmStartMemorySubstrate();
+console.log(`[tango-memory] warm-start memory substrate=${warmStartMemorySubstrate}`);
 
 const slotModeActive = isSlotModeActive(process.env);
 let allowedChannels = parseAllowedChannels(process.env.DISCORD_ALLOWED_CHANNELS);
@@ -282,6 +294,8 @@ type ResponseMode = "concise" | "explain";
 interface WarmStartContextDiagnostics {
   strategy: "session-memory-prompt" | "context-packet" | "attachment-directory-context" | "none";
   orchestratorContinuityMode: OrchestratorContinuityMode;
+  /** Which store backed the distilled-memory zones for this turn. */
+  memorySubstrate?: "atlas" | "core";
   channelSurfaceSupplementalMessages?: number;
   error?: string;
   memoryPrompt?: {
@@ -1505,6 +1519,17 @@ registerDeterministicHandler("memory-eval-report", async (_ctx) => {
     storage,
     config: memoryEvalConfig,
     embeddingProvider: getEmbeddingProvider(),
+    // Benchmarks measure the same substrate the live warm-start reads (TGO-698).
+    listCandidates:
+      warmStartMemorySubstrate === "atlas"
+        ? (filter) =>
+            mapAtlasContextRows(
+              atlasMemoryClient.listMemoriesForContext({
+                agentId: filter.agentId ?? null,
+                limit: filter.limit,
+              }),
+            ).memories
+        : undefined,
     now,
   });
 
@@ -5090,14 +5115,38 @@ async function buildWarmStartContext(input: {
     const sessionConfig = resolveEffectiveSessionConfig(input.sessionId);
     const memoryConfig = resolveSessionMemoryConfig(sessionConfig?.memory);
     const orchestratorContinuityMode = input.orchestratorContinuityMode ?? "provider";
-    const memories = storage.listMemories({
+    // Store consolidation: distilled memory (memories/pinned/summaries) reads
+    // the Atlas substrate — where extraction, reflections, and the obsidian
+    // mirror all write — with per-call fallback to the legacy core tables.
+    // TANGO_WARM_START_MEMORY_SOURCE=core flips back without a deploy.
+    const memoryQuery = {
       sessionId: input.sessionId,
       agentId: input.agentId,
-      limit: Math.max(memoryConfig.memoryLimit * 25, 5000),
-    });
+      conversationKey: input.discordThreadId
+        ? `thread:${input.discordThreadId}`
+        : input.discordChannelId
+          ? `channel:${input.discordChannelId}`
+          : null,
+      memoryPoolLimit: Math.max(memoryConfig.memoryLimit * 25, 5000),
+    };
+    let memoryBundle: WarmStartMemoryBundle;
+    if (warmStartMemorySubstrate === "atlas") {
+      try {
+        memoryBundle = loadAtlasWarmStartMemory(atlasMemoryClient, memoryQuery);
+      } catch (error) {
+        console.warn(
+          `[tango-memory] atlas warm-start source failed; falling back to core: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        memoryBundle = loadCoreWarmStartMemory(storage, memoryQuery);
+      }
+    } else {
+      memoryBundle = loadCoreWarmStartMemory(storage, memoryQuery);
+    }
+    const memories = memoryBundle.memories;
     const queryEmbedding =
-      input.currentUserPrompt &&
-      memories.some((memory) => typeof memory.embeddingJson === "string" && memory.embeddingJson.length > 0)
+      input.currentUserPrompt && memories.some(memoryHasEmbedding)
         ? await maybeEmbedText(input.currentUserPrompt, "query", "warm-start query")
         : null;
     const memoryPrompt = assembleSessionMemoryPrompt({
@@ -5108,14 +5157,22 @@ async function buildWarmStartContext(input: {
       allowFullHistoryBypass: orchestratorContinuityMode !== "stateless",
       memoryConfig,
       messages,
-      summaries: storage.listSessionMemorySummaries(input.sessionId, input.agentId, 24),
+      summaries: memoryBundle.summaries,
       memories,
-      pinnedFacts: storage.listPinnedFactsForContext(input.sessionId, input.agentId),
+      pinnedFacts: memoryBundle.pinnedFacts,
       excludeMessageIds: input.excludeMessageIds,
     });
 
     if (memoryPrompt.accessedMemoryIds.length > 0) {
-      storage.touchMemories(memoryPrompt.accessedMemoryIds);
+      try {
+        memoryBundle.touch(memoryPrompt.accessedMemoryIds);
+      } catch (error) {
+        console.warn(
+          `[tango-memory] memory access touch failed (${memoryBundle.substrate}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     const memoryPromptText = memoryPrompt.prompt.trim();
@@ -5126,6 +5183,7 @@ async function buildWarmStartContext(input: {
         diagnostics: {
           strategy: "session-memory-prompt",
           orchestratorContinuityMode,
+          memorySubstrate: memoryBundle.substrate,
           channelSurfaceSupplementalMessages: supplementalMessageCount,
           attachmentDirectoryContext,
           memoryPrompt: {

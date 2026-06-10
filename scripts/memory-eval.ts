@@ -16,6 +16,12 @@ import {
   selectProviderByName,
   TangoStorage,
 } from "../packages/core/src/index.ts";
+import { listAtlasMemoriesForContext } from "../packages/atlas-memory/src/context-read.ts";
+import { openAtlasMemoryDatabase } from "../packages/atlas-memory/src/schema.ts";
+import {
+  mapAtlasContextRows,
+  resolveWarmStartMemorySubstrate,
+} from "../packages/discord/src/warm-start-memory-source.ts";
 
 dotenv.config();
 
@@ -26,6 +32,7 @@ interface CliOptions {
   auditWithLlm: boolean;
   providerName: string;
   reportFile?: string;
+  substrate: "atlas" | "core";
 }
 
 async function main(): Promise<void> {
@@ -33,6 +40,9 @@ async function main(): Promise<void> {
   const dbPath = resolveDatabasePath(options.dbPath);
   const storage = new TangoStorage(dbPath);
   const embeddingProvider = createVoyageEmbeddingProviderFromEnv();
+  // Benchmarks run against the same substrate live warm-start reads (TGO-698).
+  const atlasDb = options.substrate === "atlas" ? openAtlasMemoryDatabase({}).db : null;
+  console.log(`[memory-eval] benchmark substrate=${options.substrate}`);
 
   try {
     const config = loadMemoryEvalConfig(
@@ -43,6 +53,15 @@ async function main(): Promise<void> {
       storage,
       config,
       embeddingProvider,
+      listCandidates: atlasDb
+        ? (filter) =>
+            mapAtlasContextRows(
+              listAtlasMemoriesForContext(atlasDb, {
+                agentId: filter.agentId ?? null,
+                limit: filter.limit,
+              }),
+            ).memories
+        : undefined,
     });
     const snapshotSamples = collectPromptSnapshotAuditSamples({
       storage,
@@ -101,6 +120,7 @@ async function main(): Promise<void> {
       reportPath: options.reportFile,
     }));
   } finally {
+    atlasDb?.close();
     storage.close();
   }
 }
@@ -109,6 +129,7 @@ function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     auditWithLlm: false,
     providerName: "claude-oauth",
+    substrate: resolveWarmStartMemorySubstrate(),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -135,6 +156,11 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--audit-with-llm":
         options.auditWithLlm = true;
+        break;
+      case "--substrate":
+        if (next !== "atlas" && next !== "core") throw new Error("--substrate must be atlas or core");
+        options.substrate = next;
+        index += 1;
         break;
       case "--provider":
         if (!next) throw new Error("--provider requires a value");
