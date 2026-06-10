@@ -22,11 +22,13 @@ import {
   resolveDatabasePath,
   TangoStorage,
 } from "@tango/core";
+// Import atlas modules directly — the package index carries the MCP server
+// bootstrap (top-level await), which tsx cannot transform when run as a script.
 import {
   addObsidianMemories,
   deleteObsidianMemoriesBySourceRefPrefix,
-  openAtlasMemoryDatabase,
-} from "@tango/atlas-memory";
+} from "../packages/atlas-memory/src/obsidian-sync.js";
+import { openAtlasMemoryDatabase } from "../packages/atlas-memory/src/schema.js";
 
 dotenv.config();
 
@@ -35,7 +37,10 @@ async function main(): Promise<void> {
   const fullResync = process.argv.includes("--full-resync");
 
   const storage = new TangoStorage(resolveDatabasePath());
+  // The live bot holds the same DBs; wait out write locks instead of failing.
+  storage.getDatabase().exec("PRAGMA busy_timeout = 30000");
   const { db: atlasDb } = openAtlasMemoryDatabase({});
+  atlasDb.exec("PRAGMA busy_timeout = 30000");
   const embeddingProvider = createVoyageEmbeddingProviderFromEnv();
   if (!embeddingProvider) {
     console.warn("[memory-index-obsidian] no VOYAGE_API_KEY — indexing without embeddings");

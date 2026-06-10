@@ -35,6 +35,7 @@ describe("obsidian sync", () => {
         metadata: { title: "Puerto Escondido" },
         embedding: [0.1, 0.2, 0.3],
         embeddingModel: "voyage-4-lite",
+        createdAt: "2026-05-15T08:00:00.000Z",
       },
       {
         content: "Offshore sportfisher, dorado and sailfish, ~$950 full day.",
@@ -52,12 +53,13 @@ describe("obsidian sync", () => {
 
     const rows = db
       .prepare(
-        `SELECT source, embedding, embedding_model, json_extract(metadata, '$.source_ref') AS source_ref FROM memories ORDER BY source_ref`,
+        `SELECT source, embedding, embedding_model, created_at, json_extract(metadata, '$.source_ref') AS source_ref FROM memories ORDER BY source_ref`,
       )
       .all() as Array<{
       source: string;
       embedding: Buffer | null;
       embedding_model: string | null;
+      created_at: string;
       source_ref: string;
     }>;
 
@@ -66,6 +68,8 @@ describe("obsidian sync", () => {
     const embedded = rows.find((row) => row.source_ref.endsWith("Puerto Escondido.md#1"));
     expect(embedded?.embedding).not.toBeNull();
     expect(embedded?.embedding_model).toBe("voyage-4-lite");
+    // Content age is preserved — a bulk resync must not make the vault look brand-new.
+    expect(embedded?.created_at).toBe("2026-05-15T08:00:00.000Z");
     const unembedded = rows.find((row) => row.source_ref.endsWith("Puerto Escondido.md#2"));
     expect(unembedded?.embedding).toBeNull();
 
