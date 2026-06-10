@@ -42,9 +42,8 @@ The user has saved favorite orders on their Chipotle account. Instead of buildin
 
 - Look for a **"Recent Orders"** or **"Favorites"** / **"Faves"** section on the order page.
 - Take a snapshot to find the saved orders.
-- Common favorites:
-  - **Double protein bowl** — the user's personal go-to
-  - **"Best Buddies"** — a named favorite
+- Use profile-configured favorite names and order preferences when selecting a
+  saved favorite.
 - Click the matching favorite, then confirm or **"Add to Bag"**.
 
 If favorites aren't visible, check if there's a tab or link to switch from the menu to recent/favorite orders.

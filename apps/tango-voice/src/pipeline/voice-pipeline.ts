@@ -7606,7 +7606,7 @@ Use channel names (the part before the colon). Do not explain.`,
       .replace(/\s+/g, ' ');
     if (!base) return [''];
 
-    // Possessive/plural tolerant form: "dollys chats" -> "dolly chat"
+    // Possessive/plural tolerant form: "marys chats" -> "mary chat"
     const singularish = base
       .split(' ')
       .map((token) => {

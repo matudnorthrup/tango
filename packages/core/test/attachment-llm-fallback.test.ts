@@ -11,9 +11,9 @@ describe("buildAttachmentLlmFallbackResultFromProviderOutput", () => {
         "```json",
         JSON.stringify({
           summary: "Screenshot of a planning board.",
-          extracted_text: "Owner: [redacted]\nTotal: 3 images",
+          extracted_text: "Owner: User\nTotal: 3 images",
           key_facts: [
-            { text: "Owner: [redacted]", source_ref: "attachment:42" },
+            { text: "Owner: User", source_ref: "attachment:42" },
           ],
           visual_notes: ["Whiteboard-style diagram with columns."],
           confidence: 0.91,
@@ -39,7 +39,7 @@ describe("buildAttachmentLlmFallbackResultFromProviderOutput", () => {
       },
     });
     expect(result.text).toContain("Summary: Screenshot of a planning board.");
-    expect(result.text).toContain("Owner: [redacted]");
+    expect(result.text).toContain("Owner: User");
     expect(result.text).toContain("Whiteboard-style diagram with columns.");
   });
 

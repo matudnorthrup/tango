@@ -12,7 +12,12 @@ import {
 const tempFiles: string[] = [];
 
 function makeToolMap(dbPath: string): Map<string, (input: Record<string, unknown>) => Promise<unknown>> {
-  const tools = createWellnessDbTools({ dbPath });
+  const tools = createWellnessDbTools({
+    dbPath,
+    supplementBatchShortcuts: {
+      combo: ["batch-a", "batch-b", "batch-c"],
+    },
+  });
   return new Map(tools.map((tool) => [tool.name, tool.handler]));
 }
 
@@ -28,9 +33,10 @@ function seedTestDb(dbPath: string): void {
 
   db.prepare(
     `INSERT INTO supplements (id, name, shorthand, calories, protein_g, carbs_g, fat_g)
-     VALUES (11, 'Testosterone Cream', 'testosterone', 0, 0, 0, 0),
-            (26, 'Estradiol Patch', 'patch', 0, 0, 0, 0),
-            (27, 'Estradiol Vaginal Pill', 'pill', 0, 0, 0, 0),
+     VALUES (11, 'Daily Supplement', 'daily', 0, 0, 0, 0),
+            (26, 'Batch Supplement A', 'batch-a', 0, 0, 0, 0),
+            (27, 'Batch Supplement B', 'batch-b', 0, 0, 0, 0),
+            (28, 'Batch Supplement C', 'batch-c', 0, 0, 0, 0),
             (99, 'Stopped Supplement', 'stopped', 0, 0, 0, 0)`,
   ).run();
   db.prepare("UPDATE supplements SET stopped_date = '2026-01-01' WHERE id = 99").run();
@@ -126,16 +132,16 @@ describe("createWellnessDbTools", () => {
     });
   });
 
-  it("logs HRT as three supplement rows", async () => {
+  it("logs a configured batch shortcut as separate supplement rows", async () => {
     const result = await tools.get("wellnessdb_log_supplement")!({
       date: "2026-05-30",
-      supplements: "HRT",
+      supplements: "combo",
     });
     expect(result).toMatchObject({
       logged: [
-        expect.objectContaining({ supplement: "Estradiol Patch" }),
-        expect.objectContaining({ supplement: "Estradiol Vaginal Pill" }),
-        expect.objectContaining({ supplement: "Testosterone Cream" }),
+        expect.objectContaining({ supplement: "Batch Supplement A" }),
+        expect.objectContaining({ supplement: "Batch Supplement B" }),
+        expect.objectContaining({ supplement: "Batch Supplement C" }),
       ],
     });
 

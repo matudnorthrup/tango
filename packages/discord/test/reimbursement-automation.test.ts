@@ -201,7 +201,7 @@ describe("reimbursement-automation helpers", () => {
     const raw = [
       "id\tabc123",
       "from\tVenmo <venmo@venmo.com>",
-      "to\t[redacted]",
+      "to\tpersonal@example.test",
       "subject\tYou paid Kip Everitt $600.00",
       "date\tSat, 4 Apr 2026 17:20:29 +0000",
       "",

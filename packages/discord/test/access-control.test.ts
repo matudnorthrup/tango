@@ -107,14 +107,14 @@ describe("access-control", () => {
   it("allows forum thread ID when parent channel is routed for allowlist", () => {
     const policy = buildDefaultAccessPolicy({
       mode: "allowlist",
-      allowlistChannelIds: ["1509320762287456457"],
+      allowlistChannelIds: ["100000000000000101"],
       allowlistUserIds: []
     });
 
     const allowed = evaluateAccess(
       {
-        channelId: "1469909960199503913",
-        threadChannelId: "1509320762287456457",
+        channelId: "100000000000000100",
+        threadChannelId: "100000000000000101",
         userId: "any-user",
         mentioned: true
       },
