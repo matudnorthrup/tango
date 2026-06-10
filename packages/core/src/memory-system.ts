@@ -1,6 +1,7 @@
 import type { SessionMemoryConfig } from "./types.js";
 import { cosineSimilarity, deserializeEmbedding } from "./embeddings.js";
 import type { EmbeddingProvider } from "./embeddings.js";
+import { parseStoredTimestampMs } from "./time.js";
 import type {
   ActiveContextItemRecord,
   PinnedFactRecord,
@@ -443,7 +444,7 @@ export async function searchMemories(input: SearchMemoriesInput): Promise<Retrie
   if (scopedMemories.length === 0) return [];
 
   const queryEmbedding =
-    input.embeddingProvider && scopedMemories.some((memory) => memory.embeddingJson)
+    input.embeddingProvider && scopedMemories.some(memoryHasEmbedding)
       ? await embedQuerySafely(input.embeddingProvider, query)
       : null;
 
@@ -1059,12 +1060,23 @@ function computeSemanticRelevance(
 ): number {
   if (!queryEmbedding || queryEmbedding.length === 0) return 0;
 
-  const memoryEmbedding = deserializeEmbedding(memory.embeddingJson);
+  const memoryEmbedding =
+    memory.embedding && memory.embedding.length > 0
+      ? memory.embedding
+      : deserializeEmbedding(memory.embeddingJson);
   if (!memoryEmbedding || memoryEmbedding.length === 0) return 0;
 
   const similarity = cosineSimilarity(queryEmbedding, memoryEmbedding);
   if (similarity === null) return 0;
   return clamp((similarity + 1) / 2, 0, 1);
+}
+
+/** True when a memory carries an embedding in either representation. */
+export function memoryHasEmbedding(memory: StoredMemoryRecord): boolean {
+  return (
+    (typeof memory.embeddingJson === "string" && memory.embeddingJson.length > 0) ||
+    (Array.isArray(memory.embedding) && memory.embedding.length > 0)
+  );
 }
 
 function combineRelevanceScores(keywordScore: number, semanticScore: number): number {
@@ -1093,8 +1105,10 @@ function computeRecencyScore(memory: StoredMemoryRecord, now: Date): number {
   const timestamp = useCreatedAt
     ? memory.createdAt
     : memory.lastAccessedAt || memory.createdAt;
-  const parsed = Date.parse(timestamp);
-  if (Number.isNaN(parsed)) return 0.25;
+  // UTC-safe: SQLite "YYYY-MM-DD HH:MM:SS" strings carry no zone marker and
+  // Date.parse reads them as local time (TGO-689 bug class).
+  const parsed = parseStoredTimestampMs(timestamp);
+  if (parsed === 0) return 0.25;
 
   const hours = Math.max((now.getTime() - parsed) / 3_600_000, 0);
   return clamp(Math.pow(0.995, hours), 0, 1);
@@ -1291,7 +1305,7 @@ function computeQualityPenalty(input: {
   if (input.keywordScore === 0 && input.semanticScore < 0.58) {
     penalty += 0.3;
   }
-  if (input.keywordScore === 0 && input.semanticScore < 0.45 && input.memory.embeddingJson) {
+  if (input.keywordScore === 0 && input.semanticScore < 0.45 && memoryHasEmbedding(input.memory)) {
     penalty += 0.4;
   }
 
