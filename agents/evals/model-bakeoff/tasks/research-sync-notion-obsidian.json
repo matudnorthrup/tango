@@ -19,9 +19,6 @@
   ],
   "toolContract": [
     {
-      "name": "exa_search"
-    },
-    {
       "name": "notion",
       "argChecks": [
         { "path": "operation", "equals": "create_page" },
