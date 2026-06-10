@@ -78,6 +78,7 @@ async function invokeClaudeJson({ prompt, model, claudeCommand, timeoutMs }) {
       const child = spawn(claudeCommand, ["-p", "--model", model, "--output-format", "json", prompt], {
         cwd: workdir,
         env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "";
       let stderr = "";

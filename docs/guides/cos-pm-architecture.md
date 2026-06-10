@@ -10,11 +10,13 @@ Devin (Stakeholder)
 Chief of Staff (CoS) — main Claude Code session
   ↓  project briefs, monitoring, iteration on PM process
 PM Agent — Claude Code instance in tmux
-  ↓  work orders, monitoring, review, testing
-Dev Agent — Codex/Claude Code in worktree slot
+  ↓  implements directly; optional work orders for parallel workstreams
+Dev Agent (optional) — subagent or worktree-slot instance for parallel/oversized work
 ```
 
-**Why this structure exists:** When a single agent acts as both PM and executor, it loses process discipline under cognitive load — skipping Linear tracking, writing code instead of delegating, forgetting monitoring, asking permission instead of acting. Separating the roles creates an observation layer (CoS) that can detect and correct PM process failures without requiring stakeholder intervention.
+**Why this structure exists:** An agent heads-down in execution can lose process discipline — skipping Linear tracking, forgetting validation, going silent. The CoS observation layer detects and corrects those failures without requiring stakeholder intervention.
+
+**2026-06-09 update:** the mandatory PM/dev split is retired. It existed because earlier models lost process discipline when they both managed and implemented, so all coding was delegated to Codex dev agents. Current models hold the combined role, so the PM implements directly and spawns dev agents only for genuine parallelism or context relief. The CoS layer remains as the process-discipline guard.
 
 ## Roles
 
@@ -36,7 +38,7 @@ This is the main Claude Code session. Responsibilities:
 - **Manages multiple PM agents** running in parallel on different projects
 
 The CoS does NOT:
-- Write implementation code
+- Write project-scale implementation code (small direct fixes are fine; project work goes to a PM)
 - Manage dev agents directly (that's the PM's job)
 - Make scope decisions without Devin's input on non-trivial changes
 
@@ -45,12 +47,12 @@ A Claude Code instance running in a tmux session. Follows the process in `docs/g
 
 - **Owns one project** end-to-end
 - **Creates Linear project and issues**
-- **Spawns and manages dev agents** in worktree slots
+- **Implements directly**; spawns and manages dev agents in worktree slots when parallelism or context pressure warrants
 - **Runs live testing** and documents results
 - **Reports to CoS** via status file and Linear updates
 
-### Dev Agent
-Codex or Claude Code in a worktree slot. Receives work orders from the PM.
+### Dev Agent (optional)
+Claude Code (or Codex, as a second opinion) in a worktree slot, spawned only when work benefits from parallel execution or context isolation. Receives work orders from the PM.
 
 - **Writes code** in an isolated worktree
 - **Runs tests** as specified in the work order
@@ -133,10 +135,9 @@ tmux capture-pane -t TANGO-PM-{slug} -p -S -30
 - Are issues created with acceptance criteria?
 - Do issue statuses reflect reality?
 
-**3. Is the PM delegating correctly?**
-- Are worktree slots active? (`scripts/dev/list.sh`)
-- Did the PM write code directly? (check git log for PM-authored commits — this is a red flag)
-- Are monitoring crons running for dev agents?
+**3. Is execution healthy?**
+- Are commits landing on the project branch?
+- If work was delegated: are worktree slots active (`scripts/dev/list.sh`), and are monitoring crons running for those dev agents?
 
 **4. Is testing happening?**
 - Has the PM claimed the bot for live testing?

@@ -36,6 +36,12 @@ export interface MemoryBackfillResult {
   insertedIds: number[];
   insertedSourceRefs: string[];
   skippedSourceRefs: string[];
+  /** Inserted memories that received an embedding. */
+  embeddedCount: number;
+  /** Inserted memories left without an embedding after retries (0 when no provider is configured). */
+  embedFailedCount: number;
+  /** Unique embedding error messages (capped) for surfacing in job summaries. */
+  embedErrors: string[];
 }
 
 export interface MessageBackfillOptions {
@@ -290,19 +296,24 @@ async function persistBackfillCandidates(
       insertedIds: [],
       insertedSourceRefs: [],
       skippedSourceRefs,
+      embeddedCount: 0,
+      embedFailedCount: 0,
+      embedErrors: [],
     };
   }
 
-  const embeddings = await embedContents(
+  const { embeddings, embedErrors } = await embedContents(
     options.embeddingProvider ?? null,
     pending.map((candidate) => candidate.content)
   );
 
   const insertedIds: number[] = [];
   const insertedSourceRefs: string[] = [];
+  let embeddedCount = 0;
 
   for (const [index, candidate] of pending.entries()) {
     const embedding = embeddings[index] ?? null;
+    if (embedding) embeddedCount += 1;
     const memoryId = storage.insertMemory({
       sessionId: candidate.sessionId ?? null,
       agentId: candidate.agentId ?? null,
@@ -320,6 +331,13 @@ async function persistBackfillCandidates(
     insertedSourceRefs.push(candidate.sourceRef);
   }
 
+  const embedFailedCount = options.embeddingProvider ? insertedIds.length - embeddedCount : 0;
+  if (embedFailedCount > 0) {
+    console.warn(
+      `[tango-memory] backfill embeddings incomplete: ${embedFailedCount}/${insertedIds.length} memories stored without embeddings (${embedErrors.join("; ") || "unknown error"})`
+    );
+  }
+
   return {
     candidateCount: candidates.length,
     insertedCount: insertedIds.length,
@@ -327,34 +345,117 @@ async function persistBackfillCandidates(
     insertedIds,
     insertedSourceRefs,
     skippedSourceRefs,
+    embeddedCount,
+    embedFailedCount,
+    embedErrors,
   };
+}
+
+const EMBED_BATCH_MAX_ATTEMPTS = 3;
+const EMBED_RETRY_BASE_DELAY_MS = 1_000;
+const EMBED_ERROR_SAMPLE_LIMIT = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function embedContents(
   embeddingProvider: EmbeddingProvider | null,
   contents: string[]
-): Promise<Array<number[] | null>> {
+): Promise<{ embeddings: Array<number[] | null>; embedErrors: string[] }> {
   if (!embeddingProvider || contents.length === 0) {
-    return contents.map(() => null);
+    return { embeddings: contents.map(() => null), embedErrors: [] };
   }
 
-  const results: Array<number[] | null> = [];
+  const embeddings: Array<number[] | null> = [];
+  const embedErrors = new Set<string>();
 
   for (let index = 0; index < contents.length; index += DEFAULT_BATCH_SIZE) {
     const batch = contents.slice(index, index + DEFAULT_BATCH_SIZE);
-    try {
-      const embeddings = await embeddingProvider.embed(batch, "document");
-      for (let offset = 0; offset < batch.length; offset += 1) {
-        results.push(embeddings[offset] ?? null);
+    let batchEmbeddings: Array<number[] | null> | null = null;
+
+    for (let attempt = 1; attempt <= EMBED_BATCH_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await embeddingProvider.embed(batch, "document");
+        batchEmbeddings = batch.map((_, offset) => result[offset] ?? null);
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (embedErrors.size < EMBED_ERROR_SAMPLE_LIMIT) {
+          embedErrors.add(message);
+        }
+        if (attempt < EMBED_BATCH_MAX_ATTEMPTS) {
+          // Burst batches trip provider rate limits; back off before retrying.
+          await sleep(EMBED_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+        }
       }
-    } catch {
+    }
+
+    if (batchEmbeddings) {
+      embeddings.push(...batchEmbeddings);
+    } else {
       for (let offset = 0; offset < batch.length; offset += 1) {
-        results.push(null);
+        embeddings.push(null);
       }
     }
   }
 
-  return results;
+  return { embeddings, embedErrors: [...embedErrors] };
+}
+
+export interface MissingEmbeddingBackfillResult {
+  scannedCount: number;
+  embeddedCount: number;
+  failedCount: number;
+  embedErrors: string[];
+}
+
+/**
+ * Re-embed stored memories whose embedding is missing (e.g. after provider
+ * outages or historical silent batch failures). Processes up to `limit` rows.
+ */
+export async function backfillMissingMemoryEmbeddings(input: {
+  storage: TangoStorage;
+  embeddingProvider?: EmbeddingProvider | null;
+  source?: string;
+  limit?: number;
+}): Promise<MissingEmbeddingBackfillResult> {
+  const provider = input.embeddingProvider ?? null;
+  if (!provider) {
+    return { scannedCount: 0, embeddedCount: 0, failedCount: 0, embedErrors: [] };
+  }
+
+  const rows = input.storage.listMemoriesMissingEmbedding({
+    source: input.source ?? null,
+    limit: input.limit ?? 6_000,
+  });
+  if (rows.length === 0) {
+    return { scannedCount: 0, embeddedCount: 0, failedCount: 0, embedErrors: [] };
+  }
+
+  const { embeddings, embedErrors } = await embedContents(
+    provider,
+    rows.map((row) => row.content)
+  );
+
+  let embeddedCount = 0;
+  for (const [index, row] of rows.entries()) {
+    const embedding = embeddings[index] ?? null;
+    if (!embedding) continue;
+    const updated = input.storage.updateMemoryEmbedding({
+      memoryId: row.id,
+      embeddingJson: serializeEmbedding(embedding),
+      embeddingModel: provider.model ?? null,
+    });
+    if (updated) embeddedCount += 1;
+  }
+
+  return {
+    scannedCount: rows.length,
+    embeddedCount,
+    failedCount: rows.length - embeddedCount,
+    embedErrors,
+  };
 }
 
 function listMessageGroups(

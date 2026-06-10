@@ -35,6 +35,17 @@ Escalate only for irreversible destructive actions, major product-direction
 changes, spending/new paid services, unclear requirements that block progress,
 or anything that would surprise Devin if he saw it tomorrow with no context.
 
+### Engineering Execution
+
+As of 2026-06-09 the mandatory PM/dev split is retired: the active agent
+implements directly instead of delegating all coding to a separate dev agent.
+Write the code, review it, validate it, and ship it in one continuous loop.
+Delegate to subagents or parallel dev slots when the work genuinely benefits —
+independent workstreams that can run concurrently, or builds large enough to
+exhaust the primary context — not as a required handoff. Codex remains
+available as an optional second opinion (deep diagnosis, design review,
+adversarial pass), not the default builder.
+
 ## Memory Discovery
 
 Do not assume project memory is tied to the current agent brand. Check every
@@ -78,6 +89,39 @@ workspace, Tango team.
 - Use issue comments for issue-specific evidence such as logs, validation proof,
   or cancellation rationale.
 - Update Linear before reporting completion to the stakeholder.
+
+### Connecting to Linear
+
+Every agent — Claude Code, Codex, and the Tango runtime — authenticates the same
+way: a Linear API key sent to the GraphQL endpoint. There is no OAuth step, so it
+does not expire or need re-authorization. Do not rely on per-tool OAuth Linear
+connectors (Codex's curated plugin, remote MCP) as the primary path; they lapse.
+
+- Endpoint: `POST https://api.linear.app/graphql`
+- Auth header: `Authorization: <key>` (the raw key, no `Bearer` prefix)
+- Key resolution order (mirrors the runtime's `linear-agent-tools.ts`):
+  1. `LINEAR_API_KEY` from the repo `.env` (gitignored; already populated).
+  2. 1Password fallback — vault `Watson`, item `Linear Seaside-HQ Tango API Key`,
+     field `credential`, read with the `OP_SERVICE_ACCOUNT_TOKEN` also in `.env`.
+
+Resolve the key and query from a shell (identical for Claude Code and Codex):
+
+```bash
+LINEAR_API_KEY="$(grep -m1 '^LINEAR_API_KEY=' .env | cut -d= -f2- | tr -d '"')"
+[ -n "$LINEAR_API_KEY" ] || LINEAR_API_KEY="$(
+  OP_SERVICE_ACCOUNT_TOKEN="$(grep -m1 '^OP_SERVICE_ACCOUNT_TOKEN=' .env | cut -d= -f2- | tr -d '"')" \
+  /opt/homebrew/bin/op item get 'Linear Seaside-HQ Tango API Key' \
+    --vault Watson --fields credential --reveal)"
+
+curl -s -X POST https://api.linear.app/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: $LINEAR_API_KEY" \
+  -d '{"query":"{ viewer { id name } teams { nodes { key name } } }"}'
+```
+
+Workspace identity: the Tango team key is `TGO`; the `viewer` is the "Tango"
+service user. See [`agents/tools/linear.md`](../../agents/tools/linear.md) for the
+GraphQL schema, entities, filtering, pagination, and read-before-write rules.
 
 ## Done Means Live Tested
 
@@ -145,7 +189,7 @@ Use isolated dev slots for implementation work that needs live Discord or bot
 testing:
 
 ```bash
-scripts/dev/spawn.sh feature/x --agent codex
+scripts/dev/spawn.sh feature/x --agent claude-code
 scripts/dev/list.sh
 scripts/dev/claim-bot.sh 1 --live
 scripts/dev/run-slot-tests.sh 1
@@ -161,8 +205,8 @@ unless a project explicitly designs otherwise.
 
 ## Monitoring
 
-After handing work to another dev agent, create the best available monitoring
-job in the current tool environment. The monitor should check the status file,
+When you hand work to another dev agent (the optional path), create the best
+available monitoring job in the current tool environment. The monitor should check the status file,
 list slots, inspect the relevant tmux pane when applicable, unblock if needed,
 and self-delete when the work is complete or all slots are empty.
 

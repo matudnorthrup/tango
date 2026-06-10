@@ -411,6 +411,39 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds read-only email tool governance for triage workers (v48)", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    const tool = db.prepare(
+      "SELECT id, access_type FROM governance_tools WHERE id = 'email_inbox_scan'",
+    ).get() as { id: string; access_type: string } | undefined;
+
+    expect(tool).toEqual({ id: "email_inbox_scan", access_type: "read" });
+    for (const workerId of ["worker:personal-assistant", "worker:watson-ollama"]) {
+      expect(checker.hasPermission(workerId, "email_inbox_scan", "read")).toBe(true);
+      expect(checker.hasPermission(workerId, "email_search", "read")).toBe(true);
+      expect(checker.hasPermission(workerId, "email_thread_brief", "read")).toBe(true);
+      expect(checker.hasPermission(workerId, "email_inbox_scan", "write")).toBe(false);
+    }
+
+    db.close();
+  });
+
+  it("seeds notion write governance for research and personal assistants (v49)", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    expect(checker.hasPermission("worker:research-assistant", "notion", "write")).toBe(true);
+    expect(checker.hasPermission("worker:personal-assistant", "notion", "write")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "notion", "write")).toBe(false);
+    db.close();
+  });
+
   it("seeds OSRM route governance for Sierra travel workers", () => {
     const { storage, dir } = createStorage();
     storage.close();

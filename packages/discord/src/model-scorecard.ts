@@ -13,6 +13,7 @@ import * as path from "node:path";
 export interface ModelRunStatLike {
   agentId: string;
   model: string | null;
+  providerName?: string;
   stopReason: string | null;
   latencyMs: number | null;
   outputTokens: number | null;
@@ -85,6 +86,14 @@ export function aggregateModelPairs(rows: ModelRunStatLike[]): ModelPairStats[] 
   return pairs.sort((a, b) => b.runs - a.runs);
 }
 
+/** Coverage matching is family-level for Claude tiers: verdicts record alias
+ *  ids (claude:sonnet) while production logs full ids (claude-sonnet-4-6). */
+export function normalizeModelForCoverage(model: string): string {
+  const bare = model.replace(/^claude:/, "");
+  const family = bare.match(/^claude-(opus|sonnet|haiku)\b/);
+  return family?.[1] ?? bare;
+}
+
 /** Models with any bake-off verdict coverage, read from the committed verdict
  *  summaries. Claude benchmark ids count too — coverage is coverage. */
 export function loadEvaluatedModels(repoRoot: string): Set<string> {
@@ -103,7 +112,7 @@ export function loadEvaluatedModels(repoRoot: string): Set<string> {
       for (const entry of entries) {
         for (const candidate of entry?.candidates ?? []) {
           if (typeof candidate?.model === "string") {
-            evaluated.add(candidate.model.replace(/^claude:/, ""));
+            evaluated.add(normalizeModelForCoverage(candidate.model));
           }
         }
       }
@@ -117,6 +126,9 @@ export function loadEvaluatedModels(repoRoot: string): Set<string> {
 export interface BuildScorecardInput {
   current: ModelRunStatLike[];
   previous: ModelRunStatLike[];
+  /** Most-recent sub-window (e.g. 24h) — reported separately so window
+   *  artifacts (like pre-migration history) are visible at a glance. */
+  recent?: ModelRunStatLike[];
   evaluatedModels: Set<string>;
   windowDays: number;
   now: Date;
@@ -151,7 +163,7 @@ export function buildModelScorecard(input: BuildScorecardInput): ModelScorecard 
     if (pair.capHits > 0) {
       flags.push(`CAP HITS: ${label} — ${pair.capHits} run(s) exhausted the tool-iteration budget`);
     }
-    if (pair.runs >= minEvalRuns && !input.evaluatedModels.has(pair.model)) {
+    if (pair.runs >= minEvalRuns && !input.evaluatedModels.has(normalizeModelForCoverage(pair.model))) {
       flags.push(`NEVER BAKED OFF: ${label} — ${pair.runs} production runs on a model with no verdict coverage`);
     }
   }
@@ -161,7 +173,7 @@ export function buildModelScorecard(input: BuildScorecardInput): ModelScorecard 
     generatedAt: input.now.toISOString(),
     pairs,
     flags,
-    summary: renderSummary(pairs, flags, input.windowDays),
+    summary: renderSummary(pairs, flags, input.windowDays, input.recent),
   };
 }
 
@@ -169,10 +181,19 @@ function fmt(value: number | null, digits = 0): string {
   return value == null ? "-" : value.toFixed(digits);
 }
 
-function renderSummary(pairs: ModelPairStats[], flags: string[], windowDays: number): string {
+function renderSummary(pairs: ModelPairStats[], flags: string[], windowDays: number, recent?: ModelRunStatLike[]): string {
   const lines: string[] = [];
   const totalRuns = pairs.reduce((sum, p) => sum + p.runs, 0);
   lines.push(`**Model scorecard** — last ${windowDays}d, ${totalRuns} runs across ${pairs.length} agent x model pairs`);
+  if (recent && recent.length > 0) {
+    const byProvider = new Map<string, number>();
+    for (const row of recent) {
+      const provider = row.providerName ?? "(unknown)";
+      byProvider.set(provider, (byProvider.get(provider) ?? 0) + 1);
+    }
+    const split = [...byProvider.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${k}`).join(", ");
+    lines.push(`Last 24h: ${recent.length} runs (${split})`);
+  }
   lines.push("");
   if (flags.length > 0) {
     lines.push("Flagged:");
