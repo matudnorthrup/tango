@@ -1,8 +1,11 @@
 import {
+  addObsidianMemories,
   createAtlasMemoryTools,
+  deleteObsidianMemoriesBySourceRefPrefix,
   openAtlasMemoryDatabase,
   type AtlasMemoryToolDefinition,
   type MemoryRecord,
+  type ObsidianChunkUpsert,
   type PinnedFactRecord,
   type PinnedFactScope,
   type MemorySource,
@@ -62,6 +65,16 @@ export class AtlasMemoryClient {
       memories_created: number;
       reflections: string[];
     }>("memory_reflect", params);
+  }
+
+  /** Remove Atlas copies of an Obsidian file's chunks before re-syncing (TGO-691). */
+  obsidianPrune(sourceRefPrefix: string): number {
+    return deleteObsidianMemoriesBySourceRefPrefix(this.db, sourceRefPrefix);
+  }
+
+  /** Mirror freshly indexed Obsidian chunks (with upstream embeddings) into Atlas. */
+  obsidianAddChunks(chunks: ObsidianChunkUpsert[]): number {
+    return addObsidianMemories(this.db, chunks).length;
   }
 
   close(): void {
