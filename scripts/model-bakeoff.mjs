@@ -42,6 +42,9 @@ function arg(name, fallback = null) {
 }
 const has = (name) => process.argv.includes(`--${name}`);
 const csv = (value) => (value ? value.split(",").map((s) => s.trim()).filter(Boolean) : []);
+// --task alongside --recompute/--rejudge means "use the current fixture file,
+// not the fixture snapshot stored with the results".
+const taskFileForRecompute = () => arg("task");
 
 const DEFAULT_MODELS = [
   "deepseek-v4-pro:cloud",
@@ -58,7 +61,16 @@ const DEFAULT_MODELS = [
 const recomputePath = arg("recompute");
 if (recomputePath) {
   const stored = JSON.parse(readFileSync(resolve(process.cwd(), recomputePath), "utf8"));
-  const fx = normalizeFixture(stored.fixture, { sourcePath: stored.fixture.sourcePath });
+  // Re-apply the CURRENT fixture definition when available, so gate fixes
+  // (not just thresholds) re-score stored runs without re-running models.
+  let fixtureSource = stored.fixture;
+  if (taskFileForRecompute()) fixtureSource = JSON.parse(readFileSync(resolve(process.cwd(), taskFileForRecompute()), "utf8"));
+  const fx = normalizeFixture(fixtureSource, { sourcePath: fixtureSource.sourcePath ?? stored.fixture.sourcePath });
+  for (const candidate of stored.candidates) {
+    for (const run of candidate.runs) {
+      run.gates = evaluateGates(fx, run);
+    }
+  }
   const summaries = stored.candidates.map((c) => summarizeCandidate(fx, c));
   const verdict = computeVerdict(fx, summaries);
   console.log(`Recompute (policy v${HARNESS_VERSION}) from ${recomputePath} — original run ${stored.when}`);

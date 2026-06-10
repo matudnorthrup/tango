@@ -1,0 +1,309 @@
+{
+  "latest": {
+    "when": "2026-06-10T00:26:52.026Z",
+    "harnessVersion": "2.0.0",
+    "fixtureSource": "model-bakeoff/tasks/email-triage-judgment.json",
+    "runsPerCandidate": 3,
+    "verdict": {
+      "fixtureId": "email.triage.inbox-review",
+      "passRateThreshold": 0.8,
+      "rubricThreshold": 0.7,
+      "rubricFloor": 0.6,
+      "recommendation": "glm-5",
+      "reason": "incumbent retained (hysteresis): minimax-m2.5 did not strictly beat it on pass rate, or cost/rubric advantage was insufficient",
+      "winner": "minimax-m2.5",
+      "incumbent": "glm-5",
+      "eligible": [
+        "minimax-m2.5",
+        "glm-5",
+        "deepseek-v4-flash"
+      ],
+      "infraIncomplete": false
+    },
+    "candidates": [
+      {
+        "model": "glm-5",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.7833333333333332,
+        "rubricMin": 0.71,
+        "rubricStdDev": 0.05185449728701348,
+        "meanSeconds": 29.85166666666667,
+        "meanOutputTokens": 1320,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "deepseek-v4-pro:cloud",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 0,
+        "rubricMean": 0.6716666666666665,
+        "rubricMin": 0.5900000000000001,
+        "rubricStdDev": 0.0580708379672811,
+        "meanSeconds": 124.02633333333331,
+        "meanOutputTokens": 5657.333333333333,
+        "meanCostUsd": null,
+        "gateFailures": [
+          "tool:email_inbox_scan: called 0x, need >=1",
+          "tool:email_inbox_scan: called 0x, need >=1",
+          "tool:email_inbox_scan: called 0x, need >=1"
+        ]
+      },
+      {
+        "model": "minimax-m2.5",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.81,
+        "rubricMin": 0.6200000000000001,
+        "rubricStdDev": 0.14632384175747523,
+        "meanSeconds": 26.526,
+        "meanOutputTokens": 1306.3333333333333,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "deepseek-v4-flash",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9363333333333334,
+        "rubricMin": 0.866,
+        "rubricStdDev": 0.05094005191289939,
+        "meanSeconds": 33.409333333333336,
+        "meanOutputTokens": 3150.6666666666665,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "claude:sonnet",
+        "benchmarkOnly": true,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.8300000000000001,
+        "rubricMin": 0.8200000000000001,
+        "rubricStdDev": 0.014142135623730859,
+        "meanSeconds": 20.188333333333336,
+        "meanOutputTokens": 735,
+        "meanCostUsd": null,
+        "gateFailures": []
+      }
+    ]
+  },
+  "history": [
+    {
+      "when": "2026-06-10T00:26:16.838Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/email-triage-judgment.json",
+      "runsPerCandidate": 3,
+      "verdict": {
+        "fixtureId": "email.triage.inbox-review",
+        "passRateThreshold": 0.8,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": "minimax-m2.5",
+        "reason": "minimax-m2.5 beats incumbent glm-5 (passRate 100% vs 100%, 1306 out-tok/success (price unknown) vs 1320 out-tok/success (price unknown))",
+        "winner": "minimax-m2.5",
+        "incumbent": "glm-5",
+        "eligible": [
+          "minimax-m2.5",
+          "glm-5",
+          "deepseek-v4-flash"
+        ],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "glm-5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.7833333333333332,
+          "rubricMin": 0.71,
+          "rubricStdDev": 0.05185449728701348,
+          "meanSeconds": 29.85166666666667,
+          "meanOutputTokens": 1320,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": 0.6716666666666665,
+          "rubricMin": 0.5900000000000001,
+          "rubricStdDev": 0.0580708379672811,
+          "meanSeconds": 124.02633333333331,
+          "meanOutputTokens": 5657.333333333333,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "tool:email_inbox_scan: called 0x, need >=1",
+            "tool:email_inbox_scan: called 0x, need >=1",
+            "tool:email_inbox_scan: called 0x, need >=1"
+          ]
+        },
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.81,
+          "rubricMin": 0.6200000000000001,
+          "rubricStdDev": 0.14632384175747523,
+          "meanSeconds": 26.526,
+          "meanOutputTokens": 1306.3333333333333,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "deepseek-v4-flash",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.9363333333333334,
+          "rubricMin": 0.866,
+          "rubricStdDev": 0.05094005191289939,
+          "meanSeconds": 33.409333333333336,
+          "meanOutputTokens": 3150.6666666666665,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "claude:sonnet",
+          "benchmarkOnly": true,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.8300000000000001,
+          "rubricMin": 0.8200000000000001,
+          "rubricStdDev": 0.014142135623730859,
+          "meanSeconds": 20.188333333333336,
+          "meanOutputTokens": 735,
+          "meanCostUsd": null,
+          "gateFailures": []
+        }
+      ]
+    },
+    {
+      "when": "2026-06-10T00:24:38.047Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/email-triage-judgment.json",
+      "runsPerCandidate": 3,
+      "verdict": {
+        "fixtureId": "email.triage.inbox-review",
+        "passRateThreshold": 0.8,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": null,
+        "reason": "no candidate met the reliability bar",
+        "winner": null,
+        "incumbent": "glm-5",
+        "eligible": [],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "glm-5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": 0.7833333333333332,
+          "rubricMin": 0.71,
+          "rubricStdDev": 0.05185449728701348,
+          "meanSeconds": 29.85166666666667,
+          "meanOutputTokens": 1320,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "forbidden:gog_email: forbidden tool was called",
+            "forbidden:gog_email: forbidden tool was called",
+            "forbidden:gog_email: forbidden tool was called"
+          ]
+        },
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": 0.6716666666666665,
+          "rubricMin": 0.5900000000000001,
+          "rubricStdDev": 0.0580708379672811,
+          "meanSeconds": 124.02633333333331,
+          "meanOutputTokens": 5657.333333333333,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "tool:email_inbox_scan: called 0x, need >=1",
+            "forbidden:gog_email: forbidden tool was called",
+            "tool:email_inbox_scan: called 0x, need >=1",
+            "forbidden:gog_email: forbidden tool was called",
+            "tool:email_inbox_scan: called 0x, need >=1",
+            "forbidden:gog_email: forbidden tool was called"
+          ]
+        },
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": 0.81,
+          "rubricMin": 0.6200000000000001,
+          "rubricStdDev": 0.14632384175747523,
+          "meanSeconds": 26.526,
+          "meanOutputTokens": 1306.3333333333333,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "forbidden:gog_email: forbidden tool was called",
+            "forbidden:gog_email: forbidden tool was called",
+            "forbidden:gog_email: forbidden tool was called"
+          ]
+        },
+        {
+          "model": "deepseek-v4-flash",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": 0.9363333333333334,
+          "rubricMin": 0.866,
+          "rubricStdDev": 0.05094005191289939,
+          "meanSeconds": 33.409333333333336,
+          "meanOutputTokens": 3150.6666666666665,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "forbidden:gog_email: forbidden tool was called",
+            "forbidden:gog_email: forbidden tool was called",
+            "forbidden:gog_email: forbidden tool was called"
+          ]
+        },
+        {
+          "model": "claude:sonnet",
+          "benchmarkOnly": true,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.8300000000000001,
+          "rubricMin": 0.8200000000000001,
+          "rubricStdDev": 0.014142135623730859,
+          "meanSeconds": 20.188333333333336,
+          "meanOutputTokens": 735,
+          "meanCostUsd": null,
+          "gateFailures": []
+        }
+      ]
+    }
+  ]
+}
