@@ -1,7 +1,9 @@
 // Verdict policy: reliability gate first, then cheapest, then fastest.
 //
 //   eligible  = passRate >= passRateThreshold AND rubricMean >= rubricThreshold
-//               (and not a benchmark-only candidate, and enough non-infra runs)
+//               (and not a benchmark-only candidate, and enough non-infra runs,
+//               and no judge-errored runs — a failed judge call leaves a run
+//               unscored, which is missing evidence, not a pass)
 //   ranking   = pass rate DESC first — reliability dominates even above the gate,
 //               because a failed job costs trust and attention, not just retry
 //               tokens. At equal pass rate: cost-per-SUCCESSFUL-run ascending
@@ -23,6 +25,7 @@ export function summarizeCandidate(fixture, { model, benchmarkOnly = false, runs
   const valid = runs.filter((r) => !r.gates?.infra);
   const passes = valid.filter((r) => r.gates?.pass);
   const passRate = valid.length === 0 ? 0 : passes.length / valid.length;
+  const judgeErrors = valid.filter((r) => r.judge?.error != null).length;
   const rubricValues = valid.map((r) => r.rubricScore).filter((v) => typeof v === "number" && Number.isFinite(v));
   const rubricMean = mean(rubricValues);
   const rubricMin = rubricValues.length > 0 ? Math.min(...rubricValues) : null;
@@ -42,6 +45,7 @@ export function summarizeCandidate(fixture, { model, benchmarkOnly = false, runs
     infraRuns: runs.length - valid.length,
     passes: passes.length,
     passRate,
+    judgeErrors,
     rubricMean,
     rubricMin,
     rubricStdDev,
@@ -82,6 +86,12 @@ function rankComparator(a, b) {
 export function isEligible(fixture, summary) {
   if (summary.benchmarkOnly) return false;
   if (summary.validRuns === 0) return false;
+  // A judge failure is an infra event, not quality evidence: the run's score is
+  // simply missing, so the rubric gates below can't see it — and an unscored
+  // challenger must never displace an incumbent. `--rejudge` on the stored
+  // results repairs this for free. Runs with no judge attempt at all
+  // (--no-judge) carry no judge object and are unaffected.
+  if ((summary.judgeErrors ?? 0) > 0) return false;
   if (summary.passRate < fixture.passRateThreshold) return false;
   if (summary.rubricMean != null && summary.rubricMean < fixture.rubricThreshold) return false;
   // Consistency gate: the WORST run must clear the floor. A model that swings
@@ -106,21 +116,34 @@ export function computeVerdict(fixture, summaries) {
     : "no candidate met the reliability bar";
 
   if (winner && incumbent && incumbent.model !== winner.model && isEligible(fixture, incumbent)) {
-    const beats =
-      winner.passRate > incumbent.passRate ||
-      (winner.passRate === incumbent.passRate &&
-        cheaper(winner, incumbent) &&
-        (winner.rubricMean == null || incumbent.rubricMean == null || winner.rubricMean >= incumbent.rubricMean - 0.05));
-    if (!beats) {
+    const beats = (challenger) =>
+      challenger.passRate > incumbent.passRate ||
+      (challenger.passRate === incumbent.passRate &&
+        cheaper(challenger, incumbent) &&
+        (challenger.rubricMean == null || incumbent.rubricMean == null || challenger.rubricMean >= incumbent.rubricMean - 0.05));
+    // Scan eligible candidates in rank order for the first that is assignable
+    // under hysteresis: the incumbent itself, or a challenger that beats it.
+    // Testing only eligible[0] lets a cheap-but-quality-regressed candidate
+    // shadow a runner-up that genuinely dominates the incumbent.
+    const pick = eligible.find((c) => c.model === incumbent.model || beats(c));
+    if (!pick || pick.model === incumbent.model) {
       recommendation = incumbent.model;
-      reason = `incumbent retained (hysteresis): ${winner.model} did not strictly beat it on pass rate, or cost/rubric advantage was insufficient`;
+      reason = `incumbent retained (hysteresis): no eligible candidate strictly beat it on pass rate, or cost/rubric advantage was insufficient`;
     } else {
-      reason = `${winner.model} beats incumbent ${incumbent.model} (passRate ${pct(winner.passRate)} vs ${pct(incumbent.passRate)}, ${costLabel(winner)} vs ${costLabel(incumbent)})`;
+      recommendation = pick.model;
+      reason = `${pick.model} beats incumbent ${incumbent.model} (passRate ${pct(pick.passRate)} vs ${pct(incumbent.passRate)}, ${costLabel(pick)} vs ${costLabel(incumbent)})`;
+      if (pick.model !== winner.model) {
+        reason += `; ${winner.model} ranked cheaper but could not displace the incumbent`;
+      }
     }
   }
 
   const assignable = summaries.filter((s) => !s.benchmarkOnly);
   const infraIncomplete = assignable.length > 0 && assignable.every((s) => s.validRuns === 0);
+  const judgeIncomplete = assignable.some((s) => (s.judgeErrors ?? 0) > 0);
+  if (!winner && judgeIncomplete) {
+    reason += " (judge failures left runs unscored — `--rejudge` the stored results file)";
+  }
 
   return {
     fixtureId: fixture.id,
@@ -133,6 +156,7 @@ export function computeVerdict(fixture, summaries) {
     incumbent: incumbent?.model ?? null,
     eligible: eligible.map((s) => s.model),
     infraIncomplete,
+    judgeIncomplete,
   };
 }
 

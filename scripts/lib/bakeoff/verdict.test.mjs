@@ -12,10 +12,11 @@ const fixture = (overrides = {}) => ({
   ...overrides,
 });
 
-function mkRun({ pass = true, infra = false, seconds = 10, outTok = 500, cost = null, rubric = null } = {}) {
+function mkRun({ pass = true, infra = false, seconds = 10, outTok = 500, cost = null, rubric = null, judgeError = null } = {}) {
   return {
     gates: { pass, infra, failures: pass ? [] : [{ gate: "tool:x", detail: "missed" }] },
     rubricScore: rubric,
+    judge: judgeError != null ? { error: judgeError } : rubric != null ? { weighted: rubric } : undefined,
     seconds,
     usage: { outputTokens: outTok },
     costUsd: cost,
@@ -127,6 +128,60 @@ test("benchmarks-only run is not infra-incomplete", () => {
   const v = computeVerdict(fixture(), [bench]);
   assert.equal(v.infraIncomplete, false);
   assert.equal(v.recommendation, null);
+});
+
+test("a cheap quality-regressed candidate does not shadow a runner-up that dominates the incumbent", () => {
+  // The Sacramento new-model screen: m2.7 ranked cheapest but sat >0.05 below
+  // the incumbent on rubric (can't displace), while glm-5.1 was both >10%
+  // cheaper AND better than the incumbent. Testing only eligible[0] against
+  // the incumbent wrongly retained it.
+  const f = fixture({ incumbentModel: "incumbent" });
+  const incumbent = candidate("incumbent", Array.from({ length: 3 }, () => mkRun({ rubric: 0.9, outTok: 2533 })));
+  const shadow = candidate("shadow-cheap", Array.from({ length: 3 }, () => mkRun({ rubric: 0.78, outTok: 1358 })));
+  const dominator = candidate("dominator", Array.from({ length: 3 }, () => mkRun({ rubric: 0.92, outTok: 1689 })));
+  const v = computeVerdict(f, [shadow, dominator, incumbent]);
+  assert.equal(v.winner, "shadow-cheap"); // cost-rank winner is unchanged
+  assert.equal(v.recommendation, "dominator"); // but assignment goes to the displacer
+  assert.match(v.reason, /dominator beats incumbent/);
+  // and when nobody can displace, the incumbent is retained as before
+  const v2 = computeVerdict(f, [shadow, incumbent]);
+  assert.equal(v2.recommendation, "incumbent");
+  assert.match(v2.reason, /hysteresis/);
+});
+
+test("judge failures disqualify: an unscored challenger never displaces the incumbent", () => {
+  // The 2026-06-10 outage case: model runs completed, every judge call timed
+  // out, and the cost-winning challenger was recommended with zero quality
+  // evidence. A judge error is missing evidence, not a pass.
+  const f = fixture({ incumbentModel: "incumbent" });
+  const incumbent = candidate("incumbent", [
+    mkRun({ rubric: 0.9, outTok: 2500 }),
+    mkRun({ rubric: 0.95, outTok: 2500 }),
+    mkRun({ rubric: 0.92, outTok: 2500 }),
+  ]);
+  const unjudged = candidate(
+    "challenger",
+    Array.from({ length: 3 }, () => mkRun({ outTok: 1300, judgeError: "judge timed out after 180000ms" })),
+  );
+  assert.equal(isEligible(f, unjudged), false);
+  const v = computeVerdict(f, [unjudged, incumbent]);
+  assert.equal(v.recommendation, "incumbent");
+  assert.equal(v.judgeIncomplete, true);
+});
+
+test("partial judge failures also disqualify — a missing score can hide a below-floor run", () => {
+  const partial = candidate("partial", [
+    mkRun({ rubric: 0.9 }),
+    mkRun({ rubric: 0.95 }),
+    mkRun({ judgeError: "judge timed out after 180000ms" }),
+  ]);
+  assert.equal(isEligible(fixture(), partial), false);
+});
+
+test("runs with no judge attempt at all (--no-judge) stay eligible on gates alone", () => {
+  const s = candidate("gates-only", [mkRun(), mkRun(), mkRun()]);
+  assert.equal(s.judgeErrors, 0);
+  assert.equal(isEligible(fixture(), s), true);
 });
 
 test("hysteresis: marginal cost advantage (<10%) does not displace incumbent", () => {

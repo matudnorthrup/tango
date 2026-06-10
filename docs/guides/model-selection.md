@@ -99,6 +99,42 @@ README there); committed-safe verdict summaries land in
 `~/.tango/evals/results/`. Validate fixtures with `npm run eval:validate`; the
 harness's own logic tests run with `npm run eval:test`.
 
+## New-model intake (screening catalog entrants)
+
+The Ollama Cloud catalog grows continuously; new models are intake candidates,
+not automatic upgrades. Screening is cheap (subscription pricing — the cost is
+usage volume and wall clock), so the process is: **screen on two fixtures,
+then earn assignments through the normal permit process.**
+
+1. **Diff the catalog against what we know.** Every evaluated model has a
+   `pricing.json` entry (null prices for subscription models, by design), so:
+   `curl -s -H "Authorization: Bearer $OLLAMA_API_KEY" https://ollama.com/v1/models`
+   vs `pricing.json` keys. New ids = candidates. Add entries for whatever you
+   screen.
+2. **Screen, don't census.** Run candidates through two read-tier fixtures via
+   the `--models` override, with the fixture's current winner included so every
+   comparison shares one blind-judge pass:
+   - `travel-route-sacramento-detour` — bounded; catches tool-contract or
+     formatting misses, and prices the candidate against the cheap incumbent.
+   - `travel-diesel-route-aware` — judgment-discriminating; most models fail
+     its rubric, so clearing it is real signal.
+3. **Interpret by tier.** Fails the bounded screen → drop. Passes bounded only
+   → candidate for bounded per-task pins (bake off on the specific task's
+   fixture before pinning). Clears the diesel rubric → dependability-tier
+   candidate; run the full travel portfolio + email triage before considering
+   any agent-default change. Hysteresis applies throughout: a newcomer needs a
+   >10% cost margin (or a pass-rate win) over the incumbent, with no meaningful
+   rubric regression.
+4. **Expect non-monotonic generations.** The 2026-06-10 screen of the new
+   MiniMax line: m2.7 came out ~46% cheaper than m2.5 but meaningfully *worse*
+   (0.78 vs 0.90 rubric); m3 came out better (0.96) *and* ~17% cheaper. Version
+   number is not evidence; the verdict is.
+5. **Outage resilience.** Judge failures (timeouts, network) leave runs
+   unscored; the verdict marks `judgeIncomplete` and unscored candidates are
+   ineligible (missing evidence is not a pass). Repair with
+   `--rejudge <stored results.json>` — re-judges transcripts without re-running
+   models. Policy changes re-apply with `--recompute`.
+
 ## What the data shows (and why it generalizes)
 
 A bake-off (2026-06-08, [DEV-57]) established the pattern we expect to keep seeing:

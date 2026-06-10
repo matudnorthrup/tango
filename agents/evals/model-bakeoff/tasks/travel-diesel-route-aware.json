@@ -12,7 +12,10 @@
     "minimax-m2.5",
     "glm-5",
     "deepseek-v4-pro:cloud",
-    "deepseek-v4-flash"
+    "deepseek-v4-flash",
+    "minimax-m2.7",
+    "minimax-m3",
+    "glm-5.1"
   ],
   "benchmarkModels": [
     "claude:sonnet"
@@ -22,7 +25,10 @@
     {
       "name": "find_diesel",
       "argChecks": [
-        { "path": ".", "matches": "boise" }
+        {
+          "path": ".",
+          "matches": "boise"
+        }
       ]
     }
   ],
