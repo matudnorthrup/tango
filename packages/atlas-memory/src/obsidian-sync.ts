@@ -19,6 +19,12 @@ export interface ObsidianChunkUpsert {
   metadata?: Record<string, unknown> | null;
   embedding?: number[] | null;
   embeddingModel?: string | null;
+  /**
+   * Content age (note frontmatter date / file mtime), NOT index time — recency
+   * scoring must reflect when the note was written, or a bulk resync makes the
+   * whole vault look brand-new and drowns out other sources.
+   */
+  createdAt?: string | null;
 }
 
 export function deleteObsidianMemoriesBySourceRefPrefix(
@@ -67,6 +73,7 @@ export function addObsidianMemories(
   for (const chunk of chunks) {
     if (chunk.content.trim().length === 0) continue;
     const id = uuidv4();
+    const createdAt = chunk.createdAt?.trim() || timestamp;
     insert.run(
       id,
       chunk.content,
@@ -74,8 +81,8 @@ export function addObsidianMemories(
       JSON.stringify(chunk.tags ?? []),
       chunk.embedding && chunk.embedding.length > 0 ? encodeEmbedding(chunk.embedding) : null,
       chunk.embedding && chunk.embedding.length > 0 ? chunk.embeddingModel ?? null : null,
-      timestamp,
-      timestamp,
+      createdAt,
+      createdAt,
       JSON.stringify({ ...(chunk.metadata ?? {}), source_ref: chunk.sourceRef }),
     );
     ids.push(id);
