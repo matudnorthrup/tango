@@ -6,6 +6,7 @@ import {
   VoiceTargetDirectory,
   extractFromWakeWord,
   extractNamedWakeWord,
+  isStrongAddressMatch,
   mentionsWakeName,
   stripLeadingWakePhrase
 } from "../src/index.js";
@@ -77,6 +78,62 @@ describe("address routing helpers", () => {
       expect(result).not.toBeNull();
       expect(result!.matchedName).toBe("Malibu");
       expect(result!.transcript).toBe("hey Malibu, check this");
+    });
+  });
+
+  describe("multi-word call signs with Whisper punctuation", () => {
+    it("matches a call sign with a comma inserted between its words", () => {
+      const result = extractNamedWakeWord("bravo, malibu,", ["Bravo Malibu"]);
+      expect(result).not.toBeNull();
+      expect(result!.matchedName).toBe("Bravo Malibu");
+    });
+
+    it("still matches the clean two-word form", () => {
+      const result = extractNamedWakeWord("bravo malibu", ["Bravo Malibu"]);
+      expect(result).not.toBeNull();
+      expect(result!.matchedName).toBe("Bravo Malibu");
+    });
+
+    it("matches with a period between the words", () => {
+      const result = extractNamedWakeWord("Bravo. Malibu, status", ["Bravo Malibu"]);
+      expect(result).not.toBeNull();
+      expect(result!.matchedName).toBe("Bravo Malibu");
+    });
+
+    it("mentionsWakeName tolerates the comma variant", () => {
+      expect(mentionsWakeName("I said bravo, malibu earlier", ["Bravo Malibu"])).toBe(true);
+    });
+
+    it("stripLeadingWakePhrase removes the comma variant prefix", () => {
+      expect(stripLeadingWakePhrase("Bravo, Malibu, status update", ["Bravo Malibu"])).toBe(
+        "status update"
+      );
+    });
+  });
+
+  describe("isStrongAddressMatch", () => {
+    it("treats multi-word call signs as always strong", () => {
+      expect(isStrongAddressMatch("Bravo Malibu", "bravo malibu")).toBe(true);
+      expect(isStrongAddressMatch("Bravo Malibu", "bravo, malibu,")).toBe(true);
+      expect(isStrongAddressMatch("Bravo Malibu", "bravo malibu check the queue")).toBe(true);
+    });
+
+    it("treats a bare name as a strong wake when the utterance ends at the name", () => {
+      expect(isStrongAddressMatch("Malibu", "malibu")).toBe(true);
+      expect(isStrongAddressMatch("Malibu", "Malibu.")).toBe(true);
+      expect(isStrongAddressMatch("Malibu", "malibu!")).toBe(true);
+    });
+
+    it("keeps comma/colon-after-name and greeting prefixes strong", () => {
+      expect(isStrongAddressMatch("Malibu", "Malibu, check this")).toBe(true);
+      expect(isStrongAddressMatch("Watson", "Watson: do this")).toBe(true);
+      expect(isStrongAddressMatch("Malibu", "hey malibu what's up")).toBe(true);
+      expect(isStrongAddressMatch("Malibu", "hello, malibu, status")).toBe(true);
+    });
+
+    it("leaves subject references weak", () => {
+      expect(isStrongAddressMatch("Malibu", "malibu says hi")).toBe(false);
+      expect(isStrongAddressMatch("Malibu", "malibu's report is due")).toBe(false);
     });
   });
 });

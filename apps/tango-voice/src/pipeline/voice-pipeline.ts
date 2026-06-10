@@ -7,7 +7,9 @@ import {
   extractInlineTopicReference,
   formatCurrentTopicMessage,
   formatOpenedTopicMessage,
+  isStrongAddressMatch,
   sanitizeAssistantResponse,
+  wakeNamePattern,
   type VoiceAddressAgent,
 } from '@tango/voice';
 import { VoiceConnection } from '@discordjs/voice';
@@ -377,28 +379,12 @@ export class VoicePipeline {
       ?? null;
     if (!contextAgentId || contextAgentId === address.agent.id) return address;
 
-    const lower = transcript.trim().toLowerCase();
-    const nameLower = address.matchedName.toLowerCase();
-
-    // Greeting prefix — "Hey <name>" / "Hello <name>" is intentional.
-    // Whisper often inserts punctuation after the greeting word ("hello, malibu").
-    const greetingPrefix = new RegExp(`^(?:hey|hello)[,\\s]+${nameLower}(?:\\b|[,:])`, 'i');
-    if (greetingPrefix.test(lower)) {
+    // Check both the raw transcript and the preamble-stripped address transcript.
+    const candidates = [transcript, address.transcript].filter(
+      (text): text is string => Boolean(text?.trim()),
+    );
+    if (candidates.some((text) => isStrongAddressMatch(address.matchedName, text))) {
       return address;
-    }
-    // Also check the address transcript (preamble-stripped) for mid-transcript wake matches
-    const addressLower = address.transcript?.trim().toLowerCase();
-    if (addressLower && greetingPrefix.test(addressLower)) {
-      return address;
-    }
-
-    // Comma or colon after name — "Watson, do this" / "Malibu: check this"
-    const nameIdx = lower.indexOf(nameLower);
-    if (nameIdx >= 0) {
-      const charAfterName = lower[nameIdx + nameLower.length] ?? '';
-      if (charAfterName === ',' || charAfterName === ':') {
-        return address;
-      }
     }
 
     console.log(
@@ -603,7 +589,7 @@ export class VoicePipeline {
     const names = explicitAddress?.agent.callSigns ?? this.getAllWakeNames();
     for (const name of names) {
       const trigger = new RegExp(
-        `^(?:(?:hey|hello),?\\s+)?${this.escapeRegex(name)}[,.]?\\s*`,
+        `^(?:(?:hey|hello),?\\s+)?${wakeNamePattern(name)}[,.]?\\s*`,
         'i',
       );
       const stripped = source.replace(trigger, '').trim();
@@ -882,10 +868,6 @@ export class VoicePipeline {
 
   private isIndicateDirectiveTranscript(transcript: string): boolean {
     return this.classifyIndicateDirectiveTranscript(transcript) !== null;
-  }
-
-  private escapeRegex(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   private normalizeClosePhrase(text: string): string {
