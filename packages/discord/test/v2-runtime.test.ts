@@ -292,7 +292,7 @@ describe("createAtlasColdStartContextBuilder", () => {
           status: "ready",
           directory: {
             title: "START HERE image",
-            summary: "One-page index for [redacted] image docs.",
+            summary: "One-page index for user image docs.",
             source: {
               message_ref: "discord:channel-1:message-1:discord-attachment-42",
               attachment_ref: "attachment:42",

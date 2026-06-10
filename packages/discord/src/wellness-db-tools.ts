@@ -1,5 +1,5 @@
 /**
- * Jules Wellness DB Tools — structured MCP access to [redacted]'s wellness.db.
+ * Jules Wellness DB Tools -- structured MCP access to the configured wellness db.
  *
  * Workers call these tools instead of raw SQL. Database path comes from
  * JULES_WELLNESS_DB_PATH (falls back to the default profile wellness db).
@@ -9,7 +9,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { resolveConfiguredPath, resolveTangoProfileDir, type AgentTool } from "@tango/core";
+import {
+  readProfileConfigStringList,
+  resolveConfiguredPath,
+  resolveTangoProfileDir,
+  type AgentTool,
+} from "@tango/core";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MEALS = new Set(["breakfast", "lunch", "dinner", "snack", "supplement"]);
@@ -23,7 +28,7 @@ const ACTIVITY_TYPES = new Set([
   "journaling",
   "other",
 ]);
-const HRT_BATCH_SHORTHANDS = ["patch", "pill", "testosterone"];
+const SUPPLEMENT_BATCH_CONFIG_PATH = "wellness/supplement-batches.txt";
 const READ_ONLY_WELLNESSDB_TOOLS = new Set([
   "wellnessdb_search_product",
   "wellnessdb_search_supplement",
@@ -38,6 +43,7 @@ const READ_ONLY_WELLNESSDB_TOOLS = new Set([
 
 export interface WellnessDbToolOptions {
   dbPath?: string;
+  supplementBatchShortcuts?: Record<string, string[]>;
 }
 
 interface ProductRow {
@@ -274,7 +280,45 @@ function searchRecipes(db: DatabaseSync, query: string): RecipeSummaryRow[] {
   );
 }
 
-function expandSupplementQueries(input: string | string[]): string[] {
+function parseSupplementBatchShortcut(line: string): [string, string[]] | null {
+  const match = /^([^:=]+)\s*[:=]\s*(.+)$/u.exec(line);
+  if (!match) {
+    return null;
+  }
+  const shortcut = match[1]?.trim().toLowerCase();
+  const expanded = match[2]
+    ?.split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0) ?? [];
+  return shortcut && expanded.length > 0 ? [shortcut, expanded] : null;
+}
+
+function loadSupplementBatchShortcuts(
+  overrides: Record<string, string[]> = {},
+): Map<string, string[]> {
+  const shortcuts = new Map<string, string[]>();
+  for (const [shortcut, expanded] of Object.entries(overrides)) {
+    if (shortcut.trim() && expanded.length > 0) {
+      shortcuts.set(shortcut.trim().toLowerCase(), expanded);
+    }
+  }
+  for (const line of readProfileConfigStringList({
+    relativePath: SUPPLEMENT_BATCH_CONFIG_PATH,
+    envPathVar: "TANGO_WELLNESS_SUPPLEMENT_BATCHES_FILE",
+    envValueVar: "TANGO_WELLNESS_SUPPLEMENT_BATCHES",
+  })) {
+    const parsed = parseSupplementBatchShortcut(line);
+    if (parsed) {
+      shortcuts.set(parsed[0], parsed[1]);
+    }
+  }
+  return shortcuts;
+}
+
+function expandSupplementQueries(
+  input: string | string[],
+  batchShortcuts: Map<string, string[]>,
+): string[] {
   const rawItems = Array.isArray(input)
     ? input.flatMap((value) => String(value).split(","))
     : String(input).split(",");
@@ -282,8 +326,9 @@ function expandSupplementQueries(input: string | string[]): string[] {
   for (const item of rawItems) {
     const trimmed = item.trim();
     if (!trimmed) continue;
-    if (trimmed.toUpperCase() === "HRT") {
-      expanded.push(...HRT_BATCH_SHORTHANDS);
+    const batch = batchShortcuts.get(trimmed.toLowerCase());
+    if (batch) {
+      expanded.push(...batch);
       continue;
     }
     expanded.push(trimmed);
@@ -525,6 +570,7 @@ export function wellnessDbToolLooksReadOnly(name: string): boolean {
 
 export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentTool[] {
   const dbPath = resolveWellnessDbPath(options?.dbPath);
+  const supplementBatchShortcuts = loadSupplementBatchShortcuts(options?.supplementBatchShortcuts);
 
   return [
     {
@@ -834,14 +880,14 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
     },
     {
       name: "wellnessdb_log_supplement",
-      description: "Log one or more supplements taken. Supports comma-separated names and HRT batch expansion.",
+      description: "Log one or more supplements taken. Supports comma-separated names and profile-configured batch expansion.",
       inputSchema: {
         type: "object",
         properties: {
           date: { type: "string", description: "Date YYYY-MM-DD (defaults to today)" },
           supplements: {
             oneOf: [
-              { type: "string", description: "Comma-separated supplement shorthands/names, or HRT" },
+              { type: "string", description: "Comma-separated supplement shorthands/names, or configured batch shortcut" },
               { type: "array", items: { type: "string" } },
             ],
           },
@@ -852,7 +898,10 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
       },
       handler: async (input) => {
         const date = assertDate(String(input.date ?? todayDate()));
-        const queries = expandSupplementQueries(input.supplements as string | string[]);
+        const queries = expandSupplementQueries(
+          input.supplements as string | string[],
+          supplementBatchShortcuts,
+        );
         if (queries.length === 0) return { error: "supplements is required" };
 
         const db = openDb(dbPath, false);

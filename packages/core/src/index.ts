@@ -34,6 +34,7 @@ export * from "./provider.js";
 export * from "./mcp-http-tool-client.js";
 export * from "./provider-artifacts.js";
 export * from "./provider-registry.js";
+export * from "./profile-config.js";
 export * from "./runtime-pool.js";
 export * from "./runtime-paths.js";
 export * from "./v2-config-loader.js";

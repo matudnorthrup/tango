@@ -38,14 +38,14 @@ function createAttachment(overrides: Partial<AttachmentRecord> = {}): Attachment
     userId: "user-1",
     discordAttachmentId: "discord-42",
     fileId: 7,
-    title: "[redacted] image support screenshot",
+    title: "User image support screenshot",
     originalFilename: "image-support.png",
     contentType: "image/png",
     bytes: 2048,
     status: "ready",
     retentionPolicyId: null,
     metadata: {
-      tags: ["darla", "image-support"],
+      tags: ["private-user", "image-support"],
       sensitivity: "private",
       source_kind: "discord",
     },
@@ -78,7 +78,7 @@ describe("attachment retention policy", () => {
         priority: 10,
         scope: { type: "project", id: "tango" },
         match: {
-          tags: ["darla"],
+          tags: ["private-user"],
           contentTypePrefixes: ["image/"],
         },
         actions: {
@@ -193,7 +193,7 @@ describe("attachment retention policy", () => {
       [
         "id: project-sensitive-image-review",
         "schema_version: 3",
-        "description: Review private [redacted] images after one week.",
+        "description: Review private user images after one week.",
         "enabled: true",
         "priority: 20",
         "scope:",
@@ -206,7 +206,7 @@ describe("attachment retention policy", () => {
         "    - png",
         "  min_age_days: 7",
         "  tags:",
-        "    - darla",
+        "    - private-user",
         "  sensitivity:",
         "    - private",
         "  source_kinds:",
