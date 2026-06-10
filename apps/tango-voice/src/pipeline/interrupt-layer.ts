@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { wakeNamePattern } from '@tango/voice';
 import {
   extractNamedWakeWord,
   matchesWakeWord,
@@ -109,7 +110,7 @@ export class InterruptLayer extends EventEmitter {
 
     const trimmed = wakeMatch.transcript.trim();
     const trigger = new RegExp(
-      `^(?:(?:hey|hello),?\\s+)?${escapeRegex(wakeMatch.matchedName)}[,.]?\\s*`,
+      `^(?:(?:hey|hello),?\\s+)?${wakeNamePattern(wakeMatch.matchedName)}[,.]?\\s*`,
       'i',
     );
     return trimmed.replace(trigger, '').trim();
@@ -140,6 +141,3 @@ function normalizeInterruptText(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
