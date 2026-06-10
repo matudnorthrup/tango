@@ -2260,6 +2260,17 @@ const MIGRATIONS: Migration[] = [
         ('worker:watson-ollama', 'email_thread_brief', 'read', 'Watson Ollama email parity (read-only)');
     `,
   },
+  {
+    version: 49,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('notion', 'personal', 'Notion (direct API)', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+        ('worker:research-assistant', 'notion', 'write', 'Sierra research filing: Notion read/create/update with cleanup'),
+        ('worker:personal-assistant', 'notion', 'write', 'Watson notes domain: Notion read/create/update');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
