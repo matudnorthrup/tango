@@ -17,7 +17,7 @@ describe("find-diesel script", () => {
     });
 
     expect(output).toContain("find-diesel");
-    expect(output).toContain("Find best-value diesel stations along your route");
+    expect(output).toContain("Find best-value fuel stations along your route or nearby");
   });
 });
 
@@ -91,6 +91,68 @@ describe("travel tools", () => {
         durationText: "2h 0m",
       },
     });
+  });
+
+  it("falls back to HERE Discover when Nominatim cannot geocode a POI", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    process.env.HERE_API_KEY = "test-here-key";
+    try {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = String(input);
+        const host = new URL(url).hostname;
+        if (host === "nominatim.openstreetmap.org") {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (host === "discover.search.hereapi.com") {
+          return new Response(JSON.stringify({
+            items: [{
+              title: "Costco",
+              address: { label: "Costco, 3075 Hamrick Rd, Central Point, OR 97502, United States" },
+              position: { lat: 42.37395, lng: -122.88789 },
+            }],
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (host === "router.project-osrm.org") {
+          return new Response(JSON.stringify({
+            code: "Ok",
+            routes: [{ distance: 160934, duration: 7200 }],
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+      const tools = createTravelTools();
+      const osrmRoute = tools.find((tool) => tool.name === "osrm_route");
+      expect(osrmRoute).toBeDefined();
+
+      const result = await osrmRoute!.handler({
+        origin: "42.3265,-122.8756",
+        destination: "Costco, Medford, OR",
+      });
+
+      const urls = fetchSpy.mock.calls.map((call) => String(call[0]));
+      expect(urls.some((url) => new URL(url).hostname === "discover.search.hereapi.com" && new URL(url).searchParams.get("apiKey") === "test-here-key")).toBe(true);
+      expect(result).toMatchObject({
+        routes: [{
+          resolvedPoints: [
+            { source: "coordinate" },
+            { source: "here-discover", lat: 42.37395, lon: -122.88789 },
+          ],
+        }],
+      });
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
   });
 });
 
