@@ -320,7 +320,9 @@ export const GOVERNANCE_SEED = `
     ('imessage', 'personal', 'iMessage Read/Send', 'write'),
     ('latitude_run', 'personal', 'Latitude Remote MCP (Notion, Slack, etc.)', 'write'),
     ('youtube_transcript', 'research', 'YouTube Transcript', 'read'),
-    ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read');
+    ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read'),
+    ('spawn_claude_session', 'tango', 'Spawn Claude Code Session', 'write'),
+    ('list_claude_sessions', 'tango', 'List Claude Code Sessions', 'read');
 
   -- Default groups
   INSERT OR IGNORE INTO groups (id, display_name, governance_level, description) VALUES
