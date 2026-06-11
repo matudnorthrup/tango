@@ -56,12 +56,14 @@ memory:
 # Discord routing
 discord:
   default_channel_id: "1513207701088243793"
+  smoke_test_channel_id: "100000000000001004" # victor-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207701088243793"
+    - "100000000000001004" # victor-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
 avatar_url: https://cdn.discordapp.com/avatars/1480581855450497277/cb5e0df0a5857352c71e9fd660f29a23.webp
@@ -96,3 +98,4 @@ voice:
     - Victor
   kokoro_voice: am_liam
   default_channel_id: "1513207701088243793"
+  smoke_test_channel_id: "100000000000001004" # victor-test (placeholder; real id in profile overlay)

@@ -53,12 +53,14 @@ memory:
 # Discord routing
 discord:
   default_channel_id: "1513207684344582184"
+  smoke_test_channel_id: "100000000000001007" # juliet-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207684344582184"
+    - "100000000000001007" # juliet-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
 avatar_path: agents/assistants/juliet/avatar.png
@@ -97,3 +99,4 @@ voice:
     - Juliet
   kokoro_voice: af_bella
   default_channel_id: "1513207684344582184"
+  smoke_test_channel_id: "100000000000001007" # juliet-test (placeholder; real id in profile overlay)

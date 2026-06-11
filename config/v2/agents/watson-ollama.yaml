@@ -90,12 +90,14 @@ memory:
 # Discord routing
 discord:
   default_channel_id: "1513207663419330650"
+  smoke_test_channel_id: "100000000000001001" # watson-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207663419330650"
+    - "100000000000001001" # watson-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields (used by agentRegistry consumers)
 avatar_url: https://cdn.discordapp.com/avatars/1480550056523468861/ff5bac712e31630feba87803474bc0c6.webp
@@ -134,3 +136,4 @@ voice:
     - Watson
   kokoro_voice: bm_george
   default_channel_id: "1513207663419330650"
+  smoke_test_channel_id: "100000000000001001" # watson-test (placeholder; real id in profile overlay)
