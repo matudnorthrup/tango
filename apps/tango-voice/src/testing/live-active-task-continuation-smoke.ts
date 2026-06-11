@@ -250,6 +250,31 @@ function loadActiveTask(db: DatabaseSync, id: string): ActiveTaskRow {
   return row ?? null;
 }
 
+const OPEN_TASK_STATUSES = new Set(["proposed", "awaiting_user", "ready", "running", "blocked"]);
+
+/**
+ * Task resolution is asynchronous: the post-turn extractor (TGO-743) runs a
+ * fire-and-forget LLM call after the outbound message is written, so the
+ * status flip lands seconds after turn evidence appears. Poll instead of
+ * asserting immediately.
+ */
+async function waitForActiveTaskResolution(
+  db: DatabaseSync,
+  taskId: string,
+  timeoutMs: number,
+): Promise<ActiveTaskRow> {
+  const deadline = Date.now() + timeoutMs;
+  let task = loadActiveTask(db, taskId);
+  while (Date.now() < deadline) {
+    if (task && !OPEN_TASK_STATUSES.has(task.status)) {
+      return task;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    task = loadActiveTask(db, taskId);
+  }
+  return task;
+}
+
 function inferSessionType(sessionId: string): "project" | "persistent" | "ephemeral" {
   if (sessionId.startsWith("project:")) {
     return "project";
@@ -449,7 +474,7 @@ async function runCase(input: {
     throw new Error(`[${scenario.id}] Timed out waiting for a new v2 outbound message row after continuation.`);
   }
 
-  const finalTask = loadActiveTask(db, taskId);
+  const finalTask = await waitForActiveTaskResolution(db, taskId, 120_000);
   const responseText = result?.responseText ?? latestTurn.responseText ?? "";
   console.log(
     `[continuation-smoke:${scenario.id}] v2_message=${latestTurn.messageId} runtime=${latestTurn.runtimePath ?? "-"} toolsUsed=${latestTurn.toolsUsed.join(",") || "-"} task_status=${finalTask?.status ?? "(missing)"}`,

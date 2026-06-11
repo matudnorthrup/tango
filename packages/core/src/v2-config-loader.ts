@@ -50,6 +50,16 @@ export interface V2AgentConfig {
     importanceThreshold: number;
     scheduledReflection: V2FeatureToggle;
   };
+  /**
+   * Active-task continuation (capture unfinished commitments post-turn, surface
+   * them in warm-start). Absent section = enabled with memory-extraction
+   * defaults; set continuation: disabled for a per-agent kill switch.
+   */
+  activeTasks?: {
+    continuation: V2FeatureToggle;
+    extractionProvider?: string;
+    extractionModel?: string;
+  };
   voice?: {
     callSigns: string[];
     kokoroVoice?: string;
@@ -150,6 +160,11 @@ const rawV2AgentConfigSchema = z.object({
     importance_threshold: z.number().min(0).max(1),
     scheduled_reflection: featureToggleSchema,
   }),
+  active_tasks: z.object({
+    continuation: featureToggleSchema,
+    extraction_provider: z.string().min(1).optional(),
+    extraction_model: z.string().min(1).optional(),
+  }).optional(),
   voice: z.object({
     call_signs: z.array(z.string().min(1)).min(1),
     kokoro_voice: z.string().min(1).optional(),
@@ -268,6 +283,17 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
       importanceThreshold: parsed.memory.importance_threshold,
       scheduledReflection: parsed.memory.scheduled_reflection,
     },
+    activeTasks: parsed.active_tasks
+      ? {
+          continuation: parsed.active_tasks.continuation,
+          ...(parsed.active_tasks.extraction_provider
+            ? { extractionProvider: parsed.active_tasks.extraction_provider }
+            : {}),
+          ...(parsed.active_tasks.extraction_model
+            ? { extractionModel: parsed.active_tasks.extraction_model }
+            : {}),
+        }
+      : undefined,
     voice: parsed.voice
       ? {
           callSigns: parsed.voice.call_signs,
