@@ -1209,6 +1209,18 @@ export class VoicePipeline {
       void this.player.playEarcon('gate-closed');
       return;
     }
+    // Grace-seeded captures (no wake word ever spoken) get one nudge, then
+    // expire. They are usually ambient speech or STT hallucinations that
+    // happened to land in a grace window; nudging forever leaves a capture
+    // that any later "thanks" flushes to an agent as garbage (TGO-751).
+    // Wake-initiated captures keep the never-discard behavior — the user
+    // explicitly addressed an agent and may be mid-dictation.
+    if (this.ctx.indicateCaptureOrigin === 'grace' && this.indicateCaptureNudgeCount >= 1) {
+      console.log(`Indicate capture expired (grace-seeded, no close word after nudge) — discarded ${captured.length} chars`);
+      this.clearIndicateCapture('timeout-grace-expired');
+      void this.player.playEarcon('gate-closed');
+      return;
+    }
     // Nudge the user — never discard captured content.
     // Play a gentle earcon to remind them to say a close word.
     this.indicateCaptureNudgeCount += 1;
@@ -1222,15 +1234,16 @@ export class VoicePipeline {
     this.armIndicateCaptureTimeout();
   }
 
-  private startIndicateCapture(initialSegment: string): void {
+  private startIndicateCapture(initialSegment: string, origin: 'wake' | 'grace' = 'wake'): void {
     const segment = initialSegment.trim();
     this.ctx.indicateCaptureActive = true;
     this.ctx.indicateCaptureSegments = segment ? [segment] : [];
     this.ctx.indicateCaptureStartedAt = Date.now();
     this.ctx.indicateCaptureLastSegmentAt = this.ctx.indicateCaptureStartedAt;
+    this.ctx.indicateCaptureOrigin = origin;
     this.indicateCaptureNudgeCount = 0;
     this.armIndicateCaptureTimeout();
-    console.log(`Indicate capture started${segment ? ` (seed=${segment.length} chars)` : ''}`);
+    console.log(`Indicate capture started${segment ? ` (seed=${segment.length} chars)` : ''}${origin === 'grace' ? ' [grace-seeded]' : ''}`);
   }
 
   private appendIndicateCaptureSegment(segment: string): void {
@@ -1676,6 +1689,7 @@ export class VoicePipeline {
     this.ctx.indicateCaptureSegments = [];
     this.ctx.indicateCaptureStartedAt = 0;
     this.ctx.indicateCaptureLastSegmentAt = 0;
+    this.ctx.indicateCaptureOrigin = null;
     this.indicateProbeResult = null;
     this.indicateProbeEarconPlayed = false;
   }
@@ -2104,7 +2118,16 @@ export class VoicePipeline {
     return true;
   }
 
-  private async handleUtterance(userId: string, wavBuffer: Buffer, durationMs: number): Promise<void> {
+  private async handleUtterance(
+    userId: string,
+    wavBuffer: Buffer,
+    durationMs: number,
+    // Present only when re-processing a buffered utterance: the grace state
+    // snapshotted when the audio was actually captured. Without it, replay
+    // would evaluate grace against the fresh window that opens when the
+    // pipeline finishes, letting stale wake-less speech through (TGO-751).
+    replayGraceAtCapture?: { gate: boolean; prompt: boolean },
+  ): Promise<void> {
     // Short-utterance gate: clips below the normal speech floor only proceed
     // when they strictly match a known short command; everything else takes
     // the same silent-rejection path the VAD floor used to apply.
@@ -2132,12 +2155,19 @@ export class VoicePipeline {
     const indicateEndpointAtCapture = this.usesIndicateEndpoint(modeAtCapture, gatedMode);
     const nowAtCapture = Date.now();
     const utteranceStartEstimate = nowAtCapture - Math.max(0, durationMs);
-    const graceFromGateAtCapture =
-      nowAtCapture < this.ctx.gateGraceUntil ||
-      utteranceStartEstimate < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS);
-    const graceFromPromptAtCapture =
-      nowAtCapture < this.ctx.promptGraceUntil ||
-      utteranceStartEstimate < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS);
+    const isBufferedReplay = replayGraceAtCapture !== undefined;
+    const graceFromGateAtCapture = isBufferedReplay
+      ? replayGraceAtCapture.gate
+      : (
+        nowAtCapture < this.ctx.gateGraceUntil ||
+        utteranceStartEstimate < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+      );
+    const graceFromPromptAtCapture = isBufferedReplay
+      ? replayGraceAtCapture.prompt
+      : (
+        nowAtCapture < this.ctx.promptGraceUntil ||
+        utteranceStartEstimate < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+      );
 
     // Interrupt TTS playback if user speaks — but don't kill the waiting tone
     const wasPlayingResponse = this.player.isPlaying() && !this.player.isWaiting();
@@ -2155,6 +2185,11 @@ export class VoicePipeline {
     const gateClosedCueInterrupt = gatedInterrupt && this.player.isPlayingEarcon('gate-closed');
     let keepCurrentState = false;
     let playedListeningEarly = false;
+    // When reply context temporarily focuses an agent for this dispatch, the
+    // prior focus is restored in the finally block. Persisting it would leave
+    // focusedPromptBypass disabling the wake-word gate for the rest of the
+    // session (TGO-751).
+    let replyFocusRestore: { setToAgentId: string; prevId: string | null; prevName: string | null } | null = null;
     let partialWakeWordDetected = false;
     let partialPlaybackStoppedByPartial = false;
     let partialWakeCommandDetected: VoiceCommand | null = null;
@@ -2191,14 +2226,20 @@ export class VoicePipeline {
       ) {
         console.log('Indicate capture: buffering utterance + starting close word probe');
         const effects = this.transitionAndResetWatchdog({ type: 'UTTERANCE_RECEIVED' });
-        this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs);
+        this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs, {
+          gate: graceFromGateAtCapture,
+          prompt: graceFromPromptAtCapture,
+        });
         void this.startIndicateCloseWordProbe(wavBuffer);
         await this.applyEffects(effects);
         return;
       }
       console.log('Already processing — buffering utterance');
       const effects = this.transitionAndResetWatchdog({ type: 'UTTERANCE_RECEIVED' });
-      this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs);
+      this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs, {
+        gate: graceFromGateAtCapture,
+        prompt: graceFromPromptAtCapture,
+      });
       await this.applyEffects(effects);
       return;
     }
@@ -2562,8 +2603,14 @@ export class VoicePipeline {
           (
             graceFromGateAtCapture ||
             graceFromPromptAtCapture ||
-            Date.now() < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS) ||
-            Date.now() < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+            // Live utterances may also ride a grace window that opened while
+            // they were being transcribed. Buffered replays must not — the
+            // fresh window that opens at pipeline completion says nothing
+            // about when the buffered audio was actually spoken (TGO-751).
+            (!isBufferedReplay && (
+              Date.now() < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS) ||
+              Date.now() < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+            ))
           )
         );
       const interruptGraceEligible = indicateFinalized || (allowGraceBypass && (graceFromGateAtCapture || graceFromPromptAtCapture));
@@ -2721,7 +2768,7 @@ export class VoicePipeline {
           }
 
           if (!indicateFinalized) {
-            this.startIndicateCapture(seed);
+            this.startIndicateCapture(seed, shouldStartFromWake ? 'wake' : 'grace');
             // Preserve the addressed agent so it can be used when the capture
             // finalizes — the wake word won't be present in the finalized
             // transcript, so resolveExplicitAddress would return null.
@@ -2763,6 +2810,9 @@ export class VoicePipeline {
           } else if (!effectiveWakeWord && interruptGraceEligible) {
             console.log('Gated interrupt: accepted during ready handoff grace');
             this.player.stopPlayback('speech-during-playback-gated-grace');
+          } else if (!effectiveWakeWord && focusedPromptBypass) {
+            console.log('Gated interrupt: allowed via focused agent (no wake word)');
+            this.player.stopPlayback('speech-during-playback-focused-agent');
           } else {
             console.log('Gated interrupt: wake word confirmed, interrupting playback');
             this.player.stopPlayback('speech-during-playback-gated-wake');
@@ -2843,8 +2893,13 @@ export class VoicePipeline {
 
           const replyAgent = this.voiceTargets.getAgent(replyAgentId);
           if (replyAgent) {
+            replyFocusRestore = {
+              setToAgentId: replyAgent.id,
+              prevId: this.ctx.focusedAgentId,
+              prevName: this.ctx.focusedAgentName,
+            };
             this.setFocusedAgent(replyAgent);
-            console.log(`Reply context: focused agent set to ${replyAgent.displayName ?? replyAgentId}`);
+            console.log(`Reply context: focused agent set to ${replyAgent.displayName ?? replyAgentId} (this dispatch only)`);
           }
 
           replyContextApplied = true;
@@ -3116,6 +3171,14 @@ export class VoicePipeline {
       this.stopWaitingLoop();
       this.player.stopPlayback('pipeline-error');
     } finally {
+      // Reply-context focus is dispatch-scoped: restore the prior focus now
+      // that this utterance has been routed. Guarded so an explicit "focus on
+      // X" command issued mid-run (via the LLM command classifier) wins.
+      if (replyFocusRestore && this.ctx.focusedAgentId === replyFocusRestore.setToAgentId) {
+        this.ctx.focusedAgentId = replyFocusRestore.prevId;
+        this.ctx.focusedAgentName = replyFocusRestore.prevName;
+      }
+
       // Don't overwrite AWAITING/flow states — they were set intentionally by handlers
       const st = this.stateMachine.getStateType();
       if (!keepCurrentState && !this.stateMachine.isAwaitingState() && st !== 'INBOX_FLOW') {
@@ -3132,7 +3195,12 @@ export class VoicePipeline {
         console.log('Re-processing buffered utterance');
         // Use setImmediate to avoid deep recursion
         setImmediate(() => {
-          this.handleUtterance(buffered.userId, buffered.wavBuffer, buffered.durationMs);
+          this.handleUtterance(
+            buffered.userId,
+            buffered.wavBuffer,
+            buffered.durationMs,
+            buffered.graceAtCapture ?? { gate: false, prompt: false },
+          );
         });
       }
     }
