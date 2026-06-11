@@ -52,7 +52,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Juliet
+    - "Zulu Juliet"
   kokoro_voice: af_bella
   default_channel_id: "100000000000000007"
   smoke_test_channel_id: "100000000000001007"

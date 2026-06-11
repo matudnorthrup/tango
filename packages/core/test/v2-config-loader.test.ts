@@ -52,7 +52,7 @@ describe("loadV2AgentConfig", () => {
         scheduledReflection: "enabled",
       },
       voice: {
-        callSigns: ["Malibu", "Malibooth", "Coach Malibu"],
+        callSigns: ["Zulu Malibu"],
         kokoroVoice: "am_puck",
         defaultChannelId: "100000000000000002",
         smokeTestChannelId: "100000000000001002",
@@ -120,7 +120,7 @@ describe("loadV2AgentConfig", () => {
         timeoutSeconds: 2700,
       },
       voice: {
-        callSigns: ["Porter", "Brother Porter"],
+        callSigns: ["Zulu Porter"],
         kokoroVoice: "am_liam",
         defaultChannelId: "100000000000000006",
         smokeTestChannelId: "100000000000001006",
