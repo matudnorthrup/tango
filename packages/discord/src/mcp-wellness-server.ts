@@ -50,6 +50,7 @@ import { createWellnessDbTools, wellnessDbToolLooksReadOnly } from "./wellness-d
 import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agent-tools.js";
 import { createKiloLedgerTools, kiloLedgerToolLooksReadOnly } from "./kilo-ledger-tools.js";
 import { createNotionTools } from "./notion-agent-tools.js";
+import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { GovernanceChecker, resolveDatabasePath } from "@tango/core";
 import type { AgentTool, AccessLevel } from "@tango/core";
@@ -119,6 +120,7 @@ const allTools: AgentTool[] = [
   ...createEmailAgentTools(),
   ...createKiloLedgerTools(),
   ...createNotionTools(),
+  ...createClaudeSessionTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -313,6 +315,7 @@ function inferRequestedAccessLevel(
       return isReadOnlySql(args.sql) ? "read" : "write";
     case "recipe_write":
     case "discord_manage":
+    case "spawn_claude_session":
       return "write";
     case "tango_file": {
       const operation = typeof args.operation === "string" ? args.operation.trim().toLowerCase() : "";

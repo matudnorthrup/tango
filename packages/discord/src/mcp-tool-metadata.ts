@@ -9,6 +9,7 @@ const OPEN_WORLD_TOOLS = new Set<string>([
   "walmart",
   "find_diesel",
   "spawn_sub_agents",
+  "spawn_claude_session",
   "youtube_transcript",
   "youtube_analyze",
 ]);
