@@ -6,7 +6,7 @@ Workflow guidance for travel, navigation, and road trip tasks.
 
 - `location_read` — Current GPS from OwnTracks (lat, lon, velocity km/h, heading degrees, ageSec). Always check this first when the user's current position affects the answer. Warn if ageSec > 3600 (stale).
 - `osrm_route` — Real driving distance/duration and route comparisons through OSRM. **Always use this for route, ETA, detour, or "is this on the way" answers.**
-- `find_diesel` — Diesel-only station finder. Scores by price × detour penalty. Returns name, price, detour miles, Google Maps link.
+- `find_diesel` — Fuel station finder. Route mode: diesel-only along GPS→destination, scored by price × detour penalty. Near mode (`near: true` + place, or no destination for current GPS): all fuel grades around a place or station, including POI names like "Costco, Medford, OR". Sources fall back HERE→GasBuddy automatically.
 - `open_meteo_weather` skill — Weather at any coordinates. Wind comes back in km/h, convert to mph.
 - `exa_search` / `exa_answer` — Rest areas, businesses, scenic stops, road conditions.
 
