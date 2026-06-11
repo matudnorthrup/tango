@@ -155,6 +155,14 @@ export function createV2PostTurnHook(input: {
   atlasMemoryClient: AtlasMemoryClient;
   /** Resolves a registered ChatProvider by name (e.g. "ollama", "claude-oauth"). */
   resolveProvider: (name: string) => ChatProvider | undefined;
+  /**
+   * Channels whose turns must never write Atlas memories (the -test smoke
+   * channels: their context is deliberately isolated from the agents' real
+   * memory scope). MEMORY extraction only — ACTIVE-TASK extraction is
+   * scheduled separately via scheduleActiveTaskPostTurn and must keep running
+   * in these channels (the live continuation smokes assert on it, TGO-743).
+   */
+  extractionSuppressedChannelIds?: ReadonlySet<string>;
   extractAndStoreMemoriesImpl?: typeof extractAndStoreMemories;
 }): (context: {
   conversationKey: string;
@@ -165,6 +173,9 @@ export function createV2PostTurnHook(input: {
   threadId?: string;
 }) => Promise<void> {
   return async (context) => {
+    if (input.extractionSuppressedChannelIds?.has(context.channelId)) {
+      return;
+    }
     const agentV2Config = input.v2Configs.get(context.agentId);
     if (agentV2Config?.memory.postTurnExtraction !== "enabled") {
       return;
