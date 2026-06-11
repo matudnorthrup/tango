@@ -384,6 +384,22 @@ function extractToolCallFromRecord(record: Record<string, unknown>): ProviderToo
     return null;
   }
 
+  // Require affirmative evidence of a tool invocation. The stream also carries
+  // config/status records with a bare `name` (the init event's mcp_servers
+  // list, server config echoes), and parseToolInputValue(undefined) returns {}
+  // — without this guard every named record in the stream counts as a "call".
+  const isToolUseBlock = record.type === "tool_use";
+  const hasExplicitToolKey =
+    typeof record.tool_name === "string" || typeof record.tool === "string";
+  const hasExplicitInput =
+    "input" in record || "arguments" in record || "args" in record || "parameters" in record;
+  if (typeof record.command === "string" && !isToolUseBlock) {
+    return null;
+  }
+  if (!isToolUseBlock && !hasExplicitToolKey && !hasExplicitInput) {
+    return null;
+  }
+
   const input = parseToolInputValue(
     record.input ?? record.arguments ?? record.args ?? record.parameters,
   );
