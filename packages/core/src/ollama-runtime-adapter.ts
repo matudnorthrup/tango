@@ -37,7 +37,13 @@ const OLLAMA_TOOL_EFFICIENCY_GUIDANCE =
   "`discord_send_image` (source = the file path or https URL, channel_id = discord_thread_id from " +
   "the current message metadata if present, else discord_channel_id, agent_id = your id) and it " +
   "must return a message_id. NEVER say you sent, shared, or are showing an image unless that call " +
-  "succeeded this turn — if it failed or you could not call it, say so plainly instead.";
+  "succeeded this turn — if it failed or you could not call it, say so plainly instead." +
+  "\n\nFinishing turns: NEVER end your reply with a statement of what you are about to do ('Let me " +
+  "navigate to…', 'I'll pull that up…'). Your reply ends the turn — nothing happens after it. " +
+  "Either keep calling tools until the action is DONE, or stop and report exactly what you " +
+  "completed, what remains, and what you need. If a multi-step task is taking long, finish the " +
+  "single most useful step (for a screenshot request: capture and SEND one screenshot) before " +
+  "wrapping up.";
 
 const KNOWN_MCP_SERVER_TOOLS: Record<string, string[]> = {
   memory: ["memory_search", "memory_add", "memory_reflect"],
