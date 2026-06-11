@@ -141,10 +141,10 @@ describe("buildClaudeLaunchCommand", () => {
     const cmd = buildClaudeLaunchCommand({
       claudeCommand: "claude",
       displayName: "fix voice bug",
-      promptFile: "/Users/x/.tango/claude-sessions/CC-fix.prompt.txt",
+      promptFile: "/tmp/tango-test/.tango/claude-sessions/CC-fix.prompt.txt",
     });
     expect(cmd).toBe(
-      "claude --dangerously-skip-permissions -n 'fix voice bug' \"$(cat '/Users/x/.tango/claude-sessions/CC-fix.prompt.txt')\"",
+      "claude --dangerously-skip-permissions -n 'fix voice bug' \"$(cat '/tmp/tango-test/.tango/claude-sessions/CC-fix.prompt.txt')\"",
     );
   });
 });
