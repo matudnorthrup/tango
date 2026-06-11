@@ -929,9 +929,9 @@ export function createTravelTools(): AgentTool[] {
     },
 
     {
-      name: "osrm_route",
+      name: "driving_route",
       description: [
-        "Compute real driving routes: distance, traffic-aware ETA, the major roads the route follows, and the towns it passes through.",
+        "Compute real driving routes: distance, traffic-aware ETA, the major roads the route follows, and the towns it passes through. (Formerly named osrm_route.)",
         "Primary engine is HERE Router v8 (live traffic); falls back to OSRM (no traffic, ETAs run high — a per-route warning is set) when HERE is unavailable.",
         "Never answer route/directions/ETA questions from mental geography when this tool is available.",
         "Place names and POIs (e.g. 'Costco, Medford, OR') resolve via Nominatim with HERE Discover/Geocode fallback anchored at current GPS.",

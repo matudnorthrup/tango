@@ -84,7 +84,7 @@ describe("travel tools", () => {
       });
 
       const tools = createTravelTools();
-      const osrmRoute = tools.find((tool) => tool.name === "osrm_route");
+      const osrmRoute = tools.find((tool) => tool.name === "driving_route");
       expect(osrmRoute).toBeDefined();
 
       const result = await osrmRoute!.handler({
@@ -134,7 +134,7 @@ describe("travel tools", () => {
         }),
       );
       const tools = createTravelTools();
-      const osrmRoute = tools.find((tool) => tool.name === "osrm_route");
+      const osrmRoute = tools.find((tool) => tool.name === "driving_route");
       expect(osrmRoute).toBeDefined();
 
       const result = await osrmRoute!.handler({
@@ -219,7 +219,7 @@ describe("travel tools", () => {
       });
 
       const tools = createTravelTools();
-      const osrmRoute = tools.find((tool) => tool.name === "osrm_route");
+      const osrmRoute = tools.find((tool) => tool.name === "driving_route");
       expect(osrmRoute).toBeDefined();
 
       const result = await osrmRoute!.handler({

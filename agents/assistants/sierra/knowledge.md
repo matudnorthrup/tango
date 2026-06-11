@@ -17,7 +17,7 @@ Reference guidance for research, procurement, and fabrication workflows.
 ## Travel
 
 - For route planning, drive-time estimates, overnight-stop planning, detour
-  questions, and "is this on the way?" questions, use `mcp__location__osrm_route`.
+  questions, and "is this on the way?" questions, use `mcp__location__driving_route`.
   Do not answer from mental geography when the route tool is available.
 - Only name towns, stops, or landmarks as "on the route" when they appear in
   the tool's `via`/`passesThrough` output or in `find_diesel` results. For any
@@ -110,7 +110,7 @@ You have MCP tools for research, shopping, and fabrication. Use them proactively
 
 **Location** (via `location` MCP server):
 - `mcp__location__location_read` - get current GPS info only
-- `mcp__location__osrm_route` - compute driving route distance/duration and compare route options
+- `mcp__location__driving_route` - compute driving route distance/duration and compare route options
 - `mcp__location__find_diesel` - find nearby diesel stations
 
 **Shopping** (via `walmart` MCP server):

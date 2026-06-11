@@ -279,7 +279,7 @@ export const GOVERNANCE_SEED = `
     ('openscad_render', 'research', 'OpenSCAD Render', 'write'),
     ('prusa_slice', 'research', 'PrusaSlicer', 'write'),
     ('location_read', 'research', 'GPS Location', 'read'),
-    ('osrm_route', 'research', 'OSRM Route Planner', 'read'),
+    ('driving_route', 'research', 'Driving Route Planner', 'read'),
     ('find_diesel', 'research', 'Diesel Finder', 'read'),
     ('walmart', 'research', 'Walmart Shopping', 'write'),
     ('browser', 'shared', 'Browser Automation', 'write'),
@@ -384,7 +384,7 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'prusa_slice', 'write', 'seed from config'),
     ('worker:research-assistant', 'obsidian', 'write', 'travel planning + research filing'),
     ('worker:research-assistant', 'location_read', 'read', 'travel navigation'),
-    ('worker:research-assistant', 'osrm_route', 'read', 'travel route planning and drive-time verification'),
+    ('worker:research-assistant', 'driving_route', 'read', 'travel route planning and drive-time verification'),
     ('worker:research-assistant', 'find_diesel', 'read', 'travel navigation'),
     ('worker:research-assistant', 'walmart', 'write', 'walmart shopping and queue management'),
     ('worker:research-assistant', 'browser', 'write', 'web automation for shopping and research'),
@@ -398,7 +398,7 @@ export const GOVERNANCE_SEED = `
     ('worker:sierra-ollama', 'exa_search', 'read', 'Sierra Ollama research parity'),
     ('worker:sierra-ollama', 'exa_answer', 'read', 'Sierra Ollama research parity'),
     ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
-    ('worker:sierra-ollama', 'osrm_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
+    ('worker:sierra-ollama', 'driving_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
     ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for shopping and research');
 
