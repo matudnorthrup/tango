@@ -125,3 +125,30 @@ describe("GovernanceChecker", () => {
     );
   });
 });
+
+describe("governance seed", () => {
+  it("grants discord_send_image to send-image personas but not kilo", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const { GOVERNANCE_DDL, GOVERNANCE_SEED } = await import("../src/governance-schema.js");
+    const db = new DatabaseSync(":memory:");
+    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED);
+
+    const checker = new GovernanceChecker(db as unknown as DatabaseSync);
+    expect(checker.getToolAccessType("discord_send_image")).toBe("write");
+    // Seeded classic workers and seeded -ollama clones must hold the grant.
+    for (const principal of [
+      "worker:personal-assistant",
+      "worker:research-assistant",
+      "worker:church-assistant",
+      "worker:dev-assistant",
+      "worker:workout-recorder",
+      "worker:foxtrot",
+      "worker:foxtrot-ollama",
+      "worker:sierra-ollama",
+    ]) {
+      expect(checker.hasPermission(principal, "discord_send_image", "write"), principal).toBe(true);
+    }
+    // kilo is excluded pending owner decision — deny-by-default must hold.
+    expect(checker.hasPermission("worker:kilo", "discord_send_image", "write")).toBe(false);
+  });
+});
