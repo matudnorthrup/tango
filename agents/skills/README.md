@@ -17,7 +17,7 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `chipotle-ordering.md` | `chipotle_ordering` | Sierra / shopping | Browser navigation for Chipotle ordering (favorites, location selection) |
 | `daily-planning.md` | `daily_planning` | Watson / planning | Morning planning, evening check-in, weekly planning workflows |
 | `open-meteo-weather.md` | `open_meteo_weather` | Sierra / research | Open-Meteo free weather API (current + forecast) |
-| `osrm-routing.md` | `osrm_route` | Sierra / routing | Driving routes via the `osrm_route` tool (HERE traffic-aware primary, OSRM fallback) — never estimate distances; raw OSRM ETAs run high |
+| `osrm-routing.md` | `osrm_routing` | Sierra / routing | Driving routes via the `driving_route` tool (HERE traffic-aware primary, OSRM fallback) — never estimate distances; raw OSRM ETAs run high |
 | `email-review.md` | `email_review` | Watson / email | Email triage phases, drafting voice, reply conventions |
 | `evening-checkin.md` | `evening_checkin` | Malibu / nutrition | Pre-dinner calorie budget (TDEE + FatSecret intake) |
 | `health-baselines.md` | `health_baselines` | Malibu / Watson health summaries | Baseline comparisons for health summaries |

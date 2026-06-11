@@ -75,7 +75,7 @@ Scoring fields:
 - `toolContract`: `[{ name, minCalls?, argChecks?, anyOf? }]` — argument-level
   gates. `argChecks: [{ path, exists?|equals?|matches? }]`; path `"."` matches
   against the whole argument object's JSON. `anyOf` branches let a contract
-  accept alternative shapes (e.g. "two osrm_route calls OR one call with a
+  accept alternative shapes (e.g. "two driving_route calls OR one call with a
   routes[] comparison array"). Legacy `requiredTools` still works.
 - `outputAssertions`: `[{ type: includes|notIncludes|matches|notMatches, value }]`
 - `forbiddenTools`: tools that must NOT be called (e.g. submit/purchase paths)
@@ -87,7 +87,7 @@ Scoring fields:
   never recommended (subscription print mode, not an assignable runtime)
 
 Validate with `npm run eval:validate`. Per-category contract rules (e.g. travel
-route fixtures must gate on `osrm_route`) live in the validator's
+route fixtures must gate on `driving_route`) live in the validator's
 `CATEGORY_RULES` table — add rules as data, not code.
 
 ## Coverage Strategy

@@ -19,9 +19,9 @@ test("getPath walks nested paths and '.' targets the whole object", () => {
 });
 
 test("toolContract: missing required tool fails, present passes", () => {
-  const fixture = { ...baseFixture, toolContract: [{ name: "osrm_route" }] };
+  const fixture = { ...baseFixture, toolContract: [{ name: "driving_route" }] };
   assert.equal(evaluateGates(fixture, run()).pass, false);
-  assert.equal(evaluateGates(fixture, run({ toolCalls: [{ name: "osrm_route", input: {} }] })).pass, true);
+  assert.equal(evaluateGates(fixture, run({ toolCalls: [{ name: "driving_route", input: {} }] })).pass, true);
 });
 
 test("toolContract: minCalls enforced", () => {
@@ -36,7 +36,7 @@ test("argChecks: each check satisfied by at least one call (different calls allo
   const fixture = {
     ...baseFixture,
     toolContract: [{
-      name: "osrm_route",
+      name: "driving_route",
       argChecks: [
         { path: ".", matches: "san ?mateo" },
         { path: ".", matches: "sacramento" },
@@ -45,13 +45,13 @@ test("argChecks: each check satisfied by at least one call (different calls allo
   };
   const split = run({
     toolCalls: [
-      { name: "osrm_route", input: { destination: "San Mateo, CA" } },
-      { name: "osrm_route", input: { waypoints: ["Sacramento, CA"] } },
+      { name: "driving_route", input: { destination: "San Mateo, CA" } },
+      { name: "driving_route", input: { waypoints: ["Sacramento, CA"] } },
     ],
   });
   assert.equal(evaluateGates(fixture, split).pass, true);
 
-  const garbage = run({ toolCalls: [{ name: "osrm_route", input: { destination: "Portland" } }] });
+  const garbage = run({ toolCalls: [{ name: "driving_route", input: { destination: "Portland" } }] });
   const result = evaluateGates(fixture, garbage);
   assert.equal(result.pass, false);
   assert.equal(result.failures.length, 2);
@@ -76,16 +76,16 @@ test("anyOf: passes when any branch passes, fails when none do", () => {
   const fixture = {
     ...baseFixture,
     toolContract: [{
-      name: "osrm_route",
+      name: "driving_route",
       anyOf: [
         { minCalls: 2 },
         { argChecks: [{ path: "routes.1", exists: true }] },
       ],
     }],
   };
-  const twoCalls = run({ toolCalls: [{ name: "osrm_route", input: {} }, { name: "osrm_route", input: {} }] });
-  const oneCallWithRoutes = run({ toolCalls: [{ name: "osrm_route", input: { routes: [{ label: "a" }, { label: "b" }] } }] });
-  const oneBareCall = run({ toolCalls: [{ name: "osrm_route", input: { destination: "x" } }] });
+  const twoCalls = run({ toolCalls: [{ name: "driving_route", input: {} }, { name: "driving_route", input: {} }] });
+  const oneCallWithRoutes = run({ toolCalls: [{ name: "driving_route", input: { routes: [{ label: "a" }, { label: "b" }] } }] });
+  const oneBareCall = run({ toolCalls: [{ name: "driving_route", input: { destination: "x" } }] });
   assert.equal(evaluateGates(fixture, twoCalls).pass, true);
   assert.equal(evaluateGates(fixture, oneCallWithRoutes).pass, true);
   assert.equal(evaluateGates(fixture, oneBareCall).pass, false);

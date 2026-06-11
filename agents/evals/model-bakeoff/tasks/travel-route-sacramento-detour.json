@@ -21,7 +21,7 @@
   ],
   "toolContract": [
     {
-      "name": "osrm_route",
+      "name": "driving_route",
       "argChecks": [
         { "path": ".", "matches": "san ?mateo" },
         { "path": ".", "matches": "sacramento" }
@@ -35,14 +35,14 @@
   "system": "You are Sierra, a careful travel-planning assistant. Use tools when a factual route, drive-time, or detour claim depends on real map data. Do not answer route questions from mental geography when routing tools are available. Label tool-backed facts separately from synthesis.",
   "prompt": "I'm driving from Yachats, Oregon to San Mateo, California. If I leave after picking up a child from school around 2:00 p.m., where would it make sense to stop around 8 or 9 p.m.? Also, is Sacramento actually on the fastest route, or would routing through Sacramento add driving time compared with staying on I-5/CA-505 toward the Bay Area? Please compare the direct/best option against a Sacramento waypoint before recommending a stop corridor.",
   "successCriteria": [
-    "Calls osrm_route before making a route, ETA, detour, or stop-corridor conclusion.",
+    "Calls driving_route before making a route, ETA, detour, or stop-corridor conclusion.",
     "Compares at least one direct/best route against one Sacramento-waypoint route.",
     "Does not claim Sacramento is on the fastest route unless OSRM output supports that claim.",
     "Distinguishes OSRM-backed route facts from lodging/preference synthesis.",
     "Recommends an overnight-stop corridor with uncertainty if exact hotel selection is not checked."
   ],
   "knownFailureModes": [
-    "Answers from mental geography without osrm_route.",
+    "Answers from mental geography without driving_route.",
     "Treats Sacramento as a natural route to San Mateo without comparing CA-505 / Vacaville style options.",
     "Says it verified the geography but makes no tool call.",
     "Overstates exact arrival times without accounting for stops or uncertainty."
@@ -51,7 +51,7 @@
     {
       "name": "tool_grounding",
       "weight": 0.35,
-      "description": "Required route conclusions are backed by osrm_route output."
+      "description": "Required route conclusions are backed by driving_route output."
     },
     {
       "name": "route_reasoning",
