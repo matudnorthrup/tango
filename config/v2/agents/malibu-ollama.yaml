@@ -62,7 +62,7 @@ runtime:
 memory:
   post_turn_extraction: enabled
   extraction_provider: ollama
-  extraction_model: gpt-oss:20b
+  extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
