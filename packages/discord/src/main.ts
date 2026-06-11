@@ -681,6 +681,19 @@ const v2LifecycleConfig = {
   idleTimeoutHours: 24,
   contextResetThreshold: 0.80,
 };
+// The -test smoke channels are memory-inert: turns there never write Atlas
+// memories, keeping test chatter out of the agents' real retrieval scope.
+// Derived from the smoke-testing-* session bindings so the set tracks the
+// channel→clone routing config. Active-task extraction is NOT gated here
+// (scheduleActiveTaskPostTurn runs independently; see TGO-743).
+const memoryInertChannelIds = new Set(
+  sessionConfigs
+    .filter((session) => session.id.startsWith("smoke-testing-"))
+    .flatMap((session) => session.channels ?? [])
+    .filter((channel) => channel.startsWith("discord:"))
+    .map((channel) => channel.slice("discord:".length).trim())
+    .filter((channelId) => /^\d+$/.test(channelId)),
+);
 const tangoRouter = new TangoRouter({
   agentConfigs: buildV2RuntimeConfigs(v2Configs),
   lifecycleConfig: v2LifecycleConfig,
@@ -696,6 +709,7 @@ const tangoRouter = new TangoRouter({
     // (defined just below); lets Ollama clones extract via the cheap Ollama model
     // instead of billing the Claude CLI every turn.
     resolveProvider: (name) => providers.get(name),
+    extractionSuppressedChannelIds: memoryInertChannelIds,
   }),
   ollamaProvider,
 });
