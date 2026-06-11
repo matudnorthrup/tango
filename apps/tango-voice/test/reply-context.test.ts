@@ -147,6 +147,78 @@ describe('reply context', () => {
     pipeline.stop();
   });
 
+  it('speakResponse points reply context at the message source channel, not the active channel', async () => {
+    const pipeline = makePipeline();
+    const ctx = (pipeline as any).ctx;
+
+    (pipeline as any).router = {
+      getActiveChannel: () => ({ name: 'id:watson-channel' }),
+      getActiveSessionKey: () => 'id:watson-channel',
+      getAllChannelSessionKeys: () => [
+        { name: 'id:sierra-channel', displayName: 'Sierra (Ollama)', sessionKey: 'id:sierra-channel' },
+        { name: 'id:watson-channel', displayName: 'Watson (Ollama)', sessionKey: 'id:watson-channel' },
+      ],
+    };
+
+    // Cross-channel ready item read while watson's channel is active:
+    // reply context must follow the item's source channel.
+    await (pipeline as any).speakResponse('Found three hotels.', {
+      isChannelMessage: true,
+      speakerAgentId: 'sierra-ollama',
+      replySource: { sessionKey: 'id:sierra-channel', channelName: 'id:sierra-channel' },
+    });
+
+    expect(ctx.replyContextAgentId).toBe('sierra-ollama');
+    expect(ctx.replyContextSessionKey).toBe('id:sierra-channel');
+    expect(ctx.replyContextChannelName).toBe('id:sierra-channel');
+    expect((pipeline as any).hasActiveReplyContext()).toBe(true);
+
+    // Without replySource, the active channel remains the default.
+    await (pipeline as any).speakResponse('Done.', {
+      isChannelMessage: true,
+      speakerAgentId: 'watson-ollama',
+    });
+
+    expect(ctx.replyContextAgentId).toBe('watson-ollama');
+    expect(ctx.replyContextChannelName).toBe('id:watson-channel');
+
+    pipeline.stop();
+  });
+
+  it('skipGateGrace keeps the gate closed after a terminal response', async () => {
+    const pipeline = makePipeline();
+    const ctx = (pipeline as any).ctx;
+
+    await (pipeline as any).speakResponse('Cancelled.', { skipGateGrace: true });
+    expect(ctx.gateGraceUntil).toBe(0);
+
+    await (pipeline as any).speakResponse('Here is your answer.');
+    expect(ctx.gateGraceUntil).toBeGreaterThan(Date.now());
+
+    pipeline.stop();
+  });
+
+  it('resetConversationStateAfterCancel clears reply continuity and grace windows', () => {
+    const pipeline = makePipeline();
+    const ctx = (pipeline as any).ctx;
+
+    (pipeline as any).setReplyContext('sierra-ollama', 'id:sierra-channel', 'id:sierra-channel', 45_000);
+    ctx.gateGraceUntil = Date.now() + 5_000;
+    ctx.promptGraceUntil = Date.now() + 5_000;
+    ctx.followupPromptGraceUntil = Date.now() + 15_000;
+    ctx.followupPromptChannelName = 'id:sierra-channel';
+
+    (pipeline as any).resetConversationStateAfterCancel();
+
+    expect((pipeline as any).hasActiveReplyContext()).toBe(false);
+    expect(ctx.gateGraceUntil).toBe(0);
+    expect(ctx.promptGraceUntil).toBe(0);
+    expect(ctx.followupPromptGraceUntil).toBe(0);
+    expect(ctx.followupPromptChannelName).toBeNull();
+
+    pipeline.stop();
+  });
+
   it('overwrites reply context with the most recent notification', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-26T12:00:00.000Z'));
