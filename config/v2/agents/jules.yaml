@@ -41,6 +41,11 @@ mcp_servers:
   #   args: ["packages/core/dist/mcp-proxy.js", "wellness-files"]
   #   env:
   #     ALLOWED_TOOL_IDS: "TBD"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 current_turn_metadata:
   timezone: America/Denver
