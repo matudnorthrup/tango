@@ -3,7 +3,6 @@ type: project
 agent: charlie
 channels:
   - discord:100000000000000008
-  - discord:100000000000001008
 orchestrator_continuity: stateless
 memory:
   max_context_tokens: 8000

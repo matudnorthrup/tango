@@ -115,12 +115,14 @@ memory:
 # Discord routing
 discord:
   default_channel_id: "1513207667479285850"
+  smoke_test_channel_id: "100000000000001003" # sierra-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207667479285850"
+    - "100000000000001003" # sierra-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
 avatar_url: https://cdn.discordapp.com/avatars/1480558437502025750/f5bda507de881e739d0db4bb5262f8c2.webp
@@ -158,3 +160,4 @@ voice:
     - Sierra
   kokoro_voice: af_heart
   default_channel_id: "1513207667479285850"
+  smoke_test_channel_id: "100000000000001003" # sierra-test (placeholder; real id in profile overlay)
