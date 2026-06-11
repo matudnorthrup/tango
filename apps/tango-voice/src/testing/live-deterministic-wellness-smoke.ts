@@ -5,6 +5,13 @@ import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
 dotenv.config();
 
+import {
+  deprecatedExpectationNote,
+  latestOutboundMessageId,
+  toolUsedMatches,
+  waitForV2TurnEvidence,
+} from "./v2-turn-evidence.js";
+
 type VoiceTurnHttpResponse = {
   ok: boolean;
   error?: string;
@@ -17,20 +24,6 @@ type VoiceTurnHttpResponse = {
   warmStartUsed?: boolean;
   providerUsedFailover?: boolean;
 };
-
-type StoredDeterministicTurn = {
-  id: string;
-  routeOutcome: "executed" | "clarification" | "fallback";
-  intentIds: string[];
-  workerIds: string[];
-  hasWriteOperations: boolean;
-  stepCount: number;
-  warnings: string[];
-  operationNames: string[];
-  requestMessageId: number | null;
-  responseMessageId: number | null;
-  createdAt: string;
-} | null;
 
 interface DeterministicSmokeCase {
   id: string;
@@ -514,107 +507,6 @@ function getDbPath(): string {
   return resolveDatabasePath(process.env["TANGO_DB_PATH"]);
 }
 
-function parseJsonArray(value: string | null): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function parseWarnings(receiptsJson: string | null): string[] {
-  if (!receiptsJson) return [];
-  try {
-    const parsed = JSON.parse(receiptsJson);
-    if (!Array.isArray(parsed)) return [];
-    const warnings = parsed.flatMap((receipt) => {
-      if (!receipt || typeof receipt !== "object") return [];
-      const value = (receipt as Record<string, unknown>)["warnings"];
-      return Array.isArray(value) ? value.filter((warning): warning is string => typeof warning === "string") : [];
-    });
-    return [...new Set(warnings)];
-  } catch {
-    return [];
-  }
-}
-
-function parseOperationNames(receiptsJson: string | null): string[] {
-  if (!receiptsJson) return [];
-  try {
-    const parsed = JSON.parse(receiptsJson);
-    if (!Array.isArray(parsed)) return [];
-    const names = parsed.flatMap((receipt) => {
-      if (!receipt || typeof receipt !== "object") return [];
-      const operations = (receipt as Record<string, unknown>)["operations"];
-      if (!Array.isArray(operations)) return [];
-      return operations
-        .map((operation) => {
-          if (!operation || typeof operation !== "object" || Array.isArray(operation)) return null;
-          const name = (operation as Record<string, unknown>)["name"];
-          return typeof name === "string" ? name : null;
-        })
-        .filter((value): value is string => typeof value === "string");
-    });
-    return [...new Set(names)];
-  } catch {
-    return [];
-  }
-}
-
-function loadLatestDeterministicTurn(
-  db: DatabaseSync,
-  sessionId: string,
-  agentId: string,
-): StoredDeterministicTurn {
-  const row = db.prepare(
-    `SELECT
-       id,
-       route_outcome AS routeOutcome,
-       intent_ids AS intentIdsJson,
-       worker_ids AS workerIdsJson,
-       has_write_operations AS hasWriteOperations,
-       step_count AS stepCount,
-       receipts_json AS receiptsJson,
-       request_message_id AS requestMessageId,
-       response_message_id AS responseMessageId,
-       created_at AS createdAt
-     FROM deterministic_turns
-     WHERE session_id = ? AND agent_id = ?
-     ORDER BY created_at DESC, rowid DESC
-     LIMIT 1`,
-  ).get(sessionId, agentId) as
-    | {
-        id: string;
-        routeOutcome: "executed" | "clarification" | "fallback";
-        intentIdsJson: string | null;
-        workerIdsJson: string | null;
-        hasWriteOperations: number;
-        stepCount: number;
-        receiptsJson: string | null;
-        requestMessageId: number | null;
-        responseMessageId: number | null;
-        createdAt: string;
-      }
-    | undefined;
-
-  if (!row) return null;
-  return {
-    id: row.id,
-    routeOutcome: row.routeOutcome,
-    intentIds: parseJsonArray(row.intentIdsJson),
-    workerIds: parseJsonArray(row.workerIdsJson),
-    hasWriteOperations: row.hasWriteOperations === 1,
-    stepCount: row.stepCount,
-    warnings: parseWarnings(row.receiptsJson),
-    operationNames: parseOperationNames(row.receiptsJson),
-    requestMessageId: row.requestMessageId,
-    responseMessageId: row.responseMessageId,
-    createdAt: row.createdAt,
-  };
-}
-
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const text = await response.text();
@@ -628,68 +520,9 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForNewDeterministicTurn(input: {
-  db: DatabaseSync;
-  sessionId: string;
-  agentId: string;
-  previousId: string | null;
-  timeoutMs?: number;
-}): Promise<StoredDeterministicTurn> {
-  const startedAt = Date.now();
-  const timeoutMs = input.timeoutMs ?? 180_000;
-  while ((Date.now() - startedAt) < timeoutMs) {
-    const latest = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
-    if (latest && latest.id !== input.previousId) {
-      return latest;
-    }
-    await sleep(250);
-  }
-  return null;
-}
-
-function loadMessageContentById(db: DatabaseSync, messageId: number | null): string | null {
-  if (messageId === null) {
-    return null;
-  }
-
-  const row = db.prepare(
-    `SELECT content
-     FROM messages
-     WHERE id = ?
-     LIMIT 1`,
-  ).get(messageId) as { content: string | null } | undefined;
-
-  return row?.content ?? null;
-}
-
 function isTransientSmokeError(error: Error): boolean {
-  return /\bfetch failed\b|\bECONN(?:RESET|REFUSED)\b|\bsocket hang up\b|\bTimed out waiting for a new deterministic_turn row\b/i
+  return /\bfetch failed\b|\bECONN(?:RESET|REFUSED)\b|\bsocket hang up\b|\btimed out waiting for a new v2 outbound message row\b/i
     .test(error.message);
-}
-
-function assertLocationFreshnessConsistency(input: {
-  caseId: string;
-  responseText: string;
-  warnings: string[];
-}): void {
-  const hasStaleWarning = input.warnings.some((warning) =>
-    /Location data is stale|ok_with_stale_data|stale data|\bstale\b/i.test(warning),
-  );
-  const mentionsStale = /(stale|cached data|OwnTracks|force a fresh ping|if you've moved|\b\d+(?:\.\d+)?\s+(?:minutes?|hours?)\s+old\b|\bjust past fresh\b|not a trustworthy live location)/i
-    .test(input.responseText);
-  const mentionsFresh = /\bfresh\b|\bminutes old\b|\bcurrent\b/i.test(input.responseText);
-
-  if (hasStaleWarning && !mentionsStale) {
-    throw new Error(
-      `Case '${input.caseId}' has a stale-location warning but the response did not surface it: ${JSON.stringify(input.responseText)}`
-    );
-  }
-
-  if (!hasStaleWarning && mentionsStale && !mentionsFresh) {
-    throw new Error(
-      `Case '${input.caseId}' reported stale location guidance without a matching persisted warning: ${JSON.stringify(input.responseText)}`
-    );
-  }
 }
 
 async function runSmokeCaseOnce(input: {
@@ -702,9 +535,9 @@ async function runSmokeCaseOnce(input: {
   discordUserId: string;
   testCase: DeterministicSmokeCase;
 }): Promise<void> {
-  const before = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
+  const baselineMessageId = latestOutboundMessageId(input.db, input.sessionId, input.agentId);
   console.log(
-    `[deterministic-smoke] case=${input.testCase.id} previous deterministic turn=${before?.id ?? "(none)"} route=${before?.routeOutcome ?? "-"}`,
+    `[deterministic-smoke] case=${input.testCase.id} baseline outbound message id=${baselineMessageId || "(none)"}`,
   );
 
   const responsePromise = fetchJson<VoiceTurnHttpResponse>(`${input.baseUrl}/voice/turn`, {
@@ -737,54 +570,37 @@ async function runSmokeCaseOnce(input: {
     );
   }
 
-  const latest = await waitForNewDeterministicTurn({
+  const latest = await waitForV2TurnEvidence({
     db: input.db,
     sessionId: input.sessionId,
     agentId: input.agentId,
-    previousId: before?.id ?? null,
+    afterMessageId: baselineMessageId,
     timeoutMs: input.testCase.waitTimeoutMs,
   });
   if (!latest) {
-    throw responseError ?? new Error(`Case '${input.testCase.id}' timed out waiting for a new deterministic_turn row.`);
+    throw responseError ?? new Error(`Case '${input.testCase.id}' timed out waiting for a new v2 outbound message row.`);
   }
 
   console.log(
-    `[deterministic-smoke] case=${input.testCase.id} deterministic turn=${latest.id} route=${latest.routeOutcome} intents=${latest.intentIds.join(",") || "-"} workers=${latest.workerIds.join(",") || "-"} write=${latest.hasWriteOperations ? "yes" : "no"} ops=${latest.operationNames.join(",") || "-"} warnings=${latest.warnings.join(" | ") || "-"}`,
+    `[deterministic-smoke] case=${input.testCase.id} v2 turn message=${latest.messageId} runtime=${latest.runtimePath ?? "-"} latencyMs=${latest.latencyMs ?? "-"} toolsUsed=${latest.toolsUsed.join(",") || "-"}`,
   );
 
-  if (latest.routeOutcome !== input.testCase.expectRoute) {
-    throw new Error(`Case '${input.testCase.id}' expected route=${input.testCase.expectRoute}, got ${latest.routeOutcome}`);
-  }
-  for (const expectedIntent of input.testCase.expectIntents) {
-    if (!latest.intentIds.includes(expectedIntent)) {
-      throw new Error(
-        `Case '${input.testCase.id}' expected intent ${expectedIntent}, got ${latest.intentIds.join(",") || "(none)"}`,
-      );
-    }
-  }
-  for (const expectedWorker of input.testCase.expectWorkers) {
-    if (!latest.workerIds.includes(expectedWorker)) {
-      throw new Error(
-        `Case '${input.testCase.id}' expected worker ${expectedWorker}, got ${latest.workerIds.join(",") || "(none)"}`,
-      );
-    }
-  }
-  if (input.testCase.expectWriteOperations !== undefined && latest.hasWriteOperations !== input.testCase.expectWriteOperations) {
+  // expectRoute "executed" maps to "a v2 turn completed and replied"; the
+  // remaining deterministic-pipeline expectations have no v2 equivalent.
+  deprecatedExpectationNote("deterministic-smoke", input.testCase.id, [
+    ...(input.testCase.expectIntents.length > 0 ? ["expectIntents"] : []),
+    ...(input.testCase.expectWorkers.length > 0 ? ["expectWorkers"] : []),
+    ...(input.testCase.expectWriteOperations !== undefined ? ["expectWriteOperations"] : []),
+    ...(input.testCase.expectStepCount !== undefined ? ["expectStepCount"] : []),
+  ]);
+  if (latest.runtimeStderr && latest.runtimeStderr.trim().length > 0) {
     throw new Error(
-      `Case '${input.testCase.id}' expected hasWriteOperations=${input.testCase.expectWriteOperations}, got ${latest.hasWriteOperations}`,
+      `Case '${input.testCase.id}' v2 turn recorded runtime stderr: ${JSON.stringify(latest.runtimeStderr.slice(0, 400))}`,
     );
-  }
-  if (input.testCase.expectStepCount !== undefined && latest.stepCount !== input.testCase.expectStepCount) {
-    throw new Error(
-      `Case '${input.testCase.id}' expected stepCount=${input.testCase.expectStepCount}, got ${latest.stepCount}`,
-    );
-  }
-  if (latest.requestMessageId === null || latest.responseMessageId === null) {
-    throw new Error(`Case '${input.testCase.id}' did not persist linked request/response message ids.`);
   }
   const responseText = (
     result?.responseText
-    ?? loadMessageContentById(input.db, latest.responseMessageId)
+    ?? latest.responseText
     ?? ""
   ).trim();
   if (!result && responseError) {
@@ -810,34 +626,16 @@ async function runSmokeCaseOnce(input: {
     }
   }
   for (const operationName of input.testCase.requiredOperationNames ?? []) {
-    if (!latest.operationNames.includes(operationName)) {
+    if (!toolUsedMatches(latest.toolsUsed, operationName)) {
       throw new Error(
-        `Case '${input.testCase.id}' expected operation ${operationName}, got ${latest.operationNames.join(",") || "(none)"}`,
+        `Case '${input.testCase.id}' expected tool ${operationName} to be used, got ${latest.toolsUsed.join(",") || "(none)"}`,
       );
     }
   }
-  const degradedWarnings = latest.warnings.filter((warning) =>
-    /\bcancelled\b|\bcould not be verified\b|\bworker reported blocked result\b|\bpartial results\b/i.test(warning),
-  );
-  if (degradedWarnings.length > 0) {
-    throw new Error(
-      `Case '${input.testCase.id}' recorded degraded execution warnings: ${JSON.stringify(degradedWarnings)}`,
-    );
-  }
-  for (const pattern of input.testCase.requiredWarningPatterns ?? []) {
-    if (!latest.warnings.some((warning) => pattern.test(warning))) {
-      throw new Error(
-        `Case '${input.testCase.id}' warnings did not include required pattern ${pattern}: ${JSON.stringify(latest.warnings)}`
-      );
-    }
-  }
-  if (input.testCase.requireLocationFreshnessConsistency) {
-    assertLocationFreshnessConsistency({
-      caseId: input.testCase.id,
-      responseText,
-      warnings: latest.warnings,
-    });
-  }
+  deprecatedExpectationNote("deterministic-smoke", input.testCase.id, [
+    ...((input.testCase.requiredWarningPatterns ?? []).length > 0 ? ["requiredWarningPatterns"] : []),
+    ...(input.testCase.requireLocationFreshnessConsistency ? ["requireLocationFreshnessConsistency"] : []),
+  ]);
 }
 
 async function runSmokeCase(input: {
