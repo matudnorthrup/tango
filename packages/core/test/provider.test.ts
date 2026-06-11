@@ -62,6 +62,29 @@ describe("parseClaudePrintJson", () => {
     ]);
   });
 
+  it("does not count init-event MCP server entries or config records as tool calls", () => {
+    const parsed = parseClaudePrintJson(
+      '{"type":"system","subtype":"init","session_id":"sess-1","mcp_servers":[{"name":"location","status":"connected"},{"name":"walmart","status":"connected"}],"tools":["Bash","mcp__location__find_diesel"]}\n' +
+        '{"type":"system","subtype":"config","servers":[{"name":"exa","command":"node","args":["/tmp/exa-server.js"]}]}\n' +
+        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__location__find_diesel","input":{"destination":"Costco, Medford, OR","near":true}}]}}\n' +
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"Found it."}]}}\n' +
+        '{"type":"result","is_error":false,"result":"Found it.","session_id":"sess-1"}\n'
+    );
+
+    expect(parsed.toolCalls).toEqual([
+      {
+        name: "mcp__location__find_diesel",
+        input: {
+          destination: "Costco, Medford, OR",
+          near: true,
+        },
+        output: undefined,
+        serverName: undefined,
+        toolName: "mcp__location__find_diesel",
+      },
+    ]);
+  });
+
   it("extracts normalized tool calls from Claude result payloads", () => {
     const parsed = parseClaudePrintJson(
       '{"type":"result","is_error":false,"result":"done","session_id":"abc-123","tool_uses":[{"name":"mcp__example__read_status","input":{"scope":"planner"}}]}\n'
