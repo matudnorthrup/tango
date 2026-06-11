@@ -99,13 +99,14 @@ describe("travel tools", () => {
     try {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = String(input);
-        if (url.includes("nominatim.openstreetmap.org")) {
+        const host = new URL(url).hostname;
+        if (host === "nominatim.openstreetmap.org") {
           return new Response(JSON.stringify([]), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (url.includes("discover.search.hereapi.com")) {
+        if (host === "discover.search.hereapi.com") {
           return new Response(JSON.stringify({
             items: [{
               title: "Costco",
@@ -117,7 +118,7 @@ describe("travel tools", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (url.includes("router.project-osrm.org")) {
+        if (host === "router.project-osrm.org") {
           return new Response(JSON.stringify({
             code: "Ok",
             routes: [{ distance: 160934, duration: 7200 }],
@@ -139,7 +140,7 @@ describe("travel tools", () => {
       });
 
       const urls = fetchSpy.mock.calls.map((call) => String(call[0]));
-      expect(urls.some((url) => url.includes("discover.search.hereapi.com") && url.includes("apiKey=test-here-key"))).toBe(true);
+      expect(urls.some((url) => new URL(url).hostname === "discover.search.hereapi.com" && new URL(url).searchParams.get("apiKey") === "test-here-key")).toBe(true);
       expect(result).toMatchObject({
         routes: [{
           resolvedPoints: [
