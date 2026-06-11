@@ -322,7 +322,8 @@ export const GOVERNANCE_SEED = `
     ('youtube_transcript', 'research', 'YouTube Transcript', 'read'),
     ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read'),
     ('spawn_claude_session', 'tango', 'Spawn Claude Code Session', 'write'),
-    ('list_claude_sessions', 'tango', 'List Claude Code Sessions', 'read');
+    ('list_claude_sessions', 'tango', 'List Claude Code Sessions', 'read'),
+    ('discord_send_image', 'tango', 'Discord Image Send', 'write');
 
   -- Default groups
   INSERT OR IGNORE INTO groups (id, display_name, governance_level, description) VALUES
@@ -527,6 +528,28 @@ export const GOVERNANCE_SEED = `
     ('worker:church-assistant', 'memory_search', 'read', 'memory lookup for durable church context'),
     ('worker:church-assistant', 'memory_add', 'write', 'memory capture for durable church context'),
     ('worker:church-assistant', 'memory_reflect', 'write', 'memory reflection for durable church context');
+
+  -- discord_send_image — outbound Discord images for every persona whose YAML carries
+  -- the send-image MCP entry (all agents except kilo, which is excluded pending owner
+  -- decision). Deliberately NOT granted via user:owner inheritance so the kilo
+  -- exclusion holds. The -ollama clone principals are live-managed rather than seeded
+  -- (except sierra/foxtrot); scripts/grant-send-image.mjs applies the same grant to
+  -- them and to already-initialized DBs, which never re-run this seed.
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:personal-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:research-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:church-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:dev-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:operations-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:workout-recorder', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:foxtrot', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:foxtrot-ollama', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:sierra-ollama', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:nutrition-logger', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:recipe-librarian', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:health-analyst', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:activity-tracker', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:note-librarian', 'discord_send_image', 'write', 'outbound Discord image sending');
 
   -- Universal memory tools available to all agents/workers via inheritance from the owner
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
