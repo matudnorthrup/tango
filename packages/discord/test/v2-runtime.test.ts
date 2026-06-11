@@ -401,6 +401,46 @@ describe("createV2PostTurnHook", () => {
 
     expect(extractAndStoreMemoriesImpl).not.toHaveBeenCalled();
   });
+
+  it("skips memory capture for extraction-suppressed channels even when extraction is enabled", async () => {
+    const extractAndStoreMemoriesImpl = vi.fn().mockResolvedValue(undefined);
+    const hook = createV2PostTurnHook({
+      v2Configs: new Map([
+        [
+          "malibu-ollama",
+          createV2Config("malibu-ollama", { provider: "claude-code-v2" }, { postTurnExtraction: "enabled" }),
+        ],
+      ]),
+      atlasMemoryClient: {
+        close: vi.fn(),
+      } as never,
+      resolveProvider: () => ({ generate: vi.fn() }) as never,
+      extractionSuppressedChannelIds: new Set(["smoke-channel-1"]),
+      extractAndStoreMemoriesImpl,
+    });
+
+    // Turn in the suppressed (smoke) channel — including via a thread, where
+    // channelId is the parent channel id — must not extract.
+    await hook({
+      conversationKey: "thread:thread-9",
+      agentId: "malibu-ollama",
+      userMessage: "Test probe",
+      response: { text: "Ack.", durationMs: 20 },
+      channelId: "smoke-channel-1",
+      threadId: "thread-9",
+    });
+    expect(extractAndStoreMemoriesImpl).not.toHaveBeenCalled();
+
+    // Same agent in its regular (dogfood) channel still extracts.
+    await hook({
+      conversationKey: "channel:dogfood-channel-1",
+      agentId: "malibu-ollama",
+      userMessage: "Log my workout",
+      response: { text: "Logged it.", durationMs: 20 },
+      channelId: "dogfood-channel-1",
+    });
+    expect(extractAndStoreMemoriesImpl).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("shutdownV2Runtime", () => {
