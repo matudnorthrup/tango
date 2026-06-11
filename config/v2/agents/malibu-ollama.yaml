@@ -69,12 +69,14 @@ memory:
 # Discord routing
 discord:
   default_channel_id: "1513207688086028469"
+  smoke_test_channel_id: "100000000000001002" # malibu-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207688086028469"
+    - "100000000000001002" # malibu-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
 avatar_url: https://cdn.discordapp.com/avatars/1480550297800802485/f132d934eb54bf33d5be0cea339645f0.webp
@@ -114,3 +116,4 @@ voice:
     - "Coach Malibu"
   kokoro_voice: am_puck
   default_channel_id: "1513207688086028469"
+  smoke_test_channel_id: "100000000000001002" # malibu-test (placeholder; real id in profile overlay)
