@@ -168,9 +168,20 @@ const DEFAULT_WARNING_BEFORE_MS = 5_000;
 
 // ─── State machine ─────────────────────────────────────────────────────────
 
+export interface BufferedUtterance {
+  userId: string;
+  wavBuffer: Buffer;
+  durationMs: number;
+  /** Gate/prompt grace state at the moment the utterance was captured.
+   * Replay must evaluate grace against this snapshot, not the clock at
+   * re-process time — a fresh grace window is usually open by then and
+   * would let stale wake-less speech through the gate (TGO-751). */
+  graceAtCapture: { gate: boolean; prompt: boolean } | null;
+}
+
 export class PipelineStateMachine {
   private state: PipelineState = { type: 'IDLE' };
-  private bufferedUtterances: { userId: string; wavBuffer: Buffer; durationMs: number }[] = [];
+  private bufferedUtterances: BufferedUtterance[] = [];
   private timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private warningTimer: ReturnType<typeof setTimeout> | null = null;
   private onTimeout: ((effects: TransitionEffect[], preTimeoutState?: PipelineState) => void) | null = null;
@@ -192,14 +203,19 @@ export class PipelineStateMachine {
    * Buffer an utterance that arrived during PROCESSING or SPEAKING.
    * The pipeline should re-process it when returning to IDLE.
    */
-  bufferUtterance(userId: string, wavBuffer: Buffer, durationMs: number): void {
+  bufferUtterance(
+    userId: string,
+    wavBuffer: Buffer,
+    durationMs: number,
+    graceAtCapture: { gate: boolean; prompt: boolean } | null = null,
+  ): void {
     if (this.bufferedUtterances.length >= PipelineStateMachine.MAX_BUFFERED_UTTERANCES) {
       this.bufferedUtterances.shift();
     }
-    this.bufferedUtterances.push({ userId, wavBuffer, durationMs });
+    this.bufferedUtterances.push({ userId, wavBuffer, durationMs, graceAtCapture });
   }
 
-  getBufferedUtterance(): { userId: string; wavBuffer: Buffer; durationMs: number } | null {
+  getBufferedUtterance(): BufferedUtterance | null {
     return this.bufferedUtterances.shift() ?? null;
   }
 
