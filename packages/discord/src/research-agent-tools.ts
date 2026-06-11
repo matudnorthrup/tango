@@ -507,7 +507,7 @@ export function createTravelTools(): AgentTool[] {
     lat: number;
     lon: number;
     displayName?: string;
-    source: "coordinate" | "current_location" | "nominatim";
+    source: "coordinate" | "current_location" | "nominatim" | "here-discover" | "here-geocode";
     ageSec?: number | null;
   }
 
@@ -549,6 +549,57 @@ export function createTravelTools(): AgentTool[] {
     return { lat, lon };
   };
 
+  const hereApiKey = process.env.HERE_API_KEY?.trim() || null;
+
+  const tryReadCurrentPosition = (): { lat: number; lon: number } | null => {
+    try {
+      const current = readCurrentPosition();
+      return { lat: current.lat, lon: current.lon };
+    } catch {
+      return null;
+    }
+  };
+
+  interface HereSearchItem {
+    position?: { lat?: number; lng?: number };
+    address?: { label?: string };
+    title?: string;
+  }
+
+  const parseHereItem = (
+    value: string,
+    item: HereSearchItem | undefined,
+    source: "here-discover" | "here-geocode",
+  ): ResolvedRoutePoint | null => {
+    const lat = item?.position?.lat;
+    const lon = item?.position?.lng;
+    if (typeof lat !== "number" || typeof lon !== "number") return null;
+    const displayName = item?.address?.label ?? item?.title;
+    return { input: value, lat, lon, source, ...(displayName ? { displayName } : {}) };
+  };
+
+  const geocodeViaHere = async (value: string): Promise<ResolvedRoutePoint | null> => {
+    if (!hereApiKey) return null;
+    // Discover resolves POI queries ("Costco, Medford, OR") that Nominatim
+    // misses when the named city differs from the postal city. Anchor at
+    // current GPS when available so bare POI names resolve to the nearest one.
+    const anchor = tryReadCurrentPosition() ?? { lat: 39.8283, lon: -98.5795 };
+    const discoverUrl = `https://discover.search.hereapi.com/v1/discover?at=${anchor.lat},${anchor.lon}&q=${encodeURIComponent(value)}&limit=1&apiKey=${hereApiKey}`;
+    const discoverResponse = await fetch(discoverUrl);
+    if (discoverResponse.ok) {
+      const data = await discoverResponse.json() as { items?: HereSearchItem[] };
+      const resolved = parseHereItem(value, data.items?.[0], "here-discover");
+      if (resolved) return resolved;
+    }
+    const geocodeUrl = `https://geocode.search.hereapi.com/v1/geocode?q=${encodeURIComponent(value)}&apiKey=${hereApiKey}`;
+    const geocodeResponse = await fetch(geocodeUrl);
+    if (geocodeResponse.ok) {
+      const data = await geocodeResponse.json() as { items?: HereSearchItem[] };
+      return parseHereItem(value, data.items?.[0], "here-geocode");
+    }
+    return null;
+  };
+
   const resolvePlace = async (input: unknown): Promise<ResolvedRoutePoint> => {
     const value = String(input ?? "").trim();
     if (value.length === 0 || /^(current( location)?|here|gps)$/iu.test(value)) {
@@ -565,25 +616,29 @@ export function createTravelTools(): AgentTool[] {
     let geocode = geocodeCache.get(cacheKey);
     if (!geocode) {
       geocode = (async () => {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(value)}&format=json&limit=1`;
-        const response = await fetch(url, { headers: { "User-Agent": "tango-osrm-route/1.0" } });
-        if (!response.ok) {
-          throw new Error(`geocode failed for "${value}": HTTP ${response.status}`);
-        }
-        const results = await response.json() as Array<Record<string, unknown>>;
-        const first = results[0];
-        const lat = Number(first?.lat);
-        const lon = Number(first?.lon);
-        if (!first || !Number.isFinite(lat) || !Number.isFinite(lon)) {
-          throw new Error(`could not geocode "${value}"`);
-        }
-        return {
-          input: value,
-          lat,
-          lon,
-          source: "nominatim" as const,
-          ...(typeof first.display_name === "string" ? { displayName: first.display_name } : {}),
-        };
+        const nominatimResult = await (async (): Promise<ResolvedRoutePoint | null> => {
+          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(value)}&format=json&limit=1`;
+          const response = await fetch(url, { headers: { "User-Agent": "tango-osrm-route/1.0" } });
+          if (!response.ok) return null;
+          const results = await response.json() as Array<Record<string, unknown>>;
+          const first = results[0];
+          const lat = Number(first?.lat);
+          const lon = Number(first?.lon);
+          if (!first || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+          return {
+            input: value,
+            lat,
+            lon,
+            source: "nominatim" as const,
+            ...(typeof first.display_name === "string" ? { displayName: first.display_name } : {}),
+          };
+        })().catch(() => null);
+        if (nominatimResult) return nominatimResult;
+
+        const hereResult = await geocodeViaHere(value).catch(() => null);
+        if (hereResult) return hereResult;
+
+        throw new Error(`could not geocode "${value}"`);
       })();
       geocodeCache.set(cacheKey, geocode);
     }
@@ -689,6 +744,7 @@ export function createTravelTools(): AgentTool[] {
       description: [
         "Compute real driving distance and duration with OSRM. Use this for route planning, drive-time estimates, and route comparisons.",
         "Never answer route/directions questions from mental geography when this tool is available.",
+        "Place names and POIs (e.g. 'Costco, Medford, OR') resolve via Nominatim with HERE Discover/Geocode fallback anchored at current GPS.",
         "",
         "Parameters:",
         "  origin: Address/place string, 'lat,lon', or omit/use 'current location' to use GPS.",
@@ -766,35 +822,42 @@ export function createTravelTools(): AgentTool[] {
     {
       name: "find_diesel",
       description: [
-        "Find the best-value diesel stations along a route from the current GPS location.",
-        "Uses HERE Fuel Prices API (primary) with GasBuddy fallback.",
-        "Scores stations by price × detour distance penalty.",
+        "Find fuel stations and prices — along a route, near a place, or near the current GPS location.",
+        "Uses HERE Fuel Prices API (primary) with automatic GasBuddy fallback when HERE returns nothing.",
+        "",
+        "Modes:",
+        "  Route (default): set destination — best-value diesel stations along the route from current GPS (or 'from'), scored by price × detour penalty.",
+        "  Near a place: set near=true + destination — all-grade fuel prices around a place or a specific station (e.g. 'Costco, Medford, OR'). POI names work: geocoding falls back to HERE Discover anchored at the current GPS position.",
+        "  Near me: omit destination (or pass 'current location') — stations around the current OwnTracks GPS position.",
         "",
         "Parameters:",
-        "  destination (required): Address string or 'lat,lon' — the endpoint of your route",
-        "  near: Search around destination only, ignore GPS/routing",
-        "  from: Override start location instead of GPS (e.g. 'Tonopah, NV')",
+        "  destination: Address, place/POI name, or 'lat,lon'. Omit to search near the current GPS location.",
+        "  near: Search around destination (or current GPS) only, no routing",
+        "  from: Override start location instead of GPS (e.g. 'Tonopah, NV') — route mode only",
         "  top: Number of results (default 5)",
-        "  source: Force 'here' or 'gasbuddy' (default: auto, prefers HERE if key available)",
+        "  source: Force 'here' or 'gasbuddy' (default: auto with fallback)",
         "",
-        "Returns top stations with: name, address, dieselPrice ($/gal), detourMiles, googleMapsLink.",
-        "IMPORTANT: This routing assumes a diesel vehicle. If the user says 'gas' casually, interpret it as diesel unless they say otherwise.",
+        "Route mode returns diesel stations with: name, address, dieselPrice ($/gal), detourMiles, googleMapsLink.",
+        "Near modes also return a prices object with regular/midgrade/premium/diesel grades when available.",
+        "IMPORTANT: Route mode assumes a diesel vehicle. If the user says 'gas' casually, interpret it as diesel unless they say otherwise.",
         "Always recommend stations AHEAD on the route, never behind.",
       ].join("\n"),
       inputSchema: {
         type: "object",
         properties: {
-          destination: { type: "string", description: "Route endpoint — address or lat,lon" },
-          near: { type: "boolean", description: "Search near destination only, no routing" },
+          destination: { type: "string", description: "Route endpoint or place to search near — address, POI name, or lat,lon. Omit for current GPS location." },
+          near: { type: "boolean", description: "Search near destination (or current GPS) only, no routing" },
           from: { type: "string", description: "Override start location (default: GPS)" },
           top: { type: "number", description: "Number of results (default 5)" },
           source: { type: "string", enum: ["here", "gasbuddy"], description: "Force data source" },
         },
-        required: ["destination"],
+        required: [],
       },
       handler: async (input) => {
-        const scriptArgs: string[] = [dieselScript, String(input.destination)];
-        if (input.near) scriptArgs.push("--near");
+        const destination = typeof input.destination === "string" ? input.destination.trim() : "";
+        const scriptArgs: string[] = [dieselScript];
+        if (destination) scriptArgs.push(destination);
+        if (input.near || !destination) scriptArgs.push("--near");
         if (input.from) scriptArgs.push(`--from=${input.from}`);
         if (typeof input.top === "number") scriptArgs.push(`--top=${input.top}`);
         if (input.source) scriptArgs.push(`--source=${input.source}`);

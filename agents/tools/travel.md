@@ -85,9 +85,10 @@ Notes:
 
 ## `find_diesel`
 
-Finds diesel stations along a route using current GPS by default.
+Finds fuel stations and prices — along a route, near a place, or near the
+current GPS location.
 
-Input:
+Input, route mode (diesel along GPS→destination):
 
 ```json
 {
@@ -96,7 +97,25 @@ Input:
 }
 ```
 
+Input, near a place or specific station (all fuel grades):
+
+```json
+{
+  "destination": "Costco, Medford, OR",
+  "near": true
+}
+```
+
+Input, near current GPS position:
+
+```json
+{
+  "near": true
+}
+```
+
 Optional fields:
+- `destination` — address, place/POI name, or `lat,lon`; omit for current GPS
 - `near`
 - `from`
 - `top`
@@ -106,10 +125,17 @@ Typical output fields:
 - `name`
 - `address`
 - `dieselPrice`
-- `detourMiles`
+- `prices` (near modes — regular/midgrade/premium/diesel when available)
+- `detourMiles` (route mode) / `distanceMiles` (near modes)
 - `googleMapsLink`
+- `source`, `sourcesTried`
 
 Notes:
-- The tool is diesel-specific.
+- Route mode is diesel-specific; near modes return all fuel grades.
+- Geocoding chain: Nominatim → HERE Discover (GPS-anchored POI search) →
+  HERE Geocode, so station names like "Costco, Medford, OR" resolve even when
+  the postal city differs (that Costco is in Central Point).
+- Sources fall back automatically: HERE first, then GasBuddy if HERE returns
+  no priced stations.
 - It can use the current location file in `data/location/latest.json`.
 - Route-planning guidance lives in `agents/skills/travel-routing.md`.
