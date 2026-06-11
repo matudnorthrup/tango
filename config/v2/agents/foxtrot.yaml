@@ -60,6 +60,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "kilo-ledger"]
     env:
       ALLOWED_TOOL_IDS: "kilo_ledger"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 runtime:
   mode: persistent

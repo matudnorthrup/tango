@@ -9,6 +9,12 @@ import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
 dotenv.config();
 
+import {
+  deprecatedExpectationNote,
+  latestOutboundMessageId,
+  waitForV2TurnEvidence,
+} from "./v2-turn-evidence.js";
+
 type VoiceTurnHttpResponse = {
   ok: boolean;
   error?: string;
@@ -18,14 +24,19 @@ type VoiceTurnHttpResponse = {
   warmStartUsed?: boolean;
 };
 
+// Compat shim over v2 turn evidence: the deterministic pipeline was retired
+// 2026-05-25 (TGO-716). `id` is the outbound messages row id; receiptsJson is
+// always null in v2, so receipt-based diagnostics resolve to empty.
 type StoredDeterministicTurn = {
-  id: string;
+  id: number;
   routeOutcome: "executed" | "clarification" | "fallback";
   intentIds: string[];
   workerIds: string[];
   hasWriteOperations: boolean;
   stepCount: number;
   receiptsJson: unknown;
+  toolsUsed: string[];
+  responseText: string;
   createdAt: string;
 } | null;
 
@@ -304,45 +315,9 @@ function loadLatestDeterministicTurn(
   db: DatabaseSync,
   sessionId: string,
   agentId: string,
-): StoredDeterministicTurn {
-  const row = db.prepare(
-    `SELECT
-       id,
-       route_outcome AS routeOutcome,
-       intent_ids AS intentIdsJson,
-       worker_ids AS workerIdsJson,
-       has_write_operations AS hasWriteOperations,
-       step_count AS stepCount,
-       receipts_json AS receiptsJson,
-       created_at AS createdAt
-     FROM deterministic_turns
-     WHERE session_id = ? AND agent_id = ?
-     ORDER BY created_at DESC, rowid DESC
-     LIMIT 1`,
-  ).get(sessionId, agentId) as
-    | {
-        id: string;
-        routeOutcome: "executed" | "clarification" | "fallback";
-        intentIdsJson: string | null;
-        workerIdsJson: string | null;
-        hasWriteOperations: number;
-        stepCount: number;
-        receiptsJson: string | null;
-        createdAt: string;
-      }
-    | undefined;
-
-  if (!row) return null;
-  return {
-    id: row.id,
-    routeOutcome: row.routeOutcome,
-    intentIds: parseJsonArray(row.intentIdsJson),
-    workerIds: parseJsonArray(row.workerIdsJson),
-    hasWriteOperations: row.hasWriteOperations === 1,
-    stepCount: row.stepCount,
-    receiptsJson: parseJsonValue(row.receiptsJson),
-    createdAt: row.createdAt,
-  };
+): { id: number } | null {
+  const id = latestOutboundMessageId(db, sessionId, agentId);
+  return id > 0 ? { id } : null;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -356,25 +331,6 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForNewDeterministicTurn(input: {
-  db: DatabaseSync;
-  sessionId: string;
-  agentId: string;
-  previousId: string | null;
-  timeoutMs?: number;
-}): Promise<StoredDeterministicTurn> {
-  const startedAt = Date.now();
-  const timeoutMs = input.timeoutMs ?? 30_000;
-  while ((Date.now() - startedAt) < timeoutMs) {
-    const latest = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
-    if (latest && latest.id !== input.previousId) {
-      return latest;
-    }
-    await sleep(250);
-  }
-  return null;
 }
 
 function tomorrowDateString(now = new Date()): string {
@@ -619,7 +575,7 @@ async function validateDeterministicWriteTurn(input: {
   db: DatabaseSync;
   sessionId: string;
   agentId: string;
-  previousId: string | null;
+  previousId: number | null;
   expectIntents: string[];
   expectAnyOfIntents?: string[];
   expectWorkers: string[];
@@ -627,46 +583,41 @@ async function validateDeterministicWriteTurn(input: {
   expectStepCounts?: number[];
   allowReadOnlyVerification?: boolean;
 }): Promise<DeterministicTurn> {
-  const latest = await waitForNewDeterministicTurn({
+  const latest = await waitForV2TurnEvidence({
     db: input.db,
     sessionId: input.sessionId,
     agentId: input.agentId,
-    previousId: input.previousId,
+    afterMessageId: input.previousId ?? 0,
+    timeoutMs: 180_000,
   });
   if (!latest) {
-    throw new Error(`Timed out waiting for a new deterministic turn for intents ${input.expectIntents.join(", ")}.`);
+    throw new Error(`Timed out waiting for a new v2 outbound message row for intents ${input.expectIntents.join(", ")}.`);
   }
-  if (latest.routeOutcome !== "executed") {
-    throw new Error(`Expected executed route, got ${latest.routeOutcome}`);
+  console.log(
+    `[write-smoke] v2 turn message=${latest.messageId} runtime=${latest.runtimePath ?? "-"} toolsUsed=${latest.toolsUsed.join(",") || "-"}`,
+  );
+  if (latest.runtimeStderr && latest.runtimeStderr.trim().length > 0) {
+    throw new Error(`v2 turn recorded runtime stderr: ${JSON.stringify(latest.runtimeStderr.slice(0, 400))}`);
   }
-  for (const expectedIntent of input.expectIntents) {
-    if (!latest.intentIds.includes(expectedIntent)) {
-      throw new Error(`Expected intent ${expectedIntent}, got ${latest.intentIds.join(",") || "(none)"}`);
-    }
-  }
-  if (input.expectAnyOfIntents && input.expectAnyOfIntents.length > 0) {
-    const matched = input.expectAnyOfIntents.some((expectedIntent) => latest.intentIds.includes(expectedIntent));
-    if (!matched) {
-      throw new Error(
-        `Expected one of intents ${input.expectAnyOfIntents.join(", ")}, got ${latest.intentIds.join(",") || "(none)"}`,
-      );
-    }
-  }
-  for (const expectedWorker of input.expectWorkers) {
-    if (!latest.workerIds.includes(expectedWorker)) {
-      throw new Error(`Expected worker ${expectedWorker}, got ${latest.workerIds.join(",") || "(none)"}`);
-    }
-  }
-  if (!latest.hasWriteOperations && !input.allowReadOnlyVerification) {
-    throw new Error(`Expected write operations for intents ${input.expectIntents.join(", ")}, got read-only turn.`);
-  }
-  if (input.expectStepCount !== undefined && latest.stepCount !== input.expectStepCount) {
-    throw new Error(`Expected stepCount=${input.expectStepCount}, got ${latest.stepCount}`);
-  }
-  if (input.expectStepCounts && input.expectStepCounts.length > 0 && !input.expectStepCounts.includes(latest.stepCount)) {
-    throw new Error(`Expected stepCount in [${input.expectStepCounts.join(", ")}], got ${latest.stepCount}`);
-  }
-  return latest;
+  deprecatedExpectationNote("write-smoke", input.expectIntents.join("+") || "case", [
+    ...(input.expectIntents.length > 0 ? ["expectIntents"] : []),
+    ...((input.expectAnyOfIntents ?? []).length > 0 ? ["expectAnyOfIntents"] : []),
+    ...(input.expectWorkers.length > 0 ? ["expectWorkers"] : []),
+    ...(input.expectStepCount !== undefined || (input.expectStepCounts ?? []).length > 0 ? ["expectStepCount"] : []),
+    ...(input.allowReadOnlyVerification ? [] : ["expectWriteOperations"]),
+  ]);
+  return {
+    id: latest.messageId,
+    routeOutcome: "executed",
+    intentIds: [],
+    workerIds: [],
+    hasWriteOperations: false,
+    stepCount: 0,
+    receiptsJson: null,
+    toolsUsed: latest.toolsUsed,
+    responseText: latest.responseText,
+    createdAt: latest.createdAt,
+  };
 }
 
 async function runNutritionWriteSmoke(input: {

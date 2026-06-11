@@ -26,6 +26,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
     env:
       ALLOWED_TOOL_IDS: "obsidian"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 # Runtime configuration
 runtime:

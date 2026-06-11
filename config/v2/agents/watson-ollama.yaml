@@ -59,6 +59,11 @@ mcp_servers:
   - name: latitude
     command: mcp-remote
     args: ["https://mcp.preview.aidungeon.com/oauth/mcp"]
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 # Runtime configuration
 runtime:
