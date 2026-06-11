@@ -98,7 +98,11 @@ const CONTINUATION_CASES: readonly ContinuationSmokeCase[] = [
     threadName: "codex-watson-continuation-live",
     transcript: "yeah, check those transactions",
     title: "Review recent Amazon transactions",
-    objective: "Look up the most recent Amazon transactions and summarize the latest charges.",
+    // Amazon order listings reliably show items and dates but not dollar
+    // amounts, so an objective demanding "charges" leaves the task honestly
+    // unresolved (the extractor keeps it open and captures the price
+    // follow-up as a new task). Scope the objective to obtainable data.
+    objective: "Look up the most recent Amazon orders and summarize what was purchased and when.",
     ownerWorkerId: "personal-assistant",
     intentIds: ["finance.transaction_lookup"],
     clarificationQuestion: "Want me to pull the recent Amazon transactions?",
