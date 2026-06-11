@@ -370,7 +370,9 @@ export const GOVERNANCE_SEED = `
     ('worker:personal-assistant', 'slack', 'read', 'seed from config'),
     ('worker:personal-assistant', 'linear', 'write', 'seed from config'),
     ('worker:personal-assistant', 'imessage', 'write', 'seed from config'),
-    ('worker:personal-assistant', 'latitude_run', 'write', 'seed from config');
+    ('worker:personal-assistant', 'latitude_run', 'write', 'seed from config'),
+    ('worker:personal-assistant', 'spawn_claude_session', 'write', 'spawn remote-controllable Claude Code sessions'),
+    ('worker:personal-assistant', 'list_claude_sessions', 'read', 'list spawned Claude Code sessions');
 
   -- research-assistant (Sierra)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
