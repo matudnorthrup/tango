@@ -19,11 +19,18 @@ Reference guidance for research, procurement, and fabrication workflows.
 - For route planning, drive-time estimates, overnight-stop planning, detour
   questions, and "is this on the way?" questions, use `mcp__location__osrm_route`.
   Do not answer from mental geography when the route tool is available.
+- Only name towns, stops, or landmarks as "on the route" when they appear in
+  the tool's `via`/`passesThrough` output or in `find_diesel` results. For any
+  other place, run a direct-vs-via route comparison before claiming it is on
+  the way.
+- Route ETAs (`durationHours`) already include live traffic when `source` is
+  `here` — do not add traffic padding; add time only for planned stops. If
+  `source` is `osrm` (fallback), the ETA has no traffic and runs high — say so.
 - If current position affects the answer, use `mcp__location__location_read`
   first, then route from the current coordinates. Warn when location data is
   stale.
 - When comparing possible stops or waypoints, route at least the direct/best
-  option and the waypoint option, then compare OSRM miles and duration.
+  option and the waypoint option, then compare routed miles and duration.
 - Do not say "I verified" or "let me verify" unless a verification tool call
   actually happened.
 - Route facts, drive times, detours, and "on route" claims must come from
