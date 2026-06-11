@@ -5,7 +5,7 @@ Workflow guidance for travel, navigation, and road trip tasks.
 ## Core tools
 
 - `location_read` — Current GPS from OwnTracks (lat, lon, velocity km/h, heading degrees, ageSec). Always check this first when the user's current position affects the answer. Warn if ageSec > 3600 (stale).
-- `osrm_route` — Real driving distance/duration and route comparisons through OSRM. **Always use this for route, ETA, detour, or "is this on the way" answers.**
+- `osrm_route` — Real driving routes: distance, traffic-aware ETA (HERE Router v8 primary, OSRM fallback), major roads (`via`), and towns along the way (`passesThrough`). **Always use this for route, ETA, detour, or "is this on the way" answers.** If `source` is `osrm` the ETA has no traffic and runs high — say so.
 - `find_diesel` — Fuel station finder. Route mode: diesel-only along GPS→destination, scored by price × detour penalty. Near mode (`near: true` + place, or no destination for current GPS): all fuel grades around a place or station, including POI names like "Costco, Medford, OR". Sources fall back HERE→GasBuddy automatically.
 - `open_meteo_weather` skill — Weather at any coordinates. Wind comes back in km/h, convert to mph.
 - `exa_search` / `exa_answer` — Rest areas, businesses, scenic stops, road conditions.
@@ -13,6 +13,9 @@ Workflow guidance for travel, navigation, and road trip tasks.
 ## Routing evidence rules
 
 - Do not answer a route/directions/drive-time question from mental geography when `osrm_route` is available.
+- Only name towns, stops, or landmarks as "on the route" if they appear in the tool's `via`/`passesThrough` output or in `find_diesel` results. Recommending a place the route does not actually pass is worse than saying you need to check.
+- The route the tool found may not be the corridor you imagine (e.g. US-199 vs I-5). Read `via` before describing the route.
+- `durationHours` already includes live traffic. Do not add traffic padding or your own multipliers; add time only for planned stops (15-30 min each).
 - If you say you are verifying, first call a tool that can verify the claim.
 - For "where will we get by 8 or 9 p.m." tasks, call `osrm_route` for the main route and compare likely overnight-stop corridors with real drive time.
 - For "is X on the route" or "would X be a detour" tasks, call `osrm_route` with at least two options: direct/best route and via-X.
