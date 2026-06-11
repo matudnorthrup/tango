@@ -3,11 +3,17 @@
 OSRM (Open Source Routing Machine) — free driving distance and duration API. No API key required.
 
 Tango agents should normally call the `osrm_route` MCP tool instead of hand-building
-OSRM URLs. Use the direct API format below only when that tool is unavailable.
+OSRM URLs — the tool routes through HERE Router v8 (traffic-aware ETAs, `via` roads,
+`passesThrough` towns) and only falls back to OSRM itself. Use the direct API format
+below only when that tool is unavailable.
 
 ## Why use this
 
-**Never estimate driving distances from coordinates.** Lat/lon math gives straight-line distance which underestimates mountain and winding routes by 20-40%. Always use OSRM for actual road distances.
+**Never estimate driving distances from coordinates.** Lat/lon math gives straight-line distance which underestimates mountain and winding routes by 20-40%. Always use a router for actual road distances.
+
+**Known bias:** the public OSRM server has no traffic data and its rural-highway ETAs
+run 20-50% high (measured 2026-06-10 vs HERE/Google). Treat raw OSRM durations as an
+upper bound and say so when reporting them.
 
 ## API
 
@@ -39,7 +45,8 @@ Returns total distance/duration for the full route through all waypoints in orde
 
 ## Usage rules
 
-- Always use OSRM when reporting distances or ETAs — no exceptions.
-- When comparing route options, run each through OSRM separately.
+- Always use a router (the `osrm_route` tool, or raw OSRM as last resort) when reporting distances or ETAs — no exceptions.
+- When comparing route options, run each through the router separately.
 - Pair with `location_read` for current-position routing.
-- For fuel range calculations, use OSRM distance (not estimates) against tank capacity.
+- For fuel range calculations, use routed distance (not estimates) against tank capacity.
+- Raw OSRM gives no route geometry context — do not name towns or stops as "on the route" from memory; use the `osrm_route` tool's `passesThrough`/`via` output for that.
