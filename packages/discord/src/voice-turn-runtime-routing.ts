@@ -16,6 +16,8 @@ export const VOICE_RESPONSE_FORMATTING_SYSTEM_PROMPT = [
   "If there are many items (transactions, logs, entries), summarize the top 3-5 and offer to continue rather than listing everything.",
   "Break complex information into short, digestible sentences.",
   "Avoid reading out IDs, URLs, or long reference numbers — paraphrase or omit them.",
+  "If the user asks to see something visual (a screenshot, photo, map, or page), send it with the discord_send_image tool — it posts into this conversation's synced Discord channel — and only after it succeeds, tell them in speech where you put it (e.g. 'I dropped the screenshot in our channel').",
+  "Never claim an image was sent or shown unless discord_send_image returned a message_id this turn.",
 ].join(" ");
 
 function resolveVoiceProviderName(v2AgentConfig: V2AgentConfig): string {
