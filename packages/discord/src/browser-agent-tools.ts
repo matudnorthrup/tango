@@ -247,7 +247,13 @@ export function createBrowserTools(): AgentTool[] {
               ref: typeof input.ref === "number" ? input.ref : undefined,
               selector: typeof input.selector === "string" ? input.selector : undefined,
             });
-            return { screenshot_path: filePath };
+            return {
+              screenshot_path: filePath,
+              note:
+                "This file is NOT visible to the user. To show it to them, call "
+                + "discord_send_image with this path as `source` — only a returned "
+                + "message_id means the user can see it.",
+            };
           }
 
           case "click": {

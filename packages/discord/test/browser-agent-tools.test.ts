@@ -85,7 +85,8 @@ describe("browser-agent-tools", () => {
       ref: 12,
       selector: "text=Driver tip",
     });
-    expect(result).toEqual({ screenshot_path: "/tmp/tango-screenshot-test.png" });
+    expect(result).toMatchObject({ screenshot_path: "/tmp/tango-screenshot-test.png" });
+    expect(String((result as Record<string, unknown>).note)).toContain("discord_send_image");
   });
 
   it("passes upload files through to the browser manager", async () => {
