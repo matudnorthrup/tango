@@ -168,6 +168,16 @@ export const MAX_TOOL_ITERS = Number(process.env.TANGO_MAX_TOOL_ITERS) || 40;
 export const TOOL_LOOP_CAP_FALLBACK_TEXT =
   "(tool loop reached the step limit without a final answer)";
 
+/**
+ * Appended when the tool loop hits {@link MAX_TOOL_ITERS} while the model's last
+ * text was interim narration (e.g. "Let me navigate to…"). Without this the user
+ * hears a dangling statement of intent and then silence — indistinguishable from
+ * the agent doing nothing. Plain spoken language so it reads naturally over TTS.
+ */
+export const TOOL_LOOP_CAP_TRUNCATION_NOTICE =
+  "I hit my step limit before finishing that — the message above is as far as I got. " +
+  "Ask me to continue, or give me a smaller piece of the task.";
+
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 300_000;
 
 const claudeResultSchema = z
@@ -1459,12 +1469,17 @@ export class OllamaProvider implements ChatProvider {
       // Loop: re-request with the tool results appended.
     }
 
-    // If the cap was hit with no usable text, substitute a deterministic
-    // fallback and flag truncation so the discord layer never sends a blank
-    // reply and downstream can tell the answer was cut off.
-    const cappedWithoutText = hitCap && lastContent.length === 0;
-    const text = cappedWithoutText ? TOOL_LOOP_CAP_FALLBACK_TEXT : lastContent;
-    const stopReason = cappedWithoutText
+    // Cap-hit turns must never masquerade as finished answers. With no usable
+    // text, substitute the deterministic fallback; with interim narration,
+    // append an explicit truncation notice (a dangling "Let me navigate to…"
+    // followed by silence reads as the agent doing nothing — live failure on
+    // a 228s Marriott browse, TGO-740). Either way stopReason flags the cut.
+    const text = hitCap
+      ? (lastContent.length === 0
+          ? TOOL_LOOP_CAP_FALLBACK_TEXT
+          : `${lastContent}\n\n${TOOL_LOOP_CAP_TRUNCATION_NOTICE}`)
+      : lastContent;
+    const stopReason = hitCap
       ? "max_tool_iters"
       : (lastFinishReason ?? undefined);
 
