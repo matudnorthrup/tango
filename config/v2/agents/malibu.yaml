@@ -68,9 +68,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Malibu
-    - Malibooth
-    - "Coach Malibu"
+    - "Zulu Malibu"
   kokoro_voice: am_puck
   default_channel_id: "100000000000000002"
   smoke_test_channel_id: "100000000000001002"

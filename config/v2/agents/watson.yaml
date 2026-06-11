@@ -80,7 +80,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Watson
+    - "Zulu Watson"
   kokoro_voice: bm_george
   default_channel_id: "100000000000000001"
   smoke_test_channel_id: "1488248022335881390"
