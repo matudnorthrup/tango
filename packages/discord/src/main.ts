@@ -247,6 +247,10 @@ import {
   resolveStateVaultRoot,
 } from "./project-state.js";
 import {
+  renderActiveTasksWarmStartBlock,
+  scheduleActiveTaskPostTurn,
+} from "./active-task-continuation.js";
+import {
   buildVoiceRouterErrorResult,
   buildVoiceRouterResult,
   dispatchVoiceTurnByRuntime,
@@ -306,6 +310,10 @@ interface WarmStartContextDiagnostics {
   contextPacket?: ContextPacket;
   attachmentDirectoryContext?: {
     trace: AttachmentDirectoryContextTrace;
+    promptChars: number;
+  };
+  activeTasks?: {
+    openCount: number;
     promptChars: number;
   };
 }
@@ -3875,6 +3883,25 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
         agentId: targetAgent.id
       });
 
+      // Skip capture when the runtime produced no text (turnResult fell back
+      // to the TTS error message, which is not a real exchange).
+      if (turnResult === baseTurnResult) {
+        scheduleActiveTaskPostTurn({
+          storage,
+          v2Config: v2AgentConfig,
+          resolveProvider: (name) => providers.get(name),
+          context: {
+            sessionId: turnInput.sessionId,
+            agentId: targetAgent.id,
+            userMessage: turnInput.transcript,
+            agentResponse: turnResult.responseText,
+            toolsUsed: response.toolsUsed ?? [],
+            requestMessageId: inboundMessageId,
+            responseMessageId: outboundMessageId,
+          },
+        });
+      }
+
       console.log(
         `[tango-voice] reply session=${turnInput.sessionId} agent=${targetAgent.id} provider=${turnResult.providerName} runtime=v2 ms=${latencyMs} conversation=${routeResult.conversationKey}`
       );
@@ -5116,6 +5143,28 @@ async function buildWarmStartContext(input: {
       trace: attachmentContext.trace,
       promptChars: attachmentPrompt.length,
     };
+    // Continuation: surface this session's open active tasks so the turn can
+    // resume work captured by the post-turn extractor (TGO-743).
+    let activeTasksBlock: string | undefined;
+    let activeTasksOpenCount = 0;
+    try {
+      const openActiveTasks = storage.listActiveTasks({
+        sessionId: input.sessionId,
+        agentId: input.agentId,
+      });
+      activeTasksOpenCount = openActiveTasks.length;
+      activeTasksBlock = renderActiveTasksWarmStartBlock(openActiveTasks);
+    } catch (error) {
+      console.warn(
+        `[active-task] warm-start task lookup failed session=${input.sessionId} agent=${input.agentId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    const activeTasksDiagnostics = {
+      openCount: activeTasksOpenCount,
+      promptChars: activeTasksBlock?.length ?? 0,
+    };
     const sessionConfig = resolveEffectiveSessionConfig(input.sessionId);
     const memoryConfig = resolveSessionMemoryConfig(sessionConfig?.memory);
     const orchestratorContinuityMode = input.orchestratorContinuityMode ?? "provider";
@@ -5180,7 +5229,7 @@ async function buildWarmStartContext(input: {
     }
 
     const memoryPromptText = memoryPrompt.prompt.trim();
-    const prompt = joinContextPrompts(memoryPromptText, attachmentPrompt);
+    const prompt = joinContextPrompts(memoryPromptText, activeTasksBlock, attachmentPrompt);
     if (memoryPromptText.length > 0) {
       return {
         prompt,
@@ -5190,6 +5239,7 @@ async function buildWarmStartContext(input: {
           memorySubstrate: memoryBundle.substrate,
           channelSurfaceSupplementalMessages: supplementalMessageCount,
           attachmentDirectoryContext,
+          activeTasks: activeTasksDiagnostics,
           memoryPrompt: {
             estimatedTokens: memoryPrompt.estimatedTokens,
             usedFullHistory: memoryPrompt.usedFullHistory,
@@ -5213,7 +5263,7 @@ async function buildWarmStartContext(input: {
       maxContentCharsPerTurn: 280
     });
     const fallbackPromptText = renderContextPacket(packet, { maxChars: 2400 }).trim();
-    const fallbackPrompt = joinContextPrompts(fallbackPromptText, attachmentPrompt);
+    const fallbackPrompt = joinContextPrompts(fallbackPromptText, activeTasksBlock, attachmentPrompt);
     return fallbackPrompt.length > 0
         ? {
             prompt: fallbackPrompt,
@@ -5222,6 +5272,7 @@ async function buildWarmStartContext(input: {
               orchestratorContinuityMode,
               channelSurfaceSupplementalMessages: supplementalMessageCount,
               attachmentDirectoryContext,
+              activeTasks: activeTasksDiagnostics,
               contextPacket: packet,
             },
           }
@@ -5231,6 +5282,7 @@ async function buildWarmStartContext(input: {
               orchestratorContinuityMode,
               channelSurfaceSupplementalMessages: supplementalMessageCount,
               attachmentDirectoryContext,
+              activeTasks: activeTasksDiagnostics,
             },
           };
   } catch (error) {
@@ -7237,6 +7289,23 @@ async function handleMessage(
       console.log(
         `[tango-discord] v2 reply session=${promptRoute.sessionId} agent=${targetAgent.id} conversation=${v2Result.conversationKey} ms=${v2Result.response.durationMs} delivery=${replyDelivery.delivery} chunks=${replyDelivery.sentChunks}`,
       );
+
+      if (!runtimeError) {
+        scheduleActiveTaskPostTurn({
+          storage,
+          v2Config: v2AgentConfig,
+          resolveProvider: (name) => providers.get(name),
+          context: {
+            sessionId: promptRoute.sessionId,
+            agentId: targetAgent.id,
+            userMessage: prompt,
+            agentResponse: replyText,
+            toolsUsed,
+            requestMessageId: inboundMessageId,
+            responseMessageId: outboundMessageId,
+          },
+        });
+      }
 
       if (hasPendingSavePass && !runtimeError) {
         const cleared = storage.deletePendingSessionSave(conversationKey);
