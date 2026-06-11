@@ -51,6 +51,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
     env:
       ALLOWED_TOOL_IDS: "agent_docs"
+  - name: claude-sessions
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "claude-sessions"]
+    env:
+      ALLOWED_TOOL_IDS: "spawn_claude_session,list_claude_sessions"
   - name: latitude
     command: mcp-remote
     args: ["https://mcp.preview.aidungeon.com/oauth/mcp"]
