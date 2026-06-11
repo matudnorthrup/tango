@@ -73,8 +73,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Porter
-    - Brother Porter
+    - "Zulu Porter"
   kokoro_voice: am_liam
   default_channel_id: "100000000000000006"
   smoke_test_channel_id: "100000000000001006"
