@@ -1320,8 +1320,9 @@ export class VoicePipeline {
     // Command path: close/cancel only when wake-prefixed, mirroring start gate.
     if (hasWakeWord && this.isCancelIntent(stripped)) {
       this.clearIndicateCapture('cancel-intent');
-      await this.speakResponse('Cancelled.', { inbox: true });
+      await this.speakResponse('Cancelled.', { inbox: true, skipGateGrace: true });
       await this.player.playEarcon('cancelled');
+      this.resetConversationStateAfterCancel();
       return { action: 'cancel' };
     }
 
@@ -3368,7 +3369,8 @@ export class VoicePipeline {
       if (this.isCancelIntent(input)) {
         const effects = this.transitionAndResetWatchdog({ type: 'CANCEL_FLOW' });
         await this.applyEffects(effects);
-        await this.speakResponse('Cancelled.');
+        await this.speakResponse('Cancelled.', { skipGateGrace: true });
+        this.resetConversationStateAfterCancel();
         return;
       }
 
@@ -3409,7 +3411,8 @@ export class VoicePipeline {
       if (this.isCancelIntent(input)) {
         const effects = this.transitionAndResetWatchdog({ type: 'CANCEL_FLOW' });
         await this.applyEffects(effects);
-        await this.speakResponse('Cancelled.');
+        await this.speakResponse('Cancelled.', { skipGateGrace: true });
+        this.resetConversationStateAfterCancel();
         return;
       }
 
@@ -4314,7 +4317,12 @@ Use channel names (the part before the colon). Do not explain.`,
           ? `The last message is short. ${normalized}`
           : this.toSpokenText(lastMsg.content, 'Message available.')
       );
-    await this.speakResponse(raw, { inbox: true, allowSummary: true, isChannelMessage: true });
+    await this.speakResponse(raw, {
+      inbox: true,
+      allowSummary: true,
+      isChannelMessage: true,
+      speakerAgentId: this.router?.getActiveTangoRoute?.()?.agentId ?? null,
+    });
     await this.playReadyEarcon();
     // Start follow-up grace after the ready cue so long readbacks don't
     // consume the entire window before the user can respond.
@@ -4362,7 +4370,7 @@ Use channel names (the part before the colon). Do not explain.`,
     console.log('Silent wait enabled for active processing item');
   }
 
-  private deliverWaitResponse(responseText: string, speakerAgentId?: string | null): void {
+  private deliverWaitResponse(responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null): void {
     void (async () => {
       try {
         this.stopWaitingLoop();
@@ -4374,6 +4382,7 @@ Use channel names (the part before the colon). Do not explain.`,
             forceFull: false,
             isChannelMessage: true,
             speakerAgentId,
+            ...(replySessionKey ? { replySource: { sessionKey: replySessionKey } } : {}),
           });
           this.transitionAndResetWatchdog({ type: 'SPEAKING_COMPLETE' });
           await this.playReadyEarcon();
@@ -4382,7 +4391,7 @@ Use channel names (the part before the colon). Do not explain.`,
           // Pipeline got busy (often due to an overlapping command like "silent").
           // Retry delivery once we return to idle instead of dropping it.
           console.log('Wait response delivery deferred (pipeline busy)');
-          this.deferWaitResponse(responseText, speakerAgentId);
+          this.deferWaitResponse(responseText, speakerAgentId, replySessionKey);
         }
       } catch (err: any) {
         console.error(`Wait response delivery failed: ${err.message}`);
@@ -4396,9 +4405,10 @@ Use channel names (the part before the colon). Do not explain.`,
     })();
   }
 
-  private deferWaitResponse(responseText: string, speakerAgentId?: string | null): void {
+  private deferWaitResponse(responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null): void {
     this.ctx.deferredWaitResponseText = responseText;
     this.ctx.deferredWaitSpeakerAgentId = speakerAgentId ?? null;
+    this.ctx.deferredWaitReplySessionKey = replySessionKey ?? null;
     if (this.deferredWaitRetryTimer) return;
     this.deferredWaitRetryTimer = setInterval(() => {
       if (!this.ctx.deferredWaitResponseText) {
@@ -4410,10 +4420,12 @@ Use channel names (the part before the colon). Do not explain.`,
       }
       const text = this.ctx.deferredWaitResponseText;
       const deferredSpeakerAgentId = this.ctx.deferredWaitSpeakerAgentId;
+      const deferredReplySessionKey = this.ctx.deferredWaitReplySessionKey;
       this.ctx.deferredWaitResponseText = null;
       this.ctx.deferredWaitSpeakerAgentId = null;
+      this.ctx.deferredWaitReplySessionKey = null;
       this.clearDeferredWaitRetry();
-      this.deliverWaitResponse(text, deferredSpeakerAgentId);
+      this.deliverWaitResponse(text, deferredSpeakerAgentId, deferredReplySessionKey);
     }, 700);
   }
 
@@ -4424,6 +4436,7 @@ Use channel names (the part before the colon). Do not explain.`,
     }
     this.ctx.deferredWaitResponseText = null;
     this.ctx.deferredWaitSpeakerAgentId = null;
+    this.ctx.deferredWaitReplySessionKey = null;
   }
 
   private sawRecentSpeechStart(): boolean {
@@ -4545,6 +4558,17 @@ Use channel names (the part before the colon). Do not explain.`,
   private consumeFollowupPromptGrace(): void {
     this.ctx.followupPromptGraceUntil = 0;
     this.ctx.followupPromptChannelName = null;
+  }
+
+  // Cancel means start over: drop reply continuity and keep the gate closed
+  // now, instead of letting a leftover grace window expire into a delayed
+  // gate-closed cue seconds after the user already moved on.
+  private resetConversationStateAfterCancel(): void {
+    this.clearReplyContext();
+    this.consumeFollowupPromptGrace();
+    this.ctx.gateGraceUntil = 0;
+    this.ctx.promptGraceUntil = 0;
+    this.clearGraceTimer();
   }
 
   private scheduleGraceExpiry(): void {
@@ -4690,8 +4714,8 @@ Use channel names (the part before the colon). Do not explain.`,
       // Register wait callback — will be invoked when LLM finishes
       this.ctx.activeWaitQueueItemId = item.id;
       this.ctx.quietPendingWait = false;
-      this.ctx.pendingWaitCallback = (responseText: string, speakerAgentId?: string | null) => {
-        this.deliverWaitResponse(responseText, speakerAgentId);
+      this.ctx.pendingWaitCallback = (responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null) => {
+        this.deliverWaitResponse(responseText, speakerAgentId, replySessionKey);
       };
 
       this.dispatchToLLMFireAndForget(userId, transcript, item.id, {
@@ -4988,8 +5012,8 @@ Use channel names (the part before the colon). Do not explain.`,
           // Not ready yet — register callback and start waiting loop
           this.transitionAndResetWatchdog({ type: 'PROCESSING_STARTED' });
           this.ctx.activeWaitQueueItemId = specId;
-          this.ctx.pendingWaitCallback = (responseText: string, speakerAgentId?: string | null) => {
-            this.deliverWaitResponse(responseText, speakerAgentId);
+          this.ctx.pendingWaitCallback = (responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null) => {
+            this.deliverWaitResponse(responseText, speakerAgentId, replySessionKey);
           };
           await this.sleep(150);
           this.startWaitingLoop();
@@ -5461,7 +5485,7 @@ Use channel names (the part before the colon). Do not explain.`,
           // deliverWaitResponse refreshes this again after playback completes so the
           // effective window still begins at the normal ready handoff.
           this.allowFollowupPromptGrace(VoicePipeline.FOLLOWUP_PROMPT_GRACE_MS);
-          cb(safeResponse, responseSpeakerAgentId);
+          cb(safeResponse, responseSpeakerAgentId, sessionKey);
 
           // Advance Discord watermark so this response doesn't reappear in the inbox.
           // Small delay to let the Discord sync post the agent response first.
@@ -6664,6 +6688,13 @@ Use channel names (the part before the colon). Do not explain.`,
       isChannelMessage?: boolean;
       speakerAgentId?: string | null;
       spokenTextOverride?: string;
+      // Where the spoken message actually lives. Reply context must point at
+      // the message's source channel, not whatever channel happens to be
+      // active — cross-channel ready items are read without switching.
+      replySource?: { sessionKey: string | null; channelName?: string | null };
+      // Terminal responses (e.g. cancel) keep the gate closed instead of
+      // re-opening the 5s grace window after playback.
+      skipGateGrace?: boolean;
     },
   ): Promise<void> {
     const fullText = this.toSpokenText(text, '');
@@ -6681,6 +6712,7 @@ Use channel names (the part before the colon). Do not explain.`,
     if (options?.inbox) {
       this.logToInbox(`**${this.getSystemSpeakerLabel()}:** ${spokenText}`);
     }
+    let pendingReplyContext: { agentId: string; sessionKey: string | null; channelName: string | null } | null = null;
     if (!options?.isReplay) {
       this.ctx.lastSpokenText = spokenText;
       this.ctx.lastSpokenFullText = fullText;
@@ -6688,14 +6720,15 @@ Use channel names (the part before the colon). Do not explain.`,
       this.ctx.lastSpokenIsChannelMessage = !!options?.isChannelMessage;
       this.ctx.lastSpokenSpeakerAgentId = options?.speakerAgentId ?? null;
       if (options?.isChannelMessage && options?.speakerAgentId) {
-        const activeChannelName = this.router?.getActiveChannel().name ?? null;
-        const activeSessionKey = this.router?.getActiveSessionKey() ?? null;
-        this.setReplyContext(
-          options.speakerAgentId,
-          activeSessionKey,
-          activeChannelName,
-          VoicePipeline.REPLY_CONTEXT_DURATION_MS,
-        );
+        const sessionKey = options?.replySource
+          ? options.replySource.sessionKey
+          : this.router?.getActiveSessionKey() ?? null;
+        const channelName = options?.replySource
+          ? this.resolveChannelNameFromSessionKey(options.replySource.sessionKey)
+            ?? options.replySource.channelName
+            ?? null
+          : this.router?.getActiveChannel().name ?? null;
+        pendingReplyContext = { agentId: options.speakerAgentId, sessionKey, channelName };
       }
     }
     const wasSummarized = spokenText !== fullText;
@@ -6714,7 +6747,19 @@ Use channel names (the part before the colon). Do not explain.`,
     await this.player.playStream(ttsStream);
     this.ctx.lastPlaybackText = spokenText;
     this.ctx.lastPlaybackCompletedAt = Date.now();
-    this.setGateGrace(5_000);
+    // Set reply context after playback so the 45s reply window starts when
+    // the user has actually heard the message, not when TTS generation began.
+    if (pendingReplyContext) {
+      this.setReplyContext(
+        pendingReplyContext.agentId,
+        pendingReplyContext.sessionKey,
+        pendingReplyContext.channelName,
+        VoicePipeline.REPLY_CONTEXT_DURATION_MS,
+      );
+    }
+    if (!options?.skipGateGrace) {
+      this.setGateGrace(5_000);
+    }
   }
 
   private shouldSummarizeForVoice(text: string): boolean {
@@ -7215,16 +7260,8 @@ Use channel names (the part before the colon). Do not explain.`,
     if (!item) return;
 
     await this.readQueuedReadyItem(item, options);
-    if (item.speakerAgentId) {
-      const activeChannelName = this.router?.getActiveChannel().name ?? null;
-      const activeSessionKey = this.router?.getActiveSessionKey() ?? null;
-      this.setReplyContext(
-        item.speakerAgentId,
-        activeSessionKey,
-        activeChannelName,
-        VoicePipeline.REPLY_CONTEXT_DURATION_MS,
-      );
-    }
+    // Reply context is set by speakResponse inside readQueuedReadyItem,
+    // pointed at the item's source channel.
   }
 
   private findLocalReadyItem(agent?: string): QueuedResponse | null {
@@ -7271,6 +7308,7 @@ Use channel names (the part before the colon). Do not explain.`,
         forceFull: false,
         isChannelMessage: true,
         speakerAgentId: item.speakerAgentId,
+        replySource: { sessionKey: item.sessionKey, channelName: item.channel },
       });
       this.transitionAndResetWatchdog({ type: 'SPEAKING_COMPLETE' });
       await this.playReadyEarcon();
