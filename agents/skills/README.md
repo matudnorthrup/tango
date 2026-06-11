@@ -27,6 +27,7 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `receipt-logging.md` | `receipt_logging` | Foxtrot / finance | General-purpose Obsidian receipt file creation |
 | `sinking-fund-reconciliation.md` | `sinking_fund_reconciliation` | Foxtrot / finance | Lunch Money and Obsidian workflow for SB-backed expense reconciliation |
 | `recipe-format.md` | `recipe_format` | Malibu / recipes | Recipe markdown structure and write rules |
+| `remote-claude-sessions.md` | `remote_claude_sessions` | Watson / dev sessions | Spawn phone-controllable Claude Code sessions (confirmation rail, verbatim prompts) |
 | `transaction-categorization.md` | `transaction_categorization` | Foxtrot / finance | Lunch Money categorization, rules, splits |
 | `travel-routing.md` | `travel_routing` | Sierra / travel | Current-location, route-comparison, and diesel-stop heuristics |
 | `walmart-orders.md` | `walmart_orders` | Sierra / shopping | Browser navigation for Walmart order lookup |
