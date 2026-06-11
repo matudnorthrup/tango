@@ -1,6 +1,6 @@
 # Travel Tools
 
-Shared doc for `location_read`, `osrm_route`, and `find_diesel`.
+Shared doc for `location_read`, `driving_route`, and `find_diesel`.
 
 ## `location_read`
 
@@ -24,7 +24,7 @@ Typical output fields:
 
 `ageSec` is seconds since the last GPS update.
 
-## `osrm_route`
+## `driving_route`
 
 Computes real driving routes: distance, traffic-aware ETA, the major roads the
 route follows (`via`), and the towns it passes through (`passesThrough`).
@@ -88,7 +88,7 @@ Typical output fields:
 
 Notes:
 - Coordinates are resolved by the tool; agent input should use normal `lat,lon` or place names.
-- Do not claim a route, ETA, detour, or "on the way" conclusion unless `osrm_route` output supports it.
+- Do not claim a route, ETA, detour, or "on the way" conclusion unless `driving_route` output supports it.
 - Only name towns/stops/landmarks as "on the route" if they appear in `via`/`passesThrough` or in `find_diesel` output. For any other place, run a route comparison (direct vs via-that-place) and report the added time.
 - `durationHours` already includes traffic — never add a traffic multiplier on top. Add time only for planned stops.
 - If current location matters, call `location_read` first or use `origin: "current location"` and report stale-location warnings.

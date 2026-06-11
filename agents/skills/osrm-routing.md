@@ -2,7 +2,7 @@
 
 OSRM (Open Source Routing Machine) — free driving distance and duration API. No API key required.
 
-Tango agents should normally call the `osrm_route` MCP tool instead of hand-building
+Tango agents should normally call the `driving_route` MCP tool instead of hand-building
 OSRM URLs — the tool routes through HERE Router v8 (traffic-aware ETAs, `via` roads,
 `passesThrough` towns) and only falls back to OSRM itself. Use the direct API format
 below only when that tool is unavailable.
@@ -45,8 +45,8 @@ Returns total distance/duration for the full route through all waypoints in orde
 
 ## Usage rules
 
-- Always use a router (the `osrm_route` tool, or raw OSRM as last resort) when reporting distances or ETAs — no exceptions.
+- Always use a router (the `driving_route` tool, or raw OSRM as last resort) when reporting distances or ETAs — no exceptions.
 - When comparing route options, run each through the router separately.
 - Pair with `location_read` for current-position routing.
 - For fuel range calculations, use routed distance (not estimates) against tank capacity.
-- Raw OSRM gives no route geometry context — do not name towns or stops as "on the route" from memory; use the `osrm_route` tool's `passesThrough`/`via` output for that.
+- Raw OSRM gives no route geometry context — do not name towns or stops as "on the route" from memory; use the `driving_route` tool's `passesThrough`/`via` output for that.
