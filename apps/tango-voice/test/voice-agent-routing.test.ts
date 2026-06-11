@@ -487,8 +487,8 @@ describe('VoicePipeline agent routing', () => {
 
     expect((pipeline as any).resolvePromptDispatchContext('default', 'Watson, add that to my list')).toEqual({
       dispatchTranscript: 'add that to my list',
-      targetAgentId: 'watson',
-      targetAgentDisplayName: 'Watson',
+      targetAgentId: 'watson-ollama',
+      targetAgentDisplayName: 'Watson (Ollama)',
       targetSessionId: 'tango-default',
       topicId: null,
       topicTitle: null,
@@ -498,8 +498,8 @@ describe('VoicePipeline agent routing', () => {
 
     expect((pipeline as any).resolvePromptDispatchContext('default', 'Tango, add that to my list')).toEqual({
       dispatchTranscript: 'add that to my list',
-      targetAgentId: 'watson',
-      targetAgentDisplayName: 'Watson',
+      targetAgentId: 'watson-ollama',
+      targetAgentDisplayName: 'Watson (Ollama)',
       targetSessionId: 'tango-default',
       topicId: null,
       topicTitle: null,
@@ -525,7 +525,7 @@ describe('VoicePipeline agent routing', () => {
     const resolved = (pipeline as any).downgradeWeakAddress(explicitAddress, 'hello, malibu');
 
     expect(resolved?.kind).toBe('agent');
-    expect(resolved?.agent.id).toBe('malibu');
+    expect(resolved?.agent.id).toBe('malibu-ollama');
 
     pipeline.stop();
   });
@@ -555,7 +555,7 @@ describe('VoicePipeline agent routing', () => {
       getActiveChannel: vi.fn(() => ({ name: 'malibu-thread', channelId: 'thread-1' })),
       getTangoRouteFor: vi.fn(() => ({
         sessionId: 'malibu-thread-session',
-        agentId: 'malibu',
+        agentId: 'malibu-ollama',
         source: 'tango-config',
         channelKey: 'discord:malibu-thread',
       })),
@@ -608,7 +608,7 @@ describe('VoicePipeline agent routing', () => {
     } as any);
 
     (pipeline as any).ctx.lastSpokenIsChannelMessage = true;
-    (pipeline as any).ctx.lastSpokenSpeakerAgentId = 'sierra';
+    (pipeline as any).ctx.lastSpokenSpeakerAgentId = 'sierra-ollama';
     (pipeline as any).ctx.followupPromptGraceUntil = Date.now() + 10_000;
     (pipeline as any).ctx.followupPromptChannelName = 'sierra-thread';
 
@@ -702,11 +702,11 @@ describe('VoicePipeline agent routing', () => {
 
     expect(requestTangoVoiceTurn).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 'tango-default',
-      agentId: 'watson',
+      agentId: 'watson-ollama',
       transcript: 'add that to my list',
       utteranceId: 'qid-agent-1',
     }));
-    expect(queueState.markReady).toHaveBeenCalledWith('qid-agent-1', 'Added.', 'Added.', 'watson');
+    expect(queueState.markReady).toHaveBeenCalledWith('qid-agent-1', 'Added.', 'Added.', 'watson-ollama');
     expect(responsePoller.check).toHaveBeenCalled();
 
     pipeline.stop();
@@ -783,8 +783,8 @@ describe('VoicePipeline agent routing', () => {
 
     expect((pipeline as any).resolvePromptDispatchContext('default', 'keep going')).toEqual({
       dispatchTranscript: 'keep going',
-      targetAgentId: 'watson',
-      targetAgentDisplayName: 'Watson',
+      targetAgentId: 'watson-ollama',
+      targetAgentDisplayName: 'Watson (Ollama)',
       targetSessionId: 'topic:topic-auth-redesign',
       topicId: 'topic-auth-redesign',
       topicTitle: 'auth redesign',
@@ -851,7 +851,7 @@ describe('VoicePipeline agent routing', () => {
 
     expect(requestTangoVoiceTurn).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 'topic:topic-auth-redesign',
-      agentId: 'watson',
+      agentId: 'watson-ollama',
       transcript: 'draft acceptance criteria',
       utteranceId: 'qid-topic-1',
     }));

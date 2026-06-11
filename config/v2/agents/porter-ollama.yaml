@@ -109,10 +109,13 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — distinct "Bravo <Name>" wake word so it never
-# collides with the original porter's wake word (start-anchored matcher).
+# Voice addressing — Ollama clones are the primary voice targets: the bare
+# name and nicknames (and hey/hello greetings, which the matcher treats as
+# optional prefixes) route here; "Zulu Porter" is the original's fallback.
 voice:
   call_signs:
     - "Bravo Porter"
+    - Porter
+    - Brother Porter
   kokoro_voice: am_liam
   default_channel_id: "1513207696331898981"
