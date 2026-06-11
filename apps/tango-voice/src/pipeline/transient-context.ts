@@ -52,6 +52,10 @@ export interface TransientContext {
   indicateCaptureStartedAt: number;
   indicateCaptureLastSegmentAt: number;
   indicateCaptureAddressedAgentId: string | null;
+  /** 'wake' = capture opened by an addressed wake word; 'grace' = opened by
+   * wake-less speech inside a post-response grace window. Grace captures
+   * expire on timeout instead of nudging forever (TGO-751). */
+  indicateCaptureOrigin: 'wake' | 'grace' | null;
   focusedAgentId: string | null;
   focusedAgentName: string | null;
 
@@ -99,6 +103,7 @@ export function createTransientContext(): TransientContext {
     indicateCaptureStartedAt: 0,
     indicateCaptureLastSegmentAt: 0,
     indicateCaptureAddressedAgentId: null,
+    indicateCaptureOrigin: null,
     focusedAgentId: null,
     focusedAgentName: null,
     paused: false,
@@ -144,6 +149,7 @@ export function resetTransientContext(ctx: TransientContext): void {
   ctx.indicateCaptureStartedAt = 0;
   ctx.indicateCaptureLastSegmentAt = 0;
   ctx.indicateCaptureAddressedAgentId = null;
+  ctx.indicateCaptureOrigin = null;
   ctx.focusedAgentId = null;
   ctx.focusedAgentName = null;
   ctx.paused = false;
