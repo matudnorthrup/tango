@@ -57,6 +57,32 @@ describe("buildCurrentTurnMetadataPrompt", () => {
     })).toBe("America/Los_Angeles");
   });
 
+  it("includes discord channel and thread ids when provided", () => {
+    const channelOnly = buildCurrentTurnMetadataPrompt({
+      timestamp: "2026-05-31T04:08:18.000Z",
+      timestampSource: "discord-sent",
+      config: { timeZone: "UTC" },
+      discord: { channelId: "100000000000000003" },
+    });
+    const channelAndThread = buildCurrentTurnMetadataPrompt({
+      timestamp: "2026-05-31T04:08:18.000Z",
+      timestampSource: "discord-sent",
+      config: { timeZone: "UTC" },
+      discord: { channelId: "100000000000000003", threadId: "200000000000000007" },
+    });
+    const noDiscord = buildCurrentTurnMetadataPrompt({
+      timestamp: "2026-05-31T04:08:18.000Z",
+      timestampSource: "discord-sent",
+      config: { timeZone: "UTC" },
+    });
+
+    expect(channelOnly).toContain("- discord_channel_id: 100000000000000003");
+    expect(channelOnly).not.toContain("discord_thread_id");
+    expect(channelAndThread).toContain("- discord_channel_id: 100000000000000003");
+    expect(channelAndThread).toContain("- discord_thread_id: 200000000000000007");
+    expect(noDiscord).not.toContain("discord_channel_id");
+  });
+
   it("uses a bounded runtime timestamp when the inbound timestamp is missing or invalid", () => {
     const prompt = buildCurrentTurnMetadataPrompt({
       timestamp: "not-a-date",

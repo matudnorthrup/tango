@@ -3746,6 +3746,10 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     timestamp: turnInput.messageTimestamp,
     timestampSource: turnInput.messageTimestampSource,
     config: v2AgentConfig.currentTurnMetadata,
+    discord: {
+      channelId: voiceRouterChannelId,
+      ...(voiceRouterThreadId ? { threadId: voiceRouterThreadId } : {}),
+    },
   });
   const voiceConversationKey = conversationKeyFor(voiceRouterChannelId, voiceRouterThreadId);
   const voiceStateFilePointer = buildStateFilePointer(storage, voiceConversationKey, {
@@ -5984,6 +5988,9 @@ async function handleReplayCommand(interaction: ChatInputCommandInteraction): Pr
   const deadLetterV2Config = v2Configs.get(deadLetter.agentId);
   const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt({
     config: deadLetterV2Config?.currentTurnMetadata,
+    ...(deadLetter.discordChannelId
+      ? { discord: { channelId: deadLetter.discordChannelId } }
+      : {}),
   });
 
   let selectedProviderName = providerChain[0]?.providerName ?? deadLetter.providerName;
@@ -7072,6 +7079,10 @@ async function handleMessage(
         timestamp: message.createdAt,
         timestampSource: "discord-sent",
         config: v2AgentConfig?.currentTurnMetadata,
+        discord: {
+          channelId: routingChannelId,
+          ...(threadId ? { threadId } : {}),
+        },
       });
       // Per-turn briefing ("whisper") survives provider-session resume. It emits
       // the project state-file pointer when this conversation is bound to a

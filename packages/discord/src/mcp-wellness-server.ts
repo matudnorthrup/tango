@@ -40,6 +40,7 @@ import { createGospelLibraryTools, gospelLibraryActionLooksMutating } from "./go
 import { createTangoTools } from "./tango-agent-tools.js";
 import { createDevTools } from "./tango-dev-tools.js";
 import { createDiscordManageTools } from "./discord-manage-tools.js";
+import { createDiscordSendImageTools } from "./discord-send-image-tools.js";
 import { createOnePasswordTools } from "./onepassword-agent-tools.js";
 import { createMemoryTools } from "./memory-agent-tools.js";
 import { createAttachmentTools } from "./attachment-agent-tools.js";
@@ -109,6 +110,7 @@ const allTools: AgentTool[] = [
   ...createTangoTools(),
   ...createDevTools(),
   ...createDiscordManageTools({ storage: threadSessionStorage }),
+  ...createDiscordSendImageTools(),
   ...createOnePasswordTools(),
   ...createMemoryTools(),
   ...createAttachmentTools(),
@@ -313,6 +315,7 @@ function inferRequestedAccessLevel(
       return isReadOnlySql(args.sql) ? "read" : "write";
     case "recipe_write":
     case "discord_manage":
+    case "discord_send_image":
       return "write";
     case "tango_file": {
       const operation = typeof args.operation === "string" ? args.operation.trim().toLowerCase() : "";
