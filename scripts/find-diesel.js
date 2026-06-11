@@ -29,6 +29,9 @@
  *
  * Data sources: HERE Fuel Prices (primary when HERE_API_KEY is set), with
  * automatic GasBuddy fallback when the primary returns no priced stations.
+ * Route mode corridor + drive time come from HERE Router v8 (traffic-aware)
+ * when HERE_API_KEY is set, falling back to the public OSRM server (whose
+ * ETAs run 20-50% high on rural highways).
  *
  * Dependencies: @mapbox/polyline, geolib (native fetch, Node 18+)
  */
@@ -280,7 +283,67 @@ function mapsLink(lat, lon) {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
 }
 
+// HERE encodes route shapes with Flexible Polyline, not Google polyline.
+// Decoder ported from HERE's reference implementation (MIT).
+function decodeFlexPolyline(encoded) {
+  const TABLE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const charValues = new Map();
+  for (let i = 0; i < TABLE.length; i++) charValues.set(TABLE.charCodeAt(i), i);
+  let index = 0;
+  const nextUnsigned = () => {
+    let result = 0;
+    let shift = 0;
+    for (;;) {
+      const value = charValues.get(encoded.charCodeAt(index++));
+      if (value === undefined) throw new Error('invalid flexible polyline');
+      result += (value & 0x1f) * 2 ** shift;
+      shift += 5;
+      if ((value & 0x20) === 0) return result;
+    }
+  };
+  const nextSigned = () => {
+    const value = nextUnsigned();
+    return value % 2 === 1 ? -(value + 1) / 2 : value / 2;
+  };
+  const version = nextUnsigned();
+  if (version !== 1) throw new Error(`unsupported flexible polyline version ${version}`);
+  const header = nextUnsigned();
+  const factor = 10 ** (header & 15);
+  const thirdDim = (header >> 4) & 7;
+  const coords = [];
+  let lat = 0;
+  let lon = 0;
+  while (index < encoded.length) {
+    lat += nextSigned();
+    lon += nextSigned();
+    if (thirdDim) nextSigned();
+    coords.push([lat / factor, lon / factor]);
+  }
+  return coords;
+}
+
 async function getRoute(from, to) {
+  // HERE Router v8 first: traffic-aware duration (OSRM demo ETAs run 20-50%
+  // high on rural highways) and radius= snapping for off-road destinations.
+  const apiKey = getApiKey();
+  if (apiKey) {
+    try {
+      const url = `https://router.hereapi.com/v8/routes?transportMode=car&routingMode=fast&origin=${from.lat},${from.lon};radius=10000&destination=${to.lat},${to.lon};radius=10000&return=summary,polyline&apiKey=${apiKey}`;
+      const res = await fetchWithRetry(url);
+      const data = await res.json();
+      const sections = data.routes?.[0]?.sections;
+      if (sections?.length) {
+        const coords = sections.flatMap(s => (s.polyline ? decodeFlexPolyline(s.polyline) : []));
+        const distanceM = sections.reduce((sum, s) => sum + (s.summary?.length || 0), 0);
+        const durationS = sections.reduce((sum, s) => sum + (s.summary?.duration || 0), 0);
+        if (coords.length && distanceM > 0) {
+          return { coords, distanceM, durationS, router: 'here' };
+        }
+      }
+    } catch (err) {
+      console.error(`⚠️  HERE routing failed (${err.message}); falling back to OSRM`);
+    }
+  }
   const url = `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=polyline`;
   const res = await fetchWithRetry(url);
   const data = await res.json();
@@ -289,7 +352,7 @@ async function getRoute(from, to) {
   }
   const route = data.routes[0];
   const coords = polyline.decode(route.geometry);
-  return { coords, distanceM: route.distance, durationS: route.duration };
+  return { coords, distanceM: route.distance, durationS: route.duration, router: 'osrm' };
 }
 
 function sampleWaypoints(routeCoords, intervalMiles) {
@@ -700,7 +763,7 @@ async function main() {
     .slice(0, topN);
 
   const output = {
-    route: { from: { lat: pos.lat, lon: pos.lon }, to: { lat: dest.lat, lon: dest.lon, label: dest.label }, miles: parseFloat(routeMiles), hours: parseFloat(routeHours) },
+    route: { from: { lat: pos.lat, lon: pos.lon }, to: { lat: dest.lat, lon: dest.lon, label: dest.label }, miles: parseFloat(routeMiles), hours: parseFloat(routeHours), router: route.router },
     source,
     sourcesTried: tried,
     stations: scored,

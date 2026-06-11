@@ -55,42 +55,117 @@ describe("travel tools", () => {
     vi.restoreAllMocks();
   });
 
-  it("routes coordinate inputs through OSRM with lon-lat order", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({
-        code: "Ok",
-        routes: [{ distance: 160934, duration: 7200 }],
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    const tools = createTravelTools();
-    const osrmRoute = tools.find((tool) => tool.name === "osrm_route");
-    expect(osrmRoute).toBeDefined();
+  it("routes through HERE Router v8 with traffic-aware ETA, via roads, and passes-through towns", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    process.env.HERE_API_KEY = "test-here-key";
+    try {
+      // Reference flexible polyline from HERE docs: 4 points near 50.102,8.698.
+      const FLEX_POLYLINE = "BFoz5xJ67i1B1B7PzIhaxL7Y";
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = String(input);
+        const host = new URL(url).hostname;
+        if (host === "router.hereapi.com") {
+          return new Response(JSON.stringify({
+            routes: [{
+              sections: [{
+                summary: { length: 160934, duration: 7200, baseDuration: 6800 },
+                polyline: FLEX_POLYLINE,
+                spans: [{ routeNumbers: [{ value: "A5" }], length: 160934 }],
+              }],
+            }],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (host === "revgeocode.search.hereapi.com") {
+          return new Response(JSON.stringify({
+            items: [{ address: { city: "Frankfurt am Main", stateCode: "HE" } }],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
 
-    const result = await osrmRoute!.handler({
-      origin: "44.311,-124.104",
-      destination: "37.563,-122.325",
-    });
+      const tools = createTravelTools();
+      const osrmRoute = tools.find((tool) => tool.name === "osrm_route");
+      expect(osrmRoute).toBeDefined();
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
-      "https://router.project-osrm.org/route/v1/driving/-124.104,44.311;-122.325,37.563?overview=false",
-    );
-    expect(result).toMatchObject({
-      routes: [{
-        distanceMiles: 100,
-        durationHours: 2,
-        durationText: "2h 0m",
-      }],
-      fastest: {
-        label: "route 1",
-        distanceMiles: 100,
-        durationHours: 2,
-        durationText: "2h 0m",
-      },
-    });
+      const result = await osrmRoute!.handler({
+        origin: "44.311,-124.104",
+        destination: "37.563,-122.325",
+      });
+
+      const routerUrl = fetchSpy.mock.calls.map((call) => String(call[0]))
+        .find((url) => new URL(url).hostname === "router.hereapi.com");
+      expect(routerUrl).toContain("origin=44.311,-124.104;radius=10000");
+      expect(routerUrl).toContain("destination=37.563,-122.325;radius=10000");
+      expect(routerUrl).toContain("spans=routeNumbers,length");
+      expect(result).toMatchObject({
+        routes: [{
+          source: "here",
+          distanceMiles: 100,
+          durationHours: 2,
+          durationText: "2h 0m",
+          baseDurationHours: 1.89,
+          via: [{ road: "A5", miles: 100 }],
+          passesThrough: ["Frankfurt am Main, HE"],
+        }],
+        fastest: {
+          label: "route 1",
+          distanceMiles: 100,
+          durationHours: 2,
+          durationText: "2h 0m",
+        },
+      });
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
+  });
+
+  it("falls back to OSRM with an overestimate warning when no HERE key is configured", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    delete process.env.HERE_API_KEY;
+    try {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({
+          code: "Ok",
+          routes: [{ distance: 160934, duration: 7200 }],
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const tools = createTravelTools();
+      const osrmRoute = tools.find((tool) => tool.name === "osrm_route");
+      expect(osrmRoute).toBeDefined();
+
+      const result = await osrmRoute!.handler({
+        origin: "44.311,-124.104",
+        destination: "37.563,-122.325",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
+        "https://router.project-osrm.org/route/v1/driving/-124.104,44.311;-122.325,37.563?overview=false",
+      );
+      expect(result).toMatchObject({
+        routes: [{
+          source: "osrm",
+          distanceMiles: 100,
+          durationHours: 2,
+          durationText: "2h 0m",
+        }],
+        fastest: {
+          label: "route 1",
+          distanceMiles: 100,
+          durationHours: 2,
+          durationText: "2h 0m",
+        },
+      });
+      const route = (result as { routes: Array<{ warning?: string }> }).routes[0];
+      expect(route?.warning).toContain("OSRM fallback");
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
   });
 
   it("falls back to HERE Discover when Nominatim cannot geocode a POI", async () => {
@@ -118,10 +193,23 @@ describe("travel tools", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (host === "router.project-osrm.org") {
+        if (host === "router.hereapi.com") {
           return new Response(JSON.stringify({
-            code: "Ok",
-            routes: [{ distance: 160934, duration: 7200 }],
+            routes: [{
+              sections: [{
+                summary: { length: 160934, duration: 7200, baseDuration: 7000 },
+                polyline: "BFoz5xJ67i1B1B7PzIhaxL7Y",
+                spans: [],
+              }],
+            }],
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (host === "revgeocode.search.hereapi.com") {
+          return new Response(JSON.stringify({
+            items: [{ address: { city: "Central Point", stateCode: "OR" } }],
           }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
