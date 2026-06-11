@@ -107,7 +107,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Sierra
+    - "Zulu Sierra"
   kokoro_voice: af_heart
   default_channel_id: "100000000000000003"
   smoke_test_channel_id: "1488248024076648599"

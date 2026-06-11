@@ -57,7 +57,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Charlie
+    - "Zulu Charlie"
   kokoro_voice: af_aoede
   default_channel_id: "100000000000000008"
   smoke_test_channel_id: "100000000000001008"

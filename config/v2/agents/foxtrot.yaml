@@ -83,7 +83,7 @@ memory:
 
 voice:
   call_signs:
-    - Foxtrot
+    - "Zulu Foxtrot"
   kokoro_voice: am_echo
   default_channel_id: "100000000000000005"
   smoke_test_channel_id: "100000000000001005"

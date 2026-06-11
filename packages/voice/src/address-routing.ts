@@ -326,8 +326,10 @@ export class VoiceTargetDirectory {
       }
     }
 
-    const watson = this.getAgent("watson");
-    if (watson && !this.isSystemAgent(watson.id)) return watson;
+    for (const fallbackId of ["watson-ollama", "watson"]) {
+      const fallback = this.getAgent(fallbackId);
+      if (fallback && !this.isSystemAgent(fallback.id)) return fallback;
+    }
 
     return (
       this.agents.find((agent) => !this.isSystemAgent(agent.id)) ??

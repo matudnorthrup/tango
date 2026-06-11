@@ -52,7 +52,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Victor
+    - "Zulu Victor"
   kokoro_voice: am_liam
   default_channel_id: "100000000000000004"
   smoke_test_channel_id: "100000000000001004"
