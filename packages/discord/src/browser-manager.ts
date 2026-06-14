@@ -46,6 +46,7 @@ const debug = (...args: unknown[]) => {
 
 const CDP_CONNECT_TIMEOUT_MS = 15_000;
 const PAGE_READY_TIMEOUT_MS = 10_000;
+const STALE_CDP_SHUTDOWN_TIMEOUT_MS = 5_000;
 const RAMP_DRAFT_FIELD_TIMEOUT_MS = 120_000;
 const RAMP_DRAFT_FIELD_ACTION_TIMEOUT_MS = 60_000;
 const RAMP_GOOGLE_LOGIN_TIMEOUT_MS = 60_000;
@@ -296,6 +297,77 @@ async function isCdpPortOpen(port: number): Promise<boolean> {
   }
 }
 
+export function parseCdpListenerPids(
+  output: string,
+  currentPid = process.pid,
+): number[] {
+  const seen = new Set<number>();
+  for (const token of output.trim().split(/\s+/u)) {
+    const pid = Number(token);
+    if (Number.isInteger(pid) && pid > 0 && pid !== currentPid) {
+      seen.add(pid);
+    }
+  }
+  return [...seen];
+}
+
+function findCdpListenerPids(port: number): number[] {
+  if (!Number.isInteger(port) || port <= 0) {
+    return [];
+  }
+
+  try {
+    const output = execSync(`lsof -tiTCP:${port} -sTCP:LISTEN`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return parseCdpListenerPids(output);
+  } catch {
+    return [];
+  }
+}
+
+async function waitForCdpPortClosed(port: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    if (!(await isCdpPortOpen(port))) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  } while (Date.now() < deadline);
+  return !(await isCdpPortOpen(port));
+}
+
+async function recycleStaleCdpBrowser(port: number): Promise<number[]> {
+  const pids = findCdpListenerPids(port);
+  if (pids.length === 0) {
+    return [];
+  }
+
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (await waitForCdpPortClosed(port, STALE_CDP_SHUTDOWN_TIMEOUT_MS)) {
+    return pids;
+  }
+
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  await waitForCdpPortClosed(port, STALE_CDP_SHUTDOWN_TIMEOUT_MS);
+  return pids;
+}
+
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -322,7 +394,19 @@ export class BrowserManager {
     // Already listening? Just connect.
     if (await isCdpPortOpen(port)) {
       debug(`CDP port ${port} already open, connecting`);
-      return this.connect(`http://127.0.0.1:${port}`);
+      try {
+        return await this.connect(`http://127.0.0.1:${port}`);
+      } catch (err) {
+        debug(
+          `CDP port ${port} was open but Playwright could not attach; recycling stale browser`,
+          err,
+        );
+        const recycledPids = await recycleStaleCdpBrowser(port);
+        if (recycledPids.length === 0 || await isCdpPortOpen(port)) {
+          throw err;
+        }
+        debug(`Recycled stale browser pid(s): ${recycledPids.join(", ")}`);
+      }
     }
 
     const browserPath = findBrowserPath();
