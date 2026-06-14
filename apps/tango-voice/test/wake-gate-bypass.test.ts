@@ -206,6 +206,53 @@ describe('TGO-751: wake-word gate bypass regressions', () => {
     expect(ctx.indicateCaptureActive).toBe(false);
   });
 
+  it('wake-less farewell hallucination inside grace is ignored instead of dispatched', async () => {
+    const pipeline = makePipeline();
+    const ctx = (pipeline as any).ctx;
+
+    ctx.gateGraceUntil = Date.now() + 5_000;
+    await simulateUtterance(pipeline, 'user1', 'you, bye!');
+
+    expect(getResponseMock).not.toHaveBeenCalled();
+    expect(ctx.indicateCaptureActive).toBe(false);
+  });
+
+  it('wake-less truncated gratitude hallucination inside grace is ignored instead of dispatched', async () => {
+    const pipeline = makePipeline();
+    const ctx = (pipeline as any).ctx;
+
+    ctx.gateGraceUntil = Date.now() + 5_000;
+    await simulateUtterance(pipeline, 'user1', 'Thank you. you but');
+
+    expect(getResponseMock).not.toHaveBeenCalled();
+    expect(ctx.indicateCaptureActive).toBe(false);
+  });
+
+  it('wake-less farewell hallucination inside indicate grace does not seed capture', async () => {
+    voiceSettings.endpointingMode = 'indicate';
+    const pipeline = makePipeline();
+    const ctx = (pipeline as any).ctx;
+
+    ctx.gateGraceUntil = Date.now() + 5_000;
+    await simulateUtterance(pipeline, 'user1', 'you, bye!');
+
+    expect(getResponseMock).not.toHaveBeenCalled();
+    expect(ctx.indicateCaptureActive).toBe(false);
+  });
+
+  it('single-token hallucination inside indicate grace does not hold the gate open', async () => {
+    voiceSettings.endpointingMode = 'indicate';
+    const pipeline = makePipeline();
+    const ctx = (pipeline as any).ctx;
+
+    ctx.gateGraceUntil = Date.now() + 5_000;
+    await simulateUtterance(pipeline, 'user1', 'you');
+
+    expect(getResponseMock).not.toHaveBeenCalled();
+    expect(ctx.indicateCaptureActive).toBe(false);
+    expect(ctx.indicateCaptureSegments).toEqual([]);
+  });
+
   it('grace-seeded indicate capture gets one nudge, then expires with the gate-closed cue', async () => {
     voiceSettings.endpointingMode = 'indicate';
     const pipeline = makePipeline();

@@ -711,6 +711,62 @@ export class VoicePipeline {
     return !/[a-z]/i.test(text);
   }
 
+  private isLikelyGraceFarewellArtifact(transcript: string): boolean {
+    const normalized = this.normalizeClosePhrase(transcript);
+    if (!normalized) return false;
+
+    const words = normalized.split(/\s+/).filter(Boolean);
+    if (words.length === 0 || words.length > 6) return false;
+
+    const text = words.join(' ');
+    if (/^(?:you\s+)?(?:bye|bye bye|goodbye|good bye|farewell)$/.test(text)) return true;
+    if (/^(?:thanks|thank you)(?:\s+(?:you|bye|goodbye|good bye))?$/.test(text)) return true;
+    if (/^(?:see|talk to)\s+(?:you|ya)(?:\s+(?:later|soon|next time))?(?:\s+bye)?$/.test(text)) return true;
+    if (/^good night(?:\s+bye)?$/.test(text)) return true;
+
+    const allowedArtifactWords = new Set([
+      'all',
+      'alright',
+      'bye',
+      'but',
+      'and',
+      'farewell',
+      'good',
+      'goodbye',
+      'later',
+      'next',
+      'night',
+      'ok',
+      'okay',
+      'right',
+      'see',
+      'soon',
+      'so',
+      'talk',
+      'thanks',
+      'thank',
+      'time',
+      'to',
+      'uh',
+      'um',
+      'ya',
+      'yeah',
+      'yep',
+      'you',
+    ]);
+    const hasFarewellMarker = words.some((word) => (
+      word === 'bye' ||
+      word === 'goodbye' ||
+      word === 'farewell'
+    ));
+    const hasGratitudeMarker = words.includes('thanks') || (
+      words.includes('thank') && words.includes('you')
+    );
+
+    return (hasFarewellMarker || hasGratitudeMarker)
+      && words.every((word) => allowedArtifactWords.has(word));
+  }
+
   private normalizeForEcho(text: string): string {
     return text
       .toLowerCase()
@@ -2447,6 +2503,34 @@ export class VoicePipeline {
         return;
       }
 
+      const graceOpenedAtCapture =
+        graceFromGateAtCapture ||
+        graceFromPromptAtCapture ||
+        (!isBufferedReplay && (
+          Date.now() < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS) ||
+          Date.now() < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+        ));
+      if (
+        gatedMode
+        && graceOpenedAtCapture
+        && !this.ctx.indicateCaptureActive
+        && !this.stateMachine.isAwaitingState()
+        && this.stateMachine.getStateType() !== 'INBOX_FLOW'
+        && !this.matchesAnyWakeWord(transcript)
+        && this.isLikelyGraceFarewellArtifact(transcript)
+      ) {
+        console.log(`Grace farewell artifact suppressed: "${transcript}"`);
+        if (!this.ctx.pendingWaitCallback) {
+          this.stopWaitingLoop();
+        }
+        if (gatedSpeakingProbe) {
+          keepCurrentState = true;
+        } else {
+          this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
+        }
+        return;
+      }
+
       this.transitionAndResetWatchdog({ type: 'TRANSCRIPT_READY', transcript });
 
       // Step 1.5: Check for awaiting responses (bypass LLM)
@@ -2720,6 +2804,12 @@ export class VoicePipeline {
             await this.handleVoiceCommand(resolvedSeedCommand, userId);
             const totalMs = Date.now() - pipelineStart;
             console.log(`Voice command complete: ${totalMs}ms total`);
+            return;
+          }
+
+          if (shouldStartFromGrace && seed && this.isLikelyAccidentalIndicateSeed(seed)) {
+            console.log(`Indicate start suppressed — likely accidental grace seed: "${seed}"`);
+            this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
             return;
           }
 
