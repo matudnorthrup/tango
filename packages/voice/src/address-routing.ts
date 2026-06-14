@@ -21,6 +21,44 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Regex fragment matching a wake name while tolerating the punctuation
+ * Whisper inserts between the words of a multi-word call sign
+ * ("Bravo Malibu" is often transcribed as "bravo, malibu").
+ */
+export function wakeNamePattern(wakeName: string): string {
+  return wakeName
+    .trim()
+    .split(/\s+/)
+    .map(escapeRegex)
+    .join("[,.]?\\s+");
+}
+
+/**
+ * True when a resolved address is clearly intentional: a multi-word call
+ * sign ("Bravo Malibu"), a greeting prefix ("hey malibu ..."), a comma or
+ * colon right after the name ("Malibu, check this"), or the utterance
+ * ending at the name (a bare wake like "malibu."). Subject references
+ * ("Malibu says hi") stay false so channel context can claim them.
+ */
+export function isStrongAddressMatch(matchedName: string, transcript: string): boolean {
+  const trimmed = transcript.trim();
+  if (!trimmed) return false;
+
+  // Multi-word call signs exist precisely to be unambiguous addresses.
+  if (/\s/.test(matchedName.trim())) return true;
+
+  const namePattern = wakeNamePattern(matchedName);
+  const greetingPrefix = new RegExp(`^(?:hey|hello)[,\\s]+${namePattern}(?:\\b|[,:])`, "i");
+  if (greetingPrefix.test(trimmed)) return true;
+
+  const nameMatch = trimmed.match(new RegExp(namePattern, "i"));
+  if (nameMatch?.index === undefined) return false;
+  const afterName = trimmed.slice(nameMatch.index + nameMatch[0].length);
+  if (/^[,:]/.test(afterName)) return true;
+  return /^[\s.!?;]*$/.test(afterName);
+}
+
 function normalizeWakeNames(input: WakeNamesInput): string[] {
   const values = Array.isArray(input) ? input : [input];
   const seen = new Set<string>();
@@ -40,8 +78,7 @@ function matchWakeNameAtStart(transcript: string, wakeNames: string[]): MatchedW
   const fillerWords = "(?:and|so|okay|oh|um|uh|well|like|but|now|of)";
 
   for (const wakeName of wakeNames) {
-    const escaped = escapeRegex(wakeName);
-    const wakeCore = `(?:(?:hey|hello),?\\s+)?${escaped}\\b`;
+    const wakeCore = `(?:(?:hey|hello),?\\s+)?${wakeNamePattern(wakeName)}\\b`;
 
     if (new RegExp(`^${wakeCore}`, "i").test(transcript)) {
       return { matchedName: wakeName, transcript };
@@ -135,8 +172,7 @@ export function extractNamedWakeWord(
 
   // Fallback: scan for greeting+name pattern mid-transcript (handles Whisper preamble)
   for (const wakeName of wakeNames) {
-    const escaped = escapeRegex(wakeName);
-    const greetingPattern = new RegExp(`(?:hey|hello),?\\s+${escaped}\\b`, "i");
+    const greetingPattern = new RegExp(`(?:hey|hello),?\\s+${wakeNamePattern(wakeName)}\\b`, "i");
     const greetingMatch = trimmed.match(greetingPattern);
     if (greetingMatch && greetingMatch.index !== undefined) {
       return {
@@ -170,7 +206,7 @@ export function mentionsWakeName(
   const trimmed = transcript.trim();
   if (!trimmed) return false;
   return normalizeWakeNames(wakeNamesInput).some((wakeName) =>
-    new RegExp(`\\b${escapeRegex(wakeName)}\\b`, "i").test(trimmed)
+    new RegExp(`\\b${wakeNamePattern(wakeName)}\\b`, "i").test(trimmed)
   );
 }
 
@@ -182,7 +218,7 @@ export function stripLeadingWakePhrase(
   const wakeNames = normalizeWakeNames(wakeNamesInput);
   for (const wakeName of wakeNames) {
     const trigger = new RegExp(
-      `^(?:(?:hey|hello),?\\s+)?${escapeRegex(wakeName)}[,.]?\\s*`,
+      `^(?:(?:hey|hello),?\\s+)?${wakeNamePattern(wakeName)}[,.]?\\s*`,
       "i"
     );
     const stripped = source.replace(trigger, "").trim();
@@ -290,8 +326,10 @@ export class VoiceTargetDirectory {
       }
     }
 
-    const watson = this.getAgent("watson");
-    if (watson && !this.isSystemAgent(watson.id)) return watson;
+    for (const fallbackId of ["watson-ollama", "watson"]) {
+      const fallback = this.getAgent(fallbackId);
+      if (fallback && !this.isSystemAgent(fallback.id)) return fallback;
+    }
 
     return (
       this.agents.find((agent) => !this.isSystemAgent(agent.id)) ??

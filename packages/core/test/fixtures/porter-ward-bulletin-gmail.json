@@ -1,0 +1,61 @@
+{
+  "scenario": "porter.latest_ward_sacrament_bulletin_from_read_only_gmail",
+  "userRequest": "Porter, make my conducting outline from the latest ward sacrament meeting bulletin.",
+  "mailbox": [
+    {
+      "id": "msg-older-correct-spelling",
+      "threadId": "thread-older",
+      "internalDate": "2026-05-31T16:10:00-07:00",
+      "from": "ward-bulletin@example.test",
+      "subject": "Church Bulletin - Ward Sacrament Meeting - May 31",
+      "attachments": [
+        {
+          "id": "att-older-pdf",
+          "filename": "ward-sacrament-meeting-2026-05-31.pdf",
+          "mimeType": "application/pdf"
+        }
+      ],
+      "pdfText": "Ward Sacrament Meeting Program\nDate: Sunday, May 31, 2026\nPresiding: Bishop Test Presider\nConducting: President Test Conducting\nOpening Hymn: #140 Did You Think to Pray?\nInvocation: Sister Test Invocation\nSacrament Hymn: #172 In Humility, Our Savior\nSpeaker 1: Brother Test Speaker One\nSpeaker 2: Sister Test Speaker Two\nClosing Hymn: #98 I Need Thee Every Hour\nBenediction: Brother Test Benediction"
+    },
+    {
+      "id": "msg-latest-typo-subject",
+      "threadId": "thread-latest",
+      "internalDate": "2026-06-07T16:05:00-07:00",
+      "from": "ward-bulletin@example.test",
+      "subject": "Church Bulleting - Ward Sacrament Meeting - June 7",
+      "attachments": [
+        {
+          "id": "att-latest-pdf",
+          "filename": "ward-sacrament-meeting-2026-06-07.pdf",
+          "mimeType": "application/pdf"
+        }
+      ],
+      "pdfText": "Ward Sacrament Meeting Program\nDate: Sunday, June 7, 2026\nPresiding: Bishop Test Presider\nConducting: President Test Conducting\nMeeting Time: 12:00 p.m.\nInvocation: Sister Test Invocation\nOpening Hymn: #2 The Spirit of God\nSacrament Hymn: #193 I Stand All Amazed\nWard Business: Sustain Test Member as Primary secretary\nSpeaker 1: Brother Test Speaker One\nSpeaker 2: Sister Test Speaker Two\nMusical Number: Youth choir - I Am a Child of God\nClosing Hymn: #100 Nearer, My God, to Thee\nBenediction: Brother Test Benediction"
+    }
+  ],
+  "expected": {
+    "selectedMessageId": "msg-latest-typo-subject",
+    "selectedAttachmentId": "att-latest-pdf",
+    "requiredReadOnlyCommands": [
+      "gmail messages search '(\"Church Bulletin\" OR \"Church Bulleting\" OR \"ward bulletin\" OR \"sacrament meeting program\") newer_than:60d' --max 10 --account member.ward@example.test",
+      "gmail get msg-latest-typo-subject --format full --account member.ward@example.test",
+      "gmail attachment msg-latest-typo-subject att-latest-pdf --out /tmp --name 'ward-sacrament-meeting-2026-06-07.pdf' --account member.ward@example.test"
+    ],
+    "forbiddenMutationPattern": "\\b(drafts create|send|archive|label|delete|trash|thread modify|messages modify|mark-read|mark-unread|batchModify|batchDelete)\\b",
+    "program": {
+      "Date": "Sunday, June 7, 2026",
+      "Presiding": "Bishop Test Presider",
+      "Conducting": "President Test Conducting",
+      "Meeting Time": "12:00 p.m.",
+      "Invocation": "Sister Test Invocation",
+      "Opening Hymn": "#2 The Spirit of God",
+      "Sacrament Hymn": "#193 I Stand All Amazed",
+      "Ward Business": "Sustain Test Member as Primary secretary",
+      "Speaker 1": "Brother Test Speaker One",
+      "Speaker 2": "Sister Test Speaker Two",
+      "Musical Number": "Youth choir - I Am a Child of God",
+      "Closing Hymn": "#100 Nearer, My God, to Thee",
+      "Benediction": "Brother Test Benediction"
+    }
+  }
+}

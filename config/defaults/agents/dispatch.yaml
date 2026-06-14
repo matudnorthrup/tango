@@ -11,6 +11,6 @@ default_project: personal
 voice:
   call_signs:
     - Tango
-  default_prompt_agent: watson
+  default_prompt_agent: watson-ollama
 response_mode: concise
 prompt_file: ../../../agents/system/dispatch/soul.md

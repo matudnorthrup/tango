@@ -50,7 +50,7 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "location"]
     env:
-      ALLOWED_TOOL_IDS: "location_read,osrm_route,find_diesel"
+      ALLOWED_TOOL_IDS: "location_read,driving_route,find_diesel"
   - name: walmart
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "walmart"]
@@ -81,6 +81,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "notion"]
     env:
       ALLOWED_TOOL_IDS: "notion"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 # Runtime configuration
 runtime:
@@ -102,7 +107,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Sierra
+    - "Zulu Sierra"
   kokoro_voice: af_heart
   default_channel_id: "100000000000000003"
   smoke_test_channel_id: "1488248024076648599"

@@ -60,6 +60,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "kilo-ledger"]
     env:
       ALLOWED_TOOL_IDS: "kilo_ledger"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 runtime:
   mode: persistent
@@ -73,18 +78,20 @@ runtime:
 memory:
   post_turn_extraction: enabled
   extraction_provider: ollama
-  extraction_model: gpt-oss:20b
+  extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
 discord:
   default_channel_id: "1513207675935129862"
+  smoke_test_channel_id: "100000000000001005" # foxtrot-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207675935129862"
+    - "100000000000001005" # foxtrot-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
 default_project: finance
@@ -109,10 +116,13 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — distinct "Bravo <Name>" wake word so it never
-# collides with the original foxtrot's wake word (start-anchored matcher).
+# Voice addressing — Ollama clones are the primary voice targets: the bare
+# name (and hey/hello greetings, which the matcher treats as optional
+# prefixes) routes here; "Zulu Foxtrot" is the original's fallback wake word.
 voice:
   call_signs:
     - "Bravo Foxtrot"
+    - Foxtrot
   kokoro_voice: am_echo
   default_channel_id: "1513207675935129862"
+  smoke_test_channel_id: "100000000000001005" # foxtrot-test (placeholder; real id in profile overlay)

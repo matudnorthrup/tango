@@ -279,7 +279,7 @@ export const GOVERNANCE_SEED = `
     ('openscad_render', 'research', 'OpenSCAD Render', 'write'),
     ('prusa_slice', 'research', 'PrusaSlicer', 'write'),
     ('location_read', 'research', 'GPS Location', 'read'),
-    ('osrm_route', 'research', 'OSRM Route Planner', 'read'),
+    ('driving_route', 'research', 'Driving Route Planner', 'read'),
     ('find_diesel', 'research', 'Diesel Finder', 'read'),
     ('walmart', 'research', 'Walmart Shopping', 'write'),
     ('browser', 'shared', 'Browser Automation', 'write'),
@@ -320,7 +320,10 @@ export const GOVERNANCE_SEED = `
     ('imessage', 'personal', 'iMessage Read/Send', 'write'),
     ('latitude_run', 'personal', 'Latitude Remote MCP (Notion, Slack, etc.)', 'write'),
     ('youtube_transcript', 'research', 'YouTube Transcript', 'read'),
-    ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read');
+    ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read'),
+    ('spawn_claude_session', 'tango', 'Spawn Claude Code Session', 'write'),
+    ('list_claude_sessions', 'tango', 'List Claude Code Sessions', 'read'),
+    ('discord_send_image', 'tango', 'Discord Image Send', 'write');
 
   -- Default groups
   INSERT OR IGNORE INTO groups (id, display_name, governance_level, description) VALUES
@@ -368,7 +371,9 @@ export const GOVERNANCE_SEED = `
     ('worker:personal-assistant', 'slack', 'read', 'seed from config'),
     ('worker:personal-assistant', 'linear', 'write', 'seed from config'),
     ('worker:personal-assistant', 'imessage', 'write', 'seed from config'),
-    ('worker:personal-assistant', 'latitude_run', 'write', 'seed from config');
+    ('worker:personal-assistant', 'latitude_run', 'write', 'seed from config'),
+    ('worker:personal-assistant', 'spawn_claude_session', 'write', 'spawn remote-controllable Claude Code sessions'),
+    ('worker:personal-assistant', 'list_claude_sessions', 'read', 'list spawned Claude Code sessions');
 
   -- research-assistant (Sierra)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
@@ -379,7 +384,7 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'prusa_slice', 'write', 'seed from config'),
     ('worker:research-assistant', 'obsidian', 'write', 'travel planning + research filing'),
     ('worker:research-assistant', 'location_read', 'read', 'travel navigation'),
-    ('worker:research-assistant', 'osrm_route', 'read', 'travel route planning and drive-time verification'),
+    ('worker:research-assistant', 'driving_route', 'read', 'travel route planning and drive-time verification'),
     ('worker:research-assistant', 'find_diesel', 'read', 'travel navigation'),
     ('worker:research-assistant', 'walmart', 'write', 'walmart shopping and queue management'),
     ('worker:research-assistant', 'browser', 'write', 'web automation for shopping and research'),
@@ -393,7 +398,7 @@ export const GOVERNANCE_SEED = `
     ('worker:sierra-ollama', 'exa_search', 'read', 'Sierra Ollama research parity'),
     ('worker:sierra-ollama', 'exa_answer', 'read', 'Sierra Ollama research parity'),
     ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
-    ('worker:sierra-ollama', 'osrm_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
+    ('worker:sierra-ollama', 'driving_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
     ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for shopping and research');
 
@@ -523,6 +528,28 @@ export const GOVERNANCE_SEED = `
     ('worker:church-assistant', 'memory_search', 'read', 'memory lookup for durable church context'),
     ('worker:church-assistant', 'memory_add', 'write', 'memory capture for durable church context'),
     ('worker:church-assistant', 'memory_reflect', 'write', 'memory reflection for durable church context');
+
+  -- discord_send_image — outbound Discord images for every persona whose YAML carries
+  -- the send-image MCP entry (all agents except kilo, which is excluded pending owner
+  -- decision). Deliberately NOT granted via user:owner inheritance so the kilo
+  -- exclusion holds. The -ollama clone principals are live-managed rather than seeded
+  -- (except sierra/foxtrot); scripts/grant-send-image.mjs applies the same grant to
+  -- them and to already-initialized DBs, which never re-run this seed.
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:personal-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:research-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:church-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:dev-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:operations-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:workout-recorder', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:foxtrot', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:foxtrot-ollama', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:sierra-ollama', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:nutrition-logger', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:recipe-librarian', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:health-analyst', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:activity-tracker', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:note-librarian', 'discord_send_image', 'write', 'outbound Discord image sending');
 
   -- Universal memory tools available to all agents/workers via inheritance from the owner
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

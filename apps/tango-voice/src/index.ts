@@ -4,7 +4,8 @@ import { joinChannel, leaveChannel, getConnection, setConnection } from './disco
 import { VoicePipeline } from './pipeline/voice-pipeline.js';
 import { clearConversation } from './services/claude.js';
 import { ChannelRouter } from './services/channel-router.js';
-import { initVoiceSettings, getVoiceSettings, setSilenceDuration, setSpeechThreshold, setMinSpeechDuration, setGatedMode, setEndpointingMode, resolveNoiseLevel, getNoisePresetNames } from './services/voice-settings.js';
+import path from 'node:path';
+import { initVoiceSettings, getVoiceSettings, enableVoiceSettingsPersistence, setSilenceDuration, setSpeechThreshold, setMinSpeechDuration, setGatedMode, setEndpointingMode, resolveNoiseLevel, getNoisePresetNames } from './services/voice-settings.js';
 import { getTtsBackend, setTtsBackend, getAvailableTtsBackends } from './services/tts.js';
 import { QueueState, getVoiceModeLabel, normalizeVoiceMode, type VoiceMode } from './services/queue-state.js';
 import { InboxClient } from './services/inbox-client.js';
@@ -44,7 +45,12 @@ initVoiceSettings({
   vadNegativeSpeechThreshold: config.vadNegativeSpeechThreshold,
   vadFrameSamples: config.vadFrameSamples,
   localStreamIdleMs: config.localStreamIdleMs,
+  shortCommandRescueEnabled: config.shortCommandRescueEnabled,
+  shortCommandMinDurationMs: config.shortCommandMinDurationMs,
 });
+
+// Runtime tuning persists as a sparse overlay applied on top of .env values.
+enableVoiceSettingsPersistence(path.join(path.dirname(config.sessionsDir), 'settings-overrides.json'));
 
 const client = createClient();
 let pipeline: VoicePipeline | null = null;

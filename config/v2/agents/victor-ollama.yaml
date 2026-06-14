@@ -26,6 +26,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
     env:
       ALLOWED_TOOL_IDS: "obsidian"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 # Runtime configuration
 runtime:
@@ -44,19 +49,21 @@ runtime:
 memory:
   post_turn_extraction: enabled
   extraction_provider: ollama
-  extraction_model: gpt-oss:20b
+  extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
 # Discord routing
 discord:
   default_channel_id: "1513207701088243793"
+  smoke_test_channel_id: "100000000000001004" # victor-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207701088243793"
+    - "100000000000001004" # victor-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
 avatar_url: https://cdn.discordapp.com/avatars/1480581855450497277/cb5e0df0a5857352c71e9fd660f29a23.webp
@@ -82,10 +89,13 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — distinct "Bravo <Name>" wake word so it never
-# collides with the original victor's wake word (start-anchored matcher).
+# Voice addressing — Ollama clones are the primary voice targets: the bare
+# name (and hey/hello greetings, which the matcher treats as optional
+# prefixes) routes here; "Zulu Victor" is the original's fallback wake word.
 voice:
   call_signs:
     - "Bravo Victor"
+    - Victor
   kokoro_voice: am_liam
   default_channel_id: "1513207701088243793"
+  smoke_test_channel_id: "100000000000001004" # victor-test (placeholder; real id in profile overlay)

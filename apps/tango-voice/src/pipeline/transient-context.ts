@@ -19,12 +19,13 @@ export interface TransientContext {
 
   // Wait state
   silentWait: boolean;
-  pendingWaitCallback: ((responseText: string, speakerAgentId?: string | null) => void) | null;
+  pendingWaitCallback: ((responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null) => void) | null;
   activeWaitQueueItemId: string | null;
   speculativeQueueItemId: string | null;
   quietPendingWait: boolean;
   deferredWaitResponseText: string | null;
   deferredWaitSpeakerAgentId: string | null;
+  deferredWaitReplySessionKey: string | null;
 
   // Grace periods
   gateGraceUntil: number;
@@ -51,6 +52,10 @@ export interface TransientContext {
   indicateCaptureStartedAt: number;
   indicateCaptureLastSegmentAt: number;
   indicateCaptureAddressedAgentId: string | null;
+  /** 'wake' = capture opened by an addressed wake word; 'grace' = opened by
+   * wake-less speech inside a post-response grace window. Grace captures
+   * expire on timeout instead of nudging forever (TGO-751). */
+  indicateCaptureOrigin: 'wake' | 'grace' | null;
   focusedAgentId: string | null;
   focusedAgentName: string | null;
 
@@ -75,6 +80,7 @@ export function createTransientContext(): TransientContext {
     quietPendingWait: false,
     deferredWaitResponseText: null,
     deferredWaitSpeakerAgentId: null,
+    deferredWaitReplySessionKey: null,
     gateGraceUntil: 0,
     promptGraceUntil: 0,
     followupPromptGraceUntil: 0,
@@ -97,6 +103,7 @@ export function createTransientContext(): TransientContext {
     indicateCaptureStartedAt: 0,
     indicateCaptureLastSegmentAt: 0,
     indicateCaptureAddressedAgentId: null,
+    indicateCaptureOrigin: null,
     focusedAgentId: null,
     focusedAgentName: null,
     paused: false,
@@ -119,6 +126,7 @@ export function resetTransientContext(ctx: TransientContext): void {
   ctx.quietPendingWait = false;
   ctx.deferredWaitResponseText = null;
   ctx.deferredWaitSpeakerAgentId = null;
+  ctx.deferredWaitReplySessionKey = null;
   ctx.gateGraceUntil = 0;
   ctx.promptGraceUntil = 0;
   ctx.followupPromptGraceUntil = 0;
@@ -141,6 +149,7 @@ export function resetTransientContext(ctx: TransientContext): void {
   ctx.indicateCaptureStartedAt = 0;
   ctx.indicateCaptureLastSegmentAt = 0;
   ctx.indicateCaptureAddressedAgentId = null;
+  ctx.indicateCaptureOrigin = null;
   ctx.focusedAgentId = null;
   ctx.focusedAgentName = null;
   ctx.paused = false;

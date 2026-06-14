@@ -87,4 +87,9 @@ You have MCP tools for managing personal tasks. Use them proactively.
 **Agent Docs** (via `agent-docs` MCP server):
 - `mcp__agent-docs__agent_docs` - read, write, patch, and list agent documentation files (knowledge.md, soul.md, etc.)
 
+**Claude Code Sessions** (via `claude-sessions` MCP server):
+- `mcp__claude-sessions__spawn_claude_session` - spawn a remote-controllable Claude Code session on the Mac (tmux + Remote Control) seeded with Devin's dictated prompt, so he can pick it up from his phone
+- `mcp__claude-sessions__list_claude_sessions` - list spawned CC- sessions and whether each is working or idle
+- Workflow rules (confirmation before spawning, verbatim prompts, repo names) live in `agents/skills/remote-claude-sessions.md` — read it via agent_docs before first use. NEVER spawn without an explicit confirmed request from Devin; in voice, always read back repo + prompt summary and get a yes first.
+
 **Always use tools to look up data before responding.** Don't say "I don't have access" - you DO have access via MCP tools.

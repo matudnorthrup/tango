@@ -46,6 +46,11 @@ mcp_servers:
     env:
       ALLOWED_TOOL_IDS: "onepassword"
       WORKER_ID: "church-assistant"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 # Runtime configuration
 runtime:
@@ -68,8 +73,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Porter
-    - Brother Porter
+    - "Zulu Porter"
   kokoro_voice: am_liam
   default_channel_id: "100000000000000006"
   smoke_test_channel_id: "100000000000001006"

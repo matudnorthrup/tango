@@ -23,6 +23,17 @@ behavior in the current Codex environment.
   discovery order in the shared guide.
 - Keep active project state in Linear, not in repo docs or local memory.
 
+## Code review — privacy backstop
+
+When reviewing a pull request (human or automated reviewer, including Codex):
+flag any **personal data** appearing in the diff — real names, personal email
+addresses, home addresses, health or behavioral details, real Discord/account
+IDs, or machine-local home-directory paths. Personal context belongs in the
+profile layer (`~/.tango/profiles/...`), never in tracked files. This is a
+second net behind the CI `privacy-gate`; treat a finding as blocking. For
+changes touching personal-data handling (email tools, access control, memory
+classification), also run Claude `/security-review` or `/code-review ultra`.
+
 ## Quick Required Context
 
 Read these first for normal work:

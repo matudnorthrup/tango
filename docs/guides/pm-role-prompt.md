@@ -36,7 +36,7 @@ If the project brief requires research before implementation:
 - Create or update repo markdown only for durable architecture decisions,
   retros, or implementation-facing docs that future agents need after the
   project state has moved on
-- Report the spec to the CoS for stakeholder review before proceeding
+- Post the spec to Linear (project document or Project Update) for stakeholder review before proceeding
 
 If the brief is already a detailed spec, skip to Planning.
 
@@ -48,7 +48,7 @@ If the brief is already a detailed spec, skip to Planning.
   2. **Implementation** — write the code, review the diff, merge (dev agents only for parallel or oversized work)
   3. **Deploy** — rebuild (`npm run build`), clean stale dist files, restart bot
   4. **Validation** — live test on the main bot, document results
-  5. **Ship** — update docs, report to CoS, clean up
+  5. **Ship** — update docs and Linear, clean up
   Use `save_milestone` for each: `save_milestone(project: "{name}", name: "Discovery")` etc.
 - [ ] **Break work into Linear issues** with clear acceptance criteria, assigned to the appropriate milestone
 - [ ] **Identify dependencies** between issues and mark blockers
@@ -143,7 +143,7 @@ When implementation completes (yours or a dev agent's):
 - [ ] **Claim the Discord bot** for slot testing if needed: `scripts/dev/claim-bot.sh {N} --live`
 - [ ] **Run live tests** through the test harness or manual Discord interaction
 - [ ] **Document test results** in the Linear issue comments
-- [ ] **Post a Linear Project Update** with the current validation result before telling the CoS or stakeholder
+- [ ] **Post a Linear Project Update** with the current validation result before telling the stakeholder
 - [ ] **Release the bot** when done: `scripts/dev/release-bot.sh {N} --live`
 - [ ] **Do NOT move the Linear project to Ship** until every validation issue is marked Done with documented test results
 
@@ -154,43 +154,22 @@ When implementation completes (yours or a dev agent's):
 - [ ] **Update durable repo docs only when needed** — active status, test
   results, and issue-level evidence belong in Linear; repo markdown is for
   architecture decisions, retros/postmortems, guides, and specs
-- [ ] **Report completion to the CoS via tmux** — this is mandatory, not optional.
-
-  **USE THE HELPER SCRIPT.** Do NOT try to send multi-line messages via raw `tmux send-keys` — agents have consistently forgotten the extra Enter needed after a paste, causing reports to sit unsubmitted in the CoS's input buffer as `[Pasted text +N lines]`.
-
-  ```bash
-  # Step 1: Write the report to a temp file
-  cat > /tmp/cos-report.md << 'EOF'
-  PM Report: {Project Name} — {SHIPPED|BLOCKED|NEEDS REVIEW}
-
-  What shipped:
-  {bullet list of changes}
-
-  Linear: {issue IDs and status}
-  Known issues: {any}
-  EOF
-
-  # Step 2: Use the helper script — handles paste + wait + Enter + verification + recovery
-  scripts/send-tmux-message.sh CHIEF-OF-STAFF /tmp/cos-report.md
-  ```
-
-  The script handles the full submission sequence (paste, wait, Enter, verify, and retry Enter if the paste buffer didn't clear). If it reports `ERROR: message still not submitted`, something is wrong in the receiving session and you need to investigate manually.
-  The CoS is your manager. If you don't report, they can't track your work or relay status to the stakeholder. Report at every major milestone, not just at ship.
-- [ ] **Clean up** — release all worktree slots, delete monitoring crons. After sending your ship report to CoS, your session is done — the CoS will tear it down. Do not linger.
+- [ ] **Clean up** — release all worktree slots, delete monitoring crons. After your final Linear Project Update, your session is done. Do not linger.
 
 ## Communication
 
-### Reporting to CoS
+### Reporting
 
-**You MUST report to the CoS tmux session (`CHIEF-OF-STAFF`) at these points:**
+**Retired 2026-06-10:** PMs no longer send reports to a `CHIEF-OF-STAFF` tmux
+session. Linear is the reporting channel. Post a Linear Project Update at these
+points:
+
 1. After discovery/spec is written (before implementation)
 2. When scope changes from the original brief (e.g., you found a code issue when the brief said prompt-only)
 3. When you're blocked and can't unblock yourself
 4. When you ship
 
-Use `tmux send-keys -t CHIEF-OF-STAFF "message" C-m` to send reports. Keep them concise — what happened, what changed, what's next.
-
-**If you discover work outside the original scope** (e.g., a code change when the brief said prompt-only), report the scope change to the CoS before proceeding. The CoS may need to inform the stakeholder about trade-offs like latency impacts.
+**If you discover work outside the original scope** (e.g., a code change when the brief said prompt-only), post the scope change to Linear and surface it to the stakeholder before proceeding — trade-offs like latency impacts may need stakeholder sign-off.
 
 ### Status file
 
@@ -313,14 +292,14 @@ equivalent. No exceptions.
 **Wrong:** Finishing a project with no Linear evidence and no durable record of important decisions.
 **Right:** Update Linear with shipped scope, test results, known issues, and follow-ups. Add or update repo docs only for durable architecture decisions, retros, guides, specs, or prompt/runtime references.
 
-### 8. Not reporting to the CoS
+### 8. Shipping silently
 **Wrong:** Shipping work and waiting for someone to notice.
-**Right:** Send a completion report to `CHIEF-OF-STAFF` tmux session at every major milestone.
-**Rule:** The CoS is your manager. No report = the work didn't happen as far as tracking is concerned.
+**Right:** Post a Linear Project Update at every major milestone, and a final one at ship.
+**Rule:** Linear is the reporting channel. No update = the work didn't happen as far as tracking is concerned.
 
 ### 9. Expanding scope without reporting
 **Wrong:** Brief says "prompt-only changes" → you discover a code issue → you fix it, push to main, and mention it in your final report.
-**Right:** Brief says "prompt-only changes" → you discover a code issue → you report the scope change to the CoS BEFORE implementing. The CoS may need to inform the stakeholder about trade-offs (latency, risk, etc.).
+**Right:** Brief says "prompt-only changes" → you discover a code issue → you post the scope change to Linear and surface it to the stakeholder BEFORE implementing, since trade-offs (latency, risk, etc.) may need sign-off.
 **Exception:** If the scope expansion is trivially small (fixing a typo in an adjacent file), just do it and note it in your report.
 
 ### 10. Applying changes too narrowly

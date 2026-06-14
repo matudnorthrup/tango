@@ -6,6 +6,7 @@ import {
   parseSharedProjectSystemCommand,
   parseSharedSystemRoutingCommand,
   parseSharedTopicSystemCommand,
+  wakeNamePattern,
   type MatchedWakeWord,
 } from '@tango/voice';
 import { normalizeVoiceMode, type VoiceMode } from './queue-state.js';
@@ -99,7 +100,7 @@ export function parseVoiceCommand(transcript: string, botName: WakeNamesInput): 
   const matchedWakeName = wakeMatch.matchedName;
 
   const trimmed = effective.trim();
-  const trigger = new RegExp(`^(?:(?:hey|hello),?\\s+)?${escapeRegex(matchedWakeName)}[,.]?\\s*`, 'i');
+  const trigger = new RegExp(`^(?:(?:hey|hello),?\\s+)?${wakeNamePattern(matchedWakeName)}[,.]?\\s*`, 'i');
   const match = trimmed.match(trigger);
   if (!match) return null;
 
@@ -108,7 +109,7 @@ export function parseVoiceCommand(transcript: string, botName: WakeNamesInput): 
   // "Hello Watson, Watson"
   const restRaw = trimmed.slice(match[0].length).trim();
   if (restRaw.length > 0) {
-    const wakeOnlySegment = new RegExp(`^(?:(?:hey|hello),?\\s+)?${escapeRegex(matchedWakeName)}$`, 'i');
+    const wakeOnlySegment = new RegExp(`^(?:(?:hey|hello),?\\s+)?${wakeNamePattern(matchedWakeName)}$`, 'i');
     const segments = restRaw
       .split(/[.!?]+/)
       .map((s) => s.trim())
@@ -474,6 +475,3 @@ export function matchChannelSelection(
   return fuzzy ?? null;
 }
 
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}

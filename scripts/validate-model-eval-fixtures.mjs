@@ -42,8 +42,8 @@ const CATEGORY_RULES = [
   {
     category: "travel",
     promptPattern: /route|drive|detour|waypoint|stop/i,
-    mustRequireOneOf: ["osrm_route", "find_diesel"],
-    why: "travel route fixtures must gate on a routing-grounded tool — osrm_route or find_diesel (Sierra 2026-06-09 incident)",
+    mustRequireOneOf: ["driving_route", "find_diesel"],
+    why: "travel route fixtures must gate on a routing-grounded tool — driving_route or find_diesel (Sierra 2026-06-09 incident)",
   },
 ];
 

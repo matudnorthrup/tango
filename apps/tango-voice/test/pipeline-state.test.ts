@@ -80,7 +80,7 @@ describe('PipelineStateMachine', () => {
       expect(sm.hasBufferedUtterance()).toBe(true);
 
       const buffered = sm.getBufferedUtterance();
-      expect(buffered).toEqual({ userId: 'user1', wavBuffer, durationMs: 1000 });
+      expect(buffered).toEqual({ userId: 'user1', wavBuffer, durationMs: 1000, graceAtCapture: null });
       // Consumed after retrieval
       expect(sm.hasBufferedUtterance()).toBe(false);
     });

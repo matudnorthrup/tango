@@ -31,7 +31,19 @@ const OLLAMA_TOOL_EFFICIENCY_GUIDANCE =
   "\"create_page\"/\"append\"/\"update_page\" to write). NEVER open or read Notion through the " +
   "`browser` tool — Notion's web UI requires interactive login and renders blank to tools, so the " +
   "browser will always fail. A blank Notion page in the browser means \"use the notion tool\", " +
-  "NOT \"ask the user to share to web.\"";
+  "NOT \"ask the user to share to web.\"" +
+  "\n\nSharing images: a screenshot or image file on disk is INVISIBLE to the user until you send " +
+  "it. When the user asks to see a screenshot, picture, or any visual, you MUST call " +
+  "`discord_send_image` (source = the file path or https URL, channel_id = discord_thread_id from " +
+  "the current message metadata if present, else discord_channel_id, agent_id = your id) and it " +
+  "must return a message_id. NEVER say you sent, shared, or are showing an image unless that call " +
+  "succeeded this turn — if it failed or you could not call it, say so plainly instead." +
+  "\n\nFinishing turns: NEVER end your reply with a statement of what you are about to do ('Let me " +
+  "navigate to…', 'I'll pull that up…'). Your reply ends the turn — nothing happens after it. " +
+  "Either keep calling tools until the action is DONE, or stop and report exactly what you " +
+  "completed, what remains, and what you need. If a multi-step task is taking long, finish the " +
+  "single most useful step (for a screenshot request: capture and SEND one screenshot) before " +
+  "wrapping up.";
 
 const KNOWN_MCP_SERVER_TOOLS: Record<string, string[]> = {
   memory: ["memory_search", "memory_add", "memory_reflect"],

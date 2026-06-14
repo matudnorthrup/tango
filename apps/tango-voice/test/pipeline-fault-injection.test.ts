@@ -72,7 +72,7 @@ describe('Pipeline fault injection', () => {
     const pipeline = new VoicePipeline({} as any);
     const playEarconSpy = vi.spyOn((pipeline as any).player, 'playEarcon');
 
-    await (pipeline as any).handleUtterance('user1', Buffer.alloc(100), 500);
+    await (pipeline as any).handleUtterance('user1', Buffer.alloc(100), 800);
 
     const stateType = (pipeline as any).stateMachine.getStateType();
     expect(stateType).toBe('IDLE');
@@ -88,7 +88,7 @@ describe('Pipeline fault injection', () => {
 
     const pipeline = new VoicePipeline({} as any);
 
-    await (pipeline as any).handleUtterance('user1', Buffer.alloc(100), 500);
+    await (pipeline as any).handleUtterance('user1', Buffer.alloc(100), 800);
 
     const stateType = (pipeline as any).stateMachine.getStateType();
     expect(stateType).toBe('IDLE');
@@ -171,7 +171,7 @@ describe('Pipeline fault injection', () => {
     (pipeline as any).ctx.missedWakeAnalysisInFlight = true;
     (pipeline as any).ctx.failedWakeCueCooldownUntil = Date.now() + 99999;
 
-    await (pipeline as any).handleUtterance('user1', Buffer.alloc(100), 500);
+    await (pipeline as any).handleUtterance('user1', Buffer.alloc(100), 800);
 
     // Pipeline should be in IDLE after error recovery
     expect((pipeline as any).stateMachine.getStateType()).toBe('IDLE');

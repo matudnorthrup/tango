@@ -49,7 +49,7 @@ A Claude Code instance running in a tmux session. Follows the process in `docs/g
 - **Creates Linear project and issues**
 - **Implements directly**; spawns and manages dev agents in worktree slots when parallelism or context pressure warrants
 - **Runs live testing** and documents results
-- **Reports to CoS** via status file and Linear updates
+- **Reports** via status file and Linear updates
 
 ### Dev Agent (optional)
 Claude Code (or Codex, as a second opinion) in a worktree slot, spawned only when work benefits from parallel execution or context isolation. Receives work orders from the PM.
@@ -100,17 +100,13 @@ tmux send-keys -t TANGO-PM-{slug} "$(cat /tmp/pm-brief-{slug}.md)" C-m
 3. **Tear down** after ship: release worktree slots, delete crons, update docs
 4. The CoS tears down the tmux session after confirming ship
 
-### PM → CoS reporting
+### PM reporting
 
-PMs report to the CoS by sending messages to the `CHIEF-OF-STAFF` tmux session. The PM prompt defines when reports are required:
-- After discovery/spec (before implementation)
-- When scope changes from the original brief
-- When blocked
-- At ship
-
-The CoS should NOT rely solely on monitoring crons to learn what PMs are doing. PMs are expected to proactively report. If a PM is not reporting, that's a compliance failure — the CoS should intervene.
-
-**Lesson learned (2026-04-17):** The Malibu PM completed Phase 2 (a code change with latency trade-offs) and declared ship without reporting to the CoS. The stakeholder had to go talk to the PM directly to learn what happened. Root cause: the PM prompt said "report to CoS" but didn't specify the mechanism (tmux send-keys). Fixed in PM prompt v2.
+**Retired 2026-06-10:** PMs no longer send reports to the `CHIEF-OF-STAFF` tmux
+session — do not message that session. Linear is the reporting channel: PMs post
+Project Updates after discovery/spec, on scope changes, when blocked, and at
+ship (see `pm-role-prompt.md`). Whoever is monitoring (CoS or stakeholder) reads
+Linear and the PM's tmux pane directly rather than waiting for pushed reports.
 
 ## CoS Monitoring Protocol
 
@@ -118,8 +114,8 @@ The CoS should NOT rely solely on monitoring crons to learn what PMs are doing. 
 After spawning a PM agent, the CoS creates a CronCreate monitoring job:
 - New PM agents: check every 15–20 minutes for the first hour
 - Established PMs (past first milestone): check every 30 minutes
-- **Keep the monitoring cron running until the PM explicitly reports ship** — don't delete it early
-- Self-delete the cron only after confirming the PM has reported and cleaned up
+- **Keep the monitoring cron running until the PM's Linear project reaches Ship** — don't delete it early
+- Self-delete the cron only after confirming the final Linear Project Update is posted and the PM has cleaned up
 
 ### What to check
 

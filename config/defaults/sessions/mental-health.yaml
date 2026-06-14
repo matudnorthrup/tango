@@ -3,7 +3,6 @@ type: project
 agent: juliet
 channels:
   - discord:100000000000000007
-  - discord:100000000000001007
 orchestrator_continuity: stateless
 memory:
   max_context_tokens: 16000

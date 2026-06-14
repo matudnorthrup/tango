@@ -3,6 +3,7 @@ import {
   MAX_TOOL_ITERS,
   OllamaProvider,
   TOOL_LOOP_CAP_FALLBACK_TEXT,
+  TOOL_LOOP_CAP_TRUNCATION_NOTICE,
   parseOllamaChatResponse,
   type ProviderToolsConfig,
 } from "../src/provider.js";
@@ -267,10 +268,13 @@ describe("OllamaProvider tool loop", () => {
 
     const res = await provider.generate({ prompt: "loop", tools: enabledTools });
 
-    // Exactly MAX_TOOL_ITERS chat round-trips, then it returns the last text.
+    // Exactly MAX_TOOL_ITERS chat round-trips, then it returns the last text
+    // with an explicit truncation notice — interim narration followed by
+    // silence reads as the agent doing nothing (TGO-740).
     expect(bodies).toHaveLength(MAX_TOOL_ITERS);
     expect(toolClient.calls).toHaveLength(MAX_TOOL_ITERS);
-    expect(res.text).toBe("still working");
+    expect(res.text).toBe(`still working\n\n${TOOL_LOOP_CAP_TRUNCATION_NOTICE}`);
+    expect(res.metadata?.stopReason).toBe("max_tool_iters");
   });
 
   it("(d') returns a deterministic fallback + max_tool_iters stopReason when the cap is hit with no final text", async () => {
