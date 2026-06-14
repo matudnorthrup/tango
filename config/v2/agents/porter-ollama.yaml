@@ -46,6 +46,11 @@ mcp_servers:
     env:
       ALLOWED_TOOL_IDS: "onepassword"
       WORKER_ID: "church-assistant"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 # Runtime configuration
 runtime:
@@ -62,19 +67,21 @@ runtime:
 memory:
   post_turn_extraction: enabled
   extraction_provider: ollama
-  extraction_model: gpt-oss:20b
+  extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
 # Discord routing
 discord:
   default_channel_id: "1513207696331898981"
+  smoke_test_channel_id: "100000000000001006" # porter-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207696331898981"
+    - "100000000000001006" # porter-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
 avatar_path: agents/assistants/porter/avatar.png
@@ -104,10 +111,14 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — distinct "Bravo <Name>" wake word so it never
-# collides with the original porter's wake word (start-anchored matcher).
+# Voice addressing — Ollama clones are the primary voice targets: the bare
+# name and nicknames (and hey/hello greetings, which the matcher treats as
+# optional prefixes) route here; "Zulu Porter" is the original's fallback.
 voice:
   call_signs:
     - "Bravo Porter"
+    - Porter
+    - Brother Porter
   kokoro_voice: am_liam
   default_channel_id: "1513207696331898981"
+  smoke_test_channel_id: "100000000000001006" # porter-test (placeholder; real id in profile overlay)

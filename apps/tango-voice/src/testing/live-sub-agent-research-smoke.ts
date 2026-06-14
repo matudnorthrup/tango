@@ -175,6 +175,17 @@ async function waitForDeterministicTurn(input: {
 }
 
 async function main(): Promise<void> {
+  // Every assertion in this smoke targets the legacy deterministic sub-agent
+  // coordinator (deterministic_turns rows, spawn_sub_agents operations,
+  // sub_agent_runs accounting), all retired with the v2 runtime on 2026-05-25
+  // ("Retire legacy Tango runtime paths"). Running it can only fail. Exit
+  // explicitly instead of reporting a misleading timeout. See TGO-716.
+  console.error(
+    "[subagent-smoke] DEPRECATED: the deterministic sub-agent pipeline was retired with the v2 runtime (2026-05-25); "
+    + "these assertions have no v2 equivalent. See TGO-716 for the v2 smoke strategy.",
+  );
+  process.exit(2);
+
   const baseUrl = getBridgeBaseUrl();
   const headers = getBridgeHeaders();
   const sessionId = getArg("--session") ?? "sierra-live-subagent-smoke";

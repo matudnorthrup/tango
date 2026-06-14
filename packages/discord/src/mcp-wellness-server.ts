@@ -40,6 +40,7 @@ import { createGospelLibraryTools, gospelLibraryActionLooksMutating } from "./go
 import { createTangoTools } from "./tango-agent-tools.js";
 import { createDevTools } from "./tango-dev-tools.js";
 import { createDiscordManageTools } from "./discord-manage-tools.js";
+import { createDiscordSendImageTools } from "./discord-send-image-tools.js";
 import { createOnePasswordTools } from "./onepassword-agent-tools.js";
 import { createMemoryTools } from "./memory-agent-tools.js";
 import { createAttachmentTools } from "./attachment-agent-tools.js";
@@ -50,7 +51,10 @@ import { createWellnessDbTools, wellnessDbToolLooksReadOnly } from "./wellness-d
 import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agent-tools.js";
 import { createKiloLedgerTools, kiloLedgerToolLooksReadOnly } from "./kilo-ledger-tools.js";
 import { createNotionTools } from "./notion-agent-tools.js";
+import { createClaudeSessionTools } from "./claude-session-tools.js";
+import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
+import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
 import { GovernanceChecker, resolveDatabasePath } from "@tango/core";
 import type { AgentTool, AccessLevel } from "@tango/core";
 
@@ -109,6 +113,7 @@ const allTools: AgentTool[] = [
   ...createTangoTools(),
   ...createDevTools(),
   ...createDiscordManageTools({ storage: threadSessionStorage }),
+  ...createDiscordSendImageTools(),
   ...createOnePasswordTools(),
   ...createMemoryTools(),
   ...createAttachmentTools(),
@@ -119,6 +124,7 @@ const allTools: AgentTool[] = [
   ...createEmailAgentTools(),
   ...createKiloLedgerTools(),
   ...createNotionTools(),
+  ...createClaudeSessionTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -160,14 +166,6 @@ function looksLikeLinearReadQuery(value: unknown): boolean {
     return true;
   }
   return !/^\s*mutation\b/iu.test(value);
-}
-
-function isReadOnlyGogEmailCommand(command: unknown): boolean {
-  const head = getCommandHead(command);
-  return (
-    (head[0] === "gmail" && head[1] === "messages" && (head[2] === "search" || head[2] === "list"))
-    || (head[0] === "gmail" && head[1] === "thread" && head[2] !== "modify")
-  );
 }
 
 function isReadOnlyGogCalendarCommand(command: unknown): boolean {
@@ -269,8 +267,7 @@ function getToolsForWorker(
   const governanceTools = (!principalId || !governance)
     ? allTools
     : allTools.filter((tool) => {
-      const requiredLevel = (governance.getToolAccessType(tool.name) ?? "read") as AccessLevel;
-      return governance.hasPermission(principalId, tool.name, requiredLevel);
+      return getListedToolAccessLevel(governance, principalId, tool.name) !== null;
     });
 
   if (!allowedToolIds) {
@@ -313,6 +310,8 @@ function inferRequestedAccessLevel(
       return isReadOnlySql(args.sql) ? "read" : "write";
     case "recipe_write":
     case "discord_manage":
+    case "spawn_claude_session":
+    case "discord_send_image":
       return "write";
     case "tango_file": {
       const operation = typeof args.operation === "string" ? args.operation.trim().toLowerCase() : "";
@@ -532,7 +531,11 @@ if (isHttpMode) {
             id: message.id,
             result: {
               tools: tools.map((t) => ({
-                ...buildMcpListedTool(t, governance, readOnlyStep ? "read" : null),
+                ...buildMcpListedTool(
+                  t,
+                  governance,
+                  readOnlyStep ? "read" : getListedToolAccessLevel(governance, principalId, t.name),
+                ),
               })),
             },
           };
@@ -648,7 +651,11 @@ if (isHttpMode) {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     debug(`tools/list requested — returning ${visibleTools.length} tools (readOnly=${readOnlyStep ? "yes" : "no"})`);
     return {
-      tools: visibleTools.map((t) => buildMcpListedTool(t, governance, readOnlyStep ? "read" : null)),
+      tools: visibleTools.map((t) => buildMcpListedTool(
+        t,
+        governance,
+        readOnlyStep ? "read" : getListedToolAccessLevel(governance, principalId, t.name),
+      )),
     };
   });
 

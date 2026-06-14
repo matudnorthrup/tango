@@ -12,12 +12,18 @@ export interface CurrentTurnMetadataConfig {
   timeFormat?: CurrentTurnTimeFormat;
 }
 
+export interface CurrentTurnDiscordContext {
+  channelId?: string | null;
+  threadId?: string | null;
+}
+
 export interface CurrentTurnMetadataInput {
   timestamp?: string | number | Date | null;
   timestampSource?: string | null;
   config?: CurrentTurnMetadataConfig;
   now?: Date;
   env?: CurrentTurnTimeZoneEnv;
+  discord?: CurrentTurnDiscordContext;
 }
 
 function sanitizeMetadataValue(value: string): string {
@@ -121,7 +127,7 @@ export function buildCurrentTurnMetadataPrompt(
     hour12,
   }).format(timestampDate);
 
-  return [
+  const lines = [
     "Current user message metadata:",
     `- calendar_day: ${sanitizeMetadataValue(calendarDay)}`,
     `- local_date: ${sanitizeMetadataValue(localDate)}`,
@@ -129,5 +135,16 @@ export function buildCurrentTurnMetadataPrompt(
     `- timezone: ${timeZone}`,
     `- timestamp_utc: ${timestampDate.toISOString()}`,
     `- timestamp_source: ${timestampSource}`,
-  ].join("\n");
+  ];
+
+  const channelId = input.discord?.channelId?.trim();
+  if (channelId) {
+    lines.push(`- discord_channel_id: ${sanitizeMetadataValue(channelId)}`);
+  }
+  const threadId = input.discord?.threadId?.trim();
+  if (threadId) {
+    lines.push(`- discord_thread_id: ${sanitizeMetadataValue(threadId)}`);
+  }
+
+  return lines.join("\n");
 }

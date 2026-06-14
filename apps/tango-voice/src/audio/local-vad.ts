@@ -28,7 +28,7 @@ export function computeLocalVadRuntimeOptions(
     | 'vadFrameSamples'
     | 'vadPositiveSpeechThreshold'
     | 'vadNegativeSpeechThreshold'
-  >,
+  > & Partial<Pick<VoiceSettingsValues, 'shortCommandRescueEnabled' | 'shortCommandMinDurationMs'>>,
 ): LocalVadRuntimeOptions {
   const frameSamples = settings.vadFrameSamples;
   const frameDurationMs = frameDurationForSamples(frameSamples);
@@ -39,12 +39,19 @@ export function computeLocalVadRuntimeOptions(
     positiveSpeechThreshold,
   );
 
+  // When short-command rescue is on, the VAD emits down to the rescue floor;
+  // the pipeline strict-matches anything below minSpeechDurationMs before
+  // treating it as speech.
+  const minSpeechMs = settings.shortCommandRescueEnabled && settings.shortCommandMinDurationMs !== undefined
+    ? Math.min(settings.minSpeechDurationMs, settings.shortCommandMinDurationMs)
+    : settings.minSpeechDurationMs;
+
   return {
     frameSamples,
     positiveSpeechThreshold,
     negativeSpeechThreshold,
     redemptionFrames: Math.max(1, Math.ceil(settings.silenceDurationMs / frameDurationMs)),
-    minSpeechFrames: Math.max(1, Math.ceil(settings.minSpeechDurationMs / frameDurationMs)),
+    minSpeechFrames: Math.max(1, Math.ceil(minSpeechMs / frameDurationMs)),
     preSpeechPadFrames: 1,
   };
 }

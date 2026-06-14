@@ -178,19 +178,26 @@ describe("loadSessionConfigs", () => {
     });
   });
 
-  it("loads Porter session routing for the agent and smoke-test channels", () => {
+  it("loads Porter session routing with the smoke-test channel owned by the Ollama clone", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     process.env.TANGO_CONFIG_DIR = defaultsDir;
 
-    const porter = loadSessionConfigs(defaultsDir).find((session) => session.id === "project:porter");
+    const sessions = loadSessionConfigs(defaultsDir);
+    const porter = sessions.find((session) => session.id === "project:porter");
     expect(porter).toMatchObject({
       id: "project:porter",
       type: "project",
       agent: "porter",
-      channels: [
-        "discord:100000000000000006",
-        "discord:100000000000001006",
-      ],
+      channels: ["discord:100000000000000006"],
+    });
+
+    // -test channels route to the -ollama clones, not the classic personas (TGO-739).
+    const smoke = sessions.find((session) => session.id === "smoke-testing-porter");
+    expect(smoke).toMatchObject({
+      id: "smoke-testing-porter",
+      type: "project",
+      agent: "porter-ollama",
+      channels: ["discord:100000000000001006"],
     });
   });
 });

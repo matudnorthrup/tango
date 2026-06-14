@@ -3,7 +3,7 @@
 #
 # Usage:
 #   scripts/send-tmux-message.sh <target-session> <message-file>
-#   scripts/send-tmux-message.sh CHIEF-OF-STAFF /tmp/cos-report.md
+#   scripts/send-tmux-message.sh TANGO-PM-myproject /tmp/message.md
 #
 # Why this exists:
 # Claude Code's paste detection buffers multi-line tmux pastes as "[Pasted text +N lines]"
@@ -18,7 +18,7 @@ MSG_FILE="${2:-}"
 
 if [[ -z "$TARGET" || -z "$MSG_FILE" ]]; then
   echo "Usage: $0 <target-session> <message-file>" >&2
-  echo "Example: $0 CHIEF-OF-STAFF /tmp/cos-report.md" >&2
+  echo "Example: $0 TANGO-PM-myproject /tmp/message.md" >&2
   exit 1
 fi
 

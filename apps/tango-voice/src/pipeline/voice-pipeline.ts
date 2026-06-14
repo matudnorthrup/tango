@@ -7,7 +7,9 @@ import {
   extractInlineTopicReference,
   formatCurrentTopicMessage,
   formatOpenedTopicMessage,
+  isStrongAddressMatch,
   sanitizeAssistantResponse,
+  wakeNamePattern,
   type VoiceAddressAgent,
 } from '@tango/voice';
 import { VoiceConnection } from '@discordjs/voice';
@@ -15,6 +17,7 @@ import { TextChannel } from 'discord.js';
 import { AudioReceiver } from '../discord/audio-receiver.js';
 import { DiscordAudioPlayer } from '../discord/audio-player.js';
 import { transcribe, transcribeCommandTail, type StreamingPartialEvent } from '../services/whisper.js';
+import { calculateRMSEnergy } from '../audio/silence-detector.js';
 import { getResponse, quickCompletion, type Message } from '../services/claude.js';
 import { textToSpeechStream } from '../services/tts.js';
 import { SessionTranscript } from '../services/session-transcript.js';
@@ -377,28 +380,12 @@ export class VoicePipeline {
       ?? null;
     if (!contextAgentId || contextAgentId === address.agent.id) return address;
 
-    const lower = transcript.trim().toLowerCase();
-    const nameLower = address.matchedName.toLowerCase();
-
-    // Greeting prefix — "Hey <name>" / "Hello <name>" is intentional.
-    // Whisper often inserts punctuation after the greeting word ("hello, malibu").
-    const greetingPrefix = new RegExp(`^(?:hey|hello)[,\\s]+${nameLower}(?:\\b|[,:])`, 'i');
-    if (greetingPrefix.test(lower)) {
+    // Check both the raw transcript and the preamble-stripped address transcript.
+    const candidates = [transcript, address.transcript].filter(
+      (text): text is string => Boolean(text?.trim()),
+    );
+    if (candidates.some((text) => isStrongAddressMatch(address.matchedName, text))) {
       return address;
-    }
-    // Also check the address transcript (preamble-stripped) for mid-transcript wake matches
-    const addressLower = address.transcript?.trim().toLowerCase();
-    if (addressLower && greetingPrefix.test(addressLower)) {
-      return address;
-    }
-
-    // Comma or colon after name — "Watson, do this" / "Malibu: check this"
-    const nameIdx = lower.indexOf(nameLower);
-    if (nameIdx >= 0) {
-      const charAfterName = lower[nameIdx + nameLower.length] ?? '';
-      if (charAfterName === ',' || charAfterName === ':') {
-        return address;
-      }
     }
 
     console.log(
@@ -603,7 +590,7 @@ export class VoicePipeline {
     const names = explicitAddress?.agent.callSigns ?? this.getAllWakeNames();
     for (const name of names) {
       const trigger = new RegExp(
-        `^(?:(?:hey|hello),?\\s+)?${this.escapeRegex(name)}[,.]?\\s*`,
+        `^(?:(?:hey|hello),?\\s+)?${wakeNamePattern(name)}[,.]?\\s*`,
         'i',
       );
       const stripped = source.replace(trigger, '').trim();
@@ -722,6 +709,62 @@ export class VoicePipeline {
 
     // If there's no alphabetic signal at all, treat as non-lexical noise.
     return !/[a-z]/i.test(text);
+  }
+
+  private isLikelyGraceFarewellArtifact(transcript: string): boolean {
+    const normalized = this.normalizeClosePhrase(transcript);
+    if (!normalized) return false;
+
+    const words = normalized.split(/\s+/).filter(Boolean);
+    if (words.length === 0 || words.length > 6) return false;
+
+    const text = words.join(' ');
+    if (/^(?:you\s+)?(?:bye|bye bye|goodbye|good bye|farewell)$/.test(text)) return true;
+    if (/^(?:thanks|thank you)(?:\s+(?:you|bye|goodbye|good bye))?$/.test(text)) return true;
+    if (/^(?:see|talk to)\s+(?:you|ya)(?:\s+(?:later|soon|next time))?(?:\s+bye)?$/.test(text)) return true;
+    if (/^good night(?:\s+bye)?$/.test(text)) return true;
+
+    const allowedArtifactWords = new Set([
+      'all',
+      'alright',
+      'bye',
+      'but',
+      'and',
+      'farewell',
+      'good',
+      'goodbye',
+      'later',
+      'next',
+      'night',
+      'ok',
+      'okay',
+      'right',
+      'see',
+      'soon',
+      'so',
+      'talk',
+      'thanks',
+      'thank',
+      'time',
+      'to',
+      'uh',
+      'um',
+      'ya',
+      'yeah',
+      'yep',
+      'you',
+    ]);
+    const hasFarewellMarker = words.some((word) => (
+      word === 'bye' ||
+      word === 'goodbye' ||
+      word === 'farewell'
+    ));
+    const hasGratitudeMarker = words.includes('thanks') || (
+      words.includes('thank') && words.includes('you')
+    );
+
+    return (hasFarewellMarker || hasGratitudeMarker)
+      && words.every((word) => allowedArtifactWords.has(word));
   }
 
   private normalizeForEcho(text: string): string {
@@ -884,10 +927,6 @@ export class VoicePipeline {
     return this.classifyIndicateDirectiveTranscript(transcript) !== null;
   }
 
-  private escapeRegex(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
   private normalizeClosePhrase(text: string): string {
     return text
       .toLowerCase()
@@ -992,6 +1031,13 @@ export class VoicePipeline {
    */
   private static readonly BARE_SAFE_CONVERSATIONAL_CLOSES = ['tango out'];
   private static readonly MAX_TAIL_CONVERSATIONAL_CLOSE_CONTENT_WORDS = 16;
+  /** Words that bind a trailing close phrase into the sentence as content. */
+  private static readonly TAIL_CLOSE_BINDING_PREDECESSORS = new Set([
+    'to', 'just', 'should', 'shouldnt', 'would', 'wouldnt', 'could', 'couldnt',
+    'can', 'cant', 'will', 'wont', 'might', 'may', 'shall', 'gonna', 'going',
+    'and', 'then', 'or', 'if', 'whether', 'lets', 'we', 'i', 'you', 'they',
+    'dont', 'not', 'never', 'said', 'say', 'says',
+  ]);
 
   private isStandaloneConversationalClose(text: string): boolean {
     const normalized = this.normalizeClosePhrase(text);
@@ -1083,6 +1129,17 @@ export class VoicePipeline {
         candidate.type === 'conversational'
         && contentWords.length > VoicePipeline.MAX_TAIL_CONVERSATIONAL_CLOSE_CONTENT_WORDS
       ) {
+        continue;
+      }
+      // Reject closes that are syntactically bound into the sentence: when
+      // the preceding word is a connective/modal ("...we should just go
+      // ahead", "...let me know if that's all"), the phrase is dictation
+      // content, not a deliberate close. A punctuated pause on the preceding
+      // word ("...book it, go ahead") always reads as deliberate.
+      const lastContentWord = contentWords[contentWords.length - 1] ?? '';
+      const hasPauseBoundary = /[.,!?;:]$/.test(lastContentWord);
+      const predecessor = this.normalizeClosePhrase(lastContentWord);
+      if (!hasPauseBoundary && VoicePipeline.TAIL_CLOSE_BINDING_PREDECESSORS.has(predecessor)) {
         continue;
       }
       const content = contentWords.join(' ');
@@ -1196,13 +1253,28 @@ export class VoicePipeline {
       .filter((segment) => segment.length > 0);
     const captured = segments.join(' ').trim();
     if (!captured) {
-      // Nothing captured yet — clear silently
+      // Nothing captured yet — clear, but audibly: a silent death here is
+      // indistinguishable from "still listening" and strands the user.
       this.clearIndicateCapture('timeout-empty');
+      void this.player.playEarcon('gate-closed');
       return;
     }
     if (segments.length === 1 && this.isLikelyAccidentalIndicateSeed(captured)) {
-      console.log('Indicate capture timed out with likely accidental short seed — cleared silently');
+      console.log('Indicate capture timed out with likely accidental short seed — cleared (gate-closed cue)');
       this.clearIndicateCapture('timeout-accidental');
+      void this.player.playEarcon('gate-closed');
+      return;
+    }
+    // Grace-seeded captures (no wake word ever spoken) get one nudge, then
+    // expire. They are usually ambient speech or STT hallucinations that
+    // happened to land in a grace window; nudging forever leaves a capture
+    // that any later "thanks" flushes to an agent as garbage (TGO-751).
+    // Wake-initiated captures keep the never-discard behavior — the user
+    // explicitly addressed an agent and may be mid-dictation.
+    if (this.ctx.indicateCaptureOrigin === 'grace' && this.indicateCaptureNudgeCount >= 1) {
+      console.log(`Indicate capture expired (grace-seeded, no close word after nudge) — discarded ${captured.length} chars`);
+      this.clearIndicateCapture('timeout-grace-expired');
+      void this.player.playEarcon('gate-closed');
       return;
     }
     // Nudge the user — never discard captured content.
@@ -1218,15 +1290,16 @@ export class VoicePipeline {
     this.armIndicateCaptureTimeout();
   }
 
-  private startIndicateCapture(initialSegment: string): void {
+  private startIndicateCapture(initialSegment: string, origin: 'wake' | 'grace' = 'wake'): void {
     const segment = initialSegment.trim();
     this.ctx.indicateCaptureActive = true;
     this.ctx.indicateCaptureSegments = segment ? [segment] : [];
     this.ctx.indicateCaptureStartedAt = Date.now();
     this.ctx.indicateCaptureLastSegmentAt = this.ctx.indicateCaptureStartedAt;
+    this.ctx.indicateCaptureOrigin = origin;
     this.indicateCaptureNudgeCount = 0;
     this.armIndicateCaptureTimeout();
-    console.log(`Indicate capture started${segment ? ` (seed=${segment.length} chars)` : ''}`);
+    console.log(`Indicate capture started${segment ? ` (seed=${segment.length} chars)` : ''}${origin === 'grace' ? ' [grace-seeded]' : ''}`);
   }
 
   private appendIndicateCaptureSegment(segment: string): void {
@@ -1316,8 +1389,9 @@ export class VoicePipeline {
     // Command path: close/cancel only when wake-prefixed, mirroring start gate.
     if (hasWakeWord && this.isCancelIntent(stripped)) {
       this.clearIndicateCapture('cancel-intent');
-      await this.speakResponse('Cancelled.', { inbox: true });
+      await this.speakResponse('Cancelled.', { inbox: true, skipGateGrace: true });
       await this.player.playEarcon('cancelled');
+      this.resetConversationStateAfterCancel();
       return { action: 'cancel' };
     }
 
@@ -1671,6 +1745,7 @@ export class VoicePipeline {
     this.ctx.indicateCaptureSegments = [];
     this.ctx.indicateCaptureStartedAt = 0;
     this.ctx.indicateCaptureLastSegmentAt = 0;
+    this.ctx.indicateCaptureOrigin = null;
     this.indicateProbeResult = null;
     this.indicateProbeEarconPlayed = false;
   }
@@ -2038,7 +2113,91 @@ export class VoicePipeline {
     }
   }
 
-  private async handleUtterance(userId: string, wavBuffer: Buffer, durationMs: number): Promise<void> {
+  /** Cached strict-match transcript from the short-command rescue path. */
+  private shortCommandRescue: { wavBuffer: Buffer; transcript: string } | null = null;
+
+  private static readonly WAV_HEADER_BYTES = 44;
+
+  /**
+   * Strict acceptance list for sub-floor utterances: close/dismiss phrases,
+   * bare queue commands, and whole-utterance cancel words. Anything else is
+   * treated as the noise the old VAD floor existed to reject.
+   */
+  private matchesShortCommandPhrase(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    if (this.isDismissClose(trimmed)) return true;
+    if (this.isIndicateCloseCommand(trimmed)) return true;
+    if (this.isStandaloneConversationalClose(trimmed)) return true;
+    if (this.extractCloseOnlyUtterance(trimmed) !== null) return true;
+    if (this.matchBareQueueCommand(trimmed) !== null) return true;
+    const normalized = this.normalizeClosePhrase(trimmed);
+    return /^(?:cancel|stop|never ?mind|forget it)$/.test(normalized);
+  }
+
+  /**
+   * Sub-floor utterances (below minSpeechDurationMs) used to die as VAD
+   * misfires, which silently ate quick commands like "go ahead" and
+   * "thank you". Rescue them: transcribe on the command STT lane and accept
+   * only strict matches. The RMS gate blocks Whisper's notorious
+   * "Thank you." hallucination on near-silent blips.
+   */
+  private async tryShortCommandRescue(wavBuffer: Buffer, durationMs: number): Promise<boolean> {
+    const settings = getVoiceSettings();
+    if (!settings.shortCommandRescueEnabled) return false;
+
+    const rms = calculateRMSEnergy(wavBuffer.subarray(VoicePipeline.WAV_HEADER_BYTES));
+    if (rms <= settings.speechThreshold) {
+      console.log(`Short-command rescue skipped: low energy (rms=${Math.round(rms)}, ${durationMs}ms)`);
+      return false;
+    }
+
+    let text = '';
+    try {
+      // A sub-floor clip is far shorter than the tail window, so this
+      // transcribes the whole clip on the command/partials STT lane.
+      const result = await transcribeCommandTail(wavBuffer, { tailMs: settings.sttCommandTailMs });
+      text = result?.text.trim() ?? '';
+    } catch (err: any) {
+      console.warn(`Short-command rescue transcription failed: ${err?.message ?? err}`);
+      return false;
+    }
+    if (!text) return false;
+
+    if (!this.matchesShortCommandPhrase(text)) {
+      console.log(`Short-command rescue rejected: "${text}" (${durationMs}ms, no strict match)`);
+      return false;
+    }
+
+    console.log(`Short-command rescue accepted: "${text}" (${durationMs}ms)`);
+    this.shortCommandRescue = { wavBuffer, transcript: text };
+    return true;
+  }
+
+  private async handleUtterance(
+    userId: string,
+    wavBuffer: Buffer,
+    durationMs: number,
+    // Present only when re-processing a buffered utterance: the grace state
+    // snapshotted when the audio was actually captured. Without it, replay
+    // would evaluate grace against the fresh window that opens when the
+    // pipeline finishes, letting stale wake-less speech through (TGO-751).
+    replayGraceAtCapture?: { gate: boolean; prompt: boolean },
+  ): Promise<void> {
+    // Short-utterance gate: clips below the normal speech floor only proceed
+    // when they strictly match a known short command; everything else takes
+    // the same silent-rejection path the VAD floor used to apply.
+    if (
+      durationMs < getVoiceSettings().minSpeechDurationMs
+      && (!this.shortCommandRescue || this.shortCommandRescue.wavBuffer !== wavBuffer)
+    ) {
+      const rescued = await this.tryShortCommandRescue(wavBuffer, durationMs);
+      if (!rescued) {
+        this.handleRejectedAudio(userId, durationMs);
+        return;
+      }
+    }
+
     this.counters.utterancesProcessed++;
     // Clear stale speculative queue item (safety net for timeout edge case)
     if (this.ctx.speculativeQueueItemId && !this.stateMachine.getQueueChoiceState()) {
@@ -2052,12 +2211,19 @@ export class VoicePipeline {
     const indicateEndpointAtCapture = this.usesIndicateEndpoint(modeAtCapture, gatedMode);
     const nowAtCapture = Date.now();
     const utteranceStartEstimate = nowAtCapture - Math.max(0, durationMs);
-    const graceFromGateAtCapture =
-      nowAtCapture < this.ctx.gateGraceUntil ||
-      utteranceStartEstimate < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS);
-    const graceFromPromptAtCapture =
-      nowAtCapture < this.ctx.promptGraceUntil ||
-      utteranceStartEstimate < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS);
+    const isBufferedReplay = replayGraceAtCapture !== undefined;
+    const graceFromGateAtCapture = isBufferedReplay
+      ? replayGraceAtCapture.gate
+      : (
+        nowAtCapture < this.ctx.gateGraceUntil ||
+        utteranceStartEstimate < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+      );
+    const graceFromPromptAtCapture = isBufferedReplay
+      ? replayGraceAtCapture.prompt
+      : (
+        nowAtCapture < this.ctx.promptGraceUntil ||
+        utteranceStartEstimate < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+      );
 
     // Interrupt TTS playback if user speaks — but don't kill the waiting tone
     const wasPlayingResponse = this.player.isPlaying() && !this.player.isWaiting();
@@ -2075,6 +2241,11 @@ export class VoicePipeline {
     const gateClosedCueInterrupt = gatedInterrupt && this.player.isPlayingEarcon('gate-closed');
     let keepCurrentState = false;
     let playedListeningEarly = false;
+    // When reply context temporarily focuses an agent for this dispatch, the
+    // prior focus is restored in the finally block. Persisting it would leave
+    // focusedPromptBypass disabling the wake-word gate for the rest of the
+    // session (TGO-751).
+    let replyFocusRestore: { setToAgentId: string; prevId: string | null; prevName: string | null } | null = null;
     let partialWakeWordDetected = false;
     let partialPlaybackStoppedByPartial = false;
     let partialWakeCommandDetected: VoiceCommand | null = null;
@@ -2111,14 +2282,20 @@ export class VoicePipeline {
       ) {
         console.log('Indicate capture: buffering utterance + starting close word probe');
         const effects = this.transitionAndResetWatchdog({ type: 'UTTERANCE_RECEIVED' });
-        this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs);
+        this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs, {
+          gate: graceFromGateAtCapture,
+          prompt: graceFromPromptAtCapture,
+        });
         void this.startIndicateCloseWordProbe(wavBuffer);
         await this.applyEffects(effects);
         return;
       }
       console.log('Already processing — buffering utterance');
       const effects = this.transitionAndResetWatchdog({ type: 'UTTERANCE_RECEIVED' });
-      this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs);
+      this.stateMachine.bufferUtterance(userId, wavBuffer, durationMs, {
+        gate: graceFromGateAtCapture,
+        prompt: graceFromPromptAtCapture,
+      });
       await this.applyEffects(effects);
       return;
     }
@@ -2183,7 +2360,14 @@ export class VoicePipeline {
       ) {
         void this.startIndicateCloseWordProbe(wavBuffer);
       }
-      let transcript = await transcribe(
+      const rescuedShort = this.shortCommandRescue && this.shortCommandRescue.wavBuffer === wavBuffer
+        ? this.shortCommandRescue
+        : null;
+      if (rescuedShort) {
+        this.shortCommandRescue = null;
+        console.log(`Whisper STT (short-rescue cache): "${rescuedShort.transcript}"`);
+      }
+      let transcript = rescuedShort?.transcript ?? await transcribe(
         wavBuffer,
         this.shouldUseStreamingTranscription()
           ? {
@@ -2312,6 +2496,34 @@ export class VoicePipeline {
         if (this.stateMachine.isAwaitingState()) {
           await this.playReadyEarcon();
         } else if (gatedSpeakingProbe) {
+          keepCurrentState = true;
+        } else {
+          this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
+        }
+        return;
+      }
+
+      const graceOpenedAtCapture =
+        graceFromGateAtCapture ||
+        graceFromPromptAtCapture ||
+        (!isBufferedReplay && (
+          Date.now() < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS) ||
+          Date.now() < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+        ));
+      if (
+        gatedMode
+        && graceOpenedAtCapture
+        && !this.ctx.indicateCaptureActive
+        && !this.stateMachine.isAwaitingState()
+        && this.stateMachine.getStateType() !== 'INBOX_FLOW'
+        && !this.matchesAnyWakeWord(transcript)
+        && this.isLikelyGraceFarewellArtifact(transcript)
+      ) {
+        console.log(`Grace farewell artifact suppressed: "${transcript}"`);
+        if (!this.ctx.pendingWaitCallback) {
+          this.stopWaitingLoop();
+        }
+        if (gatedSpeakingProbe) {
           keepCurrentState = true;
         } else {
           this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
@@ -2475,8 +2687,14 @@ export class VoicePipeline {
           (
             graceFromGateAtCapture ||
             graceFromPromptAtCapture ||
-            Date.now() < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS) ||
-            Date.now() < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+            // Live utterances may also ride a grace window that opened while
+            // they were being transcribed. Buffered replays must not — the
+            // fresh window that opens at pipeline completion says nothing
+            // about when the buffered audio was actually spoken (TGO-751).
+            (!isBufferedReplay && (
+              Date.now() < (this.ctx.gateGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS) ||
+              Date.now() < (this.ctx.promptGraceUntil + VoicePipeline.READY_HANDOFF_TOLERANCE_MS)
+            ))
           )
         );
       const interruptGraceEligible = indicateFinalized || (allowGraceBypass && (graceFromGateAtCapture || graceFromPromptAtCapture));
@@ -2589,6 +2807,12 @@ export class VoicePipeline {
             return;
           }
 
+          if (shouldStartFromGrace && seed && this.isLikelyAccidentalIndicateSeed(seed)) {
+            console.log(`Indicate start suppressed — likely accidental grace seed: "${seed}"`);
+            this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
+            return;
+          }
+
           // Rapid-fire: wake word + content in the same segment can finalize
           // immediately when the user either included an explicit close or
           // spoke a complete one-shot prompt in the same breath.
@@ -2634,7 +2858,7 @@ export class VoicePipeline {
           }
 
           if (!indicateFinalized) {
-            this.startIndicateCapture(seed);
+            this.startIndicateCapture(seed, shouldStartFromWake ? 'wake' : 'grace');
             // Preserve the addressed agent so it can be used when the capture
             // finalizes — the wake word won't be present in the finalized
             // transcript, so resolveExplicitAddress would return null.
@@ -2676,6 +2900,9 @@ export class VoicePipeline {
           } else if (!effectiveWakeWord && interruptGraceEligible) {
             console.log('Gated interrupt: accepted during ready handoff grace');
             this.player.stopPlayback('speech-during-playback-gated-grace');
+          } else if (!effectiveWakeWord && focusedPromptBypass) {
+            console.log('Gated interrupt: allowed via focused agent (no wake word)');
+            this.player.stopPlayback('speech-during-playback-focused-agent');
           } else {
             console.log('Gated interrupt: wake word confirmed, interrupting playback');
             this.player.stopPlayback('speech-during-playback-gated-wake');
@@ -2756,8 +2983,13 @@ export class VoicePipeline {
 
           const replyAgent = this.voiceTargets.getAgent(replyAgentId);
           if (replyAgent) {
+            replyFocusRestore = {
+              setToAgentId: replyAgent.id,
+              prevId: this.ctx.focusedAgentId,
+              prevName: this.ctx.focusedAgentName,
+            };
             this.setFocusedAgent(replyAgent);
-            console.log(`Reply context: focused agent set to ${replyAgent.displayName ?? replyAgentId}`);
+            console.log(`Reply context: focused agent set to ${replyAgent.displayName ?? replyAgentId} (this dispatch only)`);
           }
 
           replyContextApplied = true;
@@ -3029,6 +3261,14 @@ export class VoicePipeline {
       this.stopWaitingLoop();
       this.player.stopPlayback('pipeline-error');
     } finally {
+      // Reply-context focus is dispatch-scoped: restore the prior focus now
+      // that this utterance has been routed. Guarded so an explicit "focus on
+      // X" command issued mid-run (via the LLM command classifier) wins.
+      if (replyFocusRestore && this.ctx.focusedAgentId === replyFocusRestore.setToAgentId) {
+        this.ctx.focusedAgentId = replyFocusRestore.prevId;
+        this.ctx.focusedAgentName = replyFocusRestore.prevName;
+      }
+
       // Don't overwrite AWAITING/flow states — they were set intentionally by handlers
       const st = this.stateMachine.getStateType();
       if (!keepCurrentState && !this.stateMachine.isAwaitingState() && st !== 'INBOX_FLOW') {
@@ -3045,7 +3285,12 @@ export class VoicePipeline {
         console.log('Re-processing buffered utterance');
         // Use setImmediate to avoid deep recursion
         setImmediate(() => {
-          this.handleUtterance(buffered.userId, buffered.wavBuffer, buffered.durationMs);
+          this.handleUtterance(
+            buffered.userId,
+            buffered.wavBuffer,
+            buffered.durationMs,
+            buffered.graceAtCapture ?? { gate: false, prompt: false },
+          );
         });
       }
     }
@@ -3282,7 +3527,8 @@ export class VoicePipeline {
       if (this.isCancelIntent(input)) {
         const effects = this.transitionAndResetWatchdog({ type: 'CANCEL_FLOW' });
         await this.applyEffects(effects);
-        await this.speakResponse('Cancelled.');
+        await this.speakResponse('Cancelled.', { skipGateGrace: true });
+        this.resetConversationStateAfterCancel();
         return;
       }
 
@@ -3323,7 +3569,8 @@ export class VoicePipeline {
       if (this.isCancelIntent(input)) {
         const effects = this.transitionAndResetWatchdog({ type: 'CANCEL_FLOW' });
         await this.applyEffects(effects);
-        await this.speakResponse('Cancelled.');
+        await this.speakResponse('Cancelled.', { skipGateGrace: true });
+        this.resetConversationStateAfterCancel();
         return;
       }
 
@@ -4228,7 +4475,12 @@ Use channel names (the part before the colon). Do not explain.`,
           ? `The last message is short. ${normalized}`
           : this.toSpokenText(lastMsg.content, 'Message available.')
       );
-    await this.speakResponse(raw, { inbox: true, allowSummary: true, isChannelMessage: true });
+    await this.speakResponse(raw, {
+      inbox: true,
+      allowSummary: true,
+      isChannelMessage: true,
+      speakerAgentId: this.router?.getActiveTangoRoute?.()?.agentId ?? null,
+    });
     await this.playReadyEarcon();
     // Start follow-up grace after the ready cue so long readbacks don't
     // consume the entire window before the user can respond.
@@ -4276,7 +4528,7 @@ Use channel names (the part before the colon). Do not explain.`,
     console.log('Silent wait enabled for active processing item');
   }
 
-  private deliverWaitResponse(responseText: string, speakerAgentId?: string | null): void {
+  private deliverWaitResponse(responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null): void {
     void (async () => {
       try {
         this.stopWaitingLoop();
@@ -4288,6 +4540,7 @@ Use channel names (the part before the colon). Do not explain.`,
             forceFull: false,
             isChannelMessage: true,
             speakerAgentId,
+            ...(replySessionKey ? { replySource: { sessionKey: replySessionKey } } : {}),
           });
           this.transitionAndResetWatchdog({ type: 'SPEAKING_COMPLETE' });
           await this.playReadyEarcon();
@@ -4296,7 +4549,7 @@ Use channel names (the part before the colon). Do not explain.`,
           // Pipeline got busy (often due to an overlapping command like "silent").
           // Retry delivery once we return to idle instead of dropping it.
           console.log('Wait response delivery deferred (pipeline busy)');
-          this.deferWaitResponse(responseText, speakerAgentId);
+          this.deferWaitResponse(responseText, speakerAgentId, replySessionKey);
         }
       } catch (err: any) {
         console.error(`Wait response delivery failed: ${err.message}`);
@@ -4310,9 +4563,10 @@ Use channel names (the part before the colon). Do not explain.`,
     })();
   }
 
-  private deferWaitResponse(responseText: string, speakerAgentId?: string | null): void {
+  private deferWaitResponse(responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null): void {
     this.ctx.deferredWaitResponseText = responseText;
     this.ctx.deferredWaitSpeakerAgentId = speakerAgentId ?? null;
+    this.ctx.deferredWaitReplySessionKey = replySessionKey ?? null;
     if (this.deferredWaitRetryTimer) return;
     this.deferredWaitRetryTimer = setInterval(() => {
       if (!this.ctx.deferredWaitResponseText) {
@@ -4324,10 +4578,12 @@ Use channel names (the part before the colon). Do not explain.`,
       }
       const text = this.ctx.deferredWaitResponseText;
       const deferredSpeakerAgentId = this.ctx.deferredWaitSpeakerAgentId;
+      const deferredReplySessionKey = this.ctx.deferredWaitReplySessionKey;
       this.ctx.deferredWaitResponseText = null;
       this.ctx.deferredWaitSpeakerAgentId = null;
+      this.ctx.deferredWaitReplySessionKey = null;
       this.clearDeferredWaitRetry();
-      this.deliverWaitResponse(text, deferredSpeakerAgentId);
+      this.deliverWaitResponse(text, deferredSpeakerAgentId, deferredReplySessionKey);
     }, 700);
   }
 
@@ -4338,6 +4594,7 @@ Use channel names (the part before the colon). Do not explain.`,
     }
     this.ctx.deferredWaitResponseText = null;
     this.ctx.deferredWaitSpeakerAgentId = null;
+    this.ctx.deferredWaitReplySessionKey = null;
   }
 
   private sawRecentSpeechStart(): boolean {
@@ -4459,6 +4716,17 @@ Use channel names (the part before the colon). Do not explain.`,
   private consumeFollowupPromptGrace(): void {
     this.ctx.followupPromptGraceUntil = 0;
     this.ctx.followupPromptChannelName = null;
+  }
+
+  // Cancel means start over: drop reply continuity and keep the gate closed
+  // now, instead of letting a leftover grace window expire into a delayed
+  // gate-closed cue seconds after the user already moved on.
+  private resetConversationStateAfterCancel(): void {
+    this.clearReplyContext();
+    this.consumeFollowupPromptGrace();
+    this.ctx.gateGraceUntil = 0;
+    this.ctx.promptGraceUntil = 0;
+    this.clearGraceTimer();
   }
 
   private scheduleGraceExpiry(): void {
@@ -4604,8 +4872,8 @@ Use channel names (the part before the colon). Do not explain.`,
       // Register wait callback — will be invoked when LLM finishes
       this.ctx.activeWaitQueueItemId = item.id;
       this.ctx.quietPendingWait = false;
-      this.ctx.pendingWaitCallback = (responseText: string, speakerAgentId?: string | null) => {
-        this.deliverWaitResponse(responseText, speakerAgentId);
+      this.ctx.pendingWaitCallback = (responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null) => {
+        this.deliverWaitResponse(responseText, speakerAgentId, replySessionKey);
       };
 
       this.dispatchToLLMFireAndForget(userId, transcript, item.id, {
@@ -4902,8 +5170,8 @@ Use channel names (the part before the colon). Do not explain.`,
           // Not ready yet — register callback and start waiting loop
           this.transitionAndResetWatchdog({ type: 'PROCESSING_STARTED' });
           this.ctx.activeWaitQueueItemId = specId;
-          this.ctx.pendingWaitCallback = (responseText: string, speakerAgentId?: string | null) => {
-            this.deliverWaitResponse(responseText, speakerAgentId);
+          this.ctx.pendingWaitCallback = (responseText: string, speakerAgentId?: string | null, replySessionKey?: string | null) => {
+            this.deliverWaitResponse(responseText, speakerAgentId, replySessionKey);
           };
           await this.sleep(150);
           this.startWaitingLoop();
@@ -5375,7 +5643,7 @@ Use channel names (the part before the colon). Do not explain.`,
           // deliverWaitResponse refreshes this again after playback completes so the
           // effective window still begins at the normal ready handoff.
           this.allowFollowupPromptGrace(VoicePipeline.FOLLOWUP_PROMPT_GRACE_MS);
-          cb(safeResponse, responseSpeakerAgentId);
+          cb(safeResponse, responseSpeakerAgentId, sessionKey);
 
           // Advance Discord watermark so this response doesn't reappear in the inbox.
           // Small delay to let the Discord sync post the agent response first.
@@ -6578,6 +6846,13 @@ Use channel names (the part before the colon). Do not explain.`,
       isChannelMessage?: boolean;
       speakerAgentId?: string | null;
       spokenTextOverride?: string;
+      // Where the spoken message actually lives. Reply context must point at
+      // the message's source channel, not whatever channel happens to be
+      // active — cross-channel ready items are read without switching.
+      replySource?: { sessionKey: string | null; channelName?: string | null };
+      // Terminal responses (e.g. cancel) keep the gate closed instead of
+      // re-opening the 5s grace window after playback.
+      skipGateGrace?: boolean;
     },
   ): Promise<void> {
     const fullText = this.toSpokenText(text, '');
@@ -6595,6 +6870,7 @@ Use channel names (the part before the colon). Do not explain.`,
     if (options?.inbox) {
       this.logToInbox(`**${this.getSystemSpeakerLabel()}:** ${spokenText}`);
     }
+    let pendingReplyContext: { agentId: string; sessionKey: string | null; channelName: string | null } | null = null;
     if (!options?.isReplay) {
       this.ctx.lastSpokenText = spokenText;
       this.ctx.lastSpokenFullText = fullText;
@@ -6602,14 +6878,15 @@ Use channel names (the part before the colon). Do not explain.`,
       this.ctx.lastSpokenIsChannelMessage = !!options?.isChannelMessage;
       this.ctx.lastSpokenSpeakerAgentId = options?.speakerAgentId ?? null;
       if (options?.isChannelMessage && options?.speakerAgentId) {
-        const activeChannelName = this.router?.getActiveChannel().name ?? null;
-        const activeSessionKey = this.router?.getActiveSessionKey() ?? null;
-        this.setReplyContext(
-          options.speakerAgentId,
-          activeSessionKey,
-          activeChannelName,
-          VoicePipeline.REPLY_CONTEXT_DURATION_MS,
-        );
+        const sessionKey = options?.replySource
+          ? options.replySource.sessionKey
+          : this.router?.getActiveSessionKey() ?? null;
+        const channelName = options?.replySource
+          ? this.resolveChannelNameFromSessionKey(options.replySource.sessionKey)
+            ?? options.replySource.channelName
+            ?? null
+          : this.router?.getActiveChannel().name ?? null;
+        pendingReplyContext = { agentId: options.speakerAgentId, sessionKey, channelName };
       }
     }
     const wasSummarized = spokenText !== fullText;
@@ -6628,7 +6905,19 @@ Use channel names (the part before the colon). Do not explain.`,
     await this.player.playStream(ttsStream);
     this.ctx.lastPlaybackText = spokenText;
     this.ctx.lastPlaybackCompletedAt = Date.now();
-    this.setGateGrace(5_000);
+    // Set reply context after playback so the 45s reply window starts when
+    // the user has actually heard the message, not when TTS generation began.
+    if (pendingReplyContext) {
+      this.setReplyContext(
+        pendingReplyContext.agentId,
+        pendingReplyContext.sessionKey,
+        pendingReplyContext.channelName,
+        VoicePipeline.REPLY_CONTEXT_DURATION_MS,
+      );
+    }
+    if (!options?.skipGateGrace) {
+      this.setGateGrace(5_000);
+    }
   }
 
   private shouldSummarizeForVoice(text: string): boolean {
@@ -7129,16 +7418,8 @@ Use channel names (the part before the colon). Do not explain.`,
     if (!item) return;
 
     await this.readQueuedReadyItem(item, options);
-    if (item.speakerAgentId) {
-      const activeChannelName = this.router?.getActiveChannel().name ?? null;
-      const activeSessionKey = this.router?.getActiveSessionKey() ?? null;
-      this.setReplyContext(
-        item.speakerAgentId,
-        activeSessionKey,
-        activeChannelName,
-        VoicePipeline.REPLY_CONTEXT_DURATION_MS,
-      );
-    }
+    // Reply context is set by speakResponse inside readQueuedReadyItem,
+    // pointed at the item's source channel.
   }
 
   private findLocalReadyItem(agent?: string): QueuedResponse | null {
@@ -7185,6 +7466,7 @@ Use channel names (the part before the colon). Do not explain.`,
         forceFull: false,
         isChannelMessage: true,
         speakerAgentId: item.speakerAgentId,
+        replySource: { sessionKey: item.sessionKey, channelName: item.channel },
       });
       this.transitionAndResetWatchdog({ type: 'SPEAKING_COMPLETE' });
       await this.playReadyEarcon();

@@ -42,6 +42,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
     env:
       ALLOWED_TOOL_IDS: "agent_docs"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 # Runtime configuration
 runtime:
@@ -57,19 +62,21 @@ runtime:
 memory:
   post_turn_extraction: enabled
   extraction_provider: ollama
-  extraction_model: gpt-oss:20b
+  extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
 # Discord routing
 discord:
   default_channel_id: "1513207688086028469"
+  smoke_test_channel_id: "100000000000001002" # malibu-test (placeholder; real id in profile overlay)
 
-# Restrict this clone to its own channel
+# Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
     - "1513207688086028469"
+    - "100000000000001002" # malibu-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
 avatar_url: https://cdn.discordapp.com/avatars/1480550297800802485/f132d934eb54bf33d5be0cea339645f0.webp
@@ -98,10 +105,15 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — distinct "Bravo <Name>" wake word so it never
-# collides with the original malibu's wake word (start-anchored matcher).
+# Voice addressing — Ollama clones are the primary voice targets: the bare
+# name and nicknames (and hey/hello greetings, which the matcher treats as
+# optional prefixes) route here; "Zulu Malibu" is the original's fallback.
 voice:
   call_signs:
     - "Bravo Malibu"
+    - Malibu
+    - Malibooth
+    - "Coach Malibu"
   kokoro_voice: am_puck
   default_channel_id: "1513207688086028469"
+  smoke_test_channel_id: "100000000000001002" # malibu-test (placeholder; real id in profile overlay)

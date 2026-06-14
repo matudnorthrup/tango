@@ -2277,6 +2277,22 @@ const MIGRATIONS: Migration[] = [
         ('worker:personal-assistant', 'notion', 'write', 'Watson notes domain: Notion read/create/update');
     `,
   },
+  {
+    // osrm_route → driving_route: the tool moved to HERE Router v8 with OSRM
+    // as fallback only, so the old name misleads agents. Insert-then-repoint
+    // ordering keeps the permissions→governance_tools FK valid throughout.
+    version: 50,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('driving_route', 'research', 'Driving Route Planner', 'read');
+
+      UPDATE OR IGNORE permissions SET tool_id = 'driving_route', updated_at = datetime('now')
+        WHERE tool_id = 'osrm_route';
+
+      DELETE FROM permissions WHERE tool_id = 'osrm_route';
+      DELETE FROM governance_tools WHERE id = 'osrm_route';
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

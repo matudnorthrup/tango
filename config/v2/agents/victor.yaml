@@ -26,6 +26,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
     env:
       ALLOWED_TOOL_IDS: "obsidian"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 # Runtime configuration
 runtime:
@@ -47,7 +52,7 @@ memory:
 # Voice configuration
 voice:
   call_signs:
-    - Victor
+    - "Zulu Victor"
   kokoro_voice: am_liam
   default_channel_id: "100000000000000004"
   smoke_test_channel_id: "100000000000001004"

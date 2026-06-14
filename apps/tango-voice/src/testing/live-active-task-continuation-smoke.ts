@@ -5,6 +5,12 @@ import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
 dotenv.config();
 
+import {
+  deprecatedExpectationNote,
+  latestOutboundMessageId,
+  waitForV2TurnEvidence,
+} from "./v2-turn-evidence.js";
+
 type VoiceTurnHttpResponse = {
   ok: boolean;
   error?: string;
@@ -13,15 +19,6 @@ type VoiceTurnHttpResponse = {
   providerUsedFailover?: boolean;
   warmStartUsed?: boolean;
 };
-
-type StoredDeterministicTurn = {
-  id: string;
-  routeOutcome: "executed" | "clarification" | "fallback";
-  intentIds: string[];
-  workerIds: string[];
-  requestMessageId: number | null;
-  responseMessageId: number | null;
-} | null;
 
 type ActiveTaskRow = {
   id: string;
@@ -101,7 +98,11 @@ const CONTINUATION_CASES: readonly ContinuationSmokeCase[] = [
     threadName: "codex-watson-continuation-live",
     transcript: "yeah, check those transactions",
     title: "Review recent Amazon transactions",
-    objective: "Look up the most recent Amazon transactions and summarize the latest charges.",
+    // Amazon order listings reliably show items and dates but not dollar
+    // amounts, so an objective demanding "charges" leaves the task honestly
+    // unresolved (the extractor keeps it open and captures the price
+    // follow-up as a new task). Scope the objective to obtainable data.
+    objective: "Look up the most recent Amazon orders and summarize what was purchased and when.",
     ownerWorkerId: "personal-assistant",
     intentIds: ["finance.transaction_lookup"],
     clarificationQuestion: "Want me to pull the recent Amazon transactions?",
@@ -229,86 +230,6 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-function parseJsonArray(value: string | null): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadMessageContent(db: DatabaseSync, id: number | null): string | null {
-  if (!id) {
-    return null;
-  }
-  const row = db.prepare(`SELECT content FROM messages WHERE id = ?`).get(id) as
-    | { content: string }
-    | undefined;
-  return row?.content ?? null;
-}
-
-function loadLatestDeterministicTurn(
-  db: DatabaseSync,
-  sessionId: string,
-  agentId: string,
-): StoredDeterministicTurn {
-  const row = db.prepare(
-    `SELECT
-       id,
-       route_outcome AS routeOutcome,
-       intent_ids AS intentIdsJson,
-       worker_ids AS workerIdsJson,
-       request_message_id AS requestMessageId,
-       response_message_id AS responseMessageId
-     FROM deterministic_turns
-     WHERE session_id = ? AND agent_id = ?
-     ORDER BY created_at DESC, rowid DESC
-     LIMIT 1`,
-  ).get(sessionId, agentId) as
-    | {
-        id: string;
-        routeOutcome: "executed" | "clarification" | "fallback";
-        intentIdsJson: string | null;
-        workerIdsJson: string | null;
-        requestMessageId: number | null;
-        responseMessageId: number | null;
-      }
-    | undefined;
-
-  if (!row) {
-    return null;
-  }
-
-  return {
-    id: row.id,
-    routeOutcome: row.routeOutcome,
-    intentIds: parseJsonArray(row.intentIdsJson),
-    workerIds: parseJsonArray(row.workerIdsJson),
-    requestMessageId: row.requestMessageId,
-    responseMessageId: row.responseMessageId,
-  };
-}
-
-async function waitForNewDeterministicTurn(input: {
-  db: DatabaseSync;
-  sessionId: string;
-  agentId: string;
-  previousId: string | null;
-  timeoutMs?: number;
-}): Promise<StoredDeterministicTurn> {
-  const deadline = Date.now() + (input.timeoutMs ?? 180_000);
-  while (Date.now() < deadline) {
-    const latest = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
-    if (latest && latest.id !== input.previousId) {
-      return latest;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  return null;
-}
-
 function loadActiveTask(db: DatabaseSync, id: string): ActiveTaskRow {
   const row = db.prepare(
     `SELECT
@@ -331,6 +252,31 @@ function loadActiveTask(db: DatabaseSync, id: string): ActiveTaskRow {
       }
     | undefined;
   return row ?? null;
+}
+
+const OPEN_TASK_STATUSES = new Set(["proposed", "awaiting_user", "ready", "running", "blocked"]);
+
+/**
+ * Task resolution is asynchronous: the post-turn extractor (TGO-743) runs a
+ * fire-and-forget LLM call after the outbound message is written, so the
+ * status flip lands seconds after turn evidence appears. Poll instead of
+ * asserting immediately.
+ */
+async function waitForActiveTaskResolution(
+  db: DatabaseSync,
+  taskId: string,
+  timeoutMs: number,
+): Promise<ActiveTaskRow> {
+  const deadline = Date.now() + timeoutMs;
+  let task = loadActiveTask(db, taskId);
+  while (Date.now() < deadline) {
+    if (task && !OPEN_TASK_STATUSES.has(task.status)) {
+      return task;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    task = loadActiveTask(db, taskId);
+  }
+  return task;
 }
 
 function inferSessionType(sessionId: string): "project" | "persistent" | "ephemeral" {
@@ -481,9 +427,9 @@ async function runCase(input: {
     throw new Error(`[${scenario.id}] Failed to seed active task.`);
   }
 
-  const previousTurn = loadLatestDeterministicTurn(db, scenario.sessionId, scenario.agentId);
+  const baselineMessageId = latestOutboundMessageId(db, scenario.sessionId, scenario.agentId);
   console.log(
-    `[continuation-smoke:${scenario.id}] seeded task=${taskId} previous_turn=${previousTurn?.id ?? "(none)"} status=${seeded.status}`,
+    `[continuation-smoke:${scenario.id}] seeded task=${taskId} baseline_message=${baselineMessageId || "(none)"} status=${seeded.status}`,
   );
 
   const controller = new AbortController();
@@ -521,39 +467,27 @@ async function runCase(input: {
     clearTimeout(timeout);
   }
 
-  const latestTurn = await waitForNewDeterministicTurn({
+  const latestTurn = await waitForV2TurnEvidence({
     db,
     sessionId: scenario.sessionId,
     agentId: scenario.agentId,
-    previousId: previousTurn?.id ?? null,
+    afterMessageId: baselineMessageId,
     timeoutMs: 180_000,
   });
   if (!latestTurn) {
-    throw new Error(`[${scenario.id}] Timed out waiting for deterministic turn after continuation.`);
+    throw new Error(`[${scenario.id}] Timed out waiting for a new v2 outbound message row after continuation.`);
   }
 
-  const finalTask = loadActiveTask(db, taskId);
-  const persistedResponseText = loadMessageContent(db, latestTurn.responseMessageId);
-  const responseText = result?.responseText ?? persistedResponseText ?? "";
+  const finalTask = await waitForActiveTaskResolution(db, taskId, 120_000);
+  const responseText = result?.responseText ?? latestTurn.responseText ?? "";
   console.log(
-    `[continuation-smoke:${scenario.id}] deterministic_turn=${latestTurn.id} route=${latestTurn.routeOutcome} intents=${latestTurn.intentIds.join(",") || "-"} workers=${latestTurn.workerIds.join(",") || "-"} task_status=${finalTask?.status ?? "(missing)"}`,
+    `[continuation-smoke:${scenario.id}] v2_message=${latestTurn.messageId} runtime=${latestTurn.runtimePath ?? "-"} toolsUsed=${latestTurn.toolsUsed.join(",") || "-"} task_status=${finalTask?.status ?? "(missing)"}`,
   );
 
-  if (latestTurn.routeOutcome !== "executed") {
-    throw new Error(`[${scenario.id}] Expected executed route, got ${latestTurn.routeOutcome}`);
-  }
-  for (const intentId of scenario.intentIds) {
-    if (!latestTurn.intentIds.includes(intentId)) {
-      throw new Error(
-        `[${scenario.id}] Expected intent ${intentId}, got ${latestTurn.intentIds.join(",") || "(none)"}`,
-      );
-    }
-  }
-  if (!latestTurn.workerIds.includes(scenario.ownerWorkerId)) {
-    throw new Error(
-      `[${scenario.id}] Expected worker ${scenario.ownerWorkerId}, got ${latestTurn.workerIds.join(",") || "(none)"}`,
-    );
-  }
+  deprecatedExpectationNote("continuation-smoke", scenario.id, [
+    ...(scenario.intentIds.length > 0 ? ["intentIds"] : []),
+    ["ownerWorkerId"],
+  ].flat());
   if (!responseText || !scenario.responsePatterns.some((pattern) => pattern.test(responseText))) {
     throw new Error(
       `[${scenario.id}] Expected grounded response text, got ${JSON.stringify(responseText || result?.responseText || "")}`,
@@ -562,7 +496,7 @@ async function runCase(input: {
   if (!finalTask || finalTask.status !== "completed" || !finalTask.resolvedAt) {
     throw new Error(`[${scenario.id}] Expected active task to complete, got ${JSON.stringify(finalTask)}`);
   }
-  if (responseError && !persistedResponseText) {
+  if (responseError && !latestTurn.responseText) {
     throw responseError;
   }
 }

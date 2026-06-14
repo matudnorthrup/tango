@@ -20,6 +20,11 @@ mcp_servers:
     env:
       WELLNESS_DB_PATH: "~/.tango/profiles/default/wellness/wellness.db"
       ALLOWED_TOOL_IDS: "wellnessdb_delete_product,wellnessdb_delete_supplement"
+  - name: send-image
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "send-image"]
+    env:
+      ALLOWED_TOOL_IDS: "discord_send_image"
 
 current_turn_metadata:
   timezone: America/Denver

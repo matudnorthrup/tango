@@ -507,7 +507,7 @@ export function createTravelTools(): AgentTool[] {
     lat: number;
     lon: number;
     displayName?: string;
-    source: "coordinate" | "current_location" | "nominatim";
+    source: "coordinate" | "current_location" | "nominatim" | "here-discover" | "here-geocode";
     ageSec?: number | null;
   }
 
@@ -520,12 +520,18 @@ export function createTravelTools(): AgentTool[] {
 
   interface RouteResult {
     label: string;
+    source: "here" | "osrm";
     distanceMiles: number;
     durationHours: number;
     durationText: string;
+    baseDurationHours?: number;
+    via?: Array<{ road: string; miles: number }>;
+    passesThrough?: string[];
     resolvedPoints: ResolvedRoutePoint[];
     googleMapsUrl: string;
-    osrmUrl: string;
+    osrmUrl?: string;
+    warning?: string;
+    hereError?: string;
   }
 
   const readCurrentPosition = (): { lat: number; lon: number; ageSec: number | null } => {
@@ -549,6 +555,57 @@ export function createTravelTools(): AgentTool[] {
     return { lat, lon };
   };
 
+  const hereApiKey = process.env.HERE_API_KEY?.trim() || null;
+
+  const tryReadCurrentPosition = (): { lat: number; lon: number } | null => {
+    try {
+      const current = readCurrentPosition();
+      return { lat: current.lat, lon: current.lon };
+    } catch {
+      return null;
+    }
+  };
+
+  interface HereSearchItem {
+    position?: { lat?: number; lng?: number };
+    address?: { label?: string };
+    title?: string;
+  }
+
+  const parseHereItem = (
+    value: string,
+    item: HereSearchItem | undefined,
+    source: "here-discover" | "here-geocode",
+  ): ResolvedRoutePoint | null => {
+    const lat = item?.position?.lat;
+    const lon = item?.position?.lng;
+    if (typeof lat !== "number" || typeof lon !== "number") return null;
+    const displayName = item?.address?.label ?? item?.title;
+    return { input: value, lat, lon, source, ...(displayName ? { displayName } : {}) };
+  };
+
+  const geocodeViaHere = async (value: string): Promise<ResolvedRoutePoint | null> => {
+    if (!hereApiKey) return null;
+    // Discover resolves POI queries ("Costco, Medford, OR") that Nominatim
+    // misses when the named city differs from the postal city. Anchor at
+    // current GPS when available so bare POI names resolve to the nearest one.
+    const anchor = tryReadCurrentPosition() ?? { lat: 39.8283, lon: -98.5795 };
+    const discoverUrl = `https://discover.search.hereapi.com/v1/discover?at=${anchor.lat},${anchor.lon}&q=${encodeURIComponent(value)}&limit=1&apiKey=${hereApiKey}`;
+    const discoverResponse = await fetch(discoverUrl);
+    if (discoverResponse.ok) {
+      const data = await discoverResponse.json() as { items?: HereSearchItem[] };
+      const resolved = parseHereItem(value, data.items?.[0], "here-discover");
+      if (resolved) return resolved;
+    }
+    const geocodeUrl = `https://geocode.search.hereapi.com/v1/geocode?q=${encodeURIComponent(value)}&apiKey=${hereApiKey}`;
+    const geocodeResponse = await fetch(geocodeUrl);
+    if (geocodeResponse.ok) {
+      const data = await geocodeResponse.json() as { items?: HereSearchItem[] };
+      return parseHereItem(value, data.items?.[0], "here-geocode");
+    }
+    return null;
+  };
+
   const resolvePlace = async (input: unknown): Promise<ResolvedRoutePoint> => {
     const value = String(input ?? "").trim();
     if (value.length === 0 || /^(current( location)?|here|gps)$/iu.test(value)) {
@@ -565,25 +622,29 @@ export function createTravelTools(): AgentTool[] {
     let geocode = geocodeCache.get(cacheKey);
     if (!geocode) {
       geocode = (async () => {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(value)}&format=json&limit=1`;
-        const response = await fetch(url, { headers: { "User-Agent": "tango-osrm-route/1.0" } });
-        if (!response.ok) {
-          throw new Error(`geocode failed for "${value}": HTTP ${response.status}`);
-        }
-        const results = await response.json() as Array<Record<string, unknown>>;
-        const first = results[0];
-        const lat = Number(first?.lat);
-        const lon = Number(first?.lon);
-        if (!first || !Number.isFinite(lat) || !Number.isFinite(lon)) {
-          throw new Error(`could not geocode "${value}"`);
-        }
-        return {
-          input: value,
-          lat,
-          lon,
-          source: "nominatim" as const,
-          ...(typeof first.display_name === "string" ? { displayName: first.display_name } : {}),
-        };
+        const nominatimResult = await (async (): Promise<ResolvedRoutePoint | null> => {
+          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(value)}&format=json&limit=1`;
+          const response = await fetch(url, { headers: { "User-Agent": "tango-osrm-route/1.0" } });
+          if (!response.ok) return null;
+          const results = await response.json() as Array<Record<string, unknown>>;
+          const first = results[0];
+          const lat = Number(first?.lat);
+          const lon = Number(first?.lon);
+          if (!first || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+          return {
+            input: value,
+            lat,
+            lon,
+            source: "nominatim" as const,
+            ...(typeof first.display_name === "string" ? { displayName: first.display_name } : {}),
+          };
+        })().catch(() => null);
+        if (nominatimResult) return nominatimResult;
+
+        const hereResult = await geocodeViaHere(value).catch(() => null);
+        if (hereResult) return hereResult;
+
+        throw new Error(`could not geocode "${value}"`);
       })();
       geocodeCache.set(cacheKey, geocode);
     }
@@ -618,6 +679,160 @@ export function createTravelTools(): AgentTool[] {
     return `${wholeHours}h ${minutes}m`;
   };
 
+  // HERE encodes route shapes with Flexible Polyline, not Google polyline.
+  // Decoder ported from HERE's reference implementation (MIT).
+  const decodeFlexPolyline = (encoded: string): Array<[number, number]> => {
+    const TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const charValues = new Map<number, number>();
+    for (let i = 0; i < TABLE.length; i++) charValues.set(TABLE.charCodeAt(i), i);
+    let index = 0;
+    const nextUnsigned = (): number => {
+      let result = 0;
+      let shift = 0;
+      for (;;) {
+        const value = charValues.get(encoded.charCodeAt(index++));
+        if (value === undefined) throw new Error("invalid flexible polyline");
+        result += (value & 0x1f) * 2 ** shift;
+        shift += 5;
+        if ((value & 0x20) === 0) return result;
+      }
+    };
+    const nextSigned = (): number => {
+      const value = nextUnsigned();
+      return value % 2 === 1 ? -(value + 1) / 2 : value / 2;
+    };
+    const version = nextUnsigned();
+    if (version !== 1) throw new Error(`unsupported flexible polyline version ${version}`);
+    const header = nextUnsigned();
+    const factor = 10 ** (header & 15);
+    const thirdDim = (header >> 4) & 7;
+    const coords: Array<[number, number]> = [];
+    let lat = 0;
+    let lon = 0;
+    while (index < encoded.length) {
+      lat += nextSigned();
+      lon += nextSigned();
+      if (thirdDim) nextSigned();
+      coords.push([lat / factor, lon / factor]);
+    }
+    return coords;
+  };
+
+  const haversineMeters = (a: [number, number], b: [number, number]): number => {
+    const toRad = (deg: number): number => (deg * Math.PI) / 180;
+    const dLat = toRad(b[0] - a[0]);
+    const dLon = toRad(b[1] - a[1]);
+    const h = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
+    return 12_742_000 * Math.asin(Math.sqrt(h));
+  };
+
+  const samplePointsAlong = (
+    coords: Array<[number, number]>,
+    intervalMeters: number,
+  ): Array<[number, number]> => {
+    if (coords.length === 0) return [];
+    const samples: Array<[number, number]> = [coords[0]!];
+    let accumulated = 0;
+    for (let i = 1; i < coords.length; i++) {
+      accumulated += haversineMeters(coords[i - 1]!, coords[i]!);
+      if (accumulated >= intervalMeters) {
+        samples.push(coords[i]!);
+        accumulated = 0;
+      }
+    }
+    const last = coords[coords.length - 1]!;
+    const tail = samples[samples.length - 1]!;
+    if (tail[0] !== last[0] || tail[1] !== last[1]) samples.push(last);
+    return samples;
+  };
+
+  const lookupTownsAlong = async (
+    coords: Array<[number, number]>,
+    distanceMeters: number,
+  ): Promise<string[]> => {
+    if (!hereApiKey || coords.length === 0) return [];
+    const distanceMiles = distanceMeters / 1609.34;
+    const intervalMiles = Math.max(35, distanceMiles / 12);
+    const samples = samplePointsAlong(coords, intervalMiles * 1609.34);
+    const labels = await Promise.all(samples.map(async ([lat, lon]) => {
+      try {
+        const url = `https://revgeocode.search.hereapi.com/v1/revgeocode?at=${lat.toFixed(5)},${lon.toFixed(5)}&lang=en-US&apiKey=${hereApiKey}`;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const data = await response.json() as {
+          items?: Array<{ address?: { city?: string; stateCode?: string } }>;
+        };
+        const address = data.items?.[0]?.address;
+        if (!address?.city) return null;
+        return address.stateCode ? `${address.city}, ${address.stateCode}` : address.city;
+      } catch {
+        return null;
+      }
+    }));
+    const towns: string[] = [];
+    for (const label of labels) {
+      if (label && !towns.includes(label)) towns.push(label);
+    }
+    return towns;
+  };
+
+  interface HereRouteData {
+    distanceM: number;
+    durationS: number;
+    baseDurationS: number;
+    coords: Array<[number, number]>;
+    via: Array<{ road: string; miles: number }>;
+  }
+
+  const routeViaHere = async (points: ResolvedRoutePoint[]): Promise<HereRouteData> => {
+    if (!hereApiKey) throw new Error("HERE_API_KEY not configured");
+    // radius= lets HERE snap off-road points (parks, trailheads) to the nearest drivable road.
+    const asWaypoint = (point: ResolvedRoutePoint): string => `${point.lat},${point.lon};radius=10000`;
+    const origin = points[0]!;
+    const destination = points[points.length - 1]!;
+    const vias = points.slice(1, -1).map((point) => `&via=${asWaypoint(point)}`).join("");
+    const url = "https://router.hereapi.com/v8/routes?transportMode=car&routingMode=fast" +
+      `&origin=${asWaypoint(origin)}&destination=${asWaypoint(destination)}${vias}` +
+      `&return=summary,polyline&spans=routeNumbers,length&apiKey=${hereApiKey}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HERE route failed: HTTP ${response.status}`);
+    const payload = await response.json() as {
+      routes?: Array<{ sections?: Array<{
+        summary?: { length?: number; duration?: number; baseDuration?: number };
+        polyline?: string;
+        spans?: Array<{ routeNumbers?: Array<{ value?: string }>; length?: number }>;
+      }> }>;
+      notices?: Array<{ title?: string }>;
+    };
+    const sections = payload.routes?.[0]?.sections;
+    if (!sections || sections.length === 0) {
+      throw new Error(`HERE route failed: ${payload.notices?.[0]?.title ?? "no route"}`);
+    }
+    let distanceM = 0;
+    let durationS = 0;
+    let baseDurationS = 0;
+    const coords: Array<[number, number]> = [];
+    const roadMeters = new Map<string, number>();
+    for (const section of sections) {
+      distanceM += section.summary?.length ?? 0;
+      durationS += section.summary?.duration ?? 0;
+      baseDurationS += section.summary?.baseDuration ?? section.summary?.duration ?? 0;
+      if (section.polyline) coords.push(...decodeFlexPolyline(section.polyline));
+      for (const span of section.spans ?? []) {
+        const road = span.routeNumbers?.[0]?.value;
+        if (!road) continue;
+        roadMeters.set(road, (roadMeters.get(road) ?? 0) + (span.length ?? 0));
+      }
+    }
+    // Map preserves insertion order, so via reads in route order.
+    const via = [...roadMeters.entries()]
+      .filter(([, meters]) => meters / 1609.34 >= 5)
+      .slice(0, 8)
+      .map(([road, meters]) => ({ road, miles: Math.round(meters / 1609.34) }));
+    return { distanceM, durationS, baseDurationS, coords, via };
+  };
+
   const routeOne = async (route: RouteOption, index: number): Promise<RouteResult> => {
     const origin = route.origin ?? "current location";
     const destination = route.destination;
@@ -630,6 +845,34 @@ export function createTravelTools(): AgentTool[] {
       ...waypointInputs.map((waypoint) => resolvePlace(waypoint)),
       resolvePlace(destination),
     ]);
+    const label = typeof route.label === "string" && route.label.trim().length > 0
+      ? route.label.trim()
+      : `route ${index + 1}`;
+    const googleMapsUrl = buildGoogleMapsUrl(resolvedPoints);
+
+    let hereError: string | undefined;
+    if (hereApiKey) {
+      try {
+        const here = await routeViaHere(resolvedPoints);
+        const durationHours = here.durationS / 3600;
+        const passesThrough = await lookupTownsAlong(here.coords, here.distanceM).catch(() => []);
+        return {
+          label,
+          source: "here",
+          distanceMiles: Number((here.distanceM / 1609.34).toFixed(1)),
+          durationHours: Number(durationHours.toFixed(2)),
+          durationText: formatDuration(durationHours),
+          baseDurationHours: Number((here.baseDurationS / 3600).toFixed(2)),
+          via: here.via,
+          passesThrough,
+          resolvedPoints,
+          googleMapsUrl,
+        };
+      } catch (err: unknown) {
+        hereError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
     const coordinates = resolvedPoints.map((point) => `${point.lon},${point.lat}`).join(";");
     const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false`;
     const response = await fetch(osrmUrl);
@@ -648,15 +891,16 @@ export function createTravelTools(): AgentTool[] {
     const distanceMiles = osrmRoute.distance / 1609.34;
     const durationHours = osrmRoute.duration / 3600;
     return {
-      label: typeof route.label === "string" && route.label.trim().length > 0
-        ? route.label.trim()
-        : `route ${index + 1}`,
+      label,
+      source: "osrm",
       distanceMiles: Number(distanceMiles.toFixed(1)),
       durationHours: Number(durationHours.toFixed(2)),
       durationText: formatDuration(durationHours),
       resolvedPoints,
-      googleMapsUrl: buildGoogleMapsUrl(resolvedPoints),
+      googleMapsUrl,
       osrmUrl,
+      warning: "OSRM fallback: no live traffic, and rural ETAs run 20-50% high — treat duration as an upper bound. No via/passesThrough route grounding available.",
+      ...(hereError ? { hereError } : {}),
     };
   };
 
@@ -685,10 +929,12 @@ export function createTravelTools(): AgentTool[] {
     },
 
     {
-      name: "osrm_route",
+      name: "driving_route",
       description: [
-        "Compute real driving distance and duration with OSRM. Use this for route planning, drive-time estimates, and route comparisons.",
-        "Never answer route/directions questions from mental geography when this tool is available.",
+        "Compute real driving routes: distance, traffic-aware ETA, the major roads the route follows, and the towns it passes through. (Formerly named osrm_route.)",
+        "Primary engine is HERE Router v8 (live traffic); falls back to OSRM (no traffic, ETAs run high — a per-route warning is set) when HERE is unavailable.",
+        "Never answer route/directions/ETA questions from mental geography when this tool is available.",
+        "Place names and POIs (e.g. 'Costco, Medford, OR') resolve via Nominatim with HERE Discover/Geocode fallback anchored at current GPS.",
         "",
         "Parameters:",
         "  origin: Address/place string, 'lat,lon', or omit/use 'current location' to use GPS.",
@@ -696,7 +942,12 @@ export function createTravelTools(): AgentTool[] {
         "  waypoints: Optional ordered places the route must pass through.",
         "  routes: Optional array of route options, each with label/origin/destination/waypoints. Use this for comparisons.",
         "",
-        "Returns resolved coordinates, OSRM miles/hours, Google Maps links, and the fastest option.",
+        "Returns per route: distanceMiles, durationHours (includes current traffic), durationText, baseDurationHours (free-flow), via (major roads with miles, in order), passesThrough (towns along the route, in order), resolvedPoints, googleMapsUrl, source; plus the fastest option.",
+        "",
+        "Grounding rules:",
+        "  Only name a town, stop, or landmark as 'on the route' if it appears in via/passesThrough here or in find_diesel output.",
+        "  To claim any other place is on the way, run a comparison: direct route vs a route with that place as a waypoint, and report the added time.",
+        "  durationHours already includes traffic — do not add your own traffic multipliers. Add time only for planned stops.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -766,35 +1017,42 @@ export function createTravelTools(): AgentTool[] {
     {
       name: "find_diesel",
       description: [
-        "Find the best-value diesel stations along a route from the current GPS location.",
-        "Uses HERE Fuel Prices API (primary) with GasBuddy fallback.",
-        "Scores stations by price × detour distance penalty.",
+        "Find fuel stations and prices — along a route, near a place, or near the current GPS location.",
+        "Uses HERE Fuel Prices API (primary) with automatic GasBuddy fallback when HERE returns nothing.",
+        "",
+        "Modes:",
+        "  Route (default): set destination — best-value diesel stations along the route from current GPS (or 'from'), scored by price × detour penalty.",
+        "  Near a place: set near=true + destination — all-grade fuel prices around a place or a specific station (e.g. 'Costco, Medford, OR'). POI names work: geocoding falls back to HERE Discover anchored at the current GPS position.",
+        "  Near me: omit destination (or pass 'current location') — stations around the current OwnTracks GPS position.",
         "",
         "Parameters:",
-        "  destination (required): Address string or 'lat,lon' — the endpoint of your route",
-        "  near: Search around destination only, ignore GPS/routing",
-        "  from: Override start location instead of GPS (e.g. 'Tonopah, NV')",
+        "  destination: Address, place/POI name, or 'lat,lon'. Omit to search near the current GPS location.",
+        "  near: Search around destination (or current GPS) only, no routing",
+        "  from: Override start location instead of GPS (e.g. 'Tonopah, NV') — route mode only",
         "  top: Number of results (default 5)",
-        "  source: Force 'here' or 'gasbuddy' (default: auto, prefers HERE if key available)",
+        "  source: Force 'here' or 'gasbuddy' (default: auto with fallback)",
         "",
-        "Returns top stations with: name, address, dieselPrice ($/gal), detourMiles, googleMapsLink.",
-        "IMPORTANT: This routing assumes a diesel vehicle. If the user says 'gas' casually, interpret it as diesel unless they say otherwise.",
+        "Route mode returns diesel stations with: name, address, dieselPrice ($/gal), detourMiles, googleMapsLink.",
+        "Near modes also return a prices object with regular/midgrade/premium/diesel grades when available.",
+        "IMPORTANT: Route mode assumes a diesel vehicle. If the user says 'gas' casually, interpret it as diesel unless they say otherwise.",
         "Always recommend stations AHEAD on the route, never behind.",
       ].join("\n"),
       inputSchema: {
         type: "object",
         properties: {
-          destination: { type: "string", description: "Route endpoint — address or lat,lon" },
-          near: { type: "boolean", description: "Search near destination only, no routing" },
+          destination: { type: "string", description: "Route endpoint or place to search near — address, POI name, or lat,lon. Omit for current GPS location." },
+          near: { type: "boolean", description: "Search near destination (or current GPS) only, no routing" },
           from: { type: "string", description: "Override start location (default: GPS)" },
           top: { type: "number", description: "Number of results (default 5)" },
           source: { type: "string", enum: ["here", "gasbuddy"], description: "Force data source" },
         },
-        required: ["destination"],
+        required: [],
       },
       handler: async (input) => {
-        const scriptArgs: string[] = [dieselScript, String(input.destination)];
-        if (input.near) scriptArgs.push("--near");
+        const destination = typeof input.destination === "string" ? input.destination.trim() : "";
+        const scriptArgs: string[] = [dieselScript];
+        if (destination) scriptArgs.push(destination);
+        if (input.near || !destination) scriptArgs.push("--near");
         if (input.from) scriptArgs.push(`--from=${input.from}`);
         if (typeof input.top === "number") scriptArgs.push(`--top=${input.top}`);
         if (input.source) scriptArgs.push(`--source=${input.source}`);
