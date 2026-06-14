@@ -12,10 +12,11 @@
  */
 
 import * as fs from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import { resolveDefaultObsidianVaultPath, type AgentTool } from "@tango/core";
+import { extractAttachmentText, resolveDefaultObsidianVaultPath, type AgentTool } from "@tango/core";
 import yaml from "js-yaml";
 import { getBrowserManager } from "./browser-manager.js";
 import { getSecret } from "./op-secret.js";
@@ -55,7 +56,7 @@ function execCommand(
   command: string,
   args: string[],
   timeoutMs: number,
-  env?: Record<string, string>,
+  env?: NodeJS.ProcessEnv,
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     let stdout = "";
@@ -86,7 +87,7 @@ async function runCommand(
   command: string,
   args: string[],
   timeoutMs = 30_000,
-  env?: Record<string, string>,
+  env?: NodeJS.ProcessEnv,
 ): Promise<string> {
   const result = await execCommand(command, args, timeoutMs, env);
   if (result.code !== 0 && result.stderr) {
@@ -99,7 +100,7 @@ async function runRequiredCommand(
   command: string,
   args: string[],
   timeoutMs = 30_000,
-  env?: Record<string, string>,
+  env?: NodeJS.ProcessEnv,
 ): Promise<string> {
   const result = await execCommand(command, args, timeoutMs, env);
   if (result.code !== 0) {
@@ -129,6 +130,147 @@ function resolvePaths(overrides?: PersonalToolPaths) {
       ?? path.join(home, ".tango", "bin", "health-query.js"),
     imsgCommand: overrides?.imsgCommand ?? "/opt/homebrew/bin/imsg",
   };
+}
+
+function parseEnvValue(raw: string): string {
+  const trimmed = raw.trim();
+  if (
+    (trimmed.startsWith("\"") && trimmed.endsWith("\""))
+    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function readGogKeyringPasswordFromEnvFile(): string | undefined {
+  try {
+    const envText = readFileSync(path.resolve(process.cwd(), ".env"), "utf8");
+    const match = /^GOG_KEYRING_PASSWORD=(.+)$/mu.exec(envText);
+    return match?.[1] ? parseEnvValue(match[1]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function gogCommandEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (!env["GOG_KEYRING_PASSWORD"]) {
+    const password = readGogKeyringPasswordFromEnvFile();
+    if (password) {
+      env["GOG_KEYRING_PASSWORD"] = password;
+    }
+  }
+  return env;
+}
+
+const GOG_EMAIL_ATTACHMENT_TEXT_MAX_CHARS = 12_000;
+
+interface GogEmailAttachmentText {
+  filename: string;
+  method: string | null;
+  text: string;
+  truncated: boolean;
+  total_chars: number;
+  warnings: string[];
+}
+
+function getOptionValue(args: string[], option: string): string | null {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === option) {
+      return args[i + 1] ?? null;
+    }
+    if (arg?.startsWith(`${option}=`)) {
+      return arg.slice(option.length + 1);
+    }
+  }
+  return null;
+}
+
+async function realpathIfExists(filePath: string): Promise<string | null> {
+  try {
+    return await fs.realpath(filePath);
+  } catch {
+    return null;
+  }
+}
+
+function isPathInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function isAllowedTempFile(filePath: string): Promise<boolean> {
+  const stat = await fs.lstat(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    return false;
+  }
+
+  const realFilePath = await fs.realpath(filePath);
+  const roots = await Promise.all([
+    realpathIfExists("/tmp"),
+    realpathIfExists(os.tmpdir()),
+  ]);
+
+  return roots.some((root) => root !== null && isPathInside(root, realFilePath));
+}
+
+async function maybeExtractGmailAttachmentText(args: string[]): Promise<GogEmailAttachmentText | null> {
+  if (args[0] !== "gmail" || args[1] !== "attachment") {
+    return null;
+  }
+
+  const outputDir = getOptionValue(args, "--out");
+  const filename = getOptionValue(args, "--name");
+  if (!outputDir || !filename) {
+    return null;
+  }
+
+  if (path.basename(filename) !== filename || !filename.toLowerCase().endsWith(".pdf")) {
+    return null;
+  }
+
+  const outputDirRealPath = await realpathIfExists(outputDir);
+  const allowedRoots = await Promise.all([
+    realpathIfExists("/tmp"),
+    realpathIfExists(os.tmpdir()),
+  ]);
+  if (!outputDirRealPath || !allowedRoots.some((root) => root !== null && outputDirRealPath === root)) {
+    return null;
+  }
+
+  const filePath = path.join(outputDir, filename);
+  try {
+    if (!(await isAllowedTempFile(filePath))) {
+      return null;
+    }
+
+    const extraction = await extractAttachmentText({
+      filePath,
+      filename,
+      contentType: "application/pdf",
+      sourceFormat: "pdf",
+    });
+    const text = extraction.text.slice(0, GOG_EMAIL_ATTACHMENT_TEXT_MAX_CHARS);
+    return {
+      filename,
+      method: extraction.commandUsed,
+      text,
+      truncated: extraction.text.length > GOG_EMAIL_ATTACHMENT_TEXT_MAX_CHARS,
+      total_chars: extraction.text.length,
+      warnings: extraction.warnings,
+    };
+  } catch (error) {
+    return {
+      filename,
+      method: null,
+      text: "",
+      truncated: false,
+      total_chars: 0,
+      warnings: [`PDF text extraction failed: ${error instanceof Error ? error.message : String(error)}`],
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +325,11 @@ export function createEmailTools(overrides?: PersonalToolPaths): AgentTool[] {
         const cmdStr = String(input.command).trim();
         // Parse the command string into args, respecting quotes
         const args = parseShellArgs(cmdStr);
-        const stdout = await runCommand(paths.gogCommand, args, 60_000);
+        const stdout = await runCommand(paths.gogCommand, args, 60_000, gogCommandEnv());
+        const attachmentText = await maybeExtractGmailAttachmentText(args);
+        if (attachmentText) {
+          return { result: stdout, attachment_text: attachmentText };
+        }
         return { result: stdout };
       },
     },
@@ -298,7 +444,7 @@ export function createCalendarTools(overrides?: PersonalToolPaths): AgentTool[] 
       handler: async (input) => {
         const cmdStr = String(input.command).trim();
         const args = parseShellArgs(cmdStr);
-        const stdout = await runCommand(paths.gogCommand, args, 30_000);
+        const stdout = await runCommand(paths.gogCommand, args, 30_000, gogCommandEnv());
         return { result: stdout };
       },
     },
@@ -2384,7 +2530,7 @@ export function createDocsTools(overrides?: PersonalToolPaths): AgentTool[] {
       handler: async (input) => {
         const cmdStr = String(input.command).trim();
         const args = parseShellArgs(cmdStr);
-        const stdout = await runCommand(paths.gogCommand, args, 60_000);
+        const stdout = await runCommand(paths.gogCommand, args, 60_000, gogCommandEnv());
         return { result: stdout };
       },
     },
@@ -2449,7 +2595,7 @@ export function createDocsTools(overrides?: PersonalToolPaths): AgentTool[] {
           },
           {
             gogCommand: paths.gogCommand,
-            runCommand: (command, args, timeoutMs) => runRequiredCommand(command, args, timeoutMs),
+            runCommand: (command, args, timeoutMs) => runRequiredCommand(command, args, timeoutMs, gogCommandEnv()),
           },
         ),
       }),

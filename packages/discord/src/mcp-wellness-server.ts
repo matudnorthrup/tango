@@ -52,7 +52,9 @@ import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agen
 import { createKiloLedgerTools, kiloLedgerToolLooksReadOnly } from "./kilo-ledger-tools.js";
 import { createNotionTools } from "./notion-agent-tools.js";
 import { createClaudeSessionTools } from "./claude-session-tools.js";
+import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
+import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
 import { GovernanceChecker, resolveDatabasePath } from "@tango/core";
 import type { AgentTool, AccessLevel } from "@tango/core";
 
@@ -166,14 +168,6 @@ function looksLikeLinearReadQuery(value: unknown): boolean {
   return !/^\s*mutation\b/iu.test(value);
 }
 
-function isReadOnlyGogEmailCommand(command: unknown): boolean {
-  const head = getCommandHead(command);
-  return (
-    (head[0] === "gmail" && head[1] === "messages" && (head[2] === "search" || head[2] === "list"))
-    || (head[0] === "gmail" && head[1] === "thread" && head[2] !== "modify")
-  );
-}
-
 function isReadOnlyGogCalendarCommand(command: unknown): boolean {
   const head = getCommandHead(command);
   return head[0] === "calendar" && head[1] === "events";
@@ -273,8 +267,7 @@ function getToolsForWorker(
   const governanceTools = (!principalId || !governance)
     ? allTools
     : allTools.filter((tool) => {
-      const requiredLevel = (governance.getToolAccessType(tool.name) ?? "read") as AccessLevel;
-      return governance.hasPermission(principalId, tool.name, requiredLevel);
+      return getListedToolAccessLevel(governance, principalId, tool.name) !== null;
     });
 
   if (!allowedToolIds) {
@@ -538,7 +531,11 @@ if (isHttpMode) {
             id: message.id,
             result: {
               tools: tools.map((t) => ({
-                ...buildMcpListedTool(t, governance, readOnlyStep ? "read" : null),
+                ...buildMcpListedTool(
+                  t,
+                  governance,
+                  readOnlyStep ? "read" : getListedToolAccessLevel(governance, principalId, t.name),
+                ),
               })),
             },
           };
@@ -654,7 +651,11 @@ if (isHttpMode) {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     debug(`tools/list requested — returning ${visibleTools.length} tools (readOnly=${readOnlyStep ? "yes" : "no"})`);
     return {
-      tools: visibleTools.map((t) => buildMcpListedTool(t, governance, readOnlyStep ? "read" : null)),
+      tools: visibleTools.map((t) => buildMcpListedTool(
+        t,
+        governance,
+        readOnlyStep ? "read" : getListedToolAccessLevel(governance, principalId, t.name),
+      )),
     };
   });
 
