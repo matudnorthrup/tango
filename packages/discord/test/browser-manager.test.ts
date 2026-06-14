@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildBrowserLaunchArgs,
+  parseCdpListenerPids,
   parseRampHistoryRecordFromRow,
   rampDateTextMatchesInput,
   rampMerchantTextMatchesInput,
@@ -78,6 +79,12 @@ describe("browser-manager launch config", () => {
       "--no-default-browser-check",
       "about:blank",
     ]);
+  });
+
+  it("parses CDP listener pids from lsof output", () => {
+    expect(parseCdpListenerPids("123\n456\n123\n", 456)).toEqual([123]);
+    expect(parseCdpListenerPids("noise\n789\n", 0)).toEqual([789]);
+    expect(parseCdpListenerPids("", 0)).toEqual([]);
   });
 
   it("parses current Ramp reimbursement rows including drafts", () => {
