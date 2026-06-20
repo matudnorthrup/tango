@@ -5,7 +5,7 @@ description: Read and summarize the Walmart shopping queue, purchase-history res
 mode: read
 route:
   kind: worker
-  target_id: research-assistant
+  target_id: foxtrot
 slots:
   - name: focus
     required: false

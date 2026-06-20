@@ -50,6 +50,14 @@ function writeRegistry(vaultRoot: string): string {
           sections: ["flagged", "overnightJobs"],
         },
         {
+          scheduleId: "nightly-email-unsubscribe-review",
+          displayName: "Email Unsubscribe Review",
+          domain: "Email",
+          logPath: "Records/Jobs/Email/YYYY-MM.md",
+          critical: true,
+          sections: ["flagged", "overnightJobs"],
+        },
+        {
           scheduleId: "slack-saved-review",
           displayName: "Slack Saved Items Review",
           domain: "Slack",
@@ -114,6 +122,13 @@ describe("daily brief aggregation", () => {
         "**Flagged:**",
         "- Review needed: generic rollup should be ignored when specific items exist.",
         "",
+        "## 2026-05-25 03:40 -- Email Unsubscribe Review",
+        "**Status:** Done -- 1 candidate flagged",
+        "**Summary:** Scanned all accessible Gmail accounts; one unsubscribe candidate needs confirmation.",
+        "",
+        "**Flagged:**",
+        "- [ ] USUB-2026-05-25-01: Unsubscribe from Promo Blast on personal@example.test -- frequent sales emails with no action value.",
+        "",
       ].join("\n"),
     );
     writeJobLog(
@@ -161,21 +176,23 @@ describe("daily brief aggregation", () => {
     });
 
     expect(result).toMatchObject({
-      entriesFound: 3,
-      flaggedCount: 2,
+      entriesFound: 4,
+      flaggedCount: 3,
       slackItemCount: 1,
-      overnightJobCount: 3,
+      overnightJobCount: 4,
       calendarEventCount: 1,
     });
 
     const brief = fs.readFileSync(result.briefPath, "utf8");
     expect(brief).toContain("generated_by: daily-brief-aggregate");
-    expect(brief).toContain("## Flagged (2)");
+    expect(brief).toContain("## Flagged (3)");
     expect(brief).toContain("**Daily Email Review:** Domain renewal");
+    expect(brief).toContain("**Email Unsubscribe Review:** USUB-2026-05-25-01");
     expect(brief).not.toContain("generic rollup should be ignored");
     expect(brief).toContain("**Vault Audit:** Review missing frontmatter");
     expect(brief).toContain("[Review this thread](https://slack.example/p123) -- #product");
     expect(brief).toContain("- Daily Email Review -- Done: Inbox scanned.");
+    expect(brief).toContain("- Email Unsubscribe Review -- Done -- 1 candidate flagged: Scanned all accessible Gmail accounts; one unsubscribe candidate needs confirmation.");
     expect(brief).toContain("- 9:00am -- Standup");
     expect(brief).not.toContain("This should be outside the 24 hour window");
     expect(brief).not.toContain("This should not be promoted");

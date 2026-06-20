@@ -17,7 +17,12 @@
   "sierra": {
     "displayName": "Sierra",
     "channelId": "100000000000000003",
-    "topicPrompt": "Sierra handles research, shopping, comparisons, fabrication, and procurement workflows."
+    "topicPrompt": "Sierra handles research, travel, product comparisons, and fabrication workflows."
+  },
+  "foxtrot": {
+    "displayName": "Foxtrot",
+    "channelId": "100000000000000005",
+    "topicPrompt": "Foxtrot handles finance, shopping execution, carts, orders, receipts, reimbursements, and budgets."
   },
   "victor": {
     "displayName": "Victor",

@@ -419,7 +419,9 @@ npm run test:deterministic-live-gate   # Preferred wrapper with bot health + dia
 npm run test:deterministic-schedules-nightly   # Watson schedule reruns on the test channel
 npm run test:deterministic-live-nightly   # Overnight wrapper: core gate + schedules + diagnostics
 npm run test:deterministic-victor-live   # Victor engineering deterministic suite
-npm run test:deterministic-research-expansion-live   # Slower Sierra diesel/Walmart expansion checks
+npm run test:deterministic-research-expansion-live   # Slower Sierra diesel/video/print expansion checks
+npm run test:deterministic-foxtrot-live   # Foxtrot shopping read checks
+npm run test:deterministic-foxtrot-walmart-write-live   # Foxtrot live cart write smoke
 ```
 
 Optional env knobs for live tests:

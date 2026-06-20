@@ -149,6 +149,60 @@ describe("memory agent tools", () => {
     storage.close();
   });
 
+  it("searches across aliased agent ids when agent_ids is provided", async () => {
+    const { storage, dir } = createStorage();
+    const tools = createMemoryTools({
+      storage,
+      configDir: path.join(dir, "missing-config-dir"),
+      embeddingProvider: null,
+    });
+
+    storage.insertMemory({
+      sessionId: "default",
+      agentId: "sierra",
+      source: "manual",
+      content: "User is researching the Fujifilm X100VI camera.",
+      importance: 0.9,
+    });
+    storage.insertMemory({
+      sessionId: "default",
+      agentId: "sierra-ollama",
+      source: "manual",
+      content: "Fujifilm X100VI adapter ring notes.",
+      importance: 0.8,
+    });
+    storage.insertMemory({
+      sessionId: "default",
+      agentId: "watson",
+      source: "manual",
+      content: "Watson finance note that should not appear.",
+      importance: 1,
+    });
+
+    const memorySearch = tools.find((tool) => tool.name === "memory_search");
+    const result = await memorySearch?.handler({
+      query: "Fujifilm X100VI camera adapter",
+      session_id: "default",
+      agent_id: "sierra",
+      agent_ids: ["sierra", "sierra-ollama"],
+      limit: 10,
+    });
+
+    const typedResult = result as {
+      results: Array<{
+        agent_id: string | null;
+        content: string;
+      }>;
+    };
+    expect(typedResult.results.map((memory) => memory.content).sort()).toEqual([
+      "Fujifilm X100VI adapter ring notes.",
+      "User is researching the Fujifilm X100VI camera.",
+    ]);
+    expect(new Set(typedResult.results.map((memory) => memory.agent_id))).toEqual(new Set(["sierra", "sierra-ollama"]));
+
+    storage.close();
+  });
+
   it("creates reflection memories from recent stored context", async () => {
     const { storage } = createStorage();
     const embeddingProvider = createDeterministicEmbeddingProvider(16);

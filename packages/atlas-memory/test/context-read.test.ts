@@ -70,6 +70,26 @@ describe("atlas context read surface", () => {
     db.close();
   });
 
+  it("lists memories across aliased agent ids while preserving global visibility", () => {
+    const { db } = createDb();
+    insertMemory(db, { content: "global fact", agentId: null });
+    insertMemory(db, { content: "sierra fact", agentId: "sierra" });
+    insertMemory(db, { content: "sierra ollama fact", agentId: "sierra-ollama" });
+    insertMemory(db, { content: "watson fact", agentId: "watson" });
+
+    const rows = listAtlasMemoriesForContext(db, {
+      agentIds: ["sierra", "sierra-ollama"],
+    });
+
+    expect(rows.map((row) => row.content).sort()).toEqual([
+      "global fact",
+      "sierra fact",
+      "sierra ollama fact",
+    ]);
+
+    db.close();
+  });
+
   it("reads conversation summaries and pinned facts in scope priority order", () => {
     const { db } = createDb();
     db.prepare(
@@ -96,6 +116,45 @@ describe("atlas context read surface", () => {
 
     const facts = listAtlasPinnedFactsForContext(db, { sessionId: "thread:123", agentId: "sierra" });
     expect(facts.map((fact) => fact.key)).toEqual(["style", "vehicle"]);
+
+    db.close();
+  });
+
+  it("reads conversation summaries and pinned facts across aliased agent ids", () => {
+    const { db } = createDb();
+    db.prepare(
+      `INSERT INTO conversation_summaries (id, session_id, agent_id, summary, covers_through, created_at)
+       VALUES ('s1', 'thread:123', 'sierra-ollama', 'Clone recap.', NULL, '2026-06-10T00:00:00.000Z')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO conversation_summaries (id, session_id, agent_id, summary, covers_through, created_at)
+       VALUES ('s2', 'thread:123', 'sierra', 'Canonical recap.', NULL, '2026-06-09T00:00:00.000Z')`,
+    ).run();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO pinned_facts (id, scope, scope_id, key, value, created_at, updated_at)
+       VALUES ('p1', 'global', NULL, 'vehicle', 'F-350 diesel', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO pinned_facts (id, scope, scope_id, key, value, created_at, updated_at)
+       VALUES ('p2', 'agent', 'sierra', 'base', 'canonical fact', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO pinned_facts (id, scope, scope_id, key, value, created_at, updated_at)
+       VALUES ('p3', 'agent', 'sierra-ollama', 'clone', 'clone fact', ?, ?)`,
+    ).run(now, now);
+
+    const summary = getAtlasConversationSummary(db, {
+      sessionId: "thread:123",
+      agentIds: ["sierra", "sierra-ollama"],
+    });
+    expect(summary?.summary).toBe("Canonical recap.");
+
+    const facts = listAtlasPinnedFactsForContext(db, {
+      sessionId: "thread:123",
+      agentIds: ["sierra", "sierra-ollama"],
+    });
+    expect(facts.map((fact) => fact.key)).toEqual(["base", "clone", "vehicle"]);
 
     db.close();
   });

@@ -32,6 +32,11 @@ Every source that feeds the daily brief must have:
 - A `**Flagged:**` section when Devin needs to act.
 - No direct writes to `Planning/Daily/`.
 
+Email subscription cleanup follows the same contract: the scheduled review
+writes candidates to `Records/Jobs/Email/YYYY-MM.md` under `**Flagged:**`, then
+Watson performs unsubscribe browser flows only after the user confirms candidates
+from the Watson channel.
+
 Optional sections:
 
 - `**Items:**` for task-like inputs, such as Slack saved items.

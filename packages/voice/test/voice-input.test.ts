@@ -1,9 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
+  VoiceTargetDirectory,
+  parseMobileVoiceDispatchInput,
   parseVoiceCompletionInput,
   parseVoiceTurnInput,
   resolveVoiceApiKey
 } from "../src/index.js";
+
+const fakeVoiceTargets = {
+  resolveExplicitAddress(transcript: string) {
+    if (!/^hey[, ]+sierra\b/iu.test(transcript)) return null;
+    return {
+      kind: "agent",
+      agent: {
+        id: "sierra",
+        type: "travel",
+        displayName: "Sierra",
+        callSigns: ["Sierra"]
+      },
+      matchedName: "Sierra",
+      transcript
+    };
+  }
+} as unknown as VoiceTargetDirectory;
 
 describe("parseVoiceTurnInput", () => {
   it("parses required fields and optional metadata", () => {
@@ -101,6 +120,102 @@ describe("resolveVoiceApiKey", () => {
         "x-tango-api-key": "secret-token"
       })
     ).toBe("secret-token");
+  });
+});
+
+describe("parseMobileVoiceDispatchInput", () => {
+  it("routes by explicit wake phrase and strips the wake phrase before dispatch", () => {
+    const result = parseMobileVoiceDispatchInput(
+      {
+        text: "Hey Sierra, what temperature will it be in Oaxaca?",
+        channelId: "12345",
+        utteranceId: "ios-1"
+      },
+      {
+        voiceTargets: fakeVoiceTargets
+      }
+    );
+
+    expect(result.turnInput).toEqual({
+      sessionId: "agent:sierra:discord:channel:12345",
+      agentId: "sierra",
+      transcript: "what temperature will it be in Oaxaca?",
+      utteranceId: "ios-1",
+      channelId: "12345"
+    });
+    expect(result.route).toMatchObject({
+      rawTranscript: "Hey Sierra, what temperature will it be in Oaxaca?",
+      dispatchedTranscript: "what temperature will it be in Oaxaca?",
+      agentId: "sierra",
+      routedBy: "explicit-address",
+      matchedCallSign: "Sierra",
+      strippedWakePhrase: true
+    });
+  });
+
+  it("uses the request/default agent when no wake phrase is present", () => {
+    const result = parseMobileVoiceDispatchInput(
+      {
+        transcript: "what temperature will it be in Oaxaca?",
+        channelId: "99999"
+      },
+      {
+        defaults: {
+          agentId: "watson"
+        },
+        voiceTargets: fakeVoiceTargets
+      }
+    );
+
+    expect(result.turnInput).toEqual({
+      sessionId: "agent:watson:discord:channel:99999",
+      agentId: "watson",
+      transcript: "what temperature will it be in Oaxaca?",
+      channelId: "99999"
+    });
+    expect(result.route.routedBy).toBe("default-agent");
+  });
+
+  it("prefers channel-backed sessions over the bridge default session", () => {
+    const result = parseMobileVoiceDispatchInput(
+      {
+        transcript: "what temperature will it be in Oaxaca?",
+        agentId: "sierra",
+        channelId: "99999"
+      },
+      {
+        defaults: {
+          sessionId: "voice-main",
+          agentId: "watson"
+        },
+        voiceTargets: fakeVoiceTargets
+      }
+    );
+
+    expect(result.turnInput.sessionId).toBe(
+      "agent:sierra:discord:channel:99999"
+    );
+    expect(result.route.routedBy).toBe("request-agent");
+  });
+
+  it("allows shortcuts to disable wake routing for fixed-agent buttons", () => {
+    const result = parseMobileVoiceDispatchInput(
+      {
+        transcript: "Hey Sierra, keep these exact words",
+        agentId: "watson",
+        routeByWake: false
+      },
+      {
+        voiceTargets: fakeVoiceTargets
+      }
+    );
+
+    expect(result.turnInput).toEqual({
+      sessionId: "agent:watson:main",
+      agentId: "watson",
+      transcript: "Hey Sierra, keep these exact words"
+    });
+    expect(result.route.strippedWakePhrase).toBe(false);
   });
 });
 

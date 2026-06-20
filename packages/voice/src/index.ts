@@ -5,9 +5,12 @@ import {
   type Server,
   type ServerResponse
 } from "node:http";
+import { VoiceTargetDirectory } from "./address-routing.js";
+import { parseMobileVoiceDispatchInput } from "./mobile-dispatch.js";
 
 export * from "./address-routing.js";
 export * from "./agent-address-book.js";
+export * from "./mobile-dispatch.js";
 export * from "./natural-routing.js";
 export * from "./project-directory.js";
 export * from "./project-routing.js";
@@ -145,12 +148,14 @@ export interface HttpVoiceBridgeOptions {
   port: number;
   path?: string;
   completionPath?: string;
+  mobileDispatchPath?: string;
   apiKey?: string;
   defaultSessionId?: string;
   defaultAgentId?: string;
   maxBodyBytes?: number;
   inboxHandlers?: VoiceInboxHandlers;
   completionHandler?: VoiceCompletionHandler;
+  voiceTargets?: VoiceTargetDirectory;
 }
 
 interface TurnRequestBody {
@@ -360,12 +365,15 @@ export class HttpVoiceBridge implements VoiceBridge {
   private readonly host: string;
   private readonly path: string;
   private readonly completionPath: string;
+  private readonly mobileDispatchPath: string;
   private readonly apiKey?: string;
   private readonly defaultSessionId?: string;
   private readonly defaultAgentId?: string;
   private readonly maxBodyBytes: number;
   private readonly inboxHandlers?: VoiceInboxHandlers;
   private readonly completionHandler?: VoiceCompletionHandler;
+  private readonly configuredVoiceTargets?: VoiceTargetDirectory;
+  private lazyVoiceTargets: VoiceTargetDirectory | null = null;
   private server: Server | null = null;
 
   constructor(
@@ -375,12 +383,14 @@ export class HttpVoiceBridge implements VoiceBridge {
     this.host = options.host?.trim() || "127.0.0.1";
     this.path = options.path?.trim() || "/voice/turn";
     this.completionPath = options.completionPath?.trim() || "/voice/completion";
+    this.mobileDispatchPath = options.mobileDispatchPath?.trim() || "/mobile/voice-dispatch";
     this.apiKey = options.apiKey?.trim() || undefined;
     this.defaultSessionId = options.defaultSessionId?.trim() || undefined;
     this.defaultAgentId = options.defaultAgentId?.trim() || undefined;
     this.maxBodyBytes = Math.max(options.maxBodyBytes ?? 1024 * 1024, 1024);
     this.inboxHandlers = options.inboxHandlers;
     this.completionHandler = options.completionHandler;
+    this.configuredVoiceTargets = options.voiceTargets;
   }
 
   async start(): Promise<void> {
@@ -432,6 +442,12 @@ export class HttpVoiceBridge implements VoiceBridge {
 
   async onTranscript(input: VoiceTurnInput): Promise<VoiceTurnResult> {
     return this.executor.executeTurn(input);
+  }
+
+  private getVoiceTargets(): VoiceTargetDirectory {
+    if (this.configuredVoiceTargets) return this.configuredVoiceTargets;
+    this.lazyVoiceTargets ??= new VoiceTargetDirectory();
+    return this.lazyVoiceTargets;
   }
 
   private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -506,6 +522,86 @@ export class HttpVoiceBridge implements VoiceBridge {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         sendJson(response, 500, { ok: false, error: "watermark-error", message });
+      }
+      return;
+    }
+
+    if (pathname === this.mobileDispatchPath) {
+      if (method !== "POST") {
+        response.setHeader("allow", "POST");
+        sendJson(response, 405, {
+          ok: false,
+          error: "method-not-allowed"
+        });
+        return;
+      }
+
+      if (this.apiKey) {
+        const provided = resolveVoiceApiKey(request.headers);
+        if (!provided || provided !== this.apiKey) {
+          sendJson(response, 401, {
+            ok: false,
+            error: "unauthorized"
+          });
+          return;
+        }
+      }
+
+      let payload: unknown;
+      try {
+        const raw = await this.readRequestBody(request);
+        payload = raw.length > 0 ? JSON.parse(raw) : {};
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        sendJson(response, 400, {
+          ok: false,
+          error: "invalid-json",
+          message
+        });
+        return;
+      }
+
+      let mobileInput: ReturnType<typeof parseMobileVoiceDispatchInput>;
+      try {
+        mobileInput = parseMobileVoiceDispatchInput(payload, {
+          defaults: {
+            sessionId: this.defaultSessionId,
+            agentId: this.defaultAgentId
+          },
+          voiceTargets: this.getVoiceTargets()
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        sendJson(response, 400, {
+          ok: false,
+          error: "invalid-input",
+          message
+        });
+        return;
+      }
+
+      try {
+        const turnInput = mobileInput.turnInput;
+        const result = await this.onTranscript(turnInput);
+        sendJson(response, 200, {
+          ok: true,
+          sessionId: turnInput.sessionId,
+          agentId: turnInput.agentId,
+          utteranceId: turnInput.utteranceId ?? null,
+          guildId: turnInput.guildId ?? null,
+          voiceChannelId: turnInput.voiceChannelId ?? null,
+          channelId: turnInput.channelId ?? null,
+          discordUserId: turnInput.discordUserId ?? null,
+          mobileDispatch: mobileInput.route,
+          ...result
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        sendJson(response, 500, {
+          ok: false,
+          error: "dispatch-failed",
+          message
+        });
       }
       return;
     }

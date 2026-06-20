@@ -189,6 +189,30 @@ describe("buildV2RuntimeConfigs", () => {
     });
   });
 
+  it("injects configured memory scope into MCP server environments", () => {
+    const configs = new Map<string, V2AgentConfig>([
+      [
+        "sierra-ollama",
+        createV2Config(
+          "sierra-ollama",
+          { provider: "claude-code-v2" },
+          {
+            canonicalAgentId: "sierra",
+            aliasAgentIds: ["sierra", "sierra-ollama"],
+          },
+        ),
+      ],
+    ]);
+
+    const runtimeConfig = buildV2RuntimeConfigs(configs, { repoRoot }).get("sierra-ollama");
+
+    expect(runtimeConfig?.mcpServers[0]?.env).toMatchObject({
+      WORKER_ID: "sierra-ollama",
+      TANGO_MEMORY_CANONICAL_AGENT_ID: "sierra",
+      TANGO_MEMORY_ALIAS_AGENT_IDS: "sierra,sierra-ollama",
+    });
+  });
+
   it("loads per-agent profile prompt overlays into the system prompt (profile parity)", () => {
     const homeBackup = process.env.TANGO_HOME;
     const profileBackup = process.env.TANGO_PROFILE;
@@ -208,6 +232,42 @@ describe("buildV2RuntimeConfigs", () => {
       // The profile-owned overlay is appended to the agent's system prompt,
       // so private/user-specific knowledge can live in the profile, not the repo.
       expect(runtimeConfigs.get("malibu")?.systemPrompt).toContain("PROFILE_OVERLAY_MARKER_XYZ");
+    } finally {
+      if (homeBackup === undefined) delete process.env.TANGO_HOME;
+      else process.env.TANGO_HOME = homeBackup;
+      if (profileBackup === undefined) delete process.env.TANGO_PROFILE;
+      else process.env.TANGO_PROFILE = profileBackup;
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it("lets ollama clones inherit their base persona profile overlays", () => {
+    const homeBackup = process.env.TANGO_HOME;
+    const profileBackup = process.env.TANGO_PROFILE;
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-v2-clone-overlay-"));
+    try {
+      process.env.TANGO_HOME = tmpHome;
+      process.env.TANGO_PROFILE = "test";
+      const baseOverlayDir = path.join(tmpHome, "profiles", "test", "prompts", "agents", "watson");
+      const cloneOverlayDir = path.join(tmpHome, "profiles", "test", "prompts", "agents", "watson-ollama");
+      fs.mkdirSync(baseOverlayDir, { recursive: true });
+      fs.mkdirSync(cloneOverlayDir, { recursive: true });
+      fs.writeFileSync(path.join(baseOverlayDir, "google-accounts.md"), "BASE_WATSON_ACCOUNT_MARKER", "utf8");
+      fs.writeFileSync(path.join(cloneOverlayDir, "clone.md"), "CLONE_SPECIFIC_MARKER", "utf8");
+
+      const configs = new Map<string, V2AgentConfig>([
+        [
+          "watson-ollama",
+          createV2Config("watson-ollama", { provider: "claude-code-v2" }, {}, {
+            systemPromptFile: "agents/assistants/watson/soul.md",
+          }),
+        ],
+      ]);
+      const prompt = buildV2RuntimeConfigs(configs, { repoRoot }).get("watson-ollama")?.systemPrompt ?? "";
+
+      expect(prompt).toContain("BASE_WATSON_ACCOUNT_MARKER");
+      expect(prompt).toContain("CLONE_SPECIFIC_MARKER");
+      expect(prompt.indexOf("BASE_WATSON_ACCOUNT_MARKER")).toBeLessThan(prompt.indexOf("CLONE_SPECIFIC_MARKER"));
     } finally {
       if (homeBackup === undefined) delete process.env.TANGO_HOME;
       else process.env.TANGO_HOME = homeBackup;
@@ -240,6 +300,7 @@ describe("createAtlasColdStartContextBuilder", () => {
     expect(memorySearch).toHaveBeenCalledWith({
       query: "recent context",
       agent_id: "malibu",
+      agent_ids: ["malibu"],
       limit: 5,
     });
     expect(result).toEqual({
@@ -250,6 +311,52 @@ describe("createAtlasColdStartContextBuilder", () => {
         "- Recent ankle soreness affected training [injury, recent]",
       ].join("\n"),
     });
+  });
+
+  it("expands cold-start Atlas memory reads across configured agent aliases", async () => {
+    const pinnedFactGet = vi
+      .fn()
+      .mockResolvedValueOnce([createPinnedFact("global-1", "product_name", "Atlas")])
+      .mockResolvedValueOnce([createPinnedFact("agent-1", "base", "canonical")])
+      .mockResolvedValueOnce([createPinnedFact("agent-2", "clone", "ollama")]);
+    const memorySearch = vi.fn().mockResolvedValue([
+      createMemory("memory-1", "User is researching Fujifilm X100VI", ["camera"]),
+    ]);
+    const v2Configs = new Map<string, V2AgentConfig>([
+      [
+        "sierra-ollama",
+        createV2Config(
+          "sierra-ollama",
+          { provider: "claude-code-v2" },
+          {
+            canonicalAgentId: "sierra",
+            aliasAgentIds: ["sierra", "sierra-ollama"],
+          },
+        ),
+      ],
+    ]);
+
+    const buildColdStartContext = createAtlasColdStartContextBuilder(
+      {
+        pinnedFactGet,
+        memorySearch,
+      },
+      { v2Configs },
+    );
+    const result = await buildColdStartContext("thread:thread-9", "sierra-ollama");
+
+    expect(pinnedFactGet).toHaveBeenNthCalledWith(1, { scope: "global" });
+    expect(pinnedFactGet).toHaveBeenNthCalledWith(2, { scope: "agent", scope_id: "sierra" });
+    expect(pinnedFactGet).toHaveBeenNthCalledWith(3, { scope: "agent", scope_id: "sierra-ollama" });
+    expect(memorySearch).toHaveBeenCalledWith({
+      query: "recent context",
+      agent_id: "sierra",
+      agent_ids: ["sierra", "sierra-ollama"],
+      limit: 5,
+    });
+    expect(result.pinnedFacts).toContain("- base: canonical");
+    expect(result.pinnedFacts).toContain("- clone: ollama");
+    expect(result.relevantMemories).toContain("Fujifilm X100VI");
   });
 
   it("includes compact attachment directory context when an attachment store is provided", async () => {
@@ -359,6 +466,7 @@ describe("createV2PostTurnHook", () => {
       {
         conversationKey: "thread:thread-1",
         agentId: "malibu",
+        runtimeAgentId: "malibu",
         userMessage: "Log my workout",
         agentResponse: "Logged it.",
         channelId: "channel-1",
@@ -370,6 +478,53 @@ describe("createV2PostTurnHook", () => {
         extractionModel: "claude-haiku-4-5",
         importanceThreshold: 0.4,
       },
+      expect.any(Object),
+      expect.any(Object),
+    );
+  });
+
+  it("stores post-turn memories under the configured canonical agent id", async () => {
+    const extractAndStoreMemoriesImpl = vi.fn().mockResolvedValue(undefined);
+    const hook = createV2PostTurnHook({
+      v2Configs: new Map([
+        [
+          "sierra-ollama",
+          createV2Config(
+            "sierra-ollama",
+            { provider: "claude-code-v2" },
+            {
+              postTurnExtraction: "enabled",
+              canonicalAgentId: "sierra",
+              aliasAgentIds: ["sierra", "sierra-ollama"],
+              extractionProvider: "ollama",
+            },
+          ),
+        ],
+      ]),
+      atlasMemoryClient: {
+        close: vi.fn(),
+      } as never,
+      resolveProvider: () => ({ generate: vi.fn() }) as never,
+      extractAndStoreMemoriesImpl,
+    });
+
+    await hook({
+      conversationKey: "thread:thread-1",
+      agentId: "sierra-ollama",
+      userMessage: "What camera was it?",
+      response: { text: "The Fujifilm X100VI.", durationMs: 20 },
+      channelId: "channel-1",
+      threadId: "thread-1",
+    });
+
+    expect(extractAndStoreMemoriesImpl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "sierra",
+        runtimeAgentId: "sierra-ollama",
+      }),
+      expect.objectContaining({
+        extractionProvider: "ollama",
+      }),
       expect.any(Object),
       expect.any(Object),
     );
