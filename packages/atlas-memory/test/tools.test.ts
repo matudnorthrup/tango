@@ -163,6 +163,46 @@ describe("atlas-memory tools", () => {
     db.close();
   });
 
+  it("searches across aliased agent ids when agent_ids is provided", async () => {
+    const { dbPath } = createTempDb();
+    const { db, tools } = createTestTools({ dbPath });
+    const memoryAdd = getTool(tools, "memory_add");
+    const memorySearch = getTool(tools, "memory_search");
+
+    await memoryAdd.handler({
+      content: "User is researching the Fujifilm X100VI camera.",
+      source: "manual",
+      agent_id: "sierra",
+      importance: 0.9,
+    });
+    await memoryAdd.handler({
+      content: "Fuji X100VI adapter ring and filter notes.",
+      source: "manual",
+      agent_id: "sierra-ollama",
+      importance: 0.8,
+    });
+    await memoryAdd.handler({
+      content: "Watson finance note that should not appear.",
+      source: "manual",
+      agent_id: "watson",
+      importance: 1,
+    });
+
+    const results = await memorySearch.handler({
+      query: "Fujifilm X100VI camera adapter",
+      agent_ids: ["sierra", "sierra-ollama"],
+      limit: 10,
+    }) as Array<{ content: string; agentId: string | null }>;
+
+    expect(results.map((result) => result.content).sort()).toEqual([
+      "Fuji X100VI adapter ring and filter notes.",
+      "User is researching the Fujifilm X100VI camera.",
+    ]);
+    expect(new Set(results.map((result) => result.agentId))).toEqual(new Set(["sierra", "sierra-ollama"]));
+
+    db.close();
+  });
+
   it("uses Voyage embeddings for semantic search when configured", async () => {
     const { dbPath } = createTempDb();
     vi.stubEnv("VOYAGE_API_KEY", "test-key");

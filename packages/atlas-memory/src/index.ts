@@ -30,10 +30,107 @@ function encodePayload(payload: unknown, isError = false): {
   };
 }
 
+interface ProcessMemoryScope {
+  runtimeAgentId: string;
+  canonicalAgentId: string;
+  aliasAgentIds: string[];
+}
+
+function uniqueAgentIds(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const agentIds: string[] = [];
+  for (const value of values) {
+    const agentId = value?.trim();
+    if (!agentId || seen.has(agentId)) {
+      continue;
+    }
+    seen.add(agentId);
+    agentIds.push(agentId);
+  }
+  return agentIds;
+}
+
+function resolveProcessMemoryScope(): ProcessMemoryScope | null {
+  const runtimeAgentId = process.env.WORKER_ID?.trim();
+  const configuredCanonical = process.env.TANGO_MEMORY_CANONICAL_AGENT_ID?.trim();
+  if (!runtimeAgentId && !configuredCanonical) {
+    return null;
+  }
+
+  const canonicalAgentId = configuredCanonical || runtimeAgentId;
+  if (!canonicalAgentId) {
+    return null;
+  }
+
+  const configuredAliases = (process.env.TANGO_MEMORY_ALIAS_AGENT_IDS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  return {
+    runtimeAgentId: runtimeAgentId || canonicalAgentId,
+    canonicalAgentId,
+    aliasAgentIds: uniqueAgentIds([canonicalAgentId, runtimeAgentId, ...configuredAliases]),
+  };
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return uniqueAgentIds(value.filter((item): item is string => typeof item === "string"));
+}
+
+function applyProcessMemoryScopeToToolArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+  memoryScope: ProcessMemoryScope | null,
+): Record<string, unknown> {
+  if (!memoryScope) {
+    return args;
+  }
+
+  const agentId = normalizeOptionalString(args.agent_id);
+  const currentScopeAgent =
+    !agentId || agentId === memoryScope.runtimeAgentId || memoryScope.aliasAgentIds.includes(agentId);
+  if (!currentScopeAgent) {
+    return args;
+  }
+
+  if (toolName === "memory_search") {
+    const agentIds = normalizeStringArray(args.agent_ids);
+    const onlyCurrentScope =
+      agentIds.length === 0 ||
+      agentIds.every((id) => id === memoryScope.runtimeAgentId || memoryScope.aliasAgentIds.includes(id));
+    if (!onlyCurrentScope) {
+      return args;
+    }
+    return {
+      ...args,
+      agent_id: memoryScope.canonicalAgentId,
+      agent_ids: memoryScope.aliasAgentIds,
+    };
+  }
+
+  if (toolName === "memory_add" || toolName === "memory_reflect") {
+    return {
+      ...args,
+      agent_id: memoryScope.canonicalAgentId,
+    };
+  }
+
+  return args;
+}
+
 export async function startAtlasMemoryServer(): Promise<void> {
   const { db, path } = openAtlasMemoryDatabase();
   const tools = createAtlasMemoryTools({ db });
   const toolMap = new Map(tools.map((tool) => [tool.name, tool]));
+  const memoryScope = resolveProcessMemoryScope();
   const server = new Server(
     { name: "atlas-memory", version: "0.1.0" },
     { capabilities: { tools: {} } },
@@ -58,7 +155,12 @@ export async function startAtlasMemoryServer(): Promise<void> {
     }
 
     try {
-      const result = await tool.handler((args ?? {}) as Record<string, unknown>);
+      const scopedArgs = applyProcessMemoryScopeToToolArgs(
+        name,
+        (args ?? {}) as Record<string, unknown>,
+        memoryScope,
+      );
+      const result = await tool.handler(scopedArgs);
       return encodePayload(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

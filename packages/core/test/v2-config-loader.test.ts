@@ -9,6 +9,7 @@ import {
   loadAllV2AgentConfigs,
   loadLayeredV2AgentConfigs,
   loadV2AgentConfig,
+  resolveV2MemoryScope,
 } from "../src/v2-config-loader.js";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -103,6 +104,43 @@ describe("loadV2AgentConfig", () => {
       timeZone: "America/Denver",
       timeFormat: "12h",
     });
+  });
+
+  it("loads configured shared memory scopes for Ollama clones", () => {
+    const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "sierra-ollama.yaml"));
+
+    expect(config.memory).toMatchObject({
+      canonicalAgentId: "sierra",
+      aliasAgentIds: ["sierra", "sierra-ollama"],
+    });
+    expect(resolveV2MemoryScope("sierra-ollama", config)).toEqual({
+      canonicalAgentId: "sierra",
+      aliasAgentIds: ["sierra", "sierra-ollama"],
+    });
+  });
+
+  it("keeps base agents and their Ollama clones on shared memory scopes", () => {
+    const configs = loadAllV2AgentConfigs(path.join(repoRoot, "config", "v2", "agents"));
+    const pairs = [
+      ["charlie", "charlie-ollama"],
+      ["foxtrot", "foxtrot-ollama"],
+      ["juliet", "juliet-ollama"],
+      ["malibu", "malibu-ollama"],
+      ["porter", "porter-ollama"],
+      ["sierra", "sierra-ollama"],
+      ["victor", "victor-ollama"],
+      ["watson", "watson-ollama"],
+    ] as const;
+
+    for (const [baseAgentId, cloneAgentId] of pairs) {
+      const expectedScope = {
+        canonicalAgentId: baseAgentId,
+        aliasAgentIds: [baseAgentId, cloneAgentId],
+      };
+
+      expect(resolveV2MemoryScope(baseAgentId, configs.get(baseAgentId))).toEqual(expectedScope);
+      expect(resolveV2MemoryScope(cloneAgentId, configs.get(cloneAgentId))).toEqual(expectedScope);
+    }
   });
 
   it("loads Porter as an LDS companion with direct governed tool access", () => {

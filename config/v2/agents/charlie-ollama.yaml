@@ -54,6 +54,10 @@ runtime:
 # Memory configuration — NO writes
 memory:
   post_turn_extraction: disabled
+  canonical_agent_id: charlie
+  alias_agent_ids:
+    - charlie
+    - charlie-ollama
   extraction_provider: ollama
   extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.9

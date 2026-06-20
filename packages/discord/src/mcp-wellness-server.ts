@@ -43,6 +43,7 @@ import { createDiscordManageTools } from "./discord-manage-tools.js";
 import { createDiscordSendImageTools } from "./discord-send-image-tools.js";
 import { createOnePasswordTools } from "./onepassword-agent-tools.js";
 import { createMemoryTools } from "./memory-agent-tools.js";
+import { applyMemoryScopeToToolArgs } from "./memory-tool-scope.js";
 import { createAttachmentTools } from "./attachment-agent-tools.js";
 import { createLinearTools } from "./linear-agent-tools.js";
 import { createSlackTools } from "./slack-tools.js";
@@ -55,8 +56,14 @@ import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
-import { GovernanceChecker, resolveDatabasePath } from "@tango/core";
-import type { AgentTool, AccessLevel } from "@tango/core";
+import {
+  GovernanceChecker,
+  loadLayeredV2AgentConfigs,
+  resolveConfigDir,
+  resolveDatabasePath,
+  resolveV2MemoryScope,
+} from "@tango/core";
+import type { AgentTool, AccessLevel, V2MemoryScope } from "@tango/core";
 
 // Debug logging via stderr (safe — MCP protocol uses stdout only)
 const debug = (...args: unknown[]) => {
@@ -64,6 +71,48 @@ const debug = (...args: unknown[]) => {
 };
 
 const EMPTY_ALLOWED_TOOL_IDS = "__none__";
+
+let memoryScopeByWorkerId: Map<string, V2MemoryScope> | null = null;
+
+function getMemoryScopeByWorkerId(): Map<string, V2MemoryScope> {
+  if (memoryScopeByWorkerId) {
+    return memoryScopeByWorkerId;
+  }
+
+  try {
+    const configDir = resolveConfigDir(process.env.TANGO_CONFIG_DIR);
+    const configs = loadLayeredV2AgentConfigs(configDir);
+    memoryScopeByWorkerId = new Map(
+      [...configs.entries()].map(([agentId, config]) => [
+        agentId,
+        resolveV2MemoryScope(agentId, config),
+      ]),
+    );
+  } catch (error) {
+    debug("V2 memory scope loading failed:", error instanceof Error ? error.message : String(error));
+    memoryScopeByWorkerId = new Map();
+  }
+
+  return memoryScopeByWorkerId;
+}
+
+function resolveWorkerMemoryScope(principalId: string | null): {
+  workerId: string;
+  memoryScope: V2MemoryScope | null;
+} | null {
+  const prefix = "worker:";
+  if (!principalId?.startsWith(prefix)) {
+    return null;
+  }
+  const workerId = principalId.slice(prefix.length).trim();
+  if (!workerId) {
+    return null;
+  }
+  return {
+    workerId,
+    memoryScope: getMemoryScopeByWorkerId().get(workerId) ?? null,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Thread session storage (reuses the same DB path as governance)
@@ -321,6 +370,13 @@ function inferRequestedAccessLevel(
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return READ_ONLY_PRINTER_ACTIONS.has(action) ? "read" : "write";
     }
+    case "paper_print": {
+      const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
+      if (action === "list_printers" || action === "preview" || args.dry_run !== false) {
+        return "read";
+      }
+      return "write";
+    }
     case "lunch_money": {
       const method = typeof args.method === "string" ? args.method.trim().toUpperCase() : "GET";
       return method === "GET" ? "read" : "write";
@@ -428,7 +484,11 @@ async function executeToolCall(
 
   try {
     const startMs = Date.now();
-    const result = await handler(args);
+    const workerScope = resolveWorkerMemoryScope(principalId);
+    const scopedArgs = workerScope
+      ? applyMemoryScopeToToolArgs(name, args, workerScope.workerId, workerScope.memoryScope)
+      : args;
+    const result = await handler(scopedArgs);
     const text = JSON.stringify(result);
     debug(`tools/call: ${name} completed in ${Date.now() - startMs}ms (${text.length} chars)`);
     return {

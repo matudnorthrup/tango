@@ -11,10 +11,9 @@
       "evidence": [
         "verdicts/travel.itinerary.constraint-planning.json \u2014 minimax 0.60 mean (ineligible), deepseek-pro wins on consistency (0.81-0.83)",
         "verdicts/travel.diesel.route-aware.json \u2014 minimax below quality bar; deepseek-pro only eligible candidate",
-        "verdicts/travel.route.sacramento-detour.json \u2014 all candidates pass; bounded tasks are model-insensitive",
-        "verdicts/shopping.walmart.product-equivalence.json \u2014 all candidates 0.97+; bounded reasoning is model-insensitive"
+        "verdicts/travel.route.sacramento-detour.json \u2014 all candidates pass; bounded tasks are model-insensitive"
       ],
-      "rationale": "The fallback default must pass the agent's whole task portfolio, not win on the cheapest subset. minimax stays available for per-task pins on bounded jobs.",
+      "rationale": "The fallback default must pass Sierra's research/travel portfolio, not win on the cheapest subset. minimax stays available for per-task pins on bounded jobs.",
       "appliedAt": null,
       "requiresRestart": true
     },

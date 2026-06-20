@@ -23,6 +23,7 @@ examples:
   - Get the 7x7 OpenGrid print ready for the MK4, but preview only. Do not upload or start it.
 classifier_hints:
   - Use for requests to actively prepare, slice, upload, or start a print job for a specific model or variant.
+  - Do not use for paper documents, PDFs, itineraries, confirmations, reservations, boarding passes, tickets, or hard-copy travel packets; use printing.paper_document for those.
   - Prefer this over printing.printer_status when the user is asking to initiate printing work rather than only read the current printer state.
   - The worker still decides the exact render, slice, upload, start, or readiness-check sequence based on the request and current printer state.
   - Preview-only or dry-run requests still belong here; they are execution-shaped requests with side effects suppressed by the runtime/tooling.

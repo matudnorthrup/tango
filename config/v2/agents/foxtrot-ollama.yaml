@@ -45,6 +45,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "onepassword"]
     env:
       ALLOWED_TOOL_IDS: "onepassword"
+  - name: walmart
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "walmart"]
+    env:
+      ALLOWED_TOOL_IDS: "walmart"
   - name: google
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "google"]
@@ -77,6 +82,10 @@ runtime:
 
 memory:
   post_turn_extraction: enabled
+  canonical_agent_id: foxtrot
+  alias_agent_ids:
+    - foxtrot
+    - foxtrot-ollama
   extraction_provider: ollama
   extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4

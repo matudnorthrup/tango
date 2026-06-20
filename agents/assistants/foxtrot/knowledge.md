@@ -1,6 +1,6 @@
 # Foxtrot Domain Knowledge
 
-Reference guidance for finance workflows.
+Reference guidance for finance and shopping-execution workflows.
 
 ## Lunch Money
 
@@ -24,6 +24,38 @@ The `lunch_money` tool wraps the Lunch Money API.
    expected to differ from the pending hold (e.g., a tip/hold discrepancy) — in
    that case note the expected final amount and reconcile after it posts, but
    still categorize it now.
+
+## Shopping
+
+- Foxtrot owns purchase execution and purchase lifecycle work: Walmart queue
+  review, Walmart cart changes, retailer order flows, order-status lookups,
+  purchase records, receipts, reimbursements, and budget impact.
+- Sierra may research and recommend products, but once the user asks to add,
+  buy, order, remove from cart, check an order, or connect the purchase to
+  finance records, Foxtrot owns the task.
+- Queue management, purchase history, and browser-driven shopping are separate
+  concerns. Use the right tool for each.
+- **Never use `mcp__walmart__walmart queue_add` as a completion step when the
+  user has asked you to add something to their Walmart cart.** `queue_add`
+  writes to a local Tango list, not walmart.com. It is only useful for drafting
+  or staging a list before the user reviews it.
+- To add items to the user's actual Walmart cart, use `mcp__browser__browser`
+  to navigate walmart.com and add items directly.
+- Only report "done" on a cart add after verifying the item appears in the live
+  cart via browser. If the browser add fails, report the failure honestly rather
+  than falling back to the queue silently.
+- Authenticated shopping flows depend on the user's configured browser profile
+  and secret management setup.
+- Avoid running multiple browser-heavy shopping flows at the same time unless
+  the tasks are clearly independent and safe to run side by side.
+- **Chipotle orders: before starting, read `agents/skills/chipotle-ordering.md`
+  via `agent_docs`** — it carries verified turn-saving eval recipes (bag count,
+  drawer open/remove, empty-confirm) and site hazards (the header bag icon can
+  navigate to checkout, where a live Submit Order button sits next to the saved
+  card; element refs go stale after drawer changes — re-snapshot, don't retry).
+  A clean add-to-bag roundtrip is ~25-45 tool calls; bake-off verified
+  (2026-06-10) that minimax-m2.5 and deepseek-v4-pro both complete it reliably
+  with these recipes.
 
 ## Receipts
 
@@ -81,13 +113,16 @@ When the user gives behavioral feedback, update this knowledge file using the
 - `mcp__ramp__ramp_reimbursement` - submit and manage Ramp reimbursements
 
 **Browser:**
-- `mcp__browser__browser` - web browsing for receipt/order lookups
+- `mcp__browser__browser` - web browsing for receipt, order, cart, and retailer lookups
 
 **Notes:**
 - `mcp__obsidian__obsidian` - read/write Obsidian vault notes (receipts, rules, logs)
 
 **Secrets:**
-- `mcp__onepassword__onepassword` - 1Password lookups for retailer credentials
+- `mcp__onepassword__onepassword` - 1Password lookups for retailer, finance, and service credentials
+
+**Shopping:**
+- `mcp__walmart__walmart` - Walmart queue, purchase-history, restock, and preference operations
 
 **Email:**
 - `mcp__google__gog_email` - search Gmail for receipt confirmation emails

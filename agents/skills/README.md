@@ -13,11 +13,12 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 
 | Doc | Skill ID | Primary use | Purpose |
 | --- | --- | --- | --- |
-| `amazon-orders.md` | `amazon_orders` | Watson / personal admin | Browser navigation for Amazon order lookup |
-| `chipotle-ordering.md` | `chipotle_ordering` | Sierra / shopping | Browser navigation for Chipotle ordering (favorites, location selection) |
+| `amazon-orders.md` | `amazon_orders` | Foxtrot / shopping and receipts | Browser navigation for Amazon order lookup |
+| `chipotle-ordering.md` | `chipotle_ordering` | Foxtrot / shopping | Browser navigation for Chipotle ordering (favorites, location selection) |
 | `daily-planning.md` | `daily_planning` | Watson / planning | Morning planning, evening check-in, weekly planning workflows |
 | `open-meteo-weather.md` | `open_meteo_weather` | Sierra / research | Open-Meteo free weather API (current + forecast) |
 | `osrm-routing.md` | `osrm_routing` | Sierra / routing | Driving routes via the `driving_route` tool (HERE traffic-aware primary, OSRM fallback) — never estimate distances; raw OSRM ETAs run high |
+| `email-subscription-cleanup.md` | `email_subscription_cleanup` | Watson / email | Nightly unsubscribe recommendations and confirmed unsubscribe execution |
 | `email-review.md` | `email_review` | Watson / email | Email triage phases, drafting voice, reply conventions |
 | `evening-checkin.md` | `evening_checkin` | Malibu / nutrition | Pre-dinner calorie budget (TDEE + FatSecret intake) |
 | `health-baselines.md` | `health_baselines` | Malibu / Watson health summaries | Baseline comparisons for health summaries |
@@ -30,7 +31,8 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `remote-claude-sessions.md` | `remote_claude_sessions` | Watson / dev sessions | Spawn phone-controllable Claude Code sessions (confirmation rail, verbatim prompts) |
 | `transaction-categorization.md` | `transaction_categorization` | Foxtrot / finance | Lunch Money categorization, rules, splits |
 | `travel-routing.md` | `travel_routing` | Sierra / travel | Current-location, route-comparison, and diesel-stop heuristics |
-| `walmart-orders.md` | `walmart_orders` | Sierra / shopping | Browser navigation for Walmart order lookup |
+| `travel-document-printing.md` | `travel_document_printing` | Sierra / travel | Travel confirmation PDF preview and paper printing workflow |
+| `walmart-orders.md` | `walmart_orders` | Foxtrot / shopping and receipts | Browser navigation for Walmart order lookup |
 
 Rules:
 - Skills capture reusable workflows and judgment, not tool schemas.

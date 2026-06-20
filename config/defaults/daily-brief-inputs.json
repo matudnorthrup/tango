@@ -35,6 +35,14 @@
       "sections": ["flagged", "overnightJobs"]
     },
     {
+      "scheduleId": "nightly-email-unsubscribe-review",
+      "displayName": "Email Unsubscribe Review",
+      "domain": "Email",
+      "logPath": "Records/Jobs/Email/YYYY-MM.md",
+      "critical": true,
+      "sections": ["flagged", "overnightJobs"]
+    },
+    {
       "scheduleId": "slack-saved-review",
       "displayName": "Slack Saved Items Review",
       "domain": "Slack",

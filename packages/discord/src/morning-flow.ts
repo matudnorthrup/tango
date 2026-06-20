@@ -33,6 +33,7 @@ const DEFAULT_CRITICAL_MORNING_SCHEDULES = [
   "nightly-transaction-categorizer",
   "receipt-cataloger",
   "daily-email-review",
+  "nightly-email-unsubscribe-review",
   "slack-saved-review",
   "vault-daily-check",
   "daily-brief",

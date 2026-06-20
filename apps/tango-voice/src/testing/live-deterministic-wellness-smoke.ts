@@ -231,15 +231,6 @@ const PHASE4_RESEARCH_CORE_CASES: readonly DeterministicSmokeCase[] = [
     requireLocationFreshnessConsistency: true,
   },
   {
-    id: "research-walmart-queue",
-    transcript: "Use the worker to list the current Walmart queue and summarize it briefly.",
-    expectIntents: ["shopping.walmart_queue_review"],
-    expectWorkers: ["research-assistant"],
-    expectRoute: "executed",
-    expectWriteOperations: false,
-    expectStepCount: 1,
-  },
-  {
     id: "research-location-plus-printer",
     transcript: "Where am I right now and what's the current printer status?",
     expectIntents: ["travel.location_read", "printing.printer_status"],
@@ -276,16 +267,6 @@ const PHASE4_RESEARCH_EXPANSION_CASES: readonly DeterministicSmokeCase[] = [
     waitTimeoutMs: 900_000,
   },
   {
-    id: "research-diesel-plus-walmart",
-    transcript: "Find the best diesel stops on the route to Tonopah, Nevada and separately tell me what's currently in the Walmart queue.",
-    expectIntents: ["travel.diesel_lookup", "shopping.walmart_queue_review"],
-    expectWorkers: ["research-assistant"],
-    expectRoute: "executed",
-    expectWriteOperations: false,
-    expectStepCount: 2,
-    waitTimeoutMs: 900_000,
-  },
-  {
     id: "research-video-read",
     transcript: "Use the transcript to summarize this YouTube video briefly: https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     expectIntents: ["research.video_read"],
@@ -295,6 +276,18 @@ const PHASE4_RESEARCH_EXPANSION_CASES: readonly DeterministicSmokeCase[] = [
     expectStepCount: 1,
     requiredResponsePatterns: [/(video|youtube|music|song|rick|astley|never gonna give you up)/i],
     waitTimeoutMs: 300_000,
+  },
+];
+
+const PHASE4_FOXTROT_CASES: readonly DeterministicSmokeCase[] = [
+  {
+    id: "foxtrot-walmart-queue",
+    transcript: "Use the worker to list the current Walmart queue and summarize it briefly.",
+    expectIntents: ["shopping.walmart_queue_review"],
+    expectWorkers: ["foxtrot"],
+    expectRoute: "executed",
+    expectWriteOperations: false,
+    expectStepCount: 1,
   },
 ];
 
@@ -471,6 +464,8 @@ function resolveCases(
         ? PHASE4_RESEARCH_CORE_CASES
       : suite === "phase4-research-expansion"
         ? PHASE4_RESEARCH_EXPANSION_CASES
+      : suite === "phase4-foxtrot"
+        ? PHASE4_FOXTROT_CASES
       : suite === "phase4-watson"
         ? PHASE4_WATSON_CASES
       : suite === "phase4-watson-expansion"
