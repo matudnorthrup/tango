@@ -11,7 +11,8 @@ import {
   assembleV2SystemPrompt,
   buildAttachmentDirectoryContext,
   isV2RuntimeEnabled,
-  resolveTangoProfileAgentPromptDir,
+  resolveTangoProfileAgentPromptDirs,
+  resolveV2MemoryScope,
 } from "@tango/core";
 import type { MemoryRecord, PinnedFactRecord } from "@tango/atlas-memory";
 import type { AtlasMemoryClient } from "./atlas-memory-client.js";
@@ -77,16 +78,27 @@ export function buildV2RuntimeConfigs(
       continue;
     }
 
+    const memoryScope = resolveV2MemoryScope(agentId, v2Config);
     runtimeConfigs.set(agentId, {
       agentId,
       systemPrompt: assembleV2SystemPrompt(v2Config, {
         repoRoot: options.repoRoot,
         // Parity with the legacy loader: load per-agent profile-owned prompt
-        // overlays (~/.tango/profiles/<p>/prompts/agents/<id>/*.md). Lets
-        // user-specific/private agent knowledge live in the profile, not the repo.
-        overlayDir: resolveTangoProfileAgentPromptDir(agentId),
+        // overlays (~/.tango/profiles/<p>/prompts/agents/<id>/*.md). Ollama
+        // clones also inherit their base persona's overlay before any
+        // clone-specific overlay, so private/user-specific knowledge can live in
+        // one profile location without being copied into repo defaults.
+        overlayDirs: resolveTangoProfileAgentPromptDirs(agentId),
       }),
-      mcpServers: v2Config.mcpServers,
+      mcpServers: v2Config.mcpServers.map((server) => ({
+        ...server,
+        env: {
+          ...(server.env ?? {}),
+          WORKER_ID: agentId,
+          TANGO_MEMORY_CANONICAL_AGENT_ID: memoryScope.canonicalAgentId,
+          TANGO_MEMORY_ALIAS_AGENT_IDS: memoryScope.aliasAgentIds.join(","),
+        },
+      })),
       runtimePreferences: {
         model: v2Config.runtime.model,
         reasoningEffort: normalizeRuntimeReasoningEffort(v2Config.runtime.reasoningEffort),
@@ -118,18 +130,26 @@ export function createAtlasColdStartContextBuilder(
      */
     projectStateProvider?: (conversationKey: string) => string | undefined;
     attachmentStore?: AttachmentStore;
+    v2Configs?: ReadonlyMap<string, V2AgentConfig>;
   } = {},
 ): ColdStartContextBuilder {
   return async (conversationKey, agentId) => {
-    const [pinnedFacts, agentFacts, relevantMemories] = await Promise.all([
+    const memoryScope = resolveV2MemoryScope(agentId, options.v2Configs?.get(agentId));
+    const [pinnedFacts, agentFactGroups, relevantMemories] = await Promise.all([
       atlasMemoryClient.pinnedFactGet({ scope: "global" }),
-      atlasMemoryClient.pinnedFactGet({ scope: "agent", scope_id: agentId }),
+      Promise.all(
+        memoryScope.aliasAgentIds.map((memoryAgentId) =>
+          atlasMemoryClient.pinnedFactGet({ scope: "agent", scope_id: memoryAgentId }),
+        ),
+      ),
       atlasMemoryClient.memorySearch({
         query: "recent context",
-        agent_id: agentId,
+        agent_id: memoryScope.canonicalAgentId,
+        agent_ids: memoryScope.aliasAgentIds,
         limit: 5,
       }),
     ]);
+    const agentFacts = agentFactGroups.flat();
     const attachmentContext =
       options.attachmentStore
         ? buildAttachmentDirectoryContext({
@@ -180,6 +200,7 @@ export function createV2PostTurnHook(input: {
     if (agentV2Config?.memory.postTurnExtraction !== "enabled") {
       return;
     }
+    const memoryScope = resolveV2MemoryScope(context.agentId, agentV2Config);
 
     // Resolve the extraction provider. Explicit config wins; otherwise derive from
     // the agent backend so Ollama clones extract via the (cheap, off-Claude) Ollama
@@ -206,7 +227,8 @@ export function createV2PostTurnHook(input: {
     await extractAndStore(
       {
         conversationKey: context.conversationKey,
-        agentId: context.agentId,
+        agentId: memoryScope.canonicalAgentId,
+        runtimeAgentId: context.agentId,
         userMessage: context.userMessage,
         agentResponse: context.response.text,
         channelId: context.channelId,

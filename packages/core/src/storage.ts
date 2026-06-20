@@ -694,6 +694,7 @@ export interface MemoryEmbeddingUpdateInput {
 export interface ListMemoriesOptions {
   sessionId?: string | null;
   agentId?: string | null;
+  agentIds?: string[];
   source?: MemorySource | "all";
   includeArchived?: boolean;
   limit?: number;
@@ -1500,11 +1501,6 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'find_diesel');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:research-coordinator', 'walmart', 'write', 'seed for sub-agent research coordination'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-coordinator')
-        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'walmart');
-
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
       SELECT 'worker:research-coordinator', 'browser', 'write', 'seed for sub-agent research coordination'
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-coordinator')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'browser');
@@ -2159,7 +2155,7 @@ const MIGRATIONS: Migration[] = [
         ('worker:foxtrot', 'lunch_money', 'write', 'finance account and transaction operations'),
         ('worker:foxtrot', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
         ('worker:foxtrot', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
-        ('worker:foxtrot', 'browser', 'write', 'finance web automation'),
+        ('worker:foxtrot', 'browser', 'write', 'finance and shopping web automation'),
         ('worker:foxtrot', 'obsidian', 'write', 'finance runbooks and notes'),
         ('worker:foxtrot', 'onepassword', 'read', 'finance credential retrieval'),
         ('worker:foxtrot', 'gog_email', 'write', 'finance email lookup and drafting'),
@@ -2174,7 +2170,7 @@ const MIGRATIONS: Migration[] = [
         ('worker:foxtrot-ollama', 'lunch_money', 'write', 'finance account and transaction operations'),
         ('worker:foxtrot-ollama', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
         ('worker:foxtrot-ollama', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
-        ('worker:foxtrot-ollama', 'browser', 'write', 'finance web automation'),
+        ('worker:foxtrot-ollama', 'browser', 'write', 'finance and shopping web automation'),
         ('worker:foxtrot-ollama', 'obsidian', 'write', 'finance runbooks and notes'),
         ('worker:foxtrot-ollama', 'onepassword', 'read', 'finance credential retrieval'),
         ('worker:foxtrot-ollama', 'gog_email', 'write', 'finance email lookup and drafting'),
@@ -2232,7 +2228,7 @@ const MIGRATIONS: Migration[] = [
         ('worker:sierra-ollama', 'exa_answer', 'read', 'Sierra Ollama research parity'),
         ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
         ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
-        ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for shopping and research'),
+        ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for research and source review'),
         ('worker:research-assistant', 'osrm_route', 'read', 'travel route planning and drive-time verification'),
         ('worker:sierra-ollama', 'osrm_route', 'read', 'Sierra Ollama travel route planning and drive-time verification');
 
@@ -2291,6 +2287,62 @@ const MIGRATIONS: Migration[] = [
 
       DELETE FROM permissions WHERE tool_id = 'osrm_route';
       DELETE FROM governance_tools WHERE id = 'osrm_route';
+    `,
+  },
+  {
+    version: 55,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('walmart', 'shopping', 'Walmart Shopping', 'write');
+
+      UPDATE governance_tools
+      SET domain = 'shopping',
+          display_name = 'Walmart Shopping',
+          access_type = 'write'
+      WHERE id = 'walmart';
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      SELECT 'worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:foxtrot');
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      SELECT 'worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:foxtrot-ollama');
+
+      DELETE FROM permissions
+      WHERE tool_id = 'walmart'
+        AND principal_id IN (
+          'worker:research-assistant',
+          'worker:research-coordinator',
+          'worker:sierra-ollama'
+        );
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:foxtrot', 'walmart', 'write', 'Walmart shopping queue, history, and cart support'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'walmart');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:foxtrot-ollama', 'walmart', 'write', 'Walmart shopping queue, history, and cart support'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'walmart');
+    `,
+  },
+  {
+    version: 56,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('paper_print', 'research', 'Paper Printing', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:research-assistant', 'paper_print', 'write', 'travel document PDF previews and local paper printing'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'paper_print');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:sierra-ollama', 'paper_print', 'write', 'Sierra Ollama paper document printing'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'paper_print');
     `,
   },
 ];
@@ -3038,7 +3090,13 @@ export class TangoStorage {
       }
     }
 
-    if (options.agentId !== undefined) {
+    const agentIds = [...new Set((options.agentIds ?? []).map((agentId) => agentId.trim()).filter(Boolean))];
+
+    if (agentIds.length > 0) {
+      const placeholders = agentIds.map(() => "?").join(", ");
+      conditions.push(`(agent_id IN (${placeholders}) OR agent_id IS NULL)`);
+      values.push(...agentIds);
+    } else if (options.agentId !== undefined) {
       if (options.agentId === null) {
         conditions.push("agent_id IS NULL");
       } else {

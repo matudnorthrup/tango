@@ -98,6 +98,12 @@ export interface RetrievedMemoryRecord extends StoredMemoryRecord {
 export interface AssembleSessionMemoryPromptInput {
   sessionId: string;
   agentId: string;
+  /**
+   * Agent id used only for retrieved-memory ranking. Set to null when the
+   * memory pool has already been scoped by multiple aliases and should not be
+   * narrowed back to the runtime agent id.
+   */
+  memoryAgentId?: string | null;
   currentUserPrompt?: string;
   queryEmbedding?: number[] | null;
   allowFullHistoryBypass?: boolean;
@@ -523,12 +529,14 @@ export function assembleSessionMemoryPrompt(
   const boundedPinnedSelection = selectPinnedFacts(input.pinnedFacts, pinnedBudget);
 
   const summarySelection = selectSummaryBlocks(input.summaries, summaryBudget);
+  const memoryRankingAgentId =
+    input.memoryAgentId === undefined ? input.agentId : input.memoryAgentId ?? undefined;
   const retrievedMemories = rankMemories({
     currentUserPrompt: input.currentUserPrompt,
     queryEmbedding: input.queryEmbedding,
     memories: input.memories,
     sessionId: input.sessionId,
-    agentId: input.agentId,
+    agentId: memoryRankingAgentId,
     limit: config.memoryLimit,
     retrievalWeights: config.retrievalWeights,
     now,

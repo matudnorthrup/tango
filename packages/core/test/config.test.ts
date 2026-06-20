@@ -578,6 +578,68 @@ describe("loadScheduleConfigs", () => {
     }
   });
 
+  it("loads the nightly email unsubscribe review as a daily Email input", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+    const schedules = loadScheduleConfigs(defaultsDir);
+    const production = schedules.find((schedule) => schedule.id === "nightly-email-unsubscribe-review");
+    const manualTest = schedules.find((schedule) => schedule.id === "manual-test-nightly-email-unsubscribe-review");
+    const legacyWeekly = schedules.find((schedule) => schedule.id === "weekly-email-subscriptions");
+
+    expect(production).toMatchObject({
+      enabled: true,
+      runtime: "v2",
+      obsidianLog: {
+        domain: "Email",
+        jobName: "Email Unsubscribe Review",
+      },
+      schedule: {
+        cron: "40 3 * * *",
+        timezone: "America/Los_Angeles",
+      },
+      execution: {
+        mode: "agent",
+        workerId: "personal-assistant",
+        intentIds: ["email.subscription_review"],
+        deterministicAgentId: "watson",
+        timeoutSeconds: 540,
+      },
+      delivery: {
+        mode: "none",
+      },
+      completion: {
+        workflowId: "nightly-email-unsubscribe-review",
+        scope: "daily",
+      },
+    });
+
+    const task = production?.execution.task ?? "";
+    expect(task).toContain("agents/skills/email-subscription-cleanup.md");
+    expect(task).toContain("discovery-only");
+    expect(task).toContain("Do not click unsubscribe links");
+    expect(task).toContain("**Flagged:**");
+
+    expect(manualTest).toMatchObject({
+      enabled: false,
+      runtime: "v2",
+      execution: {
+        mode: "agent",
+        intentIds: ["email.subscription_review"],
+        deterministicAgentId: "watson",
+      },
+      completion: {
+        workflowId: "manual-test-nightly-email-unsubscribe-review",
+        scope: "daily",
+        checkBeforeRun: false,
+        markOnSuccess: false,
+      },
+    });
+    expect(legacyWeekly).toMatchObject({
+      enabled: false,
+    });
+    expect(legacyWeekly?.description).toContain("Superseded by");
+  });
+
   it("loads the Kilo ledger monitor as a daily deterministic Finance input", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     process.env.TANGO_CONFIG_DIR = defaultsDir;

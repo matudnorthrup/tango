@@ -5,7 +5,7 @@ description: Look up order, cart, retailer, or browser-backed shopping details w
 mode: read
 route:
   kind: worker
-  target_id: research-assistant
+  target_id: foxtrot
 slots:
   - name: retailer
     required: false
@@ -21,3 +21,4 @@ classifier_hints:
   - Use for read-only browser-backed order or shopping-state lookups.
   - Prefer finance.receipt_lookup when the user is asking from a transaction-review or Lunch Money context.
   - Prefer shopping.browser_order_action when the user wants to modify a cart, start checkout, or place an order.
+  - Prefer research.product_selection when the user wants to choose between products rather than inspect existing order or cart state.

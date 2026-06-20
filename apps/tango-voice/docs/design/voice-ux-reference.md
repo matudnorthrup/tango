@@ -20,16 +20,17 @@ Say an agent's name to start talking to them. The system auto-switches to that a
 ```
 "Malibu, how's my recovery looking? Go ahead."
 "Watson, what time is the standup? Go ahead."
-"Sierra, find me a good standing desk. Thanks."
+"Sierra, compare standing desks for a small office. Thanks."
 ```
 
 ### Agent Roster
 
 | Agent | Wake Words | Domain |
 |-------|-----------|--------|
-| **Watson** | Watson | Personal assistant — planning, calendar, email, finance, general Q&A |
+| **Watson** | Watson | Personal assistant — planning, calendar, email, general Q&A |
 | **Malibu** | Malibu, Coach Malibu | Wellness — health, workouts, nutrition, cooking, recipes |
-| **Sierra** | Sierra | Research & procurement — deep research, shopping, product comparison |
+| **Sierra** | Sierra | Research — deep research, travel, product comparison, fabrication |
+| **Foxtrot** | Foxtrot, Zulu Foxtrot | Finance & shopping — budgets, carts, orders, receipts, reimbursements |
 | **Tango** | Watson (system wake) | System-level commands (pause, resume, status, settings) |
 
 Watson is also the default — unaddressed speech goes to Watson.

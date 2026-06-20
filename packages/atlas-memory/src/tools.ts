@@ -69,12 +69,16 @@ export function createAtlasMemoryTools(
       ].join("\n"),
       inputSchema: {
         type: "object",
-        properties: {
-          query: { type: "string" },
-          agent_id: { type: "string" },
-          tags: {
-            type: "array",
-            items: { type: "string" },
+          properties: {
+            query: { type: "string" },
+            agent_id: { type: "string" },
+            agent_ids: {
+              type: "array",
+              items: { type: "string" },
+            },
+            tags: {
+              type: "array",
+              items: { type: "string" },
           },
           limit: { type: "number" },
           include_archived: { type: "boolean" },
@@ -87,6 +91,7 @@ export function createAtlasMemoryTools(
         const limit = readInteger(input.limit, 10, 1, 100);
         const filter = buildMemoryAdminFilter({
           agent_id: readOptionalString(input.agent_id),
+          agent_ids: readOptionalStringArray(input.agent_ids),
           tags: readOptionalStringArray(input.tags),
           include_archived: readBoolean(input.include_archived, false),
         });
@@ -411,6 +416,10 @@ export function createAtlasMemoryTools(
                 items: { type: "string" },
               },
               agent_id: { type: "string" },
+              agent_ids: {
+                type: "array",
+                items: { type: "string" },
+              },
               source: { type: "string" },
               tags: {
                 type: "array",
@@ -668,6 +677,7 @@ function buildMemoryAdminFilter(input: unknown): MemoryAdminFilter {
   return {
     ids: readOptionalStringArray(raw.ids),
     agent_id: readOptionalString(raw.agent_id),
+    agent_ids: readOptionalStringArray(raw.agent_ids),
     source: raw.source === undefined ? undefined : readMemorySource(raw.source),
     tags: readOptionalStringArray(raw.tags),
     include_archived: raw.include_archived === undefined ? undefined : readBoolean(raw.include_archived, false),
@@ -690,9 +700,13 @@ function buildMemoryWhereClause(filter: MemoryAdminFilter): {
     params.push(...ids);
   }
 
-  if (filter.agent_id) {
-    clauses.push("agent_id = ?");
-    params.push(filter.agent_id);
+  const agentIds = uniqueStrings([
+    ...(filter.agent_ids ?? []),
+    ...(filter.agent_id ? [filter.agent_id] : []),
+  ]);
+  if (agentIds.length > 0) {
+    clauses.push(`agent_id IN (${agentIds.map(() => "?").join(", ")})`);
+    params.push(...agentIds);
   }
 
   if (filter.source) {

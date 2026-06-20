@@ -48,3 +48,4 @@ can_run_in_parallel: true
 classifier_hints:
   - Use for model-selection, shortlist, lineup navigation, or best-fit recommendation requests within a product category or brand.
   - Prefer this over research.deep_research for ordinary product-shopping decisions that one strong research pass can answer.
+  - Prefer shopping.browser_order_action when the user asks to add, buy, order, or otherwise mutate cart/order state after the recommendation.

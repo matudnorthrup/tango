@@ -51,6 +51,7 @@ export class AtlasMemoryClient {
   async memorySearch(params: {
     query: string;
     agent_id?: string;
+    agent_ids?: string[];
     tags?: string[];
     limit?: number;
   }): Promise<MemoryRecord[]> {
@@ -75,13 +76,14 @@ export class AtlasMemoryClient {
   }
 
   /** Candidate memories for warm-start ranking (agent-scoped + global, newest first). */
-  listMemoriesForContext(input: { agentId?: string | null; limit?: number }): AtlasContextMemoryRow[] {
+  listMemoriesForContext(input: { agentId?: string | null; agentIds?: string[]; limit?: number }): AtlasContextMemoryRow[] {
     return listAtlasMemoriesForContext(this.db, input);
   }
 
   getConversationSummaryForContext(input: {
     sessionId: string;
-    agentId: string;
+    agentId?: string;
+    agentIds?: string[];
   }): AtlasContextSummaryRow | null {
     return getAtlasConversationSummary(this.db, input);
   }
@@ -89,6 +91,7 @@ export class AtlasMemoryClient {
   listPinnedFactsForWarmStart(input: {
     sessionId?: string | null;
     agentId?: string | null;
+    agentIds?: string[];
   }): AtlasContextPinnedFactRow[] {
     return listAtlasPinnedFactsForContext(this.db, input);
   }

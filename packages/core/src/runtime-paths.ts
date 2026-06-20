@@ -144,6 +144,18 @@ export function resolveTangoProfileAgentPromptDir(
   return path.join(resolveTangoProfilePromptsDir(options), "agents", agentId);
 }
 
+export function resolveTangoProfileAgentPromptDirs(
+  agentId: string,
+  options: TangoProfilePathOptions = {},
+): string[] {
+  const suffix = "-ollama";
+  const ids = agentId.endsWith(suffix)
+    ? [agentId.slice(0, -suffix.length), agentId]
+    : [agentId];
+
+  return [...new Set(ids.map((id) => resolveTangoProfileAgentPromptDir(id, options)))];
+}
+
 export function resolveTangoProfileWorkerPromptDir(
   workerId: string,
   options: TangoProfilePathOptions = {},

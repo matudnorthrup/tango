@@ -106,6 +106,8 @@ import {
   registerPreCheckHandler,
   runMemoryEvalBenchmarks,
   assembleV2SystemPrompt,
+  resolveTangoProfileAgentPromptDirs,
+  resolveV2MemoryScope,
   contactsSyncHandler,
   isRuntimeAbortedError,
   isV2RuntimeEnabled,
@@ -434,6 +436,7 @@ const envSchema = z.object({
   TANGO_VOICE_BRIDGE_HOST: z.string().default("127.0.0.1"),
   TANGO_VOICE_BRIDGE_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   TANGO_VOICE_BRIDGE_PATH: z.string().default("/voice/turn"),
+  TANGO_MOBILE_VOICE_DISPATCH_PATH: z.string().default("/mobile/voice-dispatch"),
   TANGO_VOICE_BRIDGE_API_KEY: z
     .string()
     .optional()
@@ -516,7 +519,7 @@ const SCHEDULER_USE_OLLAMA = (process.env.TANGO_SCHEDULER_USE_OLLAMA ?? "true") 
 // Comma-separated schedule ids; the "manual-test-" prefix is matched too. Override via env.
 const SCHEDULER_OLLAMA_EXCLUDE = new Set(
   (process.env.TANGO_SCHEDULER_OLLAMA_EXCLUDE
-    ?? "weekly-finance-review,sinking-fund-reconciliation,sinking-fund-reconciliation-month-end")
+    ?? "weekly-finance-review,sinking-fund-reconciliation,sinking-fund-reconciliation-month-end,nightly-email-unsubscribe-review,manual-test-nightly-email-unsubscribe-review")
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean),
@@ -575,6 +578,7 @@ const voiceBridgeEnabled = env.TANGO_VOICE_BRIDGE_ENABLED === "true";
 const voiceBridgeHost = env.TANGO_VOICE_BRIDGE_HOST;
 const voiceBridgePort = env.TANGO_VOICE_BRIDGE_PORT;
 const voiceBridgePath = env.TANGO_VOICE_BRIDGE_PATH;
+const mobileVoiceDispatchPath = env.TANGO_MOBILE_VOICE_DISPATCH_PATH;
 const voiceBridgeApiKey = env.TANGO_VOICE_BRIDGE_API_KEY;
 const voiceDefaultSessionId = env.TANGO_VOICE_DEFAULT_SESSION_ID;
 const voiceDefaultAgentId = env.TANGO_VOICE_DEFAULT_AGENT_ID;
@@ -701,6 +705,7 @@ const tangoRouter = new TangoRouter({
     projectStateProvider: (conversationKey) =>
       renderProjectStateBlock(storage, conversationKey, { vaultRoot: resolveStateVaultRoot() }),
     attachmentStore,
+    v2Configs,
   }),
   onPostTurn: createV2PostTurnHook({
     v2Configs,
@@ -972,7 +977,10 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
         continue;
       }
 
-      const systemPrompt = assembleV2SystemPrompt(config, { repoRoot: process.cwd() }).trim();
+      const systemPrompt = assembleV2SystemPrompt(config, {
+        repoRoot: process.cwd(),
+        overlayDirs: resolveTangoProfileAgentPromptDirs(config.id),
+      }).trim();
       if (systemPrompt.length === 0) {
         throw new Error(`System prompt for agent '${config.id}' is empty.`);
       }
@@ -1712,11 +1720,15 @@ startPersistentMcpServer().then((port) => {
         );
       }
 
-      const systemPrompt = assembleV2SystemPrompt(v2Entry, { repoRoot: process.cwd() }).trim();
+      const systemPrompt = assembleV2SystemPrompt(v2Entry, {
+        repoRoot: process.cwd(),
+        overlayDirs: resolveTangoProfileAgentPromptDirs(scheduledAgentId),
+      }).trim();
       if (systemPrompt.length === 0) {
         throw new Error(`System prompt file for agent '${scheduledAgentId}' is empty.`);
       }
 
+      const scheduledMemoryScope = resolveV2MemoryScope(scheduledAgentId, v2Entry);
       const runtimeConfig: AgentRuntimeConfig = {
         agentId: scheduledAgentId,
         backend: isOllamaBackedAgent(v2Entry) ? "ollama" : "claude-code",
@@ -1728,6 +1740,9 @@ startPersistentMcpServer().then((port) => {
           env: {
             ...buildRuntimePathEnv({ dbPath, configDir }),
             ...(server.env ?? {}),
+            WORKER_ID: scheduledAgentId,
+            TANGO_MEMORY_CANONICAL_AGENT_ID: scheduledMemoryScope.canonicalAgentId,
+            TANGO_MEMORY_ALIAS_AGENT_IDS: scheduledMemoryScope.aliasAgentIds.join(","),
           },
         })),
         runtimePreferences: {
@@ -1746,16 +1761,22 @@ startPersistentMcpServer().then((port) => {
 
       let coldStartContext = "";
       try {
+        const memoryScope = resolveV2MemoryScope(input.agentId, v2Configs.get(input.agentId));
         const [pinnedFacts, agentFacts, relevantMemories] = await Promise.all([
           atlasMemoryClient.pinnedFactGet({ scope: "global" }),
-          atlasMemoryClient.pinnedFactGet({ scope: "agent", scope_id: input.agentId }),
+          Promise.all(
+            memoryScope.aliasAgentIds.map((memoryAgentId) =>
+              atlasMemoryClient.pinnedFactGet({ scope: "agent", scope_id: memoryAgentId }),
+            ),
+          ),
           atlasMemoryClient.memorySearch({
             query: input.task.slice(0, 200),
-            agent_id: input.agentId,
+            agent_id: memoryScope.canonicalAgentId,
+            agent_ids: memoryScope.aliasAgentIds,
             limit: 5,
           }),
         ]);
-        const facts = formatPinnedFacts([...pinnedFacts, ...agentFacts]);
+        const facts = formatPinnedFacts([...pinnedFacts, ...agentFacts.flat()]);
         const memories = formatMemories(relevantMemories);
         if (facts) coldStartContext += `Pinned facts:\n${facts}\n\n`;
         if (memories) coldStartContext += `Relevant memories:\n${memories}\n\n`;
@@ -4310,6 +4331,7 @@ const voiceBridge = voiceBridgeEnabled
         host: voiceBridgeHost,
         port: voiceBridgePort,
         path: voiceBridgePath,
+        mobileDispatchPath: mobileVoiceDispatchPath,
         apiKey: voiceBridgeApiKey,
         defaultSessionId: voiceDefaultSessionId,
         defaultAgentId: voiceDefaultAgentId,
@@ -5186,9 +5208,12 @@ async function buildWarmStartContext(input: {
     // the Atlas substrate — where extraction, reflections, and the obsidian
     // mirror all write — with per-call fallback to the legacy core tables.
     // TANGO_WARM_START_MEMORY_SOURCE=core flips back without a deploy.
+    const memoryScope = resolveV2MemoryScope(input.agentId, v2Configs.get(input.agentId));
     const memoryQuery = {
       sessionId: input.sessionId,
       agentId: input.agentId,
+      memoryAgentId: memoryScope.canonicalAgentId,
+      memoryAgentIds: memoryScope.aliasAgentIds,
       conversationKey: input.discordThreadId
         ? `thread:${input.discordThreadId}`
         : input.discordChannelId
@@ -5219,6 +5244,7 @@ async function buildWarmStartContext(input: {
     const memoryPrompt = assembleSessionMemoryPrompt({
       sessionId: input.sessionId,
       agentId: input.agentId,
+      memoryAgentId: memoryScope.aliasAgentIds.length === 1 ? memoryScope.canonicalAgentId : null,
       currentUserPrompt: input.currentUserPrompt,
       queryEmbedding,
       allowFullHistoryBypass: orchestratorContinuityMode !== "stateless",

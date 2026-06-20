@@ -21,6 +21,8 @@ export type WarmStartMemorySubstrate = "atlas" | "core";
 export interface WarmStartMemoryQuery {
   sessionId: string;
   agentId: string;
+  memoryAgentId?: string;
+  memoryAgentIds?: string[];
   /** thread:{id} / channel:{id} — Atlas conversation artifacts key on this. */
   conversationKey: string | null;
   memoryPoolLimit: number;
@@ -45,15 +47,19 @@ export function loadCoreWarmStartMemory(
   storage: TangoStorage,
   query: WarmStartMemoryQuery,
 ): WarmStartMemoryBundle {
+  const memoryAgentId = query.memoryAgentId ?? query.agentId;
+  const memoryAgentIds = query.memoryAgentIds?.length ? query.memoryAgentIds : [memoryAgentId];
+
   return {
     substrate: "core",
     memories: storage.listMemories({
       sessionId: query.sessionId,
-      agentId: query.agentId,
+      agentId: memoryAgentId,
+      agentIds: memoryAgentIds,
       limit: query.memoryPoolLimit,
     }),
-    summaries: storage.listSessionMemorySummaries(query.sessionId, query.agentId, 24),
-    pinnedFacts: storage.listPinnedFactsForContext(query.sessionId, query.agentId),
+    summaries: storage.listSessionMemorySummaries(query.sessionId, memoryAgentId, 24),
+    pinnedFacts: storage.listPinnedFactsForContext(query.sessionId, memoryAgentId),
     touch: (accessedMemoryIds) => {
       if (accessedMemoryIds.length > 0) storage.touchMemories(accessedMemoryIds);
     },
@@ -112,9 +118,12 @@ export function loadAtlasWarmStartMemory(
   client: AtlasMemoryClient,
   query: WarmStartMemoryQuery,
 ): WarmStartMemoryBundle {
+  const memoryAgentId = query.memoryAgentId ?? query.agentId;
+  const memoryAgentIds = query.memoryAgentIds?.length ? query.memoryAgentIds : [memoryAgentId];
   const { memories, idToAtlasId } = mapAtlasContextRows(
     client.listMemoriesForContext({
-      agentId: query.agentId,
+      agentId: memoryAgentId,
+      agentIds: memoryAgentIds,
       limit: query.memoryPoolLimit,
     }),
   );
@@ -123,13 +132,14 @@ export function loadAtlasWarmStartMemory(
   if (query.conversationKey) {
     const summary = client.getConversationSummaryForContext({
       sessionId: query.conversationKey,
-      agentId: query.agentId,
+      agentId: memoryAgentId,
+      agentIds: memoryAgentIds,
     });
     if (summary) {
       summaries.push({
         id: 1,
         sessionId: query.sessionId,
-        agentId: query.agentId,
+        agentId: memoryAgentId,
         summaryText: summary.summary,
         tokenCount: estimateTokenCount(summary.summary),
         coversThroughMessageId: null,
@@ -142,7 +152,8 @@ export function loadAtlasWarmStartMemory(
   const pinnedFacts: PinnedFactRecord[] = client
     .listPinnedFactsForWarmStart({
       sessionId: query.conversationKey ?? query.sessionId,
-      agentId: query.agentId,
+      agentId: memoryAgentId,
+      agentIds: memoryAgentIds,
     })
     .map((fact, index) => ({
       id: index + 1,

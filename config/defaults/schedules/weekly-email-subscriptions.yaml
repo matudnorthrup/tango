@@ -1,9 +1,10 @@
 id: weekly-email-subscriptions
 display_name: Weekly Email Subscription Review
 description: >
-  Scan all email accounts for subscription/marketing emails and recommend
-  unsubscribes for new senders not previously reviewed.
-enabled: true
+  Legacy weekly subscription review. Superseded by
+  nightly-email-unsubscribe-review, which feeds the daily brief and uses the
+  confirmed unsubscribe workflow.
+enabled: false
 runtime: v2
 
 obsidian_log:

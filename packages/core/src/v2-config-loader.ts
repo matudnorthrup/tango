@@ -44,6 +44,8 @@ export interface V2AgentConfig {
   };
   memory: {
     postTurnExtraction: V2FeatureToggle;
+    canonicalAgentId?: string;
+    aliasAgentIds?: string[];
     /** Optional provider name for post-turn extraction; defaults by agent backend. */
     extractionProvider?: string;
     extractionModel: string;
@@ -155,6 +157,8 @@ const rawV2AgentConfigSchema = z.object({
   }),
   memory: z.object({
     post_turn_extraction: featureToggleSchema,
+    canonical_agent_id: z.string().min(1).optional(),
+    alias_agent_ids: z.array(z.string().min(1)).optional(),
     extraction_provider: z.string().min(1).optional(),
     extraction_model: z.string().min(1),
     importance_threshold: z.number().min(0).max(1),
@@ -276,6 +280,12 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
     },
     memory: {
       postTurnExtraction: parsed.memory.post_turn_extraction,
+      ...(parsed.memory.canonical_agent_id
+        ? { canonicalAgentId: parsed.memory.canonical_agent_id }
+        : {}),
+      ...(parsed.memory.alias_agent_ids
+        ? { aliasAgentIds: parsed.memory.alias_agent_ids }
+        : {}),
       ...(parsed.memory.extraction_provider
         ? { extractionProvider: parsed.memory.extraction_provider }
         : {}),
@@ -368,6 +378,45 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
           allowlistUserIds: parsed.access.allowlist_user_ids,
         }
       : undefined,
+  };
+}
+
+export interface V2MemoryScope {
+  canonicalAgentId: string;
+  aliasAgentIds: string[];
+}
+
+function uniqueMemoryAgentIds(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const agentIds: string[] = [];
+
+  for (const value of values) {
+    const agentId = value?.trim();
+    if (!agentId || seen.has(agentId)) {
+      continue;
+    }
+    seen.add(agentId);
+    agentIds.push(agentId);
+  }
+
+  return agentIds;
+}
+
+export function resolveV2MemoryScope(
+  agentId: string,
+  config?: Pick<V2AgentConfig, "id" | "memory"> | null,
+): V2MemoryScope {
+  const canonicalAgentId = config?.memory.canonicalAgentId?.trim() || agentId;
+  const aliasAgentIds = uniqueMemoryAgentIds([
+    canonicalAgentId,
+    config?.id,
+    agentId,
+    ...(config?.memory.aliasAgentIds ?? []),
+  ]);
+
+  return {
+    canonicalAgentId,
+    aliasAgentIds: aliasAgentIds.length > 0 ? aliasAgentIds : [canonicalAgentId],
   };
 }
 

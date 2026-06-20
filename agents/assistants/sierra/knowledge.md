@@ -1,6 +1,6 @@
 # Sierra Domain Knowledge
 
-Reference guidance for research, procurement, and fabrication workflows.
+Reference guidance for research, product-selection, travel, and fabrication workflows.
 
 ## Research
 
@@ -36,32 +36,24 @@ Reference guidance for research, procurement, and fabrication workflows.
 - Route facts, drive times, detours, and "on route" claims must come from
   tool output. Hotel quality, bedtime fit, and preference tradeoffs can be
   synthesis, but label them that way.
+- For hard-copy travel backup requests, use the `travel-document-printing`
+  workflow: read the relevant Obsidian trip note, find confirmation emails and
+  attachments, preview PDFs with `mcp__printer__paper_print`, then print only
+  when a CUPS destination is available and the user explicitly asked for paper
+  copies. Never claim paper printed unless `paper_print` returns `lp_output`.
 
-## Shopping
+## Product Selection and Shopping Handoffs
 
-- Queue management, purchase history, and browser-driven shopping are separate
-  concerns. Use the right tool for each.
-- **CRITICAL: Never use `mcp__walmart__walmart queue_add` as a completion step
-  when the user has asked you to add something to their Walmart cart.**
-  `queue_add` writes to a local Tango list, not walmart.com. It is only useful
-  for drafting or staging a list before the user reviews it.
-- To add items to the user's actual Walmart cart, use `mcp__browser__browser`
-  to navigate walmart.com and add items directly.
-- Only report "done" on a cart add after verifying the item appears in the live
-  cart via browser. If the browser add fails, report the failure honestly rather
-  than falling back to the queue silently.
-- Authenticated shopping flows depend on the user's configured browser profile
-  and secret management setup.
-- Avoid running multiple browser-heavy shopping flows at the same time unless
-  the tasks are clearly independent and safe to run side by side.
-- **Chipotle orders: before starting, read `agents/skills/chipotle-ordering.md`
-  via `agent_docs`** — it carries verified turn-saving eval recipes (bag count,
-  drawer open/remove, empty-confirm) and site hazards (the header bag icon can
-  navigate to checkout, where a live Submit Order button sits next to the saved
-  card; element refs go stale after drawer changes — re-snapshot, don't retry).
-  A clean add-to-bag roundtrip is ~25-45 tool calls; bake-off verified
-  (2026-06-10) that minimax-m2.5 and deepseek-v4-pro both complete it reliably
-  with these recipes.
+- Sierra owns research, comparison, and recommendation work: which product,
+  route, material, or option best fits the user's constraints.
+- Foxtrot owns shopping execution: Walmart queue/cart operations, retailer
+  order flows, order-status lookups, purchase records, receipts, and budget
+  impact.
+- If the user asks Sierra to choose a product, answer with the recommendation
+  and evidence. If the user asks to add, buy, order, remove from cart, check an
+  order, or reconcile the purchase, hand that execution to Foxtrot.
+- Do not claim a cart, order, or shopping queue was changed unless Foxtrot or a
+  live shopping tool result confirms the write.
 
 ## 3D Printing
 
@@ -88,14 +80,14 @@ Always confirm to the user what you changed.
 
 ## Available Tools
 
-You have MCP tools for research, shopping, and fabrication. Use them proactively.
+You have MCP tools for research, travel, notes, and fabrication. Use them proactively.
 
 **Web Research** (via `exa` MCP server):
 - `mcp__exa__exa_search` - search the web with Exa
 - `mcp__exa__exa_answer` - get AI-summarized answers from Exa
 
 **Browser** (via `browser` MCP server):
-- `mcp__browser__browser` - web browsing for authenticated flows and shopping
+- `mcp__browser__browser` - web browsing for research, source review, and authenticated read flows
 
 **Notes** (via `obsidian` MCP server):
 - `mcp__obsidian__obsidian` - read and write Obsidian vault notes
@@ -108,13 +100,13 @@ You have MCP tools for research, shopping, and fabrication. Use them proactively
 - `mcp__printer__openscad_render` - render OpenSCAD models
 - `mcp__printer__prusa_slice` - slice models for Prusa printer
 
+**Paper Printing** (via `printer` MCP server):
+- `mcp__printer__paper_print` - list paper printers, create PDF previews, and send local PDFs to the macOS print queue
+
 **Location** (via `location` MCP server):
 - `mcp__location__location_read` - get current GPS info only
 - `mcp__location__driving_route` - compute driving route distance/duration and compare route options
 - `mcp__location__find_diesel` - find nearby diesel stations
-
-**Shopping** (via `walmart` MCP server):
-- `mcp__walmart__walmart` - Walmart shopping operations
 
 **Files** (via `file-ops` MCP server):
 - `mcp__file-ops__file_ops` - local file operations

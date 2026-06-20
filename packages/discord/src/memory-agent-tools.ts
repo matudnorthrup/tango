@@ -43,6 +43,7 @@ export function createMemoryTools(overrides?: MemoryToolOptions): AgentTool[] {
         "  limit — max results to return (default 10, hard max 25)",
         "  session_id — optional Tango session scope",
         "  agent_id — optional Tango agent scope",
+        "  agent_ids — optional list of Tango agent scopes to search together",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -68,6 +69,11 @@ export function createMemoryTools(overrides?: MemoryToolOptions): AgentTool[] {
             type: "string",
             description: "Optional Tango agent ID scope",
           },
+          agent_ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional Tango agent IDs to search together",
+          },
         },
         required: ["query"],
       },
@@ -80,23 +86,27 @@ export function createMemoryTools(overrides?: MemoryToolOptions): AgentTool[] {
         const source = normalizeMemorySource(input.source);
         const sessionId = normalizeOptionalString(input.session_id);
         const agentId = normalizeOptionalString(input.agent_id);
+        const agentIds = normalizeOptionalStringArray(input.agent_ids);
+        const memoryAgentIds = agentIds.length > 0 ? agentIds : agentId ? [agentId] : [];
         const limit = clampLimit(input.limit, 10, 25);
         // Brute-force ranking is still cheap at current corpus sizes, so favor recall.
         const candidateLimit = 20_000;
         const memories = storage.listMemories({
           sessionId,
           agentId,
+          agentIds: memoryAgentIds,
           source,
           limit: candidateLimit,
         });
         const sessionMemoryConfig =
           sessionId && sessionConfigById.has(sessionId) ? sessionConfigById.get(sessionId)?.memory : undefined;
+        const rankingAgentId = memoryAgentIds.length === 1 ? memoryAgentIds[0] : undefined;
         const results = await searchMemories({
           query,
           memories,
           embeddingProvider,
           sessionId: sessionId ?? undefined,
-          agentId: agentId ?? undefined,
+          agentId: rankingAgentId,
           source,
           limit,
           retrievalWeights: resolveSessionMemoryConfig(sessionMemoryConfig).retrievalWeights,
@@ -324,6 +334,16 @@ function normalizeOptionalString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeOptionalStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(
+    value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+  )];
 }
 
 function clampLimit(value: unknown, fallback: number, max: number): number {
