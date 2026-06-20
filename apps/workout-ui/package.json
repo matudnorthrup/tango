@@ -12,32 +12,32 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.14",
-    "hono": "^4.12.25",
-    "pg": "^8.16.0"
+    "@hono/node-server": "^2.0.5",
+    "hono": "^4.12.26",
+    "pg": "^8.22.0"
   },
   "devDependencies": {
-    "@radix-ui/react-dialog": "^1.1.7",
-    "@radix-ui/react-label": "^2.1.3",
-    "@radix-ui/react-select": "^2.1.7",
+    "@radix-ui/react-dialog": "^1.1.17",
+    "@radix-ui/react-label": "^2.1.10",
+    "@radix-ui/react-select": "^2.3.1",
     "@radix-ui/react-slot": "^1.2.0",
-    "@tailwindcss/vite": "^4.1.4",
+    "@tailwindcss/vite": "^4.3.1",
     "@tanstack/react-query": "^5.74.0",
     "@types/pg": "^8.11.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^4.4.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "lucide-react": "^0.488.0",
+    "lucide-react": "^1.21.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.5.0",
-    "recharts": "^2.15.0",
+    "react-router-dom": "^7.18.0",
+    "recharts": "^3.8.1",
     "tailwind-merge": "^3.2.0",
     "tailwindcss": "^4.1.4",
-    "typescript": "^5.8.2",
-    "vite": "^6.3.0"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
   }
 }
