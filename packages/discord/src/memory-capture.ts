@@ -12,6 +12,7 @@ export interface MemoryCaptureConfig {
 export interface MemoryCaptureContext {
   conversationKey: string;
   agentId: string;
+  runtimeAgentId?: string;
   userMessage: string;
   agentResponse: string;
   channelId: string;
@@ -80,6 +81,9 @@ export async function extractAndStoreMemories(
             captured_by: "post_turn_extraction",
             conversation_key: context.conversationKey,
             channel_id: context.channelId,
+            ...(context.runtimeAgentId && context.runtimeAgentId !== context.agentId
+              ? { runtime_agent_id: context.runtimeAgentId }
+              : {}),
             ...(context.threadId ? { thread_id: context.threadId } : {}),
             extraction_provider: config.extractionProvider,
             extraction_model: config.extractionModel,

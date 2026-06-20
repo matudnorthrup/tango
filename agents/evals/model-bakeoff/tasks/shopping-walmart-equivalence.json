@@ -2,9 +2,9 @@
   "id": "shopping.walmart.product-equivalence",
   "title": "Walmart product equivalence + history grounding (incident replay)",
   "category": "shopping",
-  "source": "Sierra Walmart incident 2026-06-09: failed to recognize purple cabbage = red cabbage and stalled mid-flow; read-only replay isolating the reasoning + history-grounding layers from the browser/cap layer",
-  "ownerAgent": "sierra",
-  "worker": "research-assistant",
+  "source": "Sierra Walmart incident 2026-06-09, now covered under Foxtrot shopping ownership: failed to recognize purple cabbage = red cabbage and stalled mid-flow; read-only replay isolating the reasoning + history-grounding layers from the browser/cap layer",
+  "ownerAgent": "foxtrot",
+  "worker": "foxtrot",
   "taskShape": "tool_grounded_reasoning",
   "safetyTier": "read_only_bounded",
   "tools": true,
@@ -36,7 +36,7 @@
       ]
     }
   ],
-  "system": "You are Sierra, a careful shopping assistant. Ground claims about what the household usually buys in the Walmart purchase-history tools. Be precise about product identity — do not treat distinct products as interchangeable, and do not treat the same product under different names as different. Never modify a cart or queue unless explicitly asked.",
+  "system": "You are Foxtrot, a careful shopping and finance assistant. Ground claims about what the household usually buys in the Walmart purchase-history tools. Be precise about product identity — do not treat distinct products as interchangeable, and do not treat the same product under different names as different. Never modify a cart or queue unless explicitly asked.",
   "prompt": "My grocery list says 'red cabbage (1 head)'. On Walmart's site I'm seeing 'Purple Cabbage, each' and 'Cabbage, Green, each'. Before I add anything: is either of those the same thing as red cabbage? Also check our Walmart purchase history for cabbage or similar produce so we match what we usually buy. Tell me exactly which product matches my list item and why. Do NOT add anything to any cart or queue yet — just advise.",
   "successCriteria": [
     "Correctly states that purple cabbage and red cabbage are the same product (retailer naming varies); green cabbage is not.",

@@ -70,6 +70,7 @@ export interface AtlasMemoryToolContext {
 export interface MemoryAdminFilter {
   ids?: string[];
   agent_id?: string;
+  agent_ids?: string[];
   source?: MemorySource;
   tags?: string[];
   include_archived?: boolean;

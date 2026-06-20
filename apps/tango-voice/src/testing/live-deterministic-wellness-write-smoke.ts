@@ -133,7 +133,7 @@ function getDbPath(): string {
   return resolveDatabasePath(process.env["TANGO_DB_PATH"]);
 }
 
-function suiteMatchesCurrentAgent(suite: string, agentId: string, group: "malibu" | "sierra" | "watson"): boolean {
+function suiteMatchesCurrentAgent(suite: string, agentId: string, group: "foxtrot" | "malibu" | "sierra" | "watson"): boolean {
   if (suite !== "all") {
     return false;
   }
@@ -990,7 +990,7 @@ async function getWalmartCartQuantity(itemLabel: string): Promise<number | null>
   return null;
 }
 
-async function runSierraWalmartWriteSmoke(input: {
+async function runFoxtrotWalmartWriteSmoke(input: {
   db: DatabaseSync;
   baseUrl: string;
   headers: Record<string, string>;
@@ -1002,23 +1002,23 @@ async function runSierraWalmartWriteSmoke(input: {
   const itemLabel = "Great Value Vanilla Light Nonfat Greek Yogurt";
   const baselineQuantity = await getWalmartCartQuantity(itemLabel);
   if (baselineQuantity === null || baselineQuantity < 1) {
-    throw new Error(`Sierra Walmart write smoke could not determine a reversible baseline quantity for ${itemLabel}.`);
+    throw new Error(`Foxtrot Walmart write smoke could not determine a reversible baseline quantity for ${itemLabel}.`);
   }
 
   const targetQuantity = baselineQuantity + 1;
   const previousTurn = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
   const transcript = `Use the worker to set ${itemLabel} in my Walmart cart to quantity ${targetQuantity}.`;
 
-  console.log(`[write-smoke] sierra walmart baseline=${baselineQuantity} target=${targetQuantity}`);
+  console.log(`[write-smoke] foxtrot walmart baseline=${baselineQuantity} target=${targetQuantity}`);
   try {
     const response = await runTurn({
       ...input,
       transcript,
     });
     console.log(
-      `[write-smoke] sierra walmart response ok=${response.ok} provider=${response.providerName ?? "-"} failover=${response.providerUsedFailover ? "yes" : "no"} warmStart=${response.warmStartUsed ? "yes" : "no"}`,
+      `[write-smoke] foxtrot walmart response ok=${response.ok} provider=${response.providerName ?? "-"} failover=${response.providerUsedFailover ? "yes" : "no"} warmStart=${response.warmStartUsed ? "yes" : "no"}`,
     );
-    console.log(`[write-smoke] sierra walmart responseText=${JSON.stringify(response.responseText ?? "")}`);
+    console.log(`[write-smoke] foxtrot walmart responseText=${JSON.stringify(response.responseText ?? "")}`);
 
     const turn = await validateDeterministicWriteTurn({
       db: input.db,
@@ -1026,22 +1026,22 @@ async function runSierraWalmartWriteSmoke(input: {
       agentId: input.agentId,
       previousId: previousTurn?.id ?? null,
       expectIntents: ["shopping.browser_order_action"],
-      expectWorkers: ["research-assistant"],
+      expectWorkers: ["foxtrot"],
       expectStepCount: 1,
     });
-    console.log(`[write-smoke] sierra walmart deterministic turn=${turn.id}`);
+    console.log(`[write-smoke] foxtrot walmart deterministic turn=${turn.id}`);
 
     const finalQuantity = await getWalmartCartQuantity(itemLabel);
     if (finalQuantity !== targetQuantity) {
-      throw new Error(`Sierra Walmart write smoke expected quantity ${targetQuantity}, got ${String(finalQuantity)}.`);
+      throw new Error(`Foxtrot Walmart write smoke expected quantity ${targetQuantity}, got ${String(finalQuantity)}.`);
     }
 
     const responseText = (response.responseText ?? "").trim();
     if (!responseText) {
-      throw new Error("Sierra Walmart write smoke returned an empty response.");
+      throw new Error("Foxtrot Walmart write smoke returned an empty response.");
     }
     if (/\bcould not\b|\bcan't\b|\bblocked\b|\bcancelled\b/iu.test(responseText)) {
-      throw new Error(`Sierra Walmart write smoke reply still sounds blocked: ${responseText}`);
+      throw new Error(`Foxtrot Walmart write smoke reply still sounds blocked: ${responseText}`);
     }
   } finally {
     const revertTurn = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
@@ -1050,7 +1050,7 @@ async function runSierraWalmartWriteSmoke(input: {
       transcript: `Use the worker to set ${itemLabel} in my Walmart cart to quantity ${baselineQuantity}.`,
     });
     console.log(
-      `[write-smoke] sierra walmart cleanup ok=${revertResponse.ok} provider=${revertResponse.providerName ?? "-"} failover=${revertResponse.providerUsedFailover ? "yes" : "no"}`,
+      `[write-smoke] foxtrot walmart cleanup ok=${revertResponse.ok} provider=${revertResponse.providerName ?? "-"} failover=${revertResponse.providerUsedFailover ? "yes" : "no"}`,
     );
     await validateDeterministicWriteTurn({
       db: input.db,
@@ -1058,14 +1058,14 @@ async function runSierraWalmartWriteSmoke(input: {
       agentId: input.agentId,
       previousId: revertTurn?.id ?? null,
       expectIntents: ["shopping.browser_order_action"],
-      expectWorkers: ["research-assistant"],
+      expectWorkers: ["foxtrot"],
       expectStepCount: 1,
     });
     const restoredQuantity = await getWalmartCartQuantity(itemLabel);
     if (restoredQuantity !== baselineQuantity) {
-      throw new Error(`Sierra Walmart cleanup expected quantity ${baselineQuantity}, got ${String(restoredQuantity)}.`);
+      throw new Error(`Foxtrot Walmart cleanup expected quantity ${baselineQuantity}, got ${String(restoredQuantity)}.`);
     }
-    console.log("[write-smoke] sierra walmart cleanup ok");
+    console.log("[write-smoke] foxtrot walmart cleanup ok");
   }
 }
 
@@ -1488,8 +1488,8 @@ async function main(): Promise<void> {
         discordUserId,
       });
     }
-    if (suiteMatchesCurrentAgent(suite, agentId, "sierra") || suite === "sierra-walmart-write") {
-      await runSierraWalmartWriteSmoke({
+    if (suiteMatchesCurrentAgent(suite, agentId, "foxtrot") || suite === "foxtrot-walmart-write") {
+      await runFoxtrotWalmartWriteSmoke({
         db,
         baseUrl,
         headers,

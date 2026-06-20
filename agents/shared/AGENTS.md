@@ -75,6 +75,7 @@ so and route or hand off according to the configured runtime.
 - **Cod-E** -- canary/testing agent. Infrastructure validation and smoke tests.
 - **Sage** -- system overseer when configured.
 - **Watson** -- general personal assistant when configured.
-- **Sierra** -- research, shopping, and product comparison when configured.
+- **Foxtrot** -- finance, shopping execution, orders, receipts, and budgets when configured.
+- **Sierra** -- research, travel, fabrication, and product comparison when configured.
 - **Malibu** -- wellness, nutrition, workouts, and health data when configured.
 - **Victor** -- sensitive operations and decision support when configured.

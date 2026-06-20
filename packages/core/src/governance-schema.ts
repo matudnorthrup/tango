@@ -278,10 +278,11 @@ export const GOVERNANCE_SEED = `
     ('printer_command', 'research', 'PrusaLink Printer', 'write'),
     ('openscad_render', 'research', 'OpenSCAD Render', 'write'),
     ('prusa_slice', 'research', 'PrusaSlicer', 'write'),
+    ('paper_print', 'research', 'Paper Printing', 'write'),
     ('location_read', 'research', 'GPS Location', 'read'),
     ('driving_route', 'research', 'Driving Route Planner', 'read'),
     ('find_diesel', 'research', 'Diesel Finder', 'read'),
-    ('walmart', 'research', 'Walmart Shopping', 'write'),
+    ('walmart', 'shopping', 'Walmart Shopping', 'write'),
     ('browser', 'shared', 'Browser Automation', 'write'),
     ('slack', 'shared', 'Slack Workspace Read', 'read'),
     ('file_ops', 'research', 'File Operations', 'write'),
@@ -382,12 +383,12 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'printer_command', 'write', 'seed from config'),
     ('worker:research-assistant', 'openscad_render', 'write', 'seed from config'),
     ('worker:research-assistant', 'prusa_slice', 'write', 'seed from config'),
+    ('worker:research-assistant', 'paper_print', 'write', 'travel document PDF previews and local paper printing'),
     ('worker:research-assistant', 'obsidian', 'write', 'travel planning + research filing'),
     ('worker:research-assistant', 'location_read', 'read', 'travel navigation'),
     ('worker:research-assistant', 'driving_route', 'read', 'travel route planning and drive-time verification'),
     ('worker:research-assistant', 'find_diesel', 'read', 'travel navigation'),
-    ('worker:research-assistant', 'walmart', 'write', 'walmart shopping and queue management'),
-    ('worker:research-assistant', 'browser', 'write', 'web automation for shopping and research'),
+    ('worker:research-assistant', 'browser', 'write', 'web automation for research and source review'),
     ('worker:research-assistant', 'slack', 'read', 'seed from config'),
     ('worker:research-assistant', 'file_ops', 'write', 'file access for Downloads, 3d-printing, Documents'),
     ('worker:research-assistant', 'youtube_transcript', 'read', 'YouTube transcript extraction'),
@@ -397,10 +398,11 @@ export const GOVERNANCE_SEED = `
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:sierra-ollama', 'exa_search', 'read', 'Sierra Ollama research parity'),
     ('worker:sierra-ollama', 'exa_answer', 'read', 'Sierra Ollama research parity'),
+    ('worker:sierra-ollama', 'paper_print', 'write', 'Sierra Ollama paper document printing'),
     ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'driving_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
     ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
-    ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for shopping and research');
+    ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for research and source review');
 
   -- personal-assistant browser access (Watson — receipt lookup, transaction categorization)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
@@ -414,7 +416,8 @@ export const GOVERNANCE_SEED = `
     ('worker:foxtrot', 'lunch_money', 'write', 'finance account and transaction operations'),
     ('worker:foxtrot', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
     ('worker:foxtrot', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
-    ('worker:foxtrot', 'browser', 'write', 'finance web automation'),
+    ('worker:foxtrot', 'browser', 'write', 'finance and shopping web automation'),
+    ('worker:foxtrot', 'walmart', 'write', 'Walmart shopping queue, history, and cart support'),
     ('worker:foxtrot', 'obsidian', 'write', 'finance runbooks and notes'),
     ('worker:foxtrot', 'onepassword', 'read', 'finance credential retrieval'),
     ('worker:foxtrot', 'gog_email', 'write', 'finance email lookup and drafting'),
@@ -429,7 +432,8 @@ export const GOVERNANCE_SEED = `
     ('worker:foxtrot-ollama', 'lunch_money', 'write', 'finance account and transaction operations'),
     ('worker:foxtrot-ollama', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
     ('worker:foxtrot-ollama', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
-    ('worker:foxtrot-ollama', 'browser', 'write', 'finance web automation'),
+    ('worker:foxtrot-ollama', 'browser', 'write', 'finance and shopping web automation'),
+    ('worker:foxtrot-ollama', 'walmart', 'write', 'Walmart shopping queue, history, and cart support'),
     ('worker:foxtrot-ollama', 'obsidian', 'write', 'finance runbooks and notes'),
     ('worker:foxtrot-ollama', 'onepassword', 'read', 'finance credential retrieval'),
     ('worker:foxtrot-ollama', 'gog_email', 'write', 'finance email lookup and drafting'),
@@ -455,13 +459,13 @@ export const GOVERNANCE_SEED = `
     ('worker:health-analyst', 'exa_answer', 'read', 'Wellness worker health research'),
     ('worker:health-analyst', 'browser', 'write', 'Wellness worker health research');
 
-  -- 1Password access — Watson (personal assistant) needs credentials for finance, shopping, services
+  -- 1Password access — Watson (personal assistant) needs credentials for service logins and API keys
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:personal-assistant', 'onepassword', 'read', 'credential retrieval for service logins and API keys');
 
-  -- 1Password access — Sierra (research assistant) needs credentials for shopping sites
+  -- 1Password access — Sierra (research assistant) needs credentials for service logins
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-    ('worker:research-assistant', 'onepassword', 'read', 'credential retrieval for shopping and service logins');
+    ('worker:research-assistant', 'onepassword', 'read', 'credential retrieval for service logins');
 
   -- note-librarian — shared file-backed Obsidian access
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES

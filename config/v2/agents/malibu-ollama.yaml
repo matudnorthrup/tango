@@ -61,6 +61,10 @@ runtime:
 # Memory configuration
 memory:
   post_turn_extraction: enabled
+  canonical_agent_id: malibu
+  alias_agent_ids:
+    - malibu
+    - malibu-ollama
   extraction_provider: ollama
   extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4

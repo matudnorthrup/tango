@@ -52,27 +52,43 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
   }
 }
 
+function uniqueAgentIds(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const agentIds: string[] = [];
+
+  for (const value of values) {
+    const agentId = value?.trim();
+    if (!agentId || seen.has(agentId)) {
+      continue;
+    }
+    seen.add(agentId);
+    agentIds.push(agentId);
+  }
+
+  return agentIds;
+}
+
 /** Unarchived memories visible to an agent (its own + global), newest first. */
 export function listAtlasMemoriesForContext(
   db: SqliteDatabase,
-  input: { agentId?: string | null; limit?: number },
+  input: { agentId?: string | null; agentIds?: string[]; limit?: number },
 ): AtlasContextMemoryRow[] {
   const limit = Math.max(1, Math.trunc(input.limit ?? 5000));
-  const agentId = input.agentId?.trim() || null;
+  const agentIds = uniqueAgentIds(input.agentIds?.length ? input.agentIds : [input.agentId]);
   const rows = (
-    agentId
+    agentIds.length > 0
       ? db
           .prepare(
             `
               SELECT id, content, source, agent_id, importance, embedding,
                      embedding_model, created_at, last_accessed_at, access_count, metadata
               FROM memories
-              WHERE archived_at IS NULL AND (agent_id IS NULL OR agent_id = ?)
+              WHERE archived_at IS NULL AND (agent_id IS NULL OR agent_id IN (${agentIds.map(() => "?").join(", ")}))
               ORDER BY created_at DESC
               LIMIT ?
             `,
           )
-          .all(agentId, limit)
+          .all(...agentIds, limit)
       : db
           .prepare(
             `
@@ -117,17 +133,28 @@ export function listAtlasMemoriesForContext(
 /** The conversation summary for a (conversationKey, agent) pair, if any. */
 export function getAtlasConversationSummary(
   db: SqliteDatabase,
-  input: { sessionId: string; agentId: string },
+  input: { sessionId: string; agentId?: string; agentIds?: string[] },
 ): AtlasContextSummaryRow | null {
+  const agentIds = uniqueAgentIds(input.agentIds?.length ? input.agentIds : [input.agentId]);
+  if (agentIds.length === 0) return null;
+
+  const orderCase = agentIds.map(() => "WHEN ? THEN ?").join(" ");
   const row = db
     .prepare(
       `
         SELECT id, session_id, agent_id, summary, covers_through, created_at
         FROM conversation_summaries
-        WHERE session_id = ? AND agent_id = ?
+        WHERE session_id = ? AND agent_id IN (${agentIds.map(() => "?").join(", ")})
+        ORDER BY CASE agent_id ${orderCase} ELSE ? END, created_at DESC
+        LIMIT 1
       `,
     )
-    .get(input.sessionId, input.agentId) as
+    .get(
+      input.sessionId,
+      ...agentIds,
+      ...agentIds.flatMap((agentId, index) => [agentId, index]),
+      agentIds.length,
+    ) as
     | {
         id: string;
         session_id: string;
@@ -152,22 +179,25 @@ export function getAtlasConversationSummary(
 /** Pinned facts in context priority order: session → agent → global. */
 export function listAtlasPinnedFactsForContext(
   db: SqliteDatabase,
-  input: { sessionId?: string | null; agentId?: string | null },
+  input: { sessionId?: string | null; agentId?: string | null; agentIds?: string[] },
 ): AtlasContextPinnedFactRow[] {
   const sessionId = input.sessionId?.trim() || null;
-  const agentId = input.agentId?.trim() || null;
+  const agentIds = uniqueAgentIds(input.agentIds?.length ? input.agentIds : [input.agentId]);
+  const agentClause = agentIds.length > 0
+    ? `OR (scope = 'agent' AND scope_id IN (${agentIds.map(() => "?").join(", ")}))`
+    : "";
   const rows = db
     .prepare(
       `
         SELECT id, scope, scope_id, key, value, created_at, updated_at
         FROM pinned_facts
         WHERE (scope = 'global' AND scope_id IS NULL)
-           OR (scope = 'agent' AND scope_id = ?)
            OR (scope = 'session' AND scope_id = ?)
+           ${agentClause}
         ORDER BY CASE scope WHEN 'session' THEN 0 WHEN 'agent' THEN 1 ELSE 2 END, key ASC
       `,
     )
-    .all(agentId, sessionId) as Array<{
+    .all(sessionId, ...agentIds) as Array<{
     id: string;
     scope: PinnedFactScope;
     scope_id: string | null;

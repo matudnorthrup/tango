@@ -66,6 +66,10 @@ runtime:
 # Memory configuration
 memory:
   post_turn_extraction: enabled
+  canonical_agent_id: porter
+  alias_agent_ids:
+    - porter
+    - porter-ollama
   extraction_model: claude-haiku-4-5
   importance_threshold: 0.4
   scheduled_reflection: enabled

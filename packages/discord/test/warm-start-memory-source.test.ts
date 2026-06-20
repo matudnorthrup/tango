@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AtlasContextMemoryRow } from "@tango/atlas-memory";
 import type { AtlasMemoryClient } from "../src/atlas-memory-client.js";
 import {
@@ -58,30 +58,33 @@ describe("warm-start memory source", () => {
 
   it("builds a bundle whose touch() translates synthetic ids back to atlas ids", () => {
     const touched: string[][] = [];
-    const client = {
-      listMemoriesForContext: () => [
-        makeRow({ id: "atlas-x", content: "fact x", source: "conversation", agentId: "sierra" }),
-        makeRow({ id: "atlas-y", content: "fact y", source: "reflection", agentId: "sierra" }),
-      ],
-      getConversationSummaryForContext: () => ({
-        id: "s1",
-        sessionId: "thread:123",
-        agentId: "sierra",
-        summary: "Recap of the trip planning thread.",
-        coversThrough: null,
+    const listMemoriesForContext = vi.fn().mockReturnValue([
+      makeRow({ id: "atlas-x", content: "fact x", source: "conversation", agentId: "sierra" }),
+      makeRow({ id: "atlas-y", content: "fact y", source: "reflection", agentId: "sierra-ollama" }),
+    ]);
+    const getConversationSummaryForContext = vi.fn().mockReturnValue({
+      id: "s1",
+      sessionId: "thread:123",
+      agentId: "sierra",
+      summary: "Recap of the trip planning thread.",
+      coversThrough: null,
+      createdAt: "2026-06-09T12:00:00.000Z",
+    });
+    const listPinnedFactsForWarmStart = vi.fn().mockReturnValue([
+      {
+        id: "p1",
+        scope: "global" as const,
+        scopeId: null,
+        key: "vehicle",
+        value: "F-350 diesel",
         createdAt: "2026-06-09T12:00:00.000Z",
-      }),
-      listPinnedFactsForWarmStart: () => [
-        {
-          id: "p1",
-          scope: "global" as const,
-          scopeId: null,
-          key: "vehicle",
-          value: "F-350 diesel",
-          createdAt: "2026-06-09T12:00:00.000Z",
-          updatedAt: "2026-06-09T12:00:00.000Z",
-        },
-      ],
+        updatedAt: "2026-06-09T12:00:00.000Z",
+      },
+    ]);
+    const client = {
+      listMemoriesForContext,
+      getConversationSummaryForContext,
+      listPinnedFactsForWarmStart,
       touchMemoriesForContext: (ids: string[]) => {
         touched.push(ids);
         return ids.length;
@@ -90,11 +93,28 @@ describe("warm-start memory source", () => {
 
     const bundle = loadAtlasWarmStartMemory(client, {
       sessionId: "topic:abc",
-      agentId: "sierra",
+      agentId: "sierra-ollama",
+      memoryAgentId: "sierra",
+      memoryAgentIds: ["sierra", "sierra-ollama"],
       conversationKey: "thread:123",
       memoryPoolLimit: 100,
     });
 
+    expect(listMemoriesForContext).toHaveBeenCalledWith({
+      agentId: "sierra",
+      agentIds: ["sierra", "sierra-ollama"],
+      limit: 100,
+    });
+    expect(getConversationSummaryForContext).toHaveBeenCalledWith({
+      sessionId: "thread:123",
+      agentId: "sierra",
+      agentIds: ["sierra", "sierra-ollama"],
+    });
+    expect(listPinnedFactsForWarmStart).toHaveBeenCalledWith({
+      sessionId: "thread:123",
+      agentId: "sierra",
+      agentIds: ["sierra", "sierra-ollama"],
+    });
     expect(bundle.substrate).toBe("atlas");
     expect(bundle.memories).toHaveLength(2);
     expect(bundle.summaries[0]?.summaryText).toContain("Recap");

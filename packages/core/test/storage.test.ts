@@ -475,6 +475,43 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds paper_print governance for Sierra travel document workflows", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    const tool = db.prepare(
+      "SELECT id, domain, access_type FROM governance_tools WHERE id = 'paper_print'",
+    ).get() as { id: string; domain: string; access_type: string } | undefined;
+
+    expect(tool).toEqual({ id: "paper_print", domain: "research", access_type: "write" });
+    expect(checker.hasPermission("worker:research-assistant", "paper_print", "write")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "paper_print", "write")).toBe(true);
+
+    db.close();
+  });
+
+  it("moves Walmart shopping governance from Sierra to Foxtrot", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    const tool = db.prepare(
+      "SELECT id, domain, access_type FROM governance_tools WHERE id = 'walmart'",
+    ).get() as { id: string; domain: string; access_type: string } | undefined;
+
+    expect(tool).toEqual({ id: "walmart", domain: "shopping", access_type: "write" });
+    expect(checker.hasPermission("worker:foxtrot", "walmart", "write")).toBe(true);
+    expect(checker.hasPermission("worker:foxtrot-ollama", "walmart", "write")).toBe(true);
+    expect(checker.hasPermission("worker:research-assistant", "walmart", "write")).toBe(false);
+    expect(checker.hasPermission("worker:research-coordinator", "walmart", "write")).toBe(false);
+    expect(checker.hasPermission("worker:sierra-ollama", "walmart", "write")).toBe(false);
+
+    db.close();
+  });
+
   it("lists recoverable discord inbound messages that never reached execution", () => {
     const { storage } = createStorage();
     storage.bootstrapSessions([
@@ -1779,6 +1816,50 @@ describe("TangoStorage", () => {
     expect(
       storage.listPinnedFactsForContext("tango-default", "watson").some((fact) => fact.key === "review_style")
     ).toBe(false);
+
+    storage.close();
+  });
+
+  it("lists memories across configured agent aliases", () => {
+    const { storage } = createStorage();
+    storage.bootstrapSessions([
+      {
+        id: "tango-default",
+        type: "persistent",
+        agent: "dispatch",
+        channels: ["discord:default"]
+      }
+    ]);
+
+    const baseId = storage.insertMemory({
+      sessionId: "tango-default",
+      agentId: "sierra",
+      source: "conversation",
+      content: "Fuji X100VI camera research.",
+    });
+    const cloneId = storage.insertMemory({
+      sessionId: "tango-default",
+      agentId: "sierra-ollama",
+      source: "conversation",
+      content: "Adapter ring note for the Fuji camera.",
+    });
+    storage.insertMemory({
+      sessionId: "tango-default",
+      agentId: "watson",
+      source: "conversation",
+      content: "Unrelated finance memory.",
+    });
+
+    const memories = storage.listMemories({
+      sessionId: "tango-default",
+      agentIds: ["sierra", "sierra-ollama"],
+      limit: 10,
+    });
+
+    expect(memories.map((memory) => memory.id).sort((left, right) => left - right)).toEqual([
+      baseId,
+      cloneId,
+    ]);
 
     storage.close();
   });

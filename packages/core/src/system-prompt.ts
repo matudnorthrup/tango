@@ -31,6 +31,7 @@ import { expandHomePath } from "./runtime-paths.js";
 export interface PromptAssemblyOptions {
   agentsRootDir?: string;
   overlayDir?: string;
+  overlayDirs?: string[];
 }
 
 export interface SoulPromptConfig {
@@ -40,6 +41,7 @@ export interface SoulPromptConfig {
 export interface SoulPromptAssemblyOptions {
   repoRoot?: string;
   overlayDir?: string;
+  overlayDirs?: string[];
 }
 
 export type PromptSectionKind =
@@ -86,6 +88,7 @@ export function assembleSoulPrompt(
 
   return assembleAgentPrompt(path.dirname(promptFile), {
     overlayDir: options.overlayDir,
+    overlayDirs: options.overlayDirs,
   });
 }
 
@@ -138,8 +141,9 @@ export function traceAgentPrompt(
     });
   }
 
-  if (options.overlayDir) {
-    appendOverlayDir(options.overlayDir, sections);
+  const overlayDirs = options.overlayDirs ?? (options.overlayDir ? [options.overlayDir] : []);
+  for (const overlayDir of overlayDirs) {
+    appendOverlayDir(overlayDir, sections);
   }
 
   if (sections.length === 0) {

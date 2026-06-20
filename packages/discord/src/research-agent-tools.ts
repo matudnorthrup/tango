@@ -7,6 +7,7 @@
  *   - printer_command: PrusaLink API for 3D printer management
  *   - openscad_render: Render OpenSCAD files to STL
  *   - prusa_slice: Slice STL files to G-code via PrusaSlicer
+ *   - paper_print: macOS paper printer PDF preview and print jobs
  */
 
 import * as os from "node:os";
@@ -76,6 +77,33 @@ function execCommand(
   });
 }
 
+function execCommandBuffer(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ stdout: Buffer; stderr: string; code: number | null }> {
+  return new Promise((resolve, reject) => {
+    const stdoutChunks: Buffer[] = [];
+    let stderr = "";
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      setTimeout(() => { if (!child.killed) child.kill("SIGKILL"); }, 2000).unref();
+    }, timeoutMs);
+    timer.unref();
+
+    child.stdout.on("data", (chunk: Buffer) => { stdoutChunks.push(chunk); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.on("error", (err) => { clearTimeout(timer); reject(err); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ stdout: Buffer.concat(stdoutChunks), stderr, code });
+    });
+    child.stdin.end();
+  });
+}
+
 async function runCommand(
   command: string,
   args: string[],
@@ -100,6 +128,12 @@ export interface ResearchToolPaths {
   printingDir?: string;
   prusaPrinterIp?: string;
   prusaApiKey?: string;
+  paperPrintDir?: string;
+  cupsfilterCommand?: string;
+  lpCommand?: string;
+  lpstatCommand?: string;
+  textutilCommand?: string;
+  pdfinfoCommand?: string;
 }
 
 function resolveExistingOrFallback(candidates: string[], fallback: string): string {
@@ -133,6 +167,7 @@ function resolvePaths(overrides?: ResearchToolPaths) {
   const legacyExaAnswerScript = path.join(home, "clawd/scripts/exa-answer.js");
   const genericPrintingDir = path.join(profileDir, "projects", "3d-printing");
   const legacyPrintingDir = path.join(home, "3d-printing");
+  const genericPaperPrintDir = path.join(profileDir, "data", "paper-print");
   return {
     exaSearchScript: overrides?.exaSearchScript ?? resolveConfiguredOrFallback(
       process.env.TANGO_EXA_SEARCH_SCRIPT,
@@ -161,6 +196,36 @@ function resolvePaths(overrides?: ResearchToolPaths) {
     ),
     prusaPrinterIp: overrides?.prusaPrinterIp ?? process.env.TANGO_PRUSA_PRINTER_HOST ?? "printer.local",
     prusaApiKey: overrides?.prusaApiKey ?? undefined,
+    paperPrintDir: overrides?.paperPrintDir ?? resolveConfiguredOrFallback(
+      process.env.TANGO_PAPER_PRINT_DIR,
+      [genericPaperPrintDir],
+      genericPaperPrintDir,
+    ),
+    cupsfilterCommand: overrides?.cupsfilterCommand ?? resolveConfiguredOrFallback(
+      process.env.TANGO_CUPSFILTER_COMMAND,
+      ["/usr/sbin/cupsfilter"],
+      "/usr/sbin/cupsfilter",
+    ),
+    lpCommand: overrides?.lpCommand ?? resolveConfiguredOrFallback(
+      process.env.TANGO_LP_COMMAND,
+      ["/usr/bin/lp"],
+      "/usr/bin/lp",
+    ),
+    lpstatCommand: overrides?.lpstatCommand ?? resolveConfiguredOrFallback(
+      process.env.TANGO_LPSTAT_COMMAND,
+      ["/usr/bin/lpstat"],
+      "/usr/bin/lpstat",
+    ),
+    textutilCommand: overrides?.textutilCommand ?? resolveConfiguredOrFallback(
+      process.env.TANGO_TEXTUTIL_COMMAND,
+      ["/usr/bin/textutil"],
+      "/usr/bin/textutil",
+    ),
+    pdfinfoCommand: overrides?.pdfinfoCommand ?? resolveConfiguredOrFallback(
+      process.env.TANGO_PDFINFO_COMMAND,
+      ["/opt/homebrew/bin/pdfinfo", "/usr/local/bin/pdfinfo", "/usr/bin/pdfinfo"],
+      "pdfinfo",
+    ),
   };
 }
 
@@ -484,6 +549,539 @@ export function createPrintingTools(overrides?: ResearchToolPaths): AgentTool[] 
         }
 
         return { success: true, output: gcodeFile, log: stdout };
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Paper document printing tools
+// ---------------------------------------------------------------------------
+
+const PAPER_TEXT_EXTENSIONS = new Set([".txt", ".md", ".markdown", ".csv", ".log"]);
+const PAPER_TEXTUTIL_EXTENSIONS = new Set([".html", ".htm", ".rtf", ".doc", ".docx"]);
+const PAPER_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".tif", ".tiff", ".gif", ".bmp"]);
+const PAPER_SIDES = new Set(["one-sided", "two-sided-long-edge", "two-sided-short-edge"]);
+const PAPER_WRAP_COLUMNS = 70;
+
+interface PaperPreparedPdf {
+  pdfPath: string;
+  pageCount?: number;
+  bytes: number;
+  sourceType: "content" | "pdf" | "converted";
+  intermediateTextPath?: string;
+  warnings: string[];
+}
+
+interface PaperPrinterList {
+  defaultPrinter: string | null;
+  printers: Array<{
+    name: string;
+    enabled: boolean;
+    status: string;
+    raw: string;
+  }>;
+  warnings: string[];
+}
+
+function expandHomePath(value: string, home = os.homedir()): string {
+  return value === "~" ? home : value.replace(/^~(?=\/)/u, home);
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function safePaperSlug(value: string | undefined): string {
+  const normalized = (value ?? "paper-document")
+    .normalize("NFKD")
+    .replace(/[^\w\s.-]/gu, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/gu, "-")
+    .replace(/-+/gu, "-")
+    .replace(/^-|-$/gu, "");
+  return normalized || "paper-document";
+}
+
+function timestampForFilename(date = new Date()): string {
+  return date.toISOString().replace(/[:.]/gu, "-");
+}
+
+function normalizeCopies(value: unknown): number {
+  const copies = Number(value ?? 1);
+  if (!Number.isFinite(copies)) return 1;
+  return Math.min(99, Math.max(1, Math.trunc(copies)));
+}
+
+function assertAllowedPath(kind: "source" | "output", candidate: string, roots: string[]): void {
+  if (!roots.some((root) => isPathInside(root, candidate))) {
+    const displayRoots = roots.map((root) => root.replace(os.homedir(), "~")).join(", ");
+    throw new Error(`${kind} path is outside allowed roots. Allowed: ${displayRoots}`);
+  }
+}
+
+function paperSourceRoots(paths: ReturnType<typeof resolvePaths>): string[] {
+  const home = os.homedir();
+  return [
+    os.tmpdir(),
+    "/tmp",
+    path.join(home, "Downloads"),
+    path.join(home, "Documents"),
+    paths.paperPrintDir,
+  ];
+}
+
+function paperOutputRoots(paths: ReturnType<typeof resolvePaths>): string[] {
+  const home = os.homedir();
+  return [
+    paths.paperPrintDir,
+    path.join(home, "Downloads"),
+    path.join(home, "Documents"),
+  ];
+}
+
+function resolvePaperSourcePath(paths: ReturnType<typeof resolvePaths>, value: unknown): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error("source_file is required when content is not provided");
+  }
+  const resolved = path.resolve(expandHomePath(value.trim()));
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`source_file does not exist: ${value}`);
+  }
+  if (!fs.statSync(resolved).isFile()) {
+    throw new Error(`source_file is not a file: ${value}`);
+  }
+  assertAllowedPath("source", resolved, paperSourceRoots(paths));
+  return resolved;
+}
+
+function resolvePaperOutputPath(
+  paths: ReturnType<typeof resolvePaths>,
+  outputFile: unknown,
+  title: string | undefined,
+): string {
+  const defaultName = `${safePaperSlug(title)}-${timestampForFilename()}.pdf`;
+  const outputPath = typeof outputFile === "string" && outputFile.trim().length > 0
+    ? path.resolve(expandHomePath(outputFile.trim()))
+    : path.join(paths.paperPrintDir, defaultName);
+  const normalizedOutput = path.extname(outputPath).toLowerCase() === ".pdf"
+    ? outputPath
+    : `${outputPath}.pdf`;
+  assertAllowedPath("output", normalizedOutput, paperOutputRoots(paths));
+  fs.mkdirSync(path.dirname(normalizedOutput), { recursive: true });
+  return normalizedOutput;
+}
+
+function buildPaperText(content: string, title: string | undefined): string {
+  const trimmedTitle = title?.trim();
+  const normalizedContent = wrapPaperText(content.replace(/\s+$/u, ""));
+  if (!trimmedTitle) {
+    return `${normalizedContent}\n`;
+  }
+  const underline = "=".repeat(Math.min(80, Math.max(8, trimmedTitle.length)));
+  return `${trimmedTitle}\n${underline}\n\n${normalizedContent}\n`;
+}
+
+function wrapPaperText(content: string): string {
+  return content
+    .split(/\r?\n/u)
+    .flatMap((line) => wrapPaperLine(line))
+    .join("\n");
+}
+
+function wrapPaperLine(line: string): string[] {
+  if (line.length <= PAPER_WRAP_COLUMNS || line.trim().length === 0) {
+    return [line];
+  }
+
+  const bulletMatch = line.match(/^(\s*[-*]\s+)(.*)$/u);
+  const prefix = bulletMatch?.[1] ?? "";
+  const text = bulletMatch?.[2] ?? line.trim();
+  const continuationPrefix = prefix ? " ".repeat(prefix.length) : "";
+  const words = text.split(/\s+/u);
+  const lines: string[] = [];
+  let current = prefix;
+
+  for (const word of words) {
+    const candidate = current.trimEnd().length === 0 ? `${current}${word}` : `${current} ${word}`;
+    if (candidate.length <= PAPER_WRAP_COLUMNS) {
+      current = candidate;
+      continue;
+    }
+    if (current.trim().length > 0) {
+      lines.push(current.trimEnd());
+    }
+    current = `${lines.length > 0 ? continuationPrefix : prefix}${word}`;
+  }
+
+  if (current.trim().length > 0) {
+    lines.push(current.trimEnd());
+  }
+  return lines.length > 0 ? lines : [line];
+}
+
+async function writeCupsfilterPdf(
+  paths: ReturnType<typeof resolvePaths>,
+  inputFile: string,
+  outputFile: string,
+): Promise<string[]> {
+  const result = await execCommandBuffer(
+    paths.cupsfilterCommand,
+    ["-m", "application/pdf", inputFile],
+    120_000,
+  );
+  if (result.code !== 0 || result.stdout.length === 0) {
+    const detail = result.stderr.trim() || `exit ${result.code}`;
+    throw new Error(`cupsfilter failed to create PDF: ${detail}`);
+  }
+  fs.writeFileSync(outputFile, result.stdout);
+  const usefulStderr = result.stderr
+    .split(/\r?\n/u)
+    .filter((line) => /^ERROR:/iu.test(line) || /^WARNING:/iu.test(line))
+    .slice(0, 5);
+  return usefulStderr;
+}
+
+async function maybeConvertSourceToText(
+  paths: ReturnType<typeof resolvePaths>,
+  sourceFile: string,
+  outputPdf: string,
+  warnings: string[],
+): Promise<string | null> {
+  const extension = path.extname(sourceFile).toLowerCase();
+  if (!PAPER_TEXTUTIL_EXTENSIONS.has(extension)) {
+    return null;
+  }
+
+  const textOutput = outputPdf.replace(/\.pdf$/iu, ".source.txt");
+  const result = await execCommand(paths.textutilCommand, ["-convert", "txt", "-stdout", sourceFile], 60_000);
+  if (result.code !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`;
+    warnings.push(`textutil conversion failed; attempting cupsfilter directly: ${detail}`);
+    return null;
+  }
+  fs.writeFileSync(textOutput, `${wrapPaperText(result.stdout.trimEnd())}\n`, "utf8");
+  return textOutput;
+}
+
+function writeWrappedPaperTextSource(sourceFile: string, outputPdf: string): string {
+  const textOutput = outputPdf.replace(/\.pdf$/iu, ".source.txt");
+  const content = fs.readFileSync(sourceFile, "utf8").replace(/\s+$/u, "");
+  fs.writeFileSync(textOutput, `${wrapPaperText(content)}\n`, "utf8");
+  return textOutput;
+}
+
+async function inspectPaperPdf(
+  paths: ReturnType<typeof resolvePaths>,
+  pdfPath: string,
+  warnings: string[],
+): Promise<{ pageCount?: number; bytes: number }> {
+  const stat = fs.statSync(pdfPath);
+  try {
+    const result = await execCommand(paths.pdfinfoCommand, [pdfPath], 10_000);
+    if (result.code !== 0) {
+      const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`;
+      warnings.push(`pdfinfo failed: ${detail}`);
+      return { bytes: stat.size };
+    }
+    const pageMatch = result.stdout.match(/^Pages:\s+(\d+)/mu);
+    return {
+      bytes: stat.size,
+      ...(pageMatch ? { pageCount: Number(pageMatch[1]) } : {}),
+    };
+  } catch (error) {
+    warnings.push(`pdfinfo unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    return { bytes: stat.size };
+  }
+}
+
+async function preparePaperPdf(
+  paths: ReturnType<typeof resolvePaths>,
+  input: Record<string, unknown>,
+): Promise<PaperPreparedPdf> {
+  const content = typeof input.content === "string" && input.content.trim().length > 0
+    ? input.content
+    : null;
+  const hasSource = typeof input.source_file === "string" && input.source_file.trim().length > 0;
+  if (!content && !hasSource) {
+    throw new Error("preview/print requires either content or source_file");
+  }
+  if (content && hasSource) {
+    throw new Error("Provide either content or source_file, not both");
+  }
+
+  const title = typeof input.title === "string" && input.title.trim().length > 0
+    ? input.title.trim()
+    : undefined;
+  const outputPdf = resolvePaperOutputPath(paths, input.output_file, title);
+  const warnings: string[] = [];
+
+  if (content) {
+    const textPath = outputPdf.replace(/\.pdf$/iu, ".txt");
+    fs.writeFileSync(textPath, buildPaperText(content, title), "utf8");
+    warnings.push(...await writeCupsfilterPdf(paths, textPath, outputPdf));
+    const inspection = await inspectPaperPdf(paths, outputPdf, warnings);
+    return {
+      pdfPath: outputPdf,
+      pageCount: inspection.pageCount,
+      bytes: inspection.bytes,
+      sourceType: "content",
+      intermediateTextPath: textPath,
+      warnings,
+    };
+  }
+
+  const sourceFile = resolvePaperSourcePath(paths, input.source_file);
+  const extension = path.extname(sourceFile).toLowerCase();
+  if (extension === ".pdf") {
+    if (path.resolve(sourceFile) !== path.resolve(outputPdf)) {
+      fs.copyFileSync(sourceFile, outputPdf);
+    }
+    const inspection = await inspectPaperPdf(paths, outputPdf, warnings);
+    return {
+      pdfPath: outputPdf,
+      pageCount: inspection.pageCount,
+      bytes: inspection.bytes,
+      sourceType: "pdf",
+      warnings,
+    };
+  }
+
+  let conversionSource = sourceFile;
+  let intermediateTextPath: string | null = null;
+  if (PAPER_TEXT_EXTENSIONS.has(extension)) {
+    intermediateTextPath = writeWrappedPaperTextSource(sourceFile, outputPdf);
+    conversionSource = intermediateTextPath;
+  } else {
+    intermediateTextPath = await maybeConvertSourceToText(paths, sourceFile, outputPdf, warnings);
+  }
+  if (intermediateTextPath) {
+    conversionSource = intermediateTextPath;
+  }
+  const supportedDirect = PAPER_TEXT_EXTENSIONS.has(extension) || PAPER_IMAGE_EXTENSIONS.has(extension) || intermediateTextPath;
+  if (!supportedDirect) {
+    warnings.push(`Attempting generic CUPS conversion for ${extension || "extensionless"} source.`);
+  }
+  warnings.push(...await writeCupsfilterPdf(paths, conversionSource, outputPdf));
+  const inspection = await inspectPaperPdf(paths, outputPdf, warnings);
+  return {
+    pdfPath: outputPdf,
+    pageCount: inspection.pageCount,
+    bytes: inspection.bytes,
+    sourceType: "converted",
+    ...(intermediateTextPath ? { intermediateTextPath } : {}),
+    warnings,
+  };
+}
+
+async function listPaperPrinters(paths: ReturnType<typeof resolvePaths>): Promise<PaperPrinterList> {
+  const warnings: string[] = [];
+  let defaultPrinter: string | null = null;
+  const defaultResult = await execCommand(paths.lpstatCommand, ["-d"], 10_000);
+  if (defaultResult.code === 0) {
+    const defaultMatch = defaultResult.stdout.match(/(?:system )?default destination:\s*(.+)$/imu);
+    defaultPrinter = defaultMatch?.[1]?.trim() || null;
+  } else if (!/no system default destination/iu.test(defaultResult.stderr + defaultResult.stdout)) {
+    warnings.push(`lpstat -d failed: ${(defaultResult.stderr || defaultResult.stdout).trim()}`);
+  }
+
+  const printersResult = await execCommand(paths.lpstatCommand, ["-p"], 10_000);
+  const printers: PaperPrinterList["printers"] = [];
+  if (printersResult.code === 0) {
+    for (const line of printersResult.stdout.split(/\r?\n/u)) {
+      const match = line.match(/^printer\s+(\S+)\s+(.+)$/iu);
+      if (!match) continue;
+      const status = match[2]!.trim();
+      printers.push({
+        name: match[1]!,
+        enabled: !/\bdisabled\b/iu.test(status),
+        status,
+        raw: line,
+      });
+    }
+  } else if (!/No destinations added/iu.test(printersResult.stderr + printersResult.stdout)) {
+    warnings.push(`lpstat -p failed: ${(printersResult.stderr || printersResult.stdout).trim()}`);
+  }
+
+  return { defaultPrinter, printers, warnings };
+}
+
+function buildLpArgs(input: Record<string, unknown>, pdfPath: string, destination: string | null): string[] {
+  const args: string[] = [];
+  if (destination) {
+    args.push("-d", destination);
+  }
+  args.push("-n", String(normalizeCopies(input.copies)));
+  if (typeof input.title === "string" && input.title.trim().length > 0) {
+    args.push("-t", input.title.trim());
+  }
+  if (typeof input.sides === "string" && input.sides.trim().length > 0) {
+    const sides = input.sides.trim();
+    if (!PAPER_SIDES.has(sides)) {
+      throw new Error(`Unsupported sides value: ${sides}`);
+    }
+    args.push("-o", `sides=${sides}`);
+  }
+  if (typeof input.media === "string" && input.media.trim().length > 0) {
+    args.push("-o", `media=${input.media.trim()}`);
+  }
+  args.push(pdfPath);
+  return args;
+}
+
+export function createPaperPrintingTools(overrides?: ResearchToolPaths): AgentTool[] {
+  const paths = resolvePaths(overrides);
+
+  return [
+    {
+      name: "paper_print",
+      description: [
+        "Create previewable PDFs for paper documents and send PDFs to the local macOS CUPS print queue.",
+        "",
+        "Actions:",
+        "  list_printers - list configured CUPS printer destinations and the default destination.",
+        "  preview - create a stable PDF from content or a local source_file; does not print.",
+        "  print - create/copy the PDF and print it. dry_run defaults to true; set dry_run=false only when the user explicitly asked for physical printing.",
+        "",
+        "Inputs:",
+        "  source_file: local PDF/text/Markdown/CSV/HTML/RTF/DOC/DOCX/image path under /tmp, ~/Downloads, ~/Documents, or the paper print output dir.",
+        "  content: plain text or Markdown-ish content to render as a text PDF.",
+        "  output_file: optional PDF path under the paper print output dir, ~/Downloads, or ~/Documents.",
+        "  printer: optional CUPS printer destination. If omitted, the system default destination is used.",
+        "  copies: copy count, default 1. sides: one-sided, two-sided-long-edge, or two-sided-short-edge.",
+        "",
+        "Use preview first for travel confirmations. Never claim a physical print succeeded unless this tool returns a print job from lp.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["list_printers", "preview", "print"],
+            description: "Paper printing action.",
+          },
+          source_file: {
+            type: "string",
+            description: "Local source file path to preview/print. Use for downloaded email attachments or existing PDFs.",
+          },
+          content: {
+            type: "string",
+            description: "Plain text or Markdown-ish content to render as a text PDF.",
+          },
+          output_file: {
+            type: "string",
+            description: "Optional output PDF path under allowed output directories.",
+          },
+          title: {
+            type: "string",
+            description: "Document/job title used for generated filenames and lp job title.",
+          },
+          printer: {
+            type: "string",
+            description: "Optional CUPS printer destination name.",
+          },
+          copies: {
+            type: "number",
+            description: "Number of copies to print. Default 1.",
+          },
+          sides: {
+            type: "string",
+            enum: ["one-sided", "two-sided-long-edge", "two-sided-short-edge"],
+            description: "CUPS sides option. Default uses printer settings.",
+          },
+          media: {
+            type: "string",
+            description: "Optional CUPS media option such as Letter.",
+          },
+          dry_run: {
+            type: "boolean",
+            description: "For print action, defaults to true. Set false only to send a real print job.",
+          },
+        },
+        required: ["action"],
+      },
+      handler: async (input) => {
+        try {
+          const action = String(input.action ?? "").trim();
+          if (action === "list_printers") {
+            return await listPaperPrinters(paths);
+          }
+          if (action !== "preview" && action !== "print") {
+            return { error: `Unknown action: ${action}` };
+          }
+
+          const prepared = await preparePaperPdf(paths, input);
+          if (action === "preview") {
+            return {
+              success: true,
+              action,
+              pdf_path: prepared.pdfPath,
+              page_count: prepared.pageCount,
+              bytes: prepared.bytes,
+              source_type: prepared.sourceType,
+              intermediate_text_path: prepared.intermediateTextPath,
+              warnings: prepared.warnings,
+            };
+          }
+
+          const dryRun = input.dry_run !== false;
+          const printers = await listPaperPrinters(paths);
+          const requestedPrinter = typeof input.printer === "string" && input.printer.trim().length > 0
+            ? input.printer.trim()
+            : null;
+          const destination = requestedPrinter ?? printers.defaultPrinter;
+          const lpArgs = buildLpArgs(input, prepared.pdfPath, destination);
+
+          if (dryRun) {
+            return {
+              dry_run: true,
+              action,
+              pdf_path: prepared.pdfPath,
+              page_count: prepared.pageCount,
+              bytes: prepared.bytes,
+              printer: destination,
+              copies: normalizeCopies(input.copies),
+              lp_command_preview: [paths.lpCommand, ...lpArgs],
+              printers,
+              warnings: prepared.warnings,
+            };
+          }
+
+          if (!destination) {
+            return {
+              error: "No CUPS printer destination is configured. Add a printer in macOS System Settings or pass a configured printer name.",
+              pdf_path: prepared.pdfPath,
+              printers,
+              warnings: prepared.warnings,
+            };
+          }
+
+          const result = await execCommand(paths.lpCommand, lpArgs, 60_000);
+          if (result.code !== 0) {
+            return {
+              error: `lp failed: ${(result.stderr || result.stdout).trim() || `exit ${result.code}`}`,
+              pdf_path: prepared.pdfPath,
+              printer: destination,
+              warnings: prepared.warnings,
+            };
+          }
+
+          return {
+            success: true,
+            action,
+            pdf_path: prepared.pdfPath,
+            page_count: prepared.pageCount,
+            bytes: prepared.bytes,
+            printer: destination,
+            copies: normalizeCopies(input.copies),
+            lp_output: result.stdout.trim(),
+            warnings: prepared.warnings,
+          };
+        } catch (error) {
+          return { error: error instanceof Error ? error.message : String(error) };
+        }
       },
     },
   ];
@@ -1477,6 +2075,7 @@ export function createAllResearchTools(overrides?: ResearchToolPaths): AgentTool
   return [
     ...createExaTools(overrides),
     ...createPrintingTools(overrides),
+    ...createPaperPrintingTools(overrides),
     ...createTravelTools(),
     ...createWalmartTools(),
     ...createFileOpsTools(),

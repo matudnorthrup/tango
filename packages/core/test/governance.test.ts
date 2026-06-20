@@ -151,4 +151,18 @@ describe("governance seed", () => {
     // kilo is excluded pending owner decision — deny-by-default must hold.
     expect(checker.hasPermission("worker:kilo", "discord_send_image", "write")).toBe(false);
   });
+
+  it("seeds Walmart shopping for Foxtrot instead of Sierra", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const { GOVERNANCE_DDL, GOVERNANCE_SEED } = await import("../src/governance-schema.js");
+    const db = new DatabaseSync(":memory:");
+    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED);
+
+    const checker = new GovernanceChecker(db as unknown as DatabaseSync);
+    expect(checker.getToolAccessType("walmart")).toBe("write");
+    expect(checker.hasPermission("worker:foxtrot", "walmart", "write")).toBe(true);
+    expect(checker.hasPermission("worker:foxtrot-ollama", "walmart", "write")).toBe(true);
+    expect(checker.hasPermission("worker:research-assistant", "walmart", "write")).toBe(false);
+    expect(checker.hasPermission("worker:sierra-ollama", "walmart", "write")).toBe(false);
+  });
 });

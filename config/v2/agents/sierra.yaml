@@ -45,17 +45,12 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "printer"]
     env:
-      ALLOWED_TOOL_IDS: "printer_command,openscad_render,prusa_slice"
+      ALLOWED_TOOL_IDS: "printer_command,openscad_render,prusa_slice,paper_print"
   - name: location
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "location"]
     env:
       ALLOWED_TOOL_IDS: "location_read,driving_route,find_diesel"
-  - name: walmart
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "walmart"]
-    env:
-      ALLOWED_TOOL_IDS: "walmart"
   - name: file-ops
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "file-ops"]
@@ -100,6 +95,10 @@ runtime:
 # Memory configuration
 memory:
   post_turn_extraction: enabled
+  canonical_agent_id: sierra
+  alias_agent_ids:
+    - sierra
+    - sierra-ollama
   extraction_model: claude-haiku-4-5
   importance_threshold: 0.4
   scheduled_reflection: enabled

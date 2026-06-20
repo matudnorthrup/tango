@@ -4,7 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createFileOpsTools, createPrintingTools, createTravelTools } from "../src/research-agent-tools.js";
+import { createFileOpsTools, createPaperPrintingTools, createPrintingTools, createTravelTools } from "../src/research-agent-tools.js";
+
+function writeExecutableScript(dir: string, name: string, body: string): string {
+  const scriptPath = path.join(dir, name);
+  fs.writeFileSync(scriptPath, body, "utf8");
+  fs.chmodSync(scriptPath, 0o755);
+  return scriptPath;
+}
 
 describe("find-diesel script", () => {
   it("loads and prints help without missing runtime dependencies", () => {
@@ -47,6 +54,113 @@ describe("printing tools", () => {
       preview: "Would upload /tmp/example.gcode to printer printer.local",
     });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("paper printing tools", () => {
+  it("creates a preview PDF from content without touching the print queue", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "paper-print-test-"));
+    const cupsfilter = writeExecutableScript(tempDir, "cupsfilter", `#!/bin/sh
+cat <<'PDF'
+%PDF-1.3
+1 0 obj
+<<>>
+endobj
+trailer
+<<>>
+%%EOF
+PDF
+`);
+    const pdfinfo = writeExecutableScript(tempDir, "pdfinfo", `#!/bin/sh
+echo 'Pages: 1'
+`);
+
+    try {
+      const tools = createPaperPrintingTools({
+        paperPrintDir: tempDir,
+        cupsfilterCommand: cupsfilter,
+        pdfinfoCommand: pdfinfo,
+      });
+      const paperPrint = tools.find((tool) => tool.name === "paper_print");
+      expect(paperPrint).toBeDefined();
+
+      const result = await paperPrint!.handler({
+        action: "preview",
+        title: "Travel Backup",
+        content: "Flight confirmation summary",
+      });
+
+      expect(result).toMatchObject({
+        success: true,
+        action: "preview",
+        page_count: 1,
+        source_type: "content",
+      });
+      const pdfPath = (result as { pdf_path: string }).pdf_path;
+      expect(pdfPath.startsWith(tempDir)).toBe(true);
+      expect(fs.readFileSync(pdfPath, "utf8")).toContain("%PDF-1.3");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("dry-runs print jobs by default and returns the lp command preview", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "paper-print-test-"));
+    const lpMarker = path.join(tempDir, "lp-called");
+    const cupsfilter = writeExecutableScript(tempDir, "cupsfilter", `#!/bin/sh
+cat <<'PDF'
+%PDF-1.3
+%%EOF
+PDF
+`);
+    const pdfinfo = writeExecutableScript(tempDir, "pdfinfo", `#!/bin/sh
+echo 'Pages: 1'
+`);
+    const lpstat = writeExecutableScript(tempDir, "lpstat", `#!/bin/sh
+if [ "$1" = "-d" ]; then
+  echo 'system default destination: Home_Printer'
+  exit 0
+fi
+if [ "$1" = "-p" ]; then
+  echo 'printer Home_Printer is idle. enabled since Thu Jun 18 12:00:00 2026'
+  exit 0
+fi
+exit 1
+`);
+    const lp = writeExecutableScript(tempDir, "lp", `#!/bin/sh
+echo called > '${lpMarker}'
+exit 9
+`);
+
+    try {
+      const tools = createPaperPrintingTools({
+        paperPrintDir: tempDir,
+        cupsfilterCommand: cupsfilter,
+        pdfinfoCommand: pdfinfo,
+        lpstatCommand: lpstat,
+        lpCommand: lp,
+      });
+      const paperPrint = tools.find((tool) => tool.name === "paper_print");
+      expect(paperPrint).toBeDefined();
+
+      const result = await paperPrint!.handler({
+        action: "print",
+        title: "Travel Backup",
+        content: "Reservation summary",
+        sides: "one-sided",
+      });
+
+      expect(result).toMatchObject({
+        dry_run: true,
+        action: "print",
+        printer: "Home_Printer",
+        copies: 1,
+      });
+      expect((result as { lp_command_preview: string[] }).lp_command_preview).toContain("Home_Printer");
+      expect(fs.existsSync(lpMarker)).toBe(false);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
