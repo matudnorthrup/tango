@@ -11,8 +11,17 @@ Tango loads configuration in this order:
 For prompts, Tango loads the repo-owned base prompt first and then appends any
 profile-owned overlay files from `~/.tango/profiles/<profile>/prompts`.
 
+Profile shared prompt files (`RULES.md`, `USER.md`) override the repo defaults
+when present at either:
+
+- `~/.tango/profiles/<profile>/prompts/shared/` (preferred)
+- `~/.tango/profiles/<profile>/agents/shared/` (legacy)
+
+Per-agent `RULES.md` and `USER.md` in the agent directory still win over both.
+
 That overlay surface can include:
 
+- `prompts/shared/` for operator-specific rules and user context
 - `prompts/agents/<agent-id>/` for agent persona and knowledge
 - `prompts/tools/<doc-name>.md` for installation-specific tool instructions
 - `prompts/skills/<doc-name>.md` for installation-specific skill guidance

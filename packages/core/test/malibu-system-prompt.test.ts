@@ -1,11 +1,40 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { assembleSoulPrompt, assembleV2SystemPrompt } from "../src/system-prompt.js";
 import { loadV2AgentConfig } from "../src/v2-config-loader.js";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const tempDirs: string[] = [];
+const originalEnv = { ...process.env };
+
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
+    }
+  }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function isolateProfileHome(): void {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-home-"));
+  tempDirs.push(homeDir);
+  process.env.TANGO_HOME = homeDir;
+  process.env.TANGO_PROFILE = "default";
+}
 
 function readRepoFile(relativePath: string): string {
   return fs.readFileSync(path.join(repoRoot, relativePath), "utf8").trim();
@@ -17,6 +46,7 @@ function firstNonEmptyLine(content: string): string {
 
 describe("assembleSoulPrompt", () => {
   it("assembles Malibu's system prompt from soul, shared files, and knowledge without workers or tool docs", () => {
+    isolateProfileHome();
     const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "malibu.yaml"));
     const soul = readRepoFile("agents/assistants/malibu/soul.md");
     const rules = readRepoFile("agents/shared/RULES.md");

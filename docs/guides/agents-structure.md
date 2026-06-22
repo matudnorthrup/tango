@@ -138,9 +138,8 @@ Examples:
 V2 system prompt assembly is convention-based and currently loads, in order:
 
 1. `<agentDir>/soul.md`
-2. `agents/shared/RULES.md`
-3. `agents/shared/USER.md`
-4. `<agentDir>/knowledge.md`
+2. `RULES.md` and `USER.md` — per-agent override, then profile shared (`prompts/shared/` or legacy `agents/shared/`), then repo `agents/shared/`
+3. `<agentDir>/knowledge.md`
 
 Runtime implementation:
 - `packages/core/src/system-prompt.ts`
