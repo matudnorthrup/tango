@@ -137,6 +137,21 @@ export function resolveTangoProfileSkillPromptsDir(
   return path.join(resolveTangoProfilePromptsDir(options), "skills");
 }
 
+export function resolveTangoProfileSharedPromptDir(
+  options: TangoProfilePathOptions = {},
+): string {
+  return path.join(resolveTangoProfilePromptsDir(options), "shared");
+}
+
+export function resolveTangoProfileSharedPromptLookupDirs(
+  options: TangoProfilePathOptions = {},
+): string[] {
+  return [
+    resolveTangoProfileSharedPromptDir(options),
+    path.join(resolveTangoProfileDir(options), "agents", "shared"),
+  ];
+}
+
 export function resolveTangoProfileAgentPromptDir(
   agentId: string,
   options: TangoProfilePathOptions = {},
