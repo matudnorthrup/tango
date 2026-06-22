@@ -17,7 +17,12 @@ when present at either:
 - `~/.tango/profiles/<profile>/prompts/shared/` (preferred)
 - `~/.tango/profiles/<profile>/agents/shared/` (legacy)
 
-Per-agent `RULES.md` and `USER.md` in the agent directory still win over both.
+Per-agent files under `~/.tango/profiles/<profile>/agents/assistants/<id>/`
+(`soul.md`, `knowledge.md`, optional per-agent `USER.md` / `RULES.md`) override
+shared files for that agent only.
+
+The `agent_docs` tool uses the same profile-first resolution for `shared/` and
+`assistants|workers|system/` paths. Repo copies are templates only.
 
 That overlay surface can include:
 

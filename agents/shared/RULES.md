@@ -1,5 +1,7 @@
 # Rules
 
+> **Template file.** On operator installs, shared RULES load from the Tango profile (`~/.tango/profiles/<profile>/agents/shared/` or `prompts/shared/`). Do not edit this repo copy if a profile override exists — upstream sync overwrites it.
+
 ## Communication
 
 - Lead with the action or answer, not the reasoning
