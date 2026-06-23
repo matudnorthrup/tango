@@ -2,7 +2,12 @@ import {
   extractInlineTopicReference,
   parseSharedTopicSystemCommand,
 } from "./topic-routing.js";
-import { type ResolvedVoiceAddress, stripLeadingWakePhrase, type VoiceTargetDirectory } from "./address-routing.js";
+import {
+  isStrongAddressMatch,
+  type ResolvedVoiceAddress,
+  stripLeadingWakePhrase,
+  type VoiceTargetDirectory,
+} from "./address-routing.js";
 import { parseSharedProjectSystemCommand } from "./project-routing.js";
 import { parseSharedSystemRoutingCommand } from "./system-routing.js";
 
@@ -99,7 +104,12 @@ export function parseNaturalTextRoute(input: {
   focusedAgentId?: string | null;
 }): NaturalTextRoute {
   const text = input.text.trim();
-  const explicitAddress = input.voiceTargets.resolveExplicitAddress(text);
+  const resolvedAddress = input.voiceTargets.resolveExplicitAddress(text);
+  const explicitAddress =
+    resolvedAddress?.kind === "agent" &&
+    !isStrongAddressMatch(resolvedAddress.matchedName, resolvedAddress.transcript)
+      ? null
+      : resolvedAddress;
   const focusedAgentId = input.focusedAgentId?.trim() || null;
 
   if (!explicitAddress) {

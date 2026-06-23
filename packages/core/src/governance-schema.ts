@@ -219,6 +219,7 @@ export const GOVERNANCE_SEED = `
     ('agent:watson', 'agent', 'user:owner', 'Watson'),
     ('agent:malibu', 'agent', 'user:owner', 'Malibu'),
     ('agent:sierra', 'agent', 'user:owner', 'Sierra'),
+    ('agent:charlie', 'agent', 'user:owner', 'Charlie'),
     ('agent:dispatch', 'agent', 'user:owner', 'Tango'),
     ('agent:victor', 'agent', 'user:owner', 'Victor'),
     ('agent:porter', 'agent', 'user:owner', 'Porter'),
@@ -236,6 +237,8 @@ export const GOVERNANCE_SEED = `
     ('worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker'),
     ('worker:personal-assistant', 'worker', 'agent:watson', 'Personal Assistant'),
     ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
+    ('worker:charlie', 'worker', 'agent:charlie', 'Charlie Runtime'),
+    ('worker:charlie-ollama', 'worker', 'agent:charlie', 'Charlie Ollama Runtime'),
     ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
     ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'),
     ('worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'),
@@ -281,6 +284,7 @@ export const GOVERNANCE_SEED = `
     ('paper_print', 'research', 'Paper Printing', 'write'),
     ('location_read', 'research', 'GPS Location', 'read'),
     ('driving_route', 'research', 'Driving Route Planner', 'read'),
+    ('walking_route', 'research', 'Walking Route Planner', 'read'),
     ('find_diesel', 'research', 'Diesel Finder', 'read'),
     ('walmart', 'shopping', 'Walmart Shopping', 'write'),
     ('browser', 'shared', 'Browser Automation', 'write'),
@@ -387,6 +391,7 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'obsidian', 'write', 'travel planning + research filing'),
     ('worker:research-assistant', 'location_read', 'read', 'travel navigation'),
     ('worker:research-assistant', 'driving_route', 'read', 'travel route planning and drive-time verification'),
+    ('worker:research-assistant', 'walking_route', 'read', 'travel walking route planning and walk-time verification'),
     ('worker:research-assistant', 'find_diesel', 'read', 'travel navigation'),
     ('worker:research-assistant', 'browser', 'write', 'web automation for research and source review'),
     ('worker:research-assistant', 'slack', 'read', 'seed from config'),
@@ -401,12 +406,26 @@ export const GOVERNANCE_SEED = `
     ('worker:sierra-ollama', 'paper_print', 'write', 'Sierra Ollama paper document printing'),
     ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'driving_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
+    ('worker:sierra-ollama', 'walking_route', 'read', 'Sierra Ollama walking route planning and walk-time verification'),
     ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for research and source review');
 
   -- personal-assistant browser access (Watson — receipt lookup, transaction categorization)
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:personal-assistant', 'browser', 'write', 'web automation for receipt lookup and transaction categorization');
+
+  -- Charlie — quick answers plus ephemeral current-location narration.
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('worker:charlie', 'exa_search', 'read', 'quick factual lookup'),
+    ('worker:charlie', 'exa_answer', 'read', 'quick factual lookup'),
+    ('worker:charlie', 'obsidian', 'write', 'baseline quick-agent tool parity'),
+    ('worker:charlie', 'agent_docs', 'write', 'agent documentation updates'),
+    ('worker:charlie', 'location_read', 'read', 'ephemeral location narration'),
+    ('worker:charlie-ollama', 'exa_search', 'read', 'quick factual lookup'),
+    ('worker:charlie-ollama', 'exa_answer', 'read', 'quick factual lookup'),
+    ('worker:charlie-ollama', 'obsidian', 'write', 'baseline quick-agent tool parity'),
+    ('worker:charlie-ollama', 'agent_docs', 'write', 'agent documentation updates'),
+    ('worker:charlie-ollama', 'location_read', 'read', 'ephemeral location narration');
 
   -- Foxtrot finance agents — canonical and Ollama share the same finance MCP surface.
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
@@ -545,6 +564,8 @@ export const GOVERNANCE_SEED = `
     ('worker:church-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:dev-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:operations-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:charlie', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:charlie-ollama', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:workout-recorder', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:foxtrot', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:foxtrot-ollama', 'discord_send_image', 'write', 'outbound Discord image sending'),

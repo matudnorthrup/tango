@@ -1116,12 +1116,16 @@ export function createTravelTools(): AgentTool[] {
     waypoints?: unknown;
   }
 
+  type RouteMode = "driving" | "walking";
+
   interface RouteResult {
     label: string;
+    mode: RouteMode;
     source: "here" | "osrm";
     distanceMiles: number;
     durationHours: number;
     durationText: string;
+    durationBasis: string;
     baseDurationHours?: number;
     via?: Array<{ road: string; miles: number }>;
     passesThrough?: string[];
@@ -1254,7 +1258,10 @@ export function createTravelTools(): AgentTool[] {
     }
   };
 
-  const buildGoogleMapsUrl = (points: Array<{ lat: number; lon: number }>): string => {
+  const buildGoogleMapsUrl = (
+    points: Array<{ lat: number; lon: number }>,
+    mode: RouteMode,
+  ): string => {
     const origin = points[0]!;
     const destination = points[points.length - 1]!;
     const waypoints = points.slice(1, -1);
@@ -1262,7 +1269,7 @@ export function createTravelTools(): AgentTool[] {
       api: "1",
       origin: `${origin.lat},${origin.lon}`,
       destination: `${destination.lat},${destination.lon}`,
-      travelmode: "driving",
+      travelmode: mode,
     });
     if (waypoints.length > 0) {
       params.set("waypoints", waypoints.map((point) => `${point.lat},${point.lon}`).join("|"));
@@ -1383,14 +1390,18 @@ export function createTravelTools(): AgentTool[] {
     via: Array<{ road: string; miles: number }>;
   }
 
-  const routeViaHere = async (points: ResolvedRoutePoint[]): Promise<HereRouteData> => {
+  const routeViaHere = async (
+    points: ResolvedRoutePoint[],
+    mode: RouteMode,
+  ): Promise<HereRouteData> => {
     if (!hereApiKey) throw new Error("HERE_API_KEY not configured");
-    // radius= lets HERE snap off-road points (parks, trailheads) to the nearest drivable road.
+    // radius= lets HERE snap off-road points (parks, trailheads) to the nearest routable path.
     const asWaypoint = (point: ResolvedRoutePoint): string => `${point.lat},${point.lon};radius=10000`;
+    const transportMode = mode === "driving" ? "car" : "pedestrian";
     const origin = points[0]!;
     const destination = points[points.length - 1]!;
     const vias = points.slice(1, -1).map((point) => `&via=${asWaypoint(point)}`).join("");
-    const url = "https://router.hereapi.com/v8/routes?transportMode=car&routingMode=fast" +
+    const url = `https://router.hereapi.com/v8/routes?transportMode=${transportMode}&routingMode=fast` +
       `&origin=${asWaypoint(origin)}&destination=${asWaypoint(destination)}${vias}` +
       `&return=summary,polyline&spans=routeNumbers,length&apiKey=${hereApiKey}`;
     const response = await fetch(url);
@@ -1431,7 +1442,11 @@ export function createTravelTools(): AgentTool[] {
     return { distanceM, durationS, baseDurationS, coords, via };
   };
 
-  const routeOne = async (route: RouteOption, index: number): Promise<RouteResult> => {
+  const routeOne = async (
+    route: RouteOption,
+    index: number,
+    mode: RouteMode,
+  ): Promise<RouteResult> => {
     const origin = route.origin ?? "current location";
     const destination = route.destination;
     if (typeof destination !== "string" || destination.trim().length === 0) {
@@ -1446,20 +1461,24 @@ export function createTravelTools(): AgentTool[] {
     const label = typeof route.label === "string" && route.label.trim().length > 0
       ? route.label.trim()
       : `route ${index + 1}`;
-    const googleMapsUrl = buildGoogleMapsUrl(resolvedPoints);
+    const googleMapsUrl = buildGoogleMapsUrl(resolvedPoints, mode);
 
     let hereError: string | undefined;
     if (hereApiKey) {
       try {
-        const here = await routeViaHere(resolvedPoints);
+        const here = await routeViaHere(resolvedPoints, mode);
         const durationHours = here.durationS / 3600;
         const passesThrough = await lookupTownsAlong(here.coords, here.distanceM).catch(() => []);
         return {
           label,
+          mode,
           source: "here",
           distanceMiles: Number((here.distanceM / 1609.34).toFixed(1)),
           durationHours: Number(durationHours.toFixed(2)),
           durationText: formatDuration(durationHours),
+          durationBasis: mode === "driving"
+            ? "HERE car route duration with current traffic"
+            : "HERE pedestrian route duration",
           baseDurationHours: Number((here.baseDurationS / 3600).toFixed(2)),
           via: here.via,
           passesThrough,
@@ -1472,7 +1491,8 @@ export function createTravelTools(): AgentTool[] {
     }
 
     const coordinates = resolvedPoints.map((point) => `${point.lon},${point.lat}`).join(";");
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false`;
+    const osrmProfile = mode === "driving" ? "driving" : "foot";
+    const osrmUrl = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordinates}?overview=false`;
     const response = await fetch(osrmUrl);
     if (!response.ok) {
       throw new Error(`OSRM route failed for route ${index + 1}: HTTP ${response.status}`);
@@ -1487,19 +1507,98 @@ export function createTravelTools(): AgentTool[] {
     }
 
     const distanceMiles = osrmRoute.distance / 1609.34;
-    const durationHours = osrmRoute.duration / 3600;
+    const durationHours = mode === "driving"
+      ? osrmRoute.duration / 3600
+      : distanceMiles / 3;
     return {
       label,
+      mode,
       source: "osrm",
       distanceMiles: Number(distanceMiles.toFixed(1)),
       durationHours: Number(durationHours.toFixed(2)),
       durationText: formatDuration(durationHours),
+      durationBasis: mode === "driving"
+        ? "OSRM driving route duration without live traffic"
+        : "OSRM foot routed distance with walking time estimated at 3 mph",
       resolvedPoints,
       googleMapsUrl,
       osrmUrl,
-      warning: "OSRM fallback: no live traffic, and rural ETAs run 20-50% high — treat duration as an upper bound. No via/passesThrough route grounding available.",
+      warning: mode === "driving"
+        ? "OSRM fallback: no live traffic, and rural ETAs run 20-50% high — treat duration as an upper bound. No via/passesThrough route grounding available."
+        : "OSRM foot fallback: distance is routed, but pedestrian duration and sidewalk/safety conditions are not verified; duration is estimated at 3 mph. Cross-check in Apple/Google Maps before walking.",
       ...(hereError ? { hereError } : {}),
     };
+  };
+
+  const routeInputSchema = {
+    type: "object",
+    properties: {
+      origin: { type: "string", description: "Start place, lat,lon, or current location" },
+      destination: { type: "string", description: "End place or lat,lon" },
+      waypoints: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional ordered waypoint places or lat,lon strings",
+      },
+      routes: {
+        type: "array",
+        description: "Route options to compare. If present, origin/destination at top level are ignored.",
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string" },
+            origin: { type: "string" },
+            destination: { type: "string" },
+            waypoints: { type: "array", items: { type: "string" } },
+          },
+          required: ["destination"],
+        },
+      },
+    },
+    required: [],
+  };
+
+  const routeHandler = async (
+    mode: RouteMode,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => {
+    try {
+      const routeInputs = Array.isArray(input.routes) && input.routes.length > 0
+        ? input.routes.slice(0, 6).map((route) => route as RouteOption)
+        : [{
+            origin: input.origin ?? "current location",
+            destination: input.destination,
+            waypoints: input.waypoints,
+          }];
+
+      const routes: RouteResult[] = [];
+      for (let i = 0; i < routeInputs.length; i++) {
+        routes.push(await routeOne(routeInputs[i]!, i, mode));
+      }
+      const fastest = [...routes].sort((a, b) => a.durationHours - b.durationHours)[0] ?? null;
+      const staleLocation = routes.some((route) => route.resolvedPoints.some((point) => (
+        point.source === "current_location" &&
+        typeof point.ageSec === "number" &&
+        point.ageSec > 3600
+      )));
+      return {
+        routeMode: mode,
+        routes,
+        fastest: fastest
+          ? {
+              label: fastest.label,
+              mode: fastest.mode,
+              distanceMiles: fastest.distanceMiles,
+              durationHours: fastest.durationHours,
+              durationText: fastest.durationText,
+              durationBasis: fastest.durationBasis,
+            }
+          : null,
+        ...(staleLocation ? { warning: "Current location is stale; tell the user before relying on it." } : {}),
+      };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
   };
 
   return [
@@ -1530,86 +1629,53 @@ export function createTravelTools(): AgentTool[] {
       name: "driving_route",
       description: [
         "Compute real driving routes: distance, traffic-aware ETA, the major roads the route follows, and the towns it passes through. (Formerly named osrm_route.)",
+        "This is for cars only. For walking distance, walking ETA, or walk-safety questions, use walking_route instead.",
         "Primary engine is HERE Router v8 (live traffic); falls back to OSRM (no traffic, ETAs run high — a per-route warning is set) when HERE is unavailable.",
         "Never answer route/directions/ETA questions from mental geography when this tool is available.",
         "Place names and POIs (e.g. 'Costco, Medford, OR') resolve via Nominatim with HERE Discover/Geocode fallback anchored at current GPS.",
         "",
         "Parameters:",
-        "  origin: Address/place string, 'lat,lon', or omit/use 'current location' to use GPS.",
+        "  origin: Address/place string, 'lat,lon', or omit/use 'current location' to use GPS. If the user says 'from here', 'from my hotel', or similar and GPS is current, prefer current location over geocoding a remembered address.",
         "  destination: Address/place string or 'lat,lon'.",
         "  waypoints: Optional ordered places the route must pass through.",
         "  routes: Optional array of route options, each with label/origin/destination/waypoints. Use this for comparisons.",
         "",
-        "Returns per route: distanceMiles, durationHours (includes current traffic), durationText, baseDurationHours (free-flow), via (major roads with miles, in order), passesThrough (towns along the route, in order), resolvedPoints, googleMapsUrl, source; plus the fastest option.",
+        "Returns routeMode='driving'. Per route: mode, distanceMiles, durationHours (includes current traffic on HERE), durationText, durationBasis, baseDurationHours (free-flow), via (major roads with miles, in order), passesThrough (towns along the route, in order), resolvedPoints, googleMapsUrl, source; plus the fastest option.",
         "",
         "Grounding rules:",
+        "  Read and report the route mode and resolvedPoints before stating distance. If the resolved origin/destination looks wrong, say the route could not be verified.",
         "  Only name a town, stop, or landmark as 'on the route' if it appears in via/passesThrough here or in find_diesel output.",
         "  To claim any other place is on the way, run a comparison: direct route vs a route with that place as a waypoint, and report the added time.",
         "  durationHours already includes traffic — do not add your own traffic multipliers. Add time only for planned stops.",
       ].join("\n"),
-      inputSchema: {
-        type: "object",
-        properties: {
-          origin: { type: "string", description: "Start place, lat,lon, or current location" },
-          destination: { type: "string", description: "End place or lat,lon" },
-          waypoints: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional ordered waypoint places or lat,lon strings",
-          },
-          routes: {
-            type: "array",
-            description: "Route options to compare. If present, origin/destination at top level are ignored.",
-            items: {
-              type: "object",
-              properties: {
-                label: { type: "string" },
-                origin: { type: "string" },
-                destination: { type: "string" },
-                waypoints: { type: "array", items: { type: "string" } },
-              },
-              required: ["destination"],
-            },
-          },
-        },
-        required: [],
-      },
-      handler: async (input) => {
-        try {
-          const routeInputs = Array.isArray(input.routes) && input.routes.length > 0
-            ? input.routes.slice(0, 6).map((route) => route as RouteOption)
-            : [{
-                origin: input.origin ?? "current location",
-                destination: input.destination,
-                waypoints: input.waypoints,
-              }];
+      inputSchema: routeInputSchema,
+      handler: async (input) => routeHandler("driving", input),
+    },
 
-          const routes: RouteResult[] = [];
-          for (let i = 0; i < routeInputs.length; i++) {
-            routes.push(await routeOne(routeInputs[i]!, i));
-          }
-          const fastest = [...routes].sort((a, b) => a.durationHours - b.durationHours)[0] ?? null;
-          const staleLocation = routes.some((route) => route.resolvedPoints.some((point) => (
-            point.source === "current_location" &&
-            typeof point.ageSec === "number" &&
-            point.ageSec > 3600
-          )));
-          return {
-            routes,
-            fastest: fastest
-              ? {
-                  label: fastest.label,
-                  distanceMiles: fastest.distanceMiles,
-                  durationHours: fastest.durationHours,
-                  durationText: fastest.durationText,
-                }
-              : null,
-            ...(staleLocation ? { warning: "Current location is stale; tell the user before relying on it." } : {}),
-          };
-        } catch (err: unknown) {
-          return { error: err instanceof Error ? err.message : String(err) };
-        }
-      },
+    {
+      name: "walking_route",
+      description: [
+        "Compute real walking routes for walking distance and walking ETA. Use this for any question about walking, walkability, or whether a route is reasonable on foot.",
+        "Primary engine is HERE Router v8 pedestrian routing; falls back to OSRM foot distance when HERE is unavailable.",
+        "This tool is not a personal-safety or sidewalk-quality engine. If asked about safety, combine the route with separate current local safety evidence and clearly label what is verified.",
+        "Never use driving_route to answer a walking-distance or walking-ETA question.",
+        "Place names and POIs resolve via Nominatim with HERE Discover/Geocode fallback anchored at current GPS.",
+        "",
+        "Parameters:",
+        "  origin: Address/place string, 'lat,lon', or omit/use 'current location' to use GPS. If the user says 'from here', 'from my hotel', or similar and GPS is current, prefer current location over geocoding a remembered address.",
+        "  destination: Address/place string or 'lat,lon'.",
+        "  waypoints: Optional ordered places the walking route must pass through.",
+        "  routes: Optional array of walking route options, each with label/origin/destination/waypoints.",
+        "",
+        "Returns routeMode='walking'. Per route: mode, distanceMiles, durationHours, durationText, durationBasis, resolvedPoints, googleMapsUrl, source, warning when applicable; plus the fastest option.",
+        "",
+        "Grounding rules:",
+        "  Read and report routeMode and resolvedPoints before stating distance. If the resolved origin/destination looks wrong, say the walking route could not be verified.",
+        "  If source='osrm', treat duration as an estimate at 3 mph and tell the user to cross-check in Apple/Google Maps before walking.",
+        "  Do not claim a route is safe merely because walking_route returned a path.",
+      ].join("\n"),
+      inputSchema: routeInputSchema,
+      handler: async (input) => routeHandler("walking", input),
     },
 
     {
