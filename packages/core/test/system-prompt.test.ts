@@ -125,6 +125,31 @@ describe("assembleAgentPrompt", () => {
     expect(prompt).toContain("shared user");
   });
 
+  it("uses profile shared RULES and USER before repo shared defaults", () => {
+    const agentsDir = createAgentsDir();
+    const agentDir = path.join(agentsDir, "assistants", "watson");
+    const profileSharedDir = path.join(agentsDir, "profile", "prompts", "shared");
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(profileSharedDir, { recursive: true });
+
+    fs.writeFileSync(path.join(agentsDir, "shared", "RULES.md"), "repo rules");
+    fs.writeFileSync(path.join(agentsDir, "shared", "USER.md"), "repo user");
+    fs.writeFileSync(path.join(profileSharedDir, "RULES.md"), "profile rules");
+    fs.writeFileSync(path.join(profileSharedDir, "USER.md"), "profile user");
+    fs.writeFileSync(path.join(agentDir, "soul.md"), "watson soul");
+
+    const prompt = assembleAgentPrompt(agentDir, {
+      agentsRootDir: agentsDir,
+      profileSharedDirs: [profileSharedDir],
+    });
+
+    expect(prompt).toContain("watson soul");
+    expect(prompt).toContain("profile rules");
+    expect(prompt).toContain("profile user");
+    expect(prompt).not.toContain("repo rules");
+    expect(prompt).not.toContain("repo user");
+  });
+
   it("appends profile overlay prompt sections after the base prompt", () => {
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "watson");

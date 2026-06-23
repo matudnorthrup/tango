@@ -114,6 +114,8 @@ import {
   shouldSendContextPressureAlert,
   type V2AgentConfig,
   type ProviderImageInput,
+  findRepoLayerPersonalPromptFindings,
+  type PromptLayerAuditFinding,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
@@ -3181,6 +3183,55 @@ function ensureReplyDeliverySucceeded(
       result
     }
   );
+}
+
+const promptLayerWarningKeys = new Set<string>();
+
+function formatPromptLayerWarning(finding: PromptLayerAuditFinding): string {
+  return [
+    `Tango profile warning for ${finding.agentId}: ${finding.summary}`,
+    "",
+    `Repo path: ${finding.repoRelativePath}`,
+    `Profile target: ${finding.profileTargetHint}`,
+    "",
+    "This warning is shown only in Discord and is not added to the agent prompt.",
+    "Inspect with `npm run cli -- prompt audit`; migrate with `bash scripts/migrate-personal-context-to-profile.sh --dry-run`.",
+  ].join("\n");
+}
+
+async function sendPromptLayerWarningsIfNeeded(
+  message: Message,
+  agentId: string,
+): Promise<void> {
+  if (process.env.TANGO_PROMPT_LAYER_WARNINGS === "0") {
+    return;
+  }
+
+  const findings = findRepoLayerPersonalPromptFindings()
+    .filter((finding) => finding.agentId === agentId);
+
+  for (const finding of findings) {
+    const key = `${message.channelId}:${agentId}:${finding.repoRelativePath}`;
+    if (promptLayerWarningKeys.has(key)) {
+      continue;
+    }
+    promptLayerWarningKeys.add(key);
+
+    try {
+      const delivery = await sendPresentedReply(
+        message.channel,
+        formatPromptLayerWarning(finding),
+        systemAgent,
+      );
+      ensureReplyDeliverySucceeded(delivery, message.channelId);
+    } catch (error) {
+      console.warn(
+        `[tango-discord] prompt-layer warning failed agent=${agentId} path=${finding.repoRelativePath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 }
 
 function waitMs(ms: number): Promise<void> {
@@ -7196,6 +7247,7 @@ async function handleMessage(
         targetAgentIsOllama && CLONE_INLINE_VISION
           ? buildCloneInlineImages(attachmentResult.processed)
           : [];
+      await sendPromptLayerWarningsIfNeeded(message, targetAgent.id);
       const v2Result = await routeV2MessageIfEnabled(
         {
           message: prompt,
