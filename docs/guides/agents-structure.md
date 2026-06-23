@@ -140,10 +140,16 @@ V2 system prompt assembly is convention-based and currently loads, in order:
 1. `<agentDir>/soul.md`
 2. `RULES.md` and `USER.md` — per-agent override, then profile shared (`prompts/shared/` or legacy `agents/shared/`), then repo `agents/shared/`
 3. `<agentDir>/knowledge.md`
+4. Profile prompt overlays from `~/.tango/profiles/<profile>/prompts/agents/<id>/`
 
 Runtime implementation:
 - `packages/core/src/system-prompt.ts`
 - `packages/core/src/config.ts`
+
+Do not keep user-specific per-agent `USER.md` files under `agents/assistants/`,
+even as ignored symlinks. Use `npm run cli -- prompt audit` to find legacy
+repo-path personal prompt files, then migrate them into
+`~/.tango/profiles/<profile>/prompts/agents/<id>/`.
 
 ## Config Ownership
 

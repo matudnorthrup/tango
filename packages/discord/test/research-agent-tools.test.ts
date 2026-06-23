@@ -282,6 +282,115 @@ describe("travel tools", () => {
     }
   });
 
+  it("uses HERE pedestrian routing for walking_route", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    process.env.HERE_API_KEY = "test-here-key";
+    try {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = String(input);
+        const host = new URL(url).hostname;
+        if (host === "router.hereapi.com") {
+          return new Response(JSON.stringify({
+            routes: [{
+              sections: [{
+                summary: { length: 3219, duration: 2400, baseDuration: 2400 },
+                spans: [],
+              }],
+            }],
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+      const tools = createTravelTools();
+      const walkingRoute = tools.find((tool) => tool.name === "walking_route");
+      expect(walkingRoute).toBeDefined();
+
+      const result = await walkingRoute!.handler({
+        origin: "17.062084,-96.7207289",
+        destination: "17.0614,-96.6974",
+      });
+
+      const routerUrl = fetchSpy.mock.calls.map((call) => String(call[0]))
+        .find((url) => new URL(url).hostname === "router.hereapi.com");
+      expect(routerUrl).toContain("transportMode=pedestrian");
+      expect(routerUrl).not.toContain("transportMode=car");
+      expect(result).toMatchObject({
+        routeMode: "walking",
+        routes: [{
+          mode: "walking",
+          source: "here",
+          distanceMiles: 2,
+          durationHours: 0.67,
+          durationText: "0h 40m",
+          durationBasis: "HERE pedestrian route duration",
+          googleMapsUrl: expect.stringContaining("travelmode=walking"),
+        }],
+        fastest: {
+          mode: "walking",
+          distanceMiles: 2,
+          durationText: "0h 40m",
+        },
+      });
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
+  });
+
+  it("falls back to OSRM foot distance and estimates walking time instead of trusting OSRM duration", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    delete process.env.HERE_API_KEY;
+    try {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({
+          code: "Ok",
+          routes: [{ distance: 1609.34, duration: 60 }],
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const tools = createTravelTools();
+      const walkingRoute = tools.find((tool) => tool.name === "walking_route");
+      expect(walkingRoute).toBeDefined();
+
+      const result = await walkingRoute!.handler({
+        origin: "17.062084,-96.7207289",
+        destination: "17.0614,-96.6974",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
+        "https://router.project-osrm.org/route/v1/foot/-96.7207289,17.062084;-96.6974,17.0614?overview=false",
+      );
+      expect(result).toMatchObject({
+        routeMode: "walking",
+        routes: [{
+          mode: "walking",
+          source: "osrm",
+          distanceMiles: 1,
+          durationHours: 0.33,
+          durationText: "0h 20m",
+          durationBasis: "OSRM foot routed distance with walking time estimated at 3 mph",
+          googleMapsUrl: expect.stringContaining("travelmode=walking"),
+          warning: expect.stringContaining("sidewalk/safety conditions are not verified"),
+        }],
+        fastest: {
+          mode: "walking",
+          distanceMiles: 1,
+          durationText: "0h 20m",
+        },
+      });
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
+  });
+
   it("falls back to HERE Discover when Nominatim cannot geocode a POI", async () => {
     const previousKey = process.env.HERE_API_KEY;
     process.env.HERE_API_KEY = "test-here-key";

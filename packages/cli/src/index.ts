@@ -16,6 +16,7 @@ import {
   resolveProviderToolsForAgent,
   selectProviderByName,
   selectProviderForAgent,
+  findRepoLayerPersonalPromptFindings,
   resolveConfigDir,
   resolveDatabasePath,
   resolveLegacyConfigPath,
@@ -754,6 +755,48 @@ promptCommand
     }
     console.log("--- prompt ---");
     console.log(promptTrace.text);
+  });
+
+promptCommand
+  .command("audit")
+  .description("Find repo-layer personal prompt files that should be migrated to the active profile")
+  .option("--profile <name>", "Profile name to inspect")
+  .option("--json", "Render findings as JSON")
+  .action((options: { profile?: string; json?: boolean }) => {
+    const profileOptions = buildProfileOptions(options.profile);
+    const profile = resolveTangoProfileName(profileOptions?.profile);
+    const profileDir = resolveTangoProfileDir(profileOptions);
+    const findings = findRepoLayerPersonalPromptFindings({
+      repoRoot: process.cwd(),
+      profilePathOptions: profileOptions,
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify({ profile, profileDir, findings }, null, 2));
+      return;
+    }
+
+    console.log(`profile=${profile}`);
+    console.log(`profile_dir=${profileDir}`);
+    if (findings.length === 0) {
+      console.log("status=ok");
+      return;
+    }
+
+    console.log(`status=warnings`);
+    console.log(`findings=${findings.length}`);
+    for (const finding of findings) {
+      console.log("");
+      console.log(`[${finding.code}] agent=${finding.agentId}`);
+      console.log(`repo_path=${finding.repoRelativePath}`);
+      console.log(`path_kind=${finding.pathKind}`);
+      if (finding.linkTarget) {
+        console.log(`link_target=${finding.linkTarget}`);
+      }
+      console.log(`profile_target_hint=${finding.profileTargetHint}`);
+      console.log(`summary=${finding.summary}`);
+      console.log(`remediation=${finding.remediation}`);
+    }
   });
 
 program
