@@ -411,6 +411,62 @@ describe("executeSchedule", () => {
     expect(logText).toContain("**Snapshot:**");
   });
 
+  it("preserves long explicit Flagged sections for daily brief aggregation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-20T22:37:00-07:00"));
+    process.env.HOME = createTempHome();
+
+    const candidates = Array.from({ length: 12 }, (_, index) => {
+      const id = String(index + 1).padStart(2, "0");
+      return `- [ ] USUP-2026-06-20-${id}: Unsubscribe from Newsletter ${id} on personal@example.test -- recurring low-value promotional email with enough detail to make this line realistic.`;
+    });
+    const executeV2Turn = vi.fn(async () => ({
+      text: [
+        "Scanned both Gmail accounts; 12 unsubscribe candidates identified.",
+        "",
+        "**Flagged:**",
+        ...candidates,
+        "",
+        "**Notes:**",
+        "- The flagged list should be preserved for the daily brief.",
+      ].join("\n"),
+      durationMs: 12,
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        id: "nightly-email-unsubscribe-review",
+        runtime: "v2",
+        obsidianLog: {
+          domain: "Email",
+          jobName: "Email Unsubscribe Review",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeV2Turn,
+        db: {} as never,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+
+    const logPath = path.join(
+      process.env.HOME!,
+      "Documents",
+      "main",
+      "Records",
+      "Jobs",
+      "Email",
+      "2026-06.md",
+    );
+    const logText = fs.readFileSync(logPath, "utf8");
+    expect(logText).toContain("USUP-2026-06-20-01");
+    expect(logText).toContain("USUP-2026-06-20-12: Unsubscribe from Newsletter 12");
+    expect(logText).toContain("Newsletter 12 on personal@example.test -- recurring low-value promotional email with enough detail to make this line realistic.");
+    expect(logText).not.toContain("Newsletter 07 on personal@example.test -- recurring low-value promotional email with enough detail to make this line realistic...");
+  });
+
   it("repairs existing Obsidian job logs that predate frontmatter", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-03T12:00:00Z"));
