@@ -6,13 +6,13 @@
 
 ## Summary
 
-Lightweight agent for quick, throwaway questions. No persistence, no memory writes, aggressive context management, web search only.
+Lightweight agent for quick, throwaway questions and ephemeral location narration. No persistence, no memory writes, aggressive context management, web search plus read-only current GPS context.
 
 ## What Shipped
 
 ### Agent Setup
 - **Soul:** `agents/assistants/charlie/soul.md` — concise, direct personality. Explicitly prohibits memory writes.
-- **V2 Config:** `config/v2/agents/charlie.yaml` — type: quick, MCP servers: memory (read-only), exa (search/answer), agent-docs. Memory extraction disabled. Low reasoning effort. 4-hour idle timeout. 50% context reset threshold.
+- **V2 Config:** `config/v2/agents/charlie.yaml` — type: quick, MCP servers: memory (read-only), exa (search/answer), location (`location_read` only), agent-docs. Memory extraction disabled. Low reasoning effort. 4-hour idle timeout. 50% context reset threshold.
 - **Registry Fields:** Charlie's voice call signs, response mode, tools, and deterministic routing now live in `config/v2/agents/charlie.yaml`.
 - **Session Config:** `config/defaults/sessions/quick-questions.yaml` — 8K context tokens, aggressive summarization (window: 8), high importance threshold (0.8).
 
@@ -47,6 +47,7 @@ Lightweight agent for quick, throwaway questions. No persistence, no memory writ
 | Memory | Read-only MCP, extraction disabled | Can read user context but never writes. Soul prompt explicitly prohibits memory_add/memory_reflect. |
 | Context | 8K tokens, 50% reset threshold, 4hr idle timeout | Aggressive cleanup for ephemeral use |
 | Reasoning | Low | Quick answers don't need deep reasoning |
+| Location | `location_read` only | Narrates current context without route planning, diesel lookup, or itinerary writes |
 | Close word | "tango out" replaces "charlie tango" | Avoids callsign conflict |
 
 ## Key Files

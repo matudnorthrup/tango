@@ -30,7 +30,7 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `recipe-format.md` | `recipe_format` | Malibu / recipes | Recipe markdown structure and write rules |
 | `remote-claude-sessions.md` | `remote_claude_sessions` | Watson / dev sessions | Spawn phone-controllable Claude Code sessions (confirmation rail, verbatim prompts) |
 | `transaction-categorization.md` | `transaction_categorization` | Foxtrot / finance | Lunch Money categorization, rules, splits |
-| `travel-routing.md` | `travel_routing` | Sierra / travel | Current-location, route-comparison, and diesel-stop heuristics |
+| `travel-routing.md` | `travel_routing` | Sierra / travel | Current-location, route-comparison, walking-route, and diesel-stop heuristics |
 | `travel-document-printing.md` | `travel_document_printing` | Sierra / travel | Travel confirmation PDF preview and paper printing workflow |
 | `walmart-orders.md` | `walmart_orders` | Foxtrot / shopping and receipts | Browser navigation for Walmart order lookup |
 
