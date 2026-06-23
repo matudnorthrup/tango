@@ -7,7 +7,9 @@ const OPEN_WORLD_TOOLS = new Set<string>([
   "browser",
   "gospel_library",
   "walmart",
+  "driving_route",
   "find_diesel",
+  "walking_route",
   "spawn_sub_agents",
   "spawn_claude_session",
   "youtube_transcript",
@@ -35,6 +37,7 @@ function inferAccessTypeFromName(toolName: string): "read" | "write" {
     || toolName.includes("query")
     || toolName.includes("get")
     || toolName.includes("lookup")
+    || toolName.includes("route")
     || toolName.includes("status")
     || toolName.includes("transcript")
     || toolName.includes("analyze")
