@@ -444,14 +444,17 @@ describe("TangoStorage", () => {
     db.close();
   });
 
-  it("seeds driving_route governance for Sierra travel workers and retires osrm_route", () => {
+  it("seeds route governance for Sierra travel workers and retires osrm_route", () => {
     const { storage, dir } = createStorage();
     storage.close();
 
     const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
     const checker = new GovernanceChecker(db);
-    const tool = db.prepare(
+    const drivingTool = db.prepare(
       "SELECT id, access_type FROM governance_tools WHERE id = 'driving_route'",
+    ).get() as { id: string; access_type: string } | undefined;
+    const walkingTool = db.prepare(
+      "SELECT id, access_type FROM governance_tools WHERE id = 'walking_route'",
     ).get() as { id: string; access_type: string } | undefined;
     const retired = db.prepare(
       "SELECT id FROM governance_tools WHERE id = 'osrm_route'",
@@ -460,16 +463,21 @@ describe("TangoStorage", () => {
       "SELECT id, parent_id FROM principals WHERE id = 'worker:sierra-ollama'",
     ).get() as { id: string; parent_id: string } | undefined;
 
-    expect(tool).toEqual({ id: "driving_route", access_type: "read" });
+    expect(drivingTool).toEqual({ id: "driving_route", access_type: "read" });
+    expect(walkingTool).toEqual({ id: "walking_route", access_type: "read" });
     expect(retired).toBeUndefined();
     expect(clonePrincipal).toEqual({
       id: "worker:sierra-ollama",
       parent_id: "agent:sierra-ollama",
     });
     expect(checker.hasPermission("worker:research-assistant", "driving_route", "read")).toBe(true);
+    expect(checker.hasPermission("worker:research-assistant", "walking_route", "read")).toBe(true);
     expect(checker.hasPermission("worker:research-coordinator", "driving_route", "read")).toBe(true);
+    expect(checker.hasPermission("worker:research-coordinator", "walking_route", "read")).toBe(true);
     expect(checker.hasPermission("worker:sierra-ollama", "driving_route", "read")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "walking_route", "read")).toBe(true);
     expect(checker.hasPermission("worker:sierra-ollama", "driving_route", "write")).toBe(false);
+    expect(checker.hasPermission("worker:sierra-ollama", "walking_route", "write")).toBe(false);
     expect(checker.hasPermission("worker:sierra-ollama", "osrm_route", "read")).toBe(false);
 
     db.close();

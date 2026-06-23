@@ -17,16 +17,18 @@ when present at either:
 - `~/.tango/profiles/<profile>/prompts/shared/` (preferred)
 - `~/.tango/profiles/<profile>/agents/shared/` (legacy)
 
-Per-agent files under `~/.tango/profiles/<profile>/agents/assistants/<id>/`
-(`soul.md`, `knowledge.md`, optional per-agent `USER.md` / `RULES.md`) override
-shared files for that agent only.
+Per-agent persona files may also live under legacy
+`~/.tango/profiles/<profile>/agents/assistants/<id>/` when
+`system_prompt_file` points there. Preferred overlay path:
+`prompts/agents/<agent-id>/`.
 
-The `agent_docs` tool uses the same profile-first resolution for `shared/` and
-`assistants|workers|system/` paths. Repo copies are templates only.
+The `agent_docs` tool uses profile-first resolution for `shared/` and
+`assistants|workers|system/` paths when configured. Repo copies are templates
+only.
 
 That overlay surface can include:
 
-- `prompts/shared/` for operator-specific rules and user context
+- `prompts/shared/` for operator-specific shared rules and user context
 - `prompts/agents/<agent-id>/` for agent persona and knowledge
 - `prompts/tools/<doc-name>.md` for installation-specific tool instructions
 - `prompts/skills/<doc-name>.md` for installation-specific skill guidance
@@ -48,6 +50,15 @@ That overlay surface can include:
 - Real account mappings
 - Any machine- or person-specific prompt overlays for agents, tools, or skills
 
+Legacy per-agent `agents/assistants/<id>/USER.md` files and symlinks also
+belong in a profile. They may be ignored by git, but if they remain under the
+repo checkout, prompt assembly still treats them as repo-path per-agent user
+overrides. Move that content to:
+
+```text
+~/.tango/profiles/<profile>/prompts/agents/<id>/user.md
+```
+
 ## What Belongs In Runtime Data
 
 - SQLite databases
@@ -67,7 +78,9 @@ If upstream changes the shape of the config, use:
 
 ```bash
 npm run cli -- doctor
+npm run cli -- prompt audit
 npm run cli -- config migrate --dry-run
+bash scripts/migrate-personal-context-to-profile.sh --dry-run
 ```
 
 Those commands make the active layering explicit before anything is copied.

@@ -62,6 +62,16 @@ function createVoiceTargets(): VoiceTargetDirectory {
     "  call_signs:",
     "    - Malibu"
   ]);
+  writeAgent(dir, "sierra.yaml", [
+    "id: sierra",
+    "type: travel",
+    "display_name: Sierra",
+    "provider:",
+    "  default: codex",
+    "voice:",
+    "  call_signs:",
+    "    - Sierra"
+  ]);
   writeProject(dir, "tango.yaml", [
     "id: tango",
     "display_name: Tango MVP",
@@ -85,6 +95,30 @@ describe("parseNaturalTextRoute", () => {
 
     expect(route.addressedAgentId).toBe("watson");
     expect(route.promptText).toBe("say hello in five words");
+    expect(route.systemCommand).toBeNull();
+  });
+
+  it("does not treat a leading agent name as an address when used as the sentence subject", () => {
+    const route = parseNaturalTextRoute({
+      text: "Sierra was recommending Tlayudas. What's your thoughts there?",
+      voiceTargets: createVoiceTargets(),
+      focusedAgentId: "malibu"
+    });
+
+    expect(route.addressedAgentId).toBe("malibu");
+    expect(route.promptText).toBe("Sierra was recommending Tlayudas. What's your thoughts there?");
+    expect(route.systemCommand).toBeNull();
+  });
+
+  it("still treats a comma-delimited leading agent name as a direct address", () => {
+    const route = parseNaturalTextRoute({
+      text: "Sierra, what do you think about Tlayudas?",
+      voiceTargets: createVoiceTargets(),
+      focusedAgentId: "malibu"
+    });
+
+    expect(route.addressedAgentId).toBe("sierra");
+    expect(route.promptText).toBe("what do you think about Tlayudas?");
     expect(route.systemCommand).toBeNull();
   });
 
