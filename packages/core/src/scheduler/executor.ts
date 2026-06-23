@@ -172,6 +172,8 @@ const FLAG_SIGNAL_PATTERNS = [
   /\blogin\b/iu,
 ] as const;
 
+const EXPLICIT_FLAGGED_SECTION_MAX_LENGTH = 8000;
+
 const CLEAN_SIGNAL_PATTERNS = [
   /\bno flags?\b/iu,
   /\bno flagged items\b/iu,
@@ -210,7 +212,9 @@ function extractExplicitFlaggedSection(summary: string): string | undefined {
   }
 
   const rendered = block.join("\n").trim();
-  return rendered.length > 0 ? truncateText(rendered, 1000) : undefined;
+  return rendered.length > 0
+    ? truncateText(rendered, EXPLICIT_FLAGGED_SECTION_MAX_LENGTH)
+    : undefined;
 }
 
 function stripExplicitFlaggedSection(summary: string): string {
@@ -489,10 +493,11 @@ async function runAgentWorker(
   // uncategorized transactions). Treat as a successful skip — no delivery, no
   // summary in logs.
   const trimmedText = v2Result.text.trim();
-  const summary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText.slice(0, 2000);
+  const fullSummary = trimmedText === "__NO_OUTPUT__" ? undefined : trimmedText;
+  const summary = fullSummary ? fullSummary.slice(0, 2000) : undefined;
   if (config.obsidianLog) {
     try {
-      writeObsidianLog(config, summary ?? "Completed — no output");
+      writeObsidianLog(config, fullSummary ?? "Completed — no output");
     } catch (err) {
       console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
     }
