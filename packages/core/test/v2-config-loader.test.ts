@@ -143,6 +143,25 @@ describe("loadV2AgentConfig", () => {
     }
   });
 
+  it("gives Charlie read-only current-location narration without route or fuel tools", () => {
+    const configs = loadAllV2AgentConfigs(path.join(repoRoot, "config", "v2", "agents"));
+
+    for (const agentId of ["charlie", "charlie-ollama"]) {
+      const config = configs.get(agentId);
+      const locationServer = config?.mcpServers.find((server) => server.name === "location");
+      const memoryServer = config?.mcpServers.find((server) => server.name === "memory");
+
+      expect(locationServer).toMatchObject({
+        args: ["packages/core/dist/mcp-proxy.js", "location"],
+        env: { ALLOWED_TOOL_IDS: "location_read" },
+      });
+      expect(memoryServer?.env).toMatchObject({ ALLOWED_TOOL_IDS: "memory_search" });
+      expect(locationServer?.env?.ALLOWED_TOOL_IDS).not.toContain("driving_route");
+      expect(locationServer?.env?.ALLOWED_TOOL_IDS).not.toContain("walking_route");
+      expect(locationServer?.env?.ALLOWED_TOOL_IDS).not.toContain("find_diesel");
+    }
+  });
+
   it("loads Porter as an LDS companion with direct governed tool access", () => {
     const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "porter.yaml"));
 

@@ -11,6 +11,8 @@ mcp_servers:
   - name: memory
     command: node
     args: ["packages/atlas-memory/dist/index.js"]
+    env:
+      ALLOWED_TOOL_IDS: "memory_search"
   - name: attachments
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "attachments"]
@@ -26,6 +28,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "exa"]
     env:
       ALLOWED_TOOL_IDS: "exa_search,exa_answer"
+  - name: location
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "location"]
+    env:
+      ALLOWED_TOOL_IDS: "location_read"
   - name: agent-docs
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]

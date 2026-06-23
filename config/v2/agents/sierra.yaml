@@ -50,7 +50,7 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "location"]
     env:
-      ALLOWED_TOOL_IDS: "location_read,driving_route,find_diesel"
+      ALLOWED_TOOL_IDS: "location_read,driving_route,walking_route,find_diesel"
   - name: file-ops
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "file-ops"]

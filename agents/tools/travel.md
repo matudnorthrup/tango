@@ -1,6 +1,8 @@
 # Travel Tools
 
-Shared doc for `location_read`, `driving_route`, and `find_diesel`.
+Shared doc for `location_read`, `driving_route`, `walking_route`, and `find_diesel`.
+Sierra owns the full travel tool bundle. Charlie may use `location_read` only
+for ephemeral location narration.
 
 ## `location_read`
 
@@ -38,6 +40,8 @@ Use this for:
 - overnight-stop planning
 - comparing whether a waypoint is on-route or a detour
 - grounding any "what's along the way" answer in the actual route path
+
+Do not use this for walking distance or walking ETA. Use `walking_route`.
 
 Input, single route:
 
@@ -92,6 +96,47 @@ Notes:
 - Only name towns/stops/landmarks as "on the route" if they appear in `via`/`passesThrough` or in `find_diesel` output. For any other place, run a route comparison (direct vs via-that-place) and report the added time.
 - `durationHours` already includes traffic — never add a traffic multiplier on top. Add time only for planned stops.
 - If current location matters, call `location_read` first or use `origin: "current location"` and report stale-location warnings.
+
+## `walking_route`
+
+Computes real walking routes for walking distance and walking ETA. HERE Router
+v8 pedestrian routing is primary. When HERE is unavailable, the fallback uses
+OSRM foot routed distance and estimates walking time at 3 mph; the result
+carries a warning because sidewalk quality and personal safety are not verified.
+
+Use this for:
+- walking-distance questions
+- walking ETA
+- checking whether a route is reasonable on foot
+- walk-safety questions, paired with separate local safety evidence
+
+Input shape matches `driving_route`:
+
+```json
+{
+  "origin": "current location",
+  "destination": "Arena Pepe Cisneros, Oaxaca"
+}
+```
+
+Typical output fields:
+- `routeMode` — `walking`
+- `routes[].mode` — `walking`
+- `distanceMiles`
+- `durationHours`
+- `durationText`
+- `durationBasis`
+- `source` — `here` or `osrm`
+- `resolvedPoints`
+- `googleMapsUrl`
+- `warning` when fallback or safety caveats apply
+
+Notes:
+- If the user says "from here" or "from my hotel" and GPS is fresh, prefer
+  `origin: "current location"` over geocoding a remembered street address.
+- Read `resolvedPoints` before stating distance. If the origin or destination
+  resolved to the wrong place, say the walking route could not be verified.
+- Do not claim a route is safe merely because `walking_route` returned a path.
 
 ## `find_diesel`
 

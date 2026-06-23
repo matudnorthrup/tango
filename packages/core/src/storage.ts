@@ -2345,6 +2345,28 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'paper_print');
     `,
   },
+  {
+    version: 57,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('walking_route', 'research', 'Walking Route Planner', 'read');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:research-assistant', 'walking_route', 'read', 'travel walking route planning and walk-time verification'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'walking_route');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:sierra-ollama', 'walking_route', 'read', 'Sierra Ollama walking route planning and walk-time verification'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'walking_route');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:research-coordinator', 'walking_route', 'read', 'travel walking route planning and walk-time verification'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-coordinator')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'walking_route');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
