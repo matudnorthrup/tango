@@ -32,6 +32,7 @@ Check whether Tango is still relying on repo-local mutable state:
 
 ```bash
 npm run cli -- doctor
+npm run cli -- prompt audit
 ```
 
 ## Migrate An Older Repo-Local Install
@@ -47,6 +48,14 @@ Then copy that config into the active profile:
 
 ```bash
 npm run cli -- config migrate
+```
+
+If prompt personal context still exists under `agents/assistants/<agent>/USER.md`
+as a legacy file or symlink, preview and apply the prompt migration:
+
+```bash
+bash scripts/migrate-personal-context-to-profile.sh --dry-run
+bash scripts/migrate-personal-context-to-profile.sh
 ```
 
 ## Runtime Layout
