@@ -11,8 +11,15 @@ Tango loads configuration in this order:
 For prompts, Tango loads the repo-owned base prompt first and then appends any
 profile-owned overlay files from `~/.tango/profiles/<profile>/prompts`.
 
+Profile shared prompt files (`RULES.md`, `USER.md`) override the repo defaults
+when present at either:
+
+- `~/.tango/profiles/<profile>/prompts/shared/` (preferred)
+- `~/.tango/profiles/<profile>/agents/shared/` (legacy)
+
 That overlay surface can include:
 
+- `prompts/shared/` for operator-specific shared rules and user context
 - `prompts/agents/<agent-id>/` for agent persona and knowledge
 - `prompts/tools/<doc-name>.md` for installation-specific tool instructions
 - `prompts/skills/<doc-name>.md` for installation-specific skill guidance
@@ -34,6 +41,15 @@ That overlay surface can include:
 - Real account mappings
 - Any machine- or person-specific prompt overlays for agents, tools, or skills
 
+Legacy per-agent `agents/assistants/<id>/USER.md` files and symlinks also
+belong in a profile. They may be ignored by git, but if they remain under the
+repo checkout, prompt assembly still treats them as repo-path per-agent user
+overrides. Move that content to:
+
+```text
+~/.tango/profiles/<profile>/prompts/agents/<id>/user.md
+```
+
 ## What Belongs In Runtime Data
 
 - SQLite databases
@@ -53,7 +69,9 @@ If upstream changes the shape of the config, use:
 
 ```bash
 npm run cli -- doctor
+npm run cli -- prompt audit
 npm run cli -- config migrate --dry-run
+bash scripts/migrate-personal-context-to-profile.sh --dry-run
 ```
 
 Those commands make the active layering explicit before anything is copied.

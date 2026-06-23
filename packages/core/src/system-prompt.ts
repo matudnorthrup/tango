@@ -6,10 +6,9 @@
  *
  * File loading order:
  *   1. <agentDir>/soul.md      (identity — who you are)
- *   2. agents/shared/RULES.md  (shared — behavioral guardrails)
- *   3. agents/shared/USER.md   (shared — about the human)
- *   4. <agentDir>/knowledge.md (domain knowledge)
- *   5. prompts/<kind>/<id>/*   (optional profile-owned prompt overlays)
+ *   2. RULES.md and USER.md    (per-agent override → profile shared → repo shared)
+ *   3. <agentDir>/knowledge.md (domain knowledge)
+ *   4. prompts/<kind>/<id>/*   (optional profile-owned prompt overlays)
  *
  * Missing files are silently skipped. If no files are found at all,
  * returns a minimal fallback prompt. Legacy AGENTS.md and workers.md files
@@ -19,7 +18,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { expandHomePath } from "./runtime-paths.js";
+import {
+  expandHomePath,
+  resolveTangoProfileSharedPromptLookupDirs,
+} from "./runtime-paths.js";
 
 /**
  * Assemble the full prompt for an agent by reading conventional files.
@@ -32,6 +34,8 @@ export interface PromptAssemblyOptions {
   agentsRootDir?: string;
   overlayDir?: string;
   overlayDirs?: string[];
+  /** Override profile shared lookup dirs (for tests). */
+  profileSharedDirs?: string[];
 }
 
 export interface SoulPromptConfig {
@@ -117,14 +121,20 @@ export function traceAgentPrompt(
     sections,
   });
 
-  // ── Shared files from agents/ root (per-agent override wins) ────
+  // ── Shared files: agent override → profile shared → repo shared ─
+  const profileSharedDirs =
+    options.profileSharedDirs ?? resolveTangoProfileSharedPromptLookupDirs();
   const sharedFiles = ["RULES.md", "USER.md"];
   for (const filename of sharedFiles) {
-    const agentOverride = path.join(agentDir, filename);
-    const hasOverride = fs.existsSync(agentOverride);
+    const resolved = resolveSharedPromptFile(
+      filename,
+      agentDir,
+      sharedDir,
+      profileSharedDirs,
+    );
     appendFileSection({
-      filePath: hasOverride ? agentOverride : path.join(sharedDir, filename),
-      kind: hasOverride ? "base" : "shared",
+      filePath: resolved.filePath,
+      kind: resolved.kind,
       label: filename,
       sections,
     });
@@ -166,6 +176,27 @@ export function traceAgentPrompt(
     text: sections.map((section) => section.content).join("\n\n"),
     sections,
   };
+}
+
+function resolveSharedPromptFile(
+  filename: string,
+  agentDir: string,
+  sharedDir: string,
+  profileSharedDirs: string[],
+): { filePath: string; kind: PromptSectionKind } {
+  const agentOverride = path.join(agentDir, filename);
+  if (fs.existsSync(agentOverride)) {
+    return { filePath: agentOverride, kind: "base" };
+  }
+
+  for (const profileDir of profileSharedDirs) {
+    const profileFile = path.join(profileDir, filename);
+    if (fs.existsSync(profileFile)) {
+      return { filePath: profileFile, kind: "shared" };
+    }
+  }
+
+  return { filePath: path.join(sharedDir, filename), kind: "shared" };
 }
 
 function appendOverlayDir(
