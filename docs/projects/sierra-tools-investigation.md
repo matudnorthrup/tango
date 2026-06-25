@@ -12,7 +12,7 @@ All Sierra-specific tools are **fully functional** via the v2 proxy pattern. The
 
 | Tool | Exists in Source | Registered in MCP Server | Exposed via Proxy | Proxy Env Correct | E2E Test | Status |
 |------|-----------------|-------------------------|-------------------|-------------------|----------|--------|
-| `location_read` | Yes (research-agent-tools.ts:511) | Yes (createTravelTools) | Yes (X-Allowed-Tool-Ids filtering) | Yes | **PASS** — returned GPS data (Newport, OR) | **WORKING** |
+| `location_read` | Yes (research-agent-tools.ts:511) | Yes (createTravelTools) | Yes (X-Allowed-Tool-Ids filtering) | Yes | **PASS** — returned GPS data (location redacted) | **WORKING** |
 | `find_diesel` | Yes (research-agent-tools.ts:533) | Yes (createTravelTools) | Yes | Yes | PASS (listed, not executed — needs destination) | **WORKING** |
 | `printer_command` | Yes (research-agent-tools.ts:282) | Yes (createPrintingTools) | Yes | Yes | **PASS** — listed correctly | **WORKING** |
 | `youtube_transcript` | Yes (youtube-agent-tools.ts) | Yes (createYouTubeTools) | Yes | Yes | **PASS** — listed correctly | **WORKING** |
@@ -31,7 +31,7 @@ The proxy chain is clean and works end-to-end:
 2. **ClaudeCodeAdapter** — reads mcpServers from v2 config, writes to temp JSON, passes via `--mcp-config`
 3. **mcp-proxy.js** — connects to HTTP wellness server on port 9100, passes `X-Allowed-Tool-Ids` header
 4. **mcp-wellness-server.ts** (HTTP mode) — filters `allTools` by allowed IDs, returns only matching tools
-5. **Tool execution** — handlers run correctly (location_read returned real OwnTracks data, walmart returned queue state)
+5. **Tool execution** — handlers run correctly (location_read returned real location-source data, walmart returned queue state)
 
 ## Tests Performed
 

@@ -7,7 +7,7 @@
 
 ## Problem
 
-The daily note was expected to exist before Devin started the day, but on 2026-05-25 it was created only after a later Watson interaction. Scheduler evidence showed the morning jobs did fire, but all Claude Code v2 agent jobs failed quickly with `Claude Code exited with code 1. No stderr output.` The deterministic vault audit still ran, which narrowed the failure to agent execution rather than the scheduler tick loop.
+The daily note was expected to exist before the user started the day, but on 2026-05-25 it was created only after a later Watson interaction. Scheduler evidence showed the morning jobs did fire, but all Claude Code v2 agent jobs failed quickly with `Claude Code exited with code 1. No stderr output.` The deterministic vault audit still ran, which narrowed the failure to agent execution rather than the scheduler tick loop.
 
 ## Findings
 
@@ -60,7 +60,7 @@ As of 2026-05-27, this project is completed and retired. Linear is in Completed 
 - PR #53 merged on 2026-05-26 at `ec97e17c69e405f47ad5f6d17fcca0404a13d7bc`.
 - The May 27 unattended production run passed from the active worktree, including bootstrap, deterministic brief aggregation, morning planning, and sentinel validation.
 - 2026-05-25 update: the v2 runtime failure was already validated under TGO-516 in the architecture project and did not reproduce after rebuild/restart. Manual v2 validation schedules passed, so TGO-524 was closed as covered by TGO-516. The remaining daily-flow question is unattended May 26 behavior.
-- 2026-05-25 update: Slack saved review now defaults `saved_items` to a 48-hour recent window and returns a structured `missing_scope` warning for `stars.remove`. Devin added `stars:write`, live validation confirmed cleanup works, and the old saved-message backlog was cleared. Slack still has seven starred non-message objects, which the job intentionally skips.
+- 2026-05-25 update: Slack saved review now defaults `saved_items` to a 48-hour recent window and returns a structured `missing_scope` warning for `stars.remove`. The user added `stars:write`, live validation confirmed cleanup works, and the old saved-message backlog was cleared. Slack still has seven starred non-message objects, which the job intentionally skips.
 - 2026-05-25 update: `daily-brief` now uses deterministic aggregation instead of an agent prompt. Config validation confirms the schedule is `mode: deterministic` with handler `daily-brief-aggregate`; today's HTTP trigger skipped because `daily-brief` had already completed, so the first production proof is still the May 26 unattended run.
 - 2026-05-26 validation: the morning source jobs, old agent-based `daily-brief`, and `morning-planning` all ran and produced usable artifacts. However, the live tmux service was running from a feature worktree while the hardening had been applied in the main Tango worktree. As a result, `daily-note-bootstrap`, deterministic `daily-brief-aggregate`, and `morning-flow-sentinel` were not active for the scheduled 04:55/05:00/05:25 proof. The hardening was ported to the active worktree, rebuilt, and restarted at 05:58 PDT. Manual triggers then verified `daily-note-bootstrap` and `morning-flow-sentinel`; the sentinel repaired the May 26 brief frontmatter.
 - 2026-05-26 update: removed the daily brief calendar event cap. The deterministic aggregator now calls `gog calendar events` with `--all-pages` and renders every same-day event returned by the calendar source.

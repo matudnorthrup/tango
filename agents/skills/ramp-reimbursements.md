@@ -1,6 +1,11 @@
 # ramp_reimbursements
 
-Watson workflow for preparing or submitting Ramp reimbursements with either Gmail-hosted invoice evidence or Walmart delivery-tip evidence, and recording the result when a receipt note exists.
+Workflow for preparing or submitting Ramp reimbursements with either Gmail-hosted invoice evidence or Walmart delivery-tip evidence, and recording the result when a receipt note exists.
+
+The approver, the default reimbursement memo, and the configured reimbursement
+vendors/merchants are profile-configured (see `reimbursement-config.yaml` and the
+profile overlay). Where this doc names a specific person, memo, or vendor, treat
+it as a placeholder for the configured value.
 
 ## When to use
 
@@ -12,7 +17,7 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
 - For generic reimbursements: use the amount and merchant the user specified, plus the matching invoice or receipt evidence
 - `receipt_registry` plus live Ramp reconciliation is the source of truth for pending/submitted/reimbursed status.
 - Obsidian Base files, previous review notes, and broad note search are context only. Do not use them to claim that a reimbursement is pending, unsubmitted, submitted, or reimbursed.
-- Default to preparing a draft for Devin to review. Only submit a reviewed draft when Devin explicitly says to submit.
+- Default to preparing a draft for the owner to review. Only submit a reviewed draft when the owner explicitly says to submit.
 - Interpret broad wording like "submit any pending or draft reimbursements" in two lanes:
   pending verified candidates get Ramp drafts prepared; already-prepared drafts
   may be submitted only after expected fields are verified.
@@ -20,7 +25,7 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
   missing receipt, field mismatch, duplicate risk, or unverifiable state, stop
   and report that issue before preparing or submitting more reimbursements.
 - A hard dedup gate runs automatically before every Ramp draft preparation. If a matching date::amount exists in recent Ramp history, the draft is blocked. Use `skip_dedup_check: true` only for intentional re-submissions.
-- The memo field auto-resolves from `reimbursement-config.yaml`. Prepare the draft without explicit memo and the correct default will be used (for example `Exec Buy Back Time` for all exec buy back vendors). Only provide an explicit memo to override.
+- The memo field auto-resolves from `reimbursement-config.yaml`. Prepare the draft without explicit memo and the correct configured default will be used. Only provide an explicit memo to override.
 - If the user explicitly requests a different memo, pass that exact memo as the override
 - Evidence must be a real invoice/receipt file or a real Walmart order-detail screenshot with an explicit visible date/order header so Ramp can verify it
 
@@ -40,7 +45,7 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
   - `upsert_walmart_reimbursement` to record submission status back into the receipt note
   - `vendor` param guidance:
     - `vendor` accepts the configured vendor key, receipt directory, or merchant alias from `reimbursement-config.yaml`
-    - examples: `maid_in_newport`, `Venmo`, `Factor`
+    - use the configured vendor keys/aliases from `reimbursement-config.yaml` (see the profile overlay for this installation's vendors)
     - prefer passing `vendor` when you know it because that resolves the merchant and default memo consistently
 - `gog_email`
   - `gmail search` or `gmail messages search` to find the matching invoice/receipt email
@@ -52,7 +57,7 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
   - `capture_email_reimbursement_evidence` to turn a plain-text email body into an uploadable screenshot evidence file only when the receipt lives in the email body instead of an attachment
   - `prepare_ramp_reimbursement_draft` to upload evidence and fill a Ramp reimbursement draft with the chosen amount, date, merchant, and memo, then stop before final submission
     - accepts PDF attachments directly; do not down-convert attached PDFs into screenshots
-  - `submit_reviewed_ramp_reimbursement` to submit an already-prepared draft after Devin explicitly approves and the expected amount/date/memo/merchant checks pass
+  - `submit_reviewed_ramp_reimbursement` to submit an already-prepared draft after the owner explicitly approves and the expected amount/date/memo/merchant checks pass
   - `submit_ramp_reimbursement` is a deprecated alias for `prepare_ramp_reimbursement_draft`; it does not click final Submit
   - `repair_ramp_reimbursement_draft` to repair an existing draft in place when Ramp OCR or a previous automation run created a draft with the wrong date, memo, merchant, or missing evidence
   - `replace_ramp_reimbursement_receipt` to repair a submitted reimbursement with better evidence if needed and capture a fresh Ramp confirmation screenshot
@@ -96,7 +101,7 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
    - use `skip_dedup_check: true` only when intentionally re-submitting something that the automatic dedup gate would otherwise block
    - do not use generic `browser` actions in the normal submission path
    - if a draft already exists but has wrong or missing fields, use `ramp_reimbursement repair_ramp_reimbursement_draft` instead of creating another draft
-   - if draft preparation reports that a Ramp draft was created but field filling failed, extract the draft URL and immediately call `repair_ramp_reimbursement_draft` once with the same expected amount, date, merchant, memo, and evidence path; do not ask Devin to fill fields manually unless the repair attempt also fails with a specific verifier/authentication blocker
+   - if draft preparation reports that a Ramp draft was created but field filling failed, extract the draft URL and immediately call `repair_ramp_reimbursement_draft` once with the same expected amount, date, merchant, memo, and evidence path; do not ask the owner to fill fields manually unless the repair attempt also fails with a specific verifier/authentication blocker
 5. Return the draft URL and a review checklist:
    - merchant
    - amount
@@ -104,9 +109,9 @@ Use this when the user wants reimbursement drafts prepared for review or filed i
    - memo
    - evidence file/receipt preview
    - duplicate check result
-6. If Devin explicitly says to submit the reviewed draft:
+6. If the owner explicitly says to submit the reviewed draft:
    - use `ramp_reimbursement submit_reviewed_ramp_reimbursement`
-   - pass the draft URL plus expected amount, transaction date, memo, merchant, and `submission_confirmation: DEVIN_REVIEWED_AND_APPROVED_SUBMISSION`
+   - pass the draft URL plus expected amount, transaction date, memo, merchant, and `submission_confirmation: OWNER_REVIEWED_AND_APPROVED_SUBMISSION`
    - do not submit if any check fails
    - if a batch includes multiple drafts, stop at the first mismatch or
      unverifiable draft and report before touching the rest
@@ -135,8 +140,8 @@ Record the result in the note's `## Reimbursement Tracking` section with:
 - If the screenshot or Ramp submission is ambiguous, stop and report the specific blocker instead of guessing.
 - If `receipt_registry` or live Ramp reconciliation cannot verify reimbursement state, call it unverified instead of inferring from Obsidian Base files, old review notes, or raw note search.
 - Do not mark a note `submitted` unless the Ramp submission actually completed.
-- Do not tell Devin a draft was submitted. Say `draft prepared` until `submit_reviewed_ramp_reimbursement` succeeds.
-- Treat `submission_confirmation: DEVIN_REVIEWED_AND_APPROVED_SUBMISSION` as allowed only after Devin has explicitly approved final submission in the current reimbursement task.
+- Do not tell the owner a draft was submitted. Say `draft prepared` until `submit_reviewed_ramp_reimbursement` succeeds.
+- Treat `submission_confirmation: OWNER_REVIEWED_AND_APPROVED_SUBMISSION` as allowed only after the owner has explicitly approved final submission in the current reimbursement task.
 - Do not treat a Ramp sign-in page or missing-auth redirect as an upload-control failure.
 - If a submitted reimbursement has bad or missing evidence, use `ramp_reimbursement replace_ramp_reimbursement_receipt` on the existing review URL instead of filing a duplicate reimbursement.
 - Never call `receipt_registry upsert_reimbursement` to mark a draft or submission after a failed Ramp action. Report the exact blocker and preserve the previous tracking state.

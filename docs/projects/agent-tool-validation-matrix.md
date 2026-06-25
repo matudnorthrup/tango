@@ -27,7 +27,7 @@ Systematic validation of every MCP tool on every v2 agent using the test harness
 |------|-------------|--------|-----------------|-------|
 | memory_search | "What do you remember about my exercise preferences?" | **PASS** | "I don't have anything saved about your exercise preferences" | Tool invoked correctly, no data to return |
 | memory_add | (implicit via post-turn extraction) | SKIP | | Tested via post-turn side effects |
-| health_query | "Use health_query with command=recovery" | **PASS** | Sleep 7h23m, HRV 42.1ms, RHR 43bpm, Weight 173.5, BP 110/60 | Full Apple Health recovery data returned |
+| health_query | "Use health_query with command=recovery" | **PASS** | Full recovery payload returned (sleep, HRV, RHR, weight, BP — values redacted) | Full Apple Health recovery data returned |
 | workout_sql | "How many workouts this month?" | **PASS** | "11 workouts so far in April" | Correct count returned |
 | nutrition_log_items | (not tested — write operation) | SKIP | | Would pollute user's food log |
 | fatsecret_api | (Discord login timeout on test) | UNTESTED | | Concurrency issue, not tool failure |
@@ -45,16 +45,16 @@ Systematic validation of every MCP tool on every v2 agent using the test harness
 | memory_search | "What do you remember about my work schedule?" | **PASS** | (tested via other agents, same tool) | Memory MCP shared correctly |
 | gog_email | "Check my latest email" | **PASS** | Full inbox summary across both configured accounts | Returned real email data |
 | gog_calendar | "What's on my calendar today?" | **PASS** | Full day schedule with birthday, routines, blocks | Correct for April 21 |
-| gog_docs | "List my recent Google Docs" | **PASS** | 10 most recent docs listed with dates | Ward Council Agenda at top |
+| gog_docs | "List my recent Google Docs" | **PASS** | 10 most recent docs listed with dates | (doc titles redacted) |
 | gog_docs_update_tab | (skip — write operation) | SKIP | | Would modify user docs |
 | obsidian | "Show me the latest morning briefing" | **PASS** | (tested via Malibu, same tool) | Works correctly |
-| lunch_money | "What were my top 3 spending categories last week?" | **PASS** | Table with Uncategorized $3,614, Devin's Spending $163, Groceries $31 | Real financial data returned |
-| receipt_registry | "Check the receipt registry for recent entries" | **PASS** | 4 pending entries: Venmo payments, Walmart tip | Showed duplicate detection issue |
+| lunch_money | "What were my top 3 spending categories last week?" | **PASS** | Table with top 3 categories and amounts (values redacted) | Real financial data returned |
+| receipt_registry | "Check the receipt registry for recent entries" | **PASS** | 4 pending entries (vendors/amounts redacted) | Showed duplicate detection issue |
 | ramp_reimbursement | "Check Ramp for pending submissions" | **PASS** | Reported available actions: submit, replace receipt, capture evidence | Write-only tool by design — no read/list |
 | browser | "Look up latest Apple stock price" | **PASS** | AAPL $266.17, full stats, Tim Cook transition news | Real-time data |
 | onepassword | (skip — security sensitive) | SKIP | | Don't invoke password manager in test |
 | linear | "Show me open Tango issues" | **PASS** | Returned open historical Ramp-related issues | Queried correct workspace |
-| imessage | "Show me my recent iMessages" | **PASS** | 10 recent conversations with contacts and timestamps | Real iMessage data |
+| imessage | "Show me my recent iMessages" | **PASS** | 10 recent conversations returned (contacts/content redacted) | Real iMessage data |
 | slack | "Check my latest Slack messages" | **PASS** | Full digest across #eng, #ai, #production, etc. | 24h of activity summarized |
 
 ## Sierra (TGO-283)
@@ -70,7 +70,7 @@ Systematic validation of every MCP tool on every v2 agent using the test harness
 | printer_command | CLI E2E: tool listed and accessible | **PASS** | Tool listed with status/job/upload/start/stop actions | Re-validated 2026-04-22 after TGO-290 fix |
 | openscad_render | (skip — write operation) | SKIP | | |
 | prusa_slice | (skip — write operation) | SKIP | | |
-| location_read | CLI E2E: "Where am I?" | **PASS** | GPS: 44.36, -124.09 (Newport, OR), battery 36%, stale 49d | Re-validated 2026-04-22 after TGO-290 fix |
+| location_read | CLI E2E: "Where am I?" | **PASS** | GPS coords + city returned (redacted), battery %, staleness | Re-validated 2026-04-22 after TGO-290 fix |
 | find_diesel | CLI E2E: tool listed and accessible | **PASS** | Tool listed with destination/near/from/top/source params | Re-validated 2026-04-22 after TGO-290 fix |
 | walmart | CLI E2E: queue_list executed | **PASS** | queue_list returned empty queue (tool executed natively) | Re-validated 2026-04-22 — native tool works (not web search fallback) |
 | file_ops | (skip — write operation) | SKIP | | |
@@ -91,7 +91,7 @@ Systematic validation of every MCP tool on every v2 agent using the test harness
 
 | Tool | Test Prompt | Result | Response Excerpt | Notes |
 |------|-------------|--------|-----------------|-------|
-| memory_search | "What do you know about my family situation?" | **PASS** | Private family/separation context and iMessage analysis project | Correct context recalled without retaining raw private details in this matrix |
+| memory_search | "What do you know about my family situation?" | **PASS** | (private personal context recalled — details redacted) | Correct context recalled without retaining raw private details in this matrix |
 | memory_add | (implicit via post-turn extraction) | SKIP | | Tested via post-turn side effects |
 | pinned_fact_get | "What are my pinned facts?" | **PASS** | "No pinned facts in any scope" | Correct empty state response |
 

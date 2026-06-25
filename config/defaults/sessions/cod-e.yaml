@@ -2,7 +2,7 @@ id: cod-e
 type: persistent
 agent: cod-e
 channels:
-  - discord:1509320762287456457
+  - discord:100000000000000016
 memory:
   max_context_tokens: 12000
   zones:

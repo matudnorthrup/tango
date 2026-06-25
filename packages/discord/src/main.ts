@@ -1172,7 +1172,7 @@ registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
     return {
       action: "skip" as const,
       reason:
-        `No recent receipt candidates or reimbursement tracking gaps for Amazon/Walmart/Costco/Venmo/Maid in Newport/Factor in the last ${lookbackDays} days.`,
+        `No recent receipt candidates or reimbursement tracking gaps for configured retailers in the last ${lookbackDays} days.`,
     };
   }
 

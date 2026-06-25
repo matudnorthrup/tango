@@ -8,6 +8,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentTool } from "@tango/core";
+import {
+  resolveTangoProfileSkillPromptsDir,
+  resolveTangoProfileToolPromptsDir,
+} from "@tango/core";
 
 // ---------------------------------------------------------------------------
 // Path resolution
@@ -15,12 +19,61 @@ import type { AgentTool } from "@tango/core";
 
 export interface TangoToolPaths {
   agentsDir?: string;
+  /** Override the profile skills overlay dir (tests). */
+  profileSkillsDir?: string;
+  /** Override the profile tools overlay dir (tests). */
+  profileToolsDir?: string;
 }
 
 function resolvePaths(overrides?: TangoToolPaths) {
   return {
     agentsDir: overrides?.agentsDir ?? path.resolve("agents"),
+    profileSkillsDir: overrides?.profileSkillsDir ?? resolveTangoProfileSkillPromptsDir(),
+    profileToolsDir: overrides?.profileToolsDir ?? resolveTangoProfileToolPromptsDir(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Profile overlay resolution for shared skills/tools docs
+//
+// Repo `agents/skills/<x>.md` and `agents/tools/<x>.md` are GENERIC defaults.
+// Installation-specific additions (real accounts, personal preferences, private
+// knowledge) live in the profile overlay at
+// `~/.tango/profiles/<profile>/prompts/{skills,tools}/<x>.md`. On read, the
+// overlay is appended to the generic base so an agent sees both, while the repo
+// stays free of personal data. See docs/guides/profile-model.md.
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a repo-relative agent-docs path to its profile overlay file, if the path
+ * is a shared skill or tool doc. Returns null for anything else (e.g. persona
+ * files, which are overlaid at prompt-assembly time instead).
+ */
+function resolveDocOverlayPath(
+  relPath: string,
+  overlayDirs: { profileSkillsDir: string; profileToolsDir: string },
+): string | null {
+  const normalized = relPath.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  const skillMatch = /^(?:agents\/)?skills\/([^/]+\.md)$/u.exec(normalized);
+  if (skillMatch?.[1]) {
+    return path.join(overlayDirs.profileSkillsDir, skillMatch[1]);
+  }
+  const toolMatch = /^(?:agents\/)?tools\/([^/]+\.md)$/u.exec(normalized);
+  if (toolMatch?.[1]) {
+    return path.join(overlayDirs.profileToolsDir, toolMatch[1]);
+  }
+  return null;
+}
+
+function readDocOverlay(overlayPath: string | null): string | null {
+  if (!overlayPath) return null;
+  try {
+    if (!fs.existsSync(overlayPath)) return null;
+    const content = fs.readFileSync(overlayPath, "utf8").trim();
+    return content.length > 0 ? content : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +116,13 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "  System: system/<id>/soul.md",
         "  Shared tool docs: agents/tools/*.md",
         "  Shared skills: agents/skills/*.md",
+        "",
+        "Repo skill/tool docs are GENERIC defaults shared by all installs. Reading",
+        "tools/<x>.md or skills/<x>.md automatically appends your profile overlay",
+        "(~/.tango/profiles/<profile>/prompts/{tools,skills}/<x>.md) when present.",
+        "Keep personal/installation-specific details (real accounts, IDs, private",
+        "preferences) OUT of repo docs — put them in the profile overlay file so the",
+        "repo stays shareable. See docs/guides/profile-model.md.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -129,6 +189,26 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
             }
           });
 
+          // Surface profile-overlay-only skill/tool docs alongside repo files.
+          const listedDir = path.basename(resolved);
+          const overlayDir = listedDir === "skills"
+            ? paths.profileSkillsDir
+            : listedDir === "tools"
+              ? paths.profileToolsDir
+              : null;
+          if (overlayDir) {
+            try {
+              for (const entry of fs.readdirSync(overlayDir)) {
+                if (entry.endsWith(".md") && !mdFiles.includes(entry)) {
+                  mdFiles.push(entry);
+                }
+              }
+              mdFiles.sort((a, b) => a.localeCompare(b));
+            } catch {
+              // No overlay dir — repo listing is complete.
+            }
+          }
+
           return { files: mdFiles, directories: dirs };
         }
 
@@ -137,10 +217,24 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
           const resolved = validatePath(agentsDir, relPath);
           if (!resolved) return { error: "Invalid path — must be a .md file within agents/" };
 
-          if (!fs.existsSync(resolved)) {
+          // Shared skill/tool docs may carry an installation-specific profile
+          // overlay; append it to the generic repo base so the agent sees both.
+          const overlayPath = resolveDocOverlayPath(relPath, paths);
+          const overlay = readDocOverlay(overlayPath);
+          const baseExists = fs.existsSync(resolved);
+          if (!baseExists && overlay === null) {
             return { error: `File not found: ${relPath}` };
           }
-          return { content: fs.readFileSync(resolved, "utf8") };
+
+          const baseContent = baseExists ? fs.readFileSync(resolved, "utf8") : "";
+          if (!overlay) {
+            return { content: baseContent };
+          }
+          const overlayName = overlayPath ? path.basename(overlayPath) : "overlay";
+          const content = baseContent.trim().length > 0
+            ? `${baseContent.replace(/\s+$/u, "")}\n\n<!-- profile overlay: ${overlayName} -->\n\n${overlay}\n`
+            : `${overlay}\n`;
+          return { content };
         }
 
         if (operation === "write") {

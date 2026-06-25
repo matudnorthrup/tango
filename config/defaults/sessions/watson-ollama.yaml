@@ -2,4 +2,4 @@ id: watson-ollama
 type: persistent
 agent: watson-ollama
 channels:
-  - "discord:1513207663419330650"
+  - "discord:100000000000000001"
