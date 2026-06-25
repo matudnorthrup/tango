@@ -18,7 +18,7 @@ execution:
     Run the daily email review. Follow the email_review skill guidance.
 
     **First:** Read the triage rules at
-    ~/Documents/main/References/Email Triage Rules.md
+    References/Email Triage Rules.md
     These rules define what to ignore, delegate, and flag. Apply them
     before making triage decisions.
 

@@ -24,9 +24,9 @@ execution:
     Run the morning planning session.
 
     **Step 1: Create today's daily note from template.**
-    Check if ~/Documents/main/Planning/Daily/YYYY-MM-DD.md exists.
+    Check if Planning/Daily/YYYY-MM-DD.md exists.
     If it does NOT exist, create it from the template at
-    ~/Documents/main/_Schema/Templates/Daily Notes Template.md.
+    _Schema/Templates/Daily Notes Template.md.
     Substitute these tokens in the template:
     - {{date:YYYY-MM-DD}} → today's date (e.g. 2026-04-30)
     - {{date:YYYY [Week] w [Plan]}} → e.g. "2026 Week 18 Plan"
@@ -40,9 +40,9 @@ execution:
     `brief:` field. Add it if missing.
 
     **Step 2: Read today's brief, triage rules, and yesterday's note.**
-    - Read ~/Documents/main/Records/Briefs/YYYY-MM-DD.md for today's
+    - Read Records/Briefs/YYYY-MM-DD.md for today's
       brief (flagged items, calendar, overnight job summaries)
-    - Read ~/Documents/main/References/Email Triage Rules.md before
+    - Read References/Email Triage Rules.md before
       selecting any email-derived priorities or stretch tasks. These rules
       define Ignore, Delegate, and Flag behavior for email sources.
     - Read yesterday's daily note for carryover tasks (unchecked items)
@@ -50,7 +50,7 @@ execution:
       non-primary calendars)
 
     **Step 3: Fill in generated daily-note sections only.**
-    Read ~/Documents/main/Planning/Daily/YYYY-MM-DD.md immediately before writing.
+    Read Planning/Daily/YYYY-MM-DD.md immediately before writing.
     Before writing, filter every email-sourced item from the brief or email
     logs through the triage rules. Do not add ignored or delegated email items
     to "Today's Priorities", "Stretch (if capacity)", or action
@@ -73,9 +73,9 @@ execution:
 
     **Filtering rules — do NOT surface these as priorities:**
     - Email items marked Ignore or Delegate by
-      ~/Documents/main/References/Email Triage Rules.md. This applies to
+      References/Email Triage Rules.md. This applies to
       both priorities and stretch tasks. For example, emails from
-      tech@latitude.io must not become daily-note tasks when the triage rules
+      alerts@example.com must not become daily-note tasks when the triage rules
       say to ignore that source.
     - Domain renewals: these are handled through other monitoring channels
     - GitHub PAT expiration alerts: only flag if the token belongs to Devin

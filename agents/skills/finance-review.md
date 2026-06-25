@@ -193,7 +193,7 @@ unless explicitly carried forward.
 Read:
 
 ```
-~/Documents/main/References/Finance/Budget Targets.md
+References/Finance/Budget Targets.md
 ```
 
 Use Budget Targets as source of truth. Lunch Money budgets are optional

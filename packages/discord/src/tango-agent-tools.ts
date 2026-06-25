@@ -55,11 +55,11 @@ function resolveDocOverlayPath(
 ): string | null {
   const normalized = relPath.replace(/\\/gu, "/").replace(/^\.\//u, "");
   const skillMatch = /^(?:agents\/)?skills\/([^/]+\.md)$/u.exec(normalized);
-  if (skillMatch) {
+  if (skillMatch?.[1]) {
     return path.join(overlayDirs.profileSkillsDir, skillMatch[1]);
   }
   const toolMatch = /^(?:agents\/)?tools\/([^/]+\.md)$/u.exec(normalized);
-  if (toolMatch) {
+  if (toolMatch?.[1]) {
     return path.join(overlayDirs.profileToolsDir, toolMatch[1]);
   }
   return null;

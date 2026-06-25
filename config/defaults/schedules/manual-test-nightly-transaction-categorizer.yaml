@@ -31,7 +31,7 @@ execution:
     2. If the follow-up fetch unexpectedly returns zero transactions,
        return EXACTLY the text "__NO_OUTPUT__" and nothing else.
     3. Read the categorization rules from
-       ~/Documents/main/References/Finance/Lunch Money Rules.md
+       References/Finance/Lunch Money Rules.md
     4. Follow the transaction_categorization skill to apply rules,
        handle splits, and flag ambiguous vendors for review.
     5. Apply categories via the Lunch Money API (PUT with category_id
