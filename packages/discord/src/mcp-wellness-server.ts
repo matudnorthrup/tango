@@ -53,6 +53,7 @@ import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agen
 import { createKiloLedgerTools, kiloLedgerToolLooksReadOnly } from "./kilo-ledger-tools.js";
 import { createNotionTools } from "./notion-agent-tools.js";
 import { createClaudeSessionTools } from "./claude-session-tools.js";
+import { createOrientationNudgeTools, orientationNudgeToolLooksReadOnly } from "./orientation-nudge.js";
 import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
@@ -174,6 +175,7 @@ const allTools: AgentTool[] = [
   ...createKiloLedgerTools(),
   ...createNotionTools(),
   ...createClaudeSessionTools(),
+  ...createOrientationNudgeTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -398,6 +400,8 @@ function inferRequestedAccessLevel(
       const op = typeof args.operation === "string" ? args.operation.trim().toLowerCase() : "";
       return /create|update|append|delete|patch|insert|archive|move/.test(op) ? "write" : "read";
     }
+    case "orientation_nudge":
+      return orientationNudgeToolLooksReadOnly(args.operation) ? "read" : "write";
     case "kilo_ledger":
       return kiloLedgerToolLooksReadOnly(args.operation) ? "read" : "write";
     case "attachment_reprocess":

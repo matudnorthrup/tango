@@ -56,6 +56,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "claude-sessions"]
     env:
       ALLOWED_TOOL_IDS: "spawn_claude_session,list_claude_sessions"
+  - name: orientation
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "orientation"]
+    env:
+      ALLOWED_TOOL_IDS: "orientation_nudge"
   - name: latitude
     command: mcp-remote
     args: ["https://mcp.example.invalid/oauth/mcp"]
