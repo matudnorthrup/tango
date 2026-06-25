@@ -25,12 +25,12 @@ execution:
     anything filtered out.
 
     **Step 1: Read today's brief, triage rules, daily note, and yesterday's note.**
-    - Read ~/Documents/main/Records/Briefs/YYYY-MM-DD.md for today's
+    - Read Records/Briefs/YYYY-MM-DD.md for today's
       brief (flagged items, calendar, overnight job summaries)
-    - Read ~/Documents/main/References/Email Triage Rules.md before
+    - Read References/Email Triage Rules.md before
       selecting any email-derived priorities or stretch tasks. These rules
       define Ignore, Delegate, and Flag behavior for email sources.
-    - Read ~/Documents/main/Planning/Daily/YYYY-MM-DD.md for existing
+    - Read Planning/Daily/YYYY-MM-DD.md for existing
       generated sections and human-owned context
     - Read yesterday's daily note for carryover tasks (unchecked items)
     - Get today's calendar events from both accounts (--all for
@@ -52,9 +52,9 @@ execution:
 
     **Filtering rules — do NOT surface these as priorities:**
     - Email items marked Ignore or Delegate by
-      ~/Documents/main/References/Email Triage Rules.md. This applies to
+      References/Email Triage Rules.md. This applies to
       both priorities and stretch tasks. For example, emails from
-      tech@latitude.io must not become daily-note tasks when the triage rules
+      alerts@example.com must not become daily-note tasks when the triage rules
       say to ignore that source.
     - Domain renewals: these are handled through other monitoring channels
     - GitHub PAT expiration alerts: only flag if the token belongs to Devin

@@ -204,7 +204,7 @@ The `lunch_money` tool wraps the Lunch Money API.
 
 ## Categorization Rules
 
-- Read categorization rules from `~/Documents/main/References/Finance/Lunch Money Rules.md`
+- Read categorization rules from `References/Finance/Lunch Money Rules.md`
 - Apply rules to transactions, handle splits, flag ambiguous vendors for review
 - Rate limit: wait 0.3s between Lunch Money API calls
 
@@ -351,7 +351,7 @@ Assign `100000000000001013` as Ledger's smoke test channel (following the patter
 **No cross-agent call needed.** The daily brief aggregator (`daily-brief.yaml`) reads finance job logs via direct filesystem I/O:
 
 ```
-~/Documents/main/Records/Jobs/Finance/YYYY-MM.md
+Records/Jobs/Finance/YYYY-MM.md
 ```
 
 This file is written by Ledger's scheduled jobs (via `obsidian_log.domain: Finance`). Watson's daily brief reads it as a plain file -- no MCP call, no inter-agent dependency.

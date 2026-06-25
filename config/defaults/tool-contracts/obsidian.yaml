@@ -26,9 +26,9 @@ legacy:
     - list
     - delete
   read_paths:
-    - ~/Documents/main
+    - $TANGO_OBSIDIAN_VAULT
   write_paths:
-    - ~/Documents/main
+    - $TANGO_OBSIDIAN_VAULT
   notes:
     - Accepts note titles, vault-relative paths, and obsidian://open URLs with file/path query parameters.
     - New structured notes require date, types, and areas frontmatter.

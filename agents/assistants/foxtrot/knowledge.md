@@ -81,7 +81,7 @@ The `lunch_money` tool wraps the Lunch Money API.
 
 ## Categorization Rules
 
-- Read categorization rules from `~/Documents/main/References/Finance/Lunch Money Rules.md`
+- Read categorization rules from `References/Finance/Lunch Money Rules.md`
 - Apply rules to transactions, handle splits, flag ambiguous vendors for review
 - Rate limit: wait 0.3s between Lunch Money API calls
 

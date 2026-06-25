@@ -130,9 +130,12 @@ git grep -I -i -n -F -f "$DENYLIST_TERMS" -- . 2>/dev/null | filter_allowlist > 
 report "denylist terms found in tracked files (denylist: $DENYLIST_FILE)"
 
 # ─── 3. Machine-local user paths ──────────────────────────────────────────────
+# Absolute /Users/ paths, plus home-relative paths into personal directories
+# (~/Documents, ~/Desktop, ~/Downloads, ~/clawd) that encode one operator's
+# machine layout. Repo-relative and ~/.tango paths are fine and not matched.
 
-git grep -I -n -E '/Users/[A-Za-z0-9._-]+' -- . 2>/dev/null | filter_allowlist > "$MATCH_BUF" || true
-report "machine-local /Users/ paths in tracked files"
+git grep -I -n -E '/Users/[A-Za-z0-9._-]+|~/(Documents|Desktop|Downloads|clawd)/' -- . 2>/dev/null | filter_allowlist > "$MATCH_BUF" || true
+report "machine-local user paths in tracked files (/Users/... or ~/{Documents,Desktop,Downloads,clawd}/...)"
 
 # ─── 4. Credential-management snippets ────────────────────────────────────────
 
