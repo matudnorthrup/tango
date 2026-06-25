@@ -131,7 +131,7 @@ describe("assembleAgentPrompt", () => {
     expect(prompt).toContain("cod-e knowledge");
   });
 
-  it("uses per-agent RULES.md when present instead of shared RULES.md", () => {
+  it("stacks shared RULES.md and per-agent RULES.md when both exist", () => {
     isolateProfileHome();
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "strict-agent");
@@ -146,8 +146,27 @@ describe("assembleAgentPrompt", () => {
       agentsRootDir: agentsDir,
     });
 
+    expect(prompt).toContain("shared rules");
     expect(prompt).toContain("agent-specific rules");
-    expect(prompt).not.toContain("shared rules");
+    expect(prompt.indexOf("shared rules")).toBeLessThan(prompt.indexOf("agent-specific rules"));
+    expect(prompt).toContain("shared user");
+  });
+
+  it("loads only per-agent RULES.md when shared RULES.md is missing", () => {
+    isolateProfileHome();
+    const agentsDir = createAgentsDir();
+    const agentDir = path.join(agentsDir, "assistants", "agent-only-rules");
+    fs.mkdirSync(agentDir, { recursive: true });
+
+    fs.writeFileSync(path.join(agentsDir, "shared", "USER.md"), "shared user");
+    fs.writeFileSync(path.join(agentDir, "soul.md"), "agent soul");
+    fs.writeFileSync(path.join(agentDir, "RULES.md"), "agent-only rules");
+
+    const prompt = assembleAgentPrompt(agentDir, {
+      agentsRootDir: agentsDir,
+    });
+
+    expect(prompt).toContain("agent-only rules");
     expect(prompt).toContain("shared user");
   });
 
