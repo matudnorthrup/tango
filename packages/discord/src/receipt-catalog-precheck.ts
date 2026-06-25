@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  buildReimbursementRetailerPattern,
   detectReimbursementGaps,
   loadAllReceiptRecords,
   resolveVendorConfig,
@@ -48,7 +49,6 @@ export interface BuildReimbursementGapCandidatesInput {
 export const RECEIPT_CATALOG_LOOKBACK_DAYS = 14;
 
 const LINKED_TRANSACTION_ID_PATTERN = /\b(?:Lunch Money\s+)?TXN\s+(\d+)\b/gu;
-const RETAILER_PATTERN = /\b(amazon|walmart|costco|venmo|maid in newport|factor)\b/iu;
 const REIMBURSEMENT_GAP_TYPE_ORDER: Record<ReimbursementGapCandidate["type"], number> = {
   missing_tracking_section: 0,
   stale_tracking: 1,
@@ -102,6 +102,7 @@ export function buildMissingReceiptCandidates(
   transactions: ReceiptCatalogTransactionRecord[],
   linkedTransactionIds: Set<string>,
 ): ReceiptCatalogCandidate[] {
+  const retailerPattern = buildReimbursementRetailerPattern();
   return transactions
     .map((transaction) => {
       const id = String(transaction.id ?? "").trim();
@@ -113,7 +114,7 @@ export function buildMissingReceiptCandidates(
         String(transaction.original_name ?? ""),
         String(transaction.notes ?? ""),
       ].join(" ");
-      if (!RETAILER_PATTERN.test(haystack)) {
+      if (!retailerPattern.test(haystack)) {
         return null;
       }
       return {

@@ -51,6 +51,40 @@ describe("personal-agent-tools reimbursement automation", () => {
     fs.mkdirSync(path.join(tangoHome, "profiles", "tool-test", "data", "receipts"), {
       recursive: true,
     });
+    // Seed a hermetic reimbursement config in the isolated profile so these tests
+    // do not depend on personal vendors living in the repo default. This also
+    // exercises the profile-overlay merge in loadReimbursementConfig().
+    const profileConfigDir = path.join(tangoHome, "profiles", "tool-test", "config");
+    fs.mkdirSync(profileConfigDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(profileConfigDir, "reimbursement-config.yaml"),
+      [
+        'default_system: "Ramp"',
+        "categories:",
+        "  reimbursable_expenses:",
+        '    memo: "Reimbursable expense"',
+        "    vendors: [meal_kit, home_service, walmart_tip, venmo_services]",
+        "vendors:",
+        "  meal_kit:",
+        '    merchant_name: "Meal Kit Co"',
+        "    default_category: reimbursable_expenses",
+        "  home_service:",
+        '    merchant_name: "Home Service Co"',
+        '    reimbursable_item: "House cleaning"',
+        "    recurring: true",
+        "    typical_amount: 350",
+        "    default_category: reimbursable_expenses",
+        "  walmart_tip:",
+        "    receipt_dir: Walmart",
+        '    reimbursable_item: "Driver tip"',
+        "    default_category: reimbursable_expenses",
+        "  venmo_services:",
+        "    receipt_dir: Venmo",
+        "    default_category: reimbursable_expenses",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
     manager.launch.mockResolvedValue("Connected");
     manager.listRampReimbursementHistory.mockResolvedValue([]);
     registry.findWalmartReceiptRecord.mockReturnValue(null);
@@ -117,7 +151,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       rampReportId: "abc",
       amount: 27.38,
       transactionDate: "03/08/2026",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
     });
 
     const tool = createReimbursementAutomationTools()[0];
@@ -127,7 +161,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       action: "prepare_ramp_reimbursement_draft",
       amount: 27.38,
       transaction_date: "2026-03-08",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       evidence_path: "/tmp/walmart.png",
       merchant: "Walmart",
     });
@@ -135,7 +169,7 @@ describe("personal-agent-tools reimbursement automation", () => {
     expect(manager.prepareRampReimbursementDraft).toHaveBeenCalledWith({
       amount: 27.38,
       transactionDate: "2026-03-08",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       evidencePath: "/tmp/walmart.png",
       merchant: "Walmart",
     });
@@ -146,7 +180,7 @@ describe("personal-agent-tools reimbursement automation", () => {
         rampReportId: "abc",
         amount: 27.38,
         transactionDate: "03/08/2026",
-        memo: "Exec Buy Back Time",
+        memo: "Reimbursable expense",
       },
       draftUrl: "https://app.ramp.com/details/reimbursements/abc/review",
       message: "Ramp reimbursement draft prepared for manual review at https://app.ramp.com/details/reimbursements/abc/review. It has not been submitted.",
@@ -157,11 +191,11 @@ describe("personal-agent-tools reimbursement automation", () => {
   it("blocks duplicate Ramp reimbursements unless skip_dedup_check is true", async () => {
     manager.listRampReimbursementHistory.mockResolvedValue([
       {
-        merchant: "Factor",
+        merchant: "Meal Kit Co",
         amount: 89.99,
         transactionDate: "2026-04-08",
         submittedDate: "2026-04-09",
-        memo: "Exec Buy Back Time",
+        memo: "Reimbursable expense",
         reviewUrl: "https://app.ramp.com/details/reimbursements/existing/review",
         rampReportId: "existing",
       },
@@ -174,8 +208,8 @@ describe("personal-agent-tools reimbursement automation", () => {
       action: "submit_ramp_reimbursement",
       amount: 89.99,
       transaction_date: "2026-04-08",
-      evidence_path: "/tmp/factor.pdf",
-      vendor: "factor",
+      evidence_path: "/tmp/meal_kit.pdf",
+      vendor: "meal_kit",
     });
 
     expect(manager.prepareRampReimbursementDraft).not.toHaveBeenCalled();
@@ -192,24 +226,24 @@ describe("personal-agent-tools reimbursement automation", () => {
       rampReportId: "new",
       amount: 89.99,
       transactionDate: "04/08/2026",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
     });
 
     const forced = await tool.handler({
       action: "submit_ramp_reimbursement",
       amount: 89.99,
       transaction_date: "2026-04-08",
-      evidence_path: "/tmp/factor.pdf",
-      vendor: "factor",
+      evidence_path: "/tmp/meal_kit.pdf",
+      vendor: "meal_kit",
       skip_dedup_check: true,
     });
 
     expect(manager.prepareRampReimbursementDraft).toHaveBeenCalledWith({
       amount: 89.99,
       transactionDate: "2026-04-08",
-      memo: "Exec Buy Back Time",
-      evidencePath: "/tmp/factor.pdf",
-      merchant: "Factor",
+      memo: "Reimbursable expense",
+      evidencePath: "/tmp/meal_kit.pdf",
+      merchant: "Meal Kit Co",
     });
     expect(forced).toEqual({
       result: {
@@ -217,7 +251,7 @@ describe("personal-agent-tools reimbursement automation", () => {
         rampReportId: "new",
         amount: 89.99,
         transactionDate: "04/08/2026",
-        memo: "Exec Buy Back Time",
+        memo: "Reimbursable expense",
       },
       draftUrl: "https://app.ramp.com/details/reimbursements/new/review",
       message: "Ramp reimbursement draft prepared for manual review at https://app.ramp.com/details/reimbursements/new/review. It has not been submitted.",
@@ -245,7 +279,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       action: "prepare_ramp_reimbursement_draft",
       amount: 16.53,
       transaction_date: "2026-05-02",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       evidence_path: "/tmp/walmart.png",
       merchant: "Walmart",
     });
@@ -272,7 +306,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       archivedPath: "/tmp/archive/ramp-email.png",
       sha256: "abc123",
       bodyFormat: "html",
-      subject: "You paid Kip Everitt $600.00",
+      subject: "You paid Jane Doe $600.00",
     });
 
     const tool = createReimbursementAutomationTools()[0];
@@ -280,14 +314,14 @@ describe("personal-agent-tools reimbursement automation", () => {
 
     const result = await tool.handler({
       action: "capture_email_reimbursement_evidence",
-      email_content: "subject\tYou paid Kip Everitt $600.00\n\n<html>Receipt</html>",
+      email_content: "subject\tYou paid Jane Doe $600.00\n\n<html>Receipt</html>",
       output_path: "/tmp/ramp-email.png",
       label: "tree-service",
     });
 
     expect(manager.launch).toHaveBeenCalledWith(9223);
     expect(manager.captureEmailReimbursementEvidence).toHaveBeenCalledWith({
-      emailContent: "subject\tYou paid Kip Everitt $600.00\n\n<html>Receipt</html>",
+      emailContent: "subject\tYou paid Jane Doe $600.00\n\n<html>Receipt</html>",
       outputPath: "/tmp/ramp-email.png",
       label: "tree-service",
     });
@@ -297,7 +331,7 @@ describe("personal-agent-tools reimbursement automation", () => {
         archivedPath: "/tmp/archive/ramp-email.png",
         sha256: "abc123",
         bodyFormat: "html",
-        subject: "You paid Kip Everitt $600.00",
+        subject: "You paid Jane Doe $600.00",
       },
     });
   });
@@ -308,7 +342,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       rampReportId: "abc",
       amount: 41.03,
       transactionDate: "04/01/2026",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       evidencePath: "/tmp/archive/walmart-tip.png",
     });
     evidence.loadReimbursementEvidenceRecord.mockReturnValue({
@@ -328,7 +362,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       action: "submit_ramp_reimbursement",
       amount: 41.03,
       transaction_date: "2026-04-01",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       evidence_path: "/tmp/walmart-tip.png",
       merchant: "Walmart",
     });
@@ -340,7 +374,7 @@ describe("personal-agent-tools reimbursement automation", () => {
         system: "Ramp",
         reimbursableItem: "Driver tip",
         amount: 41.03,
-        note: "Exec Buy Back Time",
+        note: "Reimbursable expense",
         evidencePath: "/tmp/archive/walmart-tip.png",
         rampReportId: "abc",
         submitted: "",
@@ -354,7 +388,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       rampReportId: "abc",
       amount: 28.9,
       transactionDate: "2026-05-09",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       evidencePath: "/tmp/archive/walmart-tip.png",
     });
     evidence.loadReimbursementEvidenceRecord.mockReturnValue({
@@ -377,7 +411,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       action: "prepare_ramp_reimbursement_draft",
       amount: 28.9,
       transaction_date: "2026-05-09",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       evidence_path: "/tmp/walmart-tip.png",
       merchant: "Walmart",
     });
@@ -391,7 +425,7 @@ describe("personal-agent-tools reimbursement automation", () => {
         notePath: "/tmp/2026-05-09 Order 2000146-30847351.md",
         status: "draft",
         amount: 28.9,
-        note: "Exec Buy Back Time",
+        note: "Reimbursable expense",
         evidencePath: "/tmp/archive/walmart-tip.png",
         rampReportId: "abc",
       }),
@@ -407,13 +441,13 @@ describe("personal-agent-tools reimbursement automation", () => {
       review_url: "https://app.ramp.com/details/reimbursements/abc/draft",
       amount: 41.03,
       transaction_date: "2026-04-01",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       merchant: "Walmart",
     });
 
     expect(manager.submitReviewedRampReimbursement).not.toHaveBeenCalled();
     expect(result).toEqual({
-      error: "submit_reviewed_ramp_reimbursement requires submission_confirmation=DEVIN_REVIEWED_AND_APPROVED_SUBMISSION after Devin explicitly approves submission",
+      error: "submit_reviewed_ramp_reimbursement requires submission_confirmation=OWNER_REVIEWED_AND_APPROVED_SUBMISSION after the owner explicitly approves submission",
     });
   });
 
@@ -423,7 +457,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       rampReportId: "abc",
       amount: 41.03,
       transactionDate: "04/01/2026",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       merchant: "Walmart",
     });
 
@@ -433,10 +467,10 @@ describe("personal-agent-tools reimbursement automation", () => {
     const result = await tool.handler({
       action: "submit_reviewed_ramp_reimbursement",
       review_url: "https://app.ramp.com/details/reimbursements/abc/draft",
-      submission_confirmation: "DEVIN_REVIEWED_AND_APPROVED_SUBMISSION",
+      submission_confirmation: "OWNER_REVIEWED_AND_APPROVED_SUBMISSION",
       amount: 41.03,
       transaction_date: "2026-04-01",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       merchant: "Walmart",
       evidence_path: "/tmp/archive/walmart-tip.png",
     });
@@ -445,7 +479,7 @@ describe("personal-agent-tools reimbursement automation", () => {
       reviewUrl: "https://app.ramp.com/details/reimbursements/abc/draft",
       amount: 41.03,
       transactionDate: "2026-04-01",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
       merchant: "Walmart",
       evidencePath: "/tmp/archive/walmart-tip.png",
     });
@@ -455,7 +489,7 @@ describe("personal-agent-tools reimbursement automation", () => {
         rampReportId: "abc",
         amount: 41.03,
         transactionDate: "04/01/2026",
-        memo: "Exec Buy Back Time",
+        memo: "Reimbursable expense",
         merchant: "Walmart",
       },
       message: "Ramp reimbursement submitted after review check: https://app.ramp.com/details/reimbursements/abc/review",
@@ -464,13 +498,13 @@ describe("personal-agent-tools reimbursement automation", () => {
 
   it("repairs an existing Ramp draft in place", async () => {
     manager.repairRampReimbursementDraft.mockResolvedValue({
-      reviewUrl: "https://app.ramp.com/details/reimbursements/maid/draft",
-      rampReportId: "maid",
+      reviewUrl: "https://app.ramp.com/details/reimbursements/home/draft",
+      rampReportId: "home",
       amount: 350,
       transactionDate: "05/01/2026",
-      memo: "Exec Buy Back Time",
-      merchant: "Maid in Newport",
-      evidencePath: "/tmp/archive/maid.pdf",
+      memo: "Reimbursable expense",
+      merchant: "Home Service Co",
+      evidencePath: "/tmp/archive/home.pdf",
     });
 
     const tool = createReimbursementAutomationTools()[0];
@@ -478,33 +512,33 @@ describe("personal-agent-tools reimbursement automation", () => {
 
     const result = await tool.handler({
       action: "repair_ramp_reimbursement_draft",
-      review_url: "https://app.ramp.com/details/reimbursements/maid/draft",
+      review_url: "https://app.ramp.com/details/reimbursements/home/draft",
       amount: 350,
       transaction_date: "2026-05-01",
-      evidence_path: "/tmp/maid.pdf",
-      vendor: "maid_in_newport",
+      evidence_path: "/tmp/home.pdf",
+      vendor: "home_service",
     });
 
     expect(manager.repairRampReimbursementDraft).toHaveBeenCalledWith({
-      reviewUrl: "https://app.ramp.com/details/reimbursements/maid/draft",
+      reviewUrl: "https://app.ramp.com/details/reimbursements/home/draft",
       amount: 350,
       transactionDate: "2026-05-01",
-      memo: "Exec Buy Back Time",
-      merchant: "Maid in Newport",
-      evidencePath: "/tmp/maid.pdf",
+      memo: "Reimbursable expense",
+      merchant: "Home Service Co",
+      evidencePath: "/tmp/home.pdf",
     });
     expect(result).toEqual({
       result: {
-        reviewUrl: "https://app.ramp.com/details/reimbursements/maid/draft",
-        rampReportId: "maid",
+        reviewUrl: "https://app.ramp.com/details/reimbursements/home/draft",
+        rampReportId: "home",
         amount: 350,
         transactionDate: "05/01/2026",
-        memo: "Exec Buy Back Time",
-        merchant: "Maid in Newport",
-        evidencePath: "/tmp/archive/maid.pdf",
+        memo: "Reimbursable expense",
+        merchant: "Home Service Co",
+        evidencePath: "/tmp/archive/home.pdf",
       },
-      draftUrl: "https://app.ramp.com/details/reimbursements/maid/draft",
-      message: "Ramp reimbursement draft repaired for manual review at https://app.ramp.com/details/reimbursements/maid/draft. It has not been submitted.",
+      draftUrl: "https://app.ramp.com/details/reimbursements/home/draft",
+      message: "Ramp reimbursement draft repaired for manual review at https://app.ramp.com/details/reimbursements/home/draft. It has not been submitted.",
     });
   });
 });
