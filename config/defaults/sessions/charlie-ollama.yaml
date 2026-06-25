@@ -2,4 +2,4 @@ id: charlie-ollama
 type: persistent
 agent: charlie-ollama
 channels:
-  - "discord:1513207671615000586"
+  - "discord:100000000000000007"
