@@ -6,9 +6,10 @@
  *
  * File loading order:
  *   1. <agentDir>/soul.md      (identity — who you are)
- *   2. RULES.md and USER.md    (per-agent override → profile shared → repo shared)
- *   3. <agentDir>/knowledge.md (domain knowledge)
- *   4. prompts/<kind>/<id>/*   (optional profile-owned prompt overlays)
+ *   2. RULES.md                (profile shared → repo shared, then per-agent additions)
+ *   3. USER.md                 (per-agent override → profile shared → repo shared)
+ *   4. <agentDir>/knowledge.md (domain knowledge)
+ *   5. prompts/<kind>/<id>/*   (optional profile-owned prompt overlays)
  *
  * Missing files are silently skipped. If no files are found at all,
  * returns a minimal fallback prompt. Legacy AGENTS.md and workers.md files
@@ -121,24 +122,41 @@ export function traceAgentPrompt(
     sections,
   });
 
-  // ── Shared files: agent override → profile shared → repo shared ─
   const profileSharedDirs =
     options.profileSharedDirs ?? resolveTangoProfileSharedPromptLookupDirs();
-  const sharedFiles = ["RULES.md", "USER.md"];
-  for (const filename of sharedFiles) {
-    const resolved = resolveSharedPromptFile(
-      filename,
-      agentDir,
-      sharedDir,
-      profileSharedDirs,
-    );
-    appendFileSection({
-      filePath: resolved.filePath,
-      kind: resolved.kind,
-      label: filename,
-      sections,
-    });
-  }
+
+  // ── RULES: shared baseline, then optional per-agent additions ───
+  const sharedRules = resolveSharedBaselinePromptFile(
+    "RULES.md",
+    sharedDir,
+    profileSharedDirs,
+  );
+  appendFileSection({
+    filePath: sharedRules.filePath,
+    kind: sharedRules.kind,
+    label: "RULES.md",
+    sections,
+  });
+  appendFileSection({
+    filePath: path.join(agentDir, "RULES.md"),
+    kind: "base",
+    label: "agent RULES.md",
+    sections,
+  });
+
+  // ── USER: per-agent override → profile shared → repo shared ───
+  const sharedUser = resolveSharedPromptFile(
+    "USER.md",
+    agentDir,
+    sharedDir,
+    profileSharedDirs,
+  );
+  appendFileSection({
+    filePath: sharedUser.filePath,
+    kind: sharedUser.kind,
+    label: "USER.md",
+    sections,
+  });
 
   // ── Optional per-agent files ────────────────────────────────────
   const agentFiles = ["knowledge.md"];
@@ -178,6 +196,21 @@ export function traceAgentPrompt(
   };
 }
 
+function resolveSharedBaselinePromptFile(
+  filename: string,
+  sharedDir: string,
+  profileSharedDirs: string[],
+): { filePath: string; kind: PromptSectionKind } {
+  for (const profileDir of profileSharedDirs) {
+    const profileFile = path.join(profileDir, filename);
+    if (fs.existsSync(profileFile)) {
+      return { filePath: profileFile, kind: "shared" };
+    }
+  }
+
+  return { filePath: path.join(sharedDir, filename), kind: "shared" };
+}
+
 function resolveSharedPromptFile(
   filename: string,
   agentDir: string,
@@ -189,14 +222,7 @@ function resolveSharedPromptFile(
     return { filePath: agentOverride, kind: "base" };
   }
 
-  for (const profileDir of profileSharedDirs) {
-    const profileFile = path.join(profileDir, filename);
-    if (fs.existsSync(profileFile)) {
-      return { filePath: profileFile, kind: "shared" };
-    }
-  }
-
-  return { filePath: path.join(sharedDir, filename), kind: "shared" };
+  return resolveSharedBaselinePromptFile(filename, sharedDir, profileSharedDirs);
 }
 
 function appendOverlayDir(

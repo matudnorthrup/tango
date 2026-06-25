@@ -5,8 +5,22 @@ import { afterEach, describe, expect, it } from "vitest";
 import { assembleAgentPrompt } from "../src/system-prompt.js";
 
 const tempDirs: string[] = [];
+const originalEnv = { ...process.env };
 
 afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
+    }
+  }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -19,8 +33,16 @@ function createAgentsDir(): string {
   return dir;
 }
 
+function isolateProfileHome(): void {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-home-"));
+  tempDirs.push(homeDir);
+  process.env.TANGO_HOME = homeDir;
+  process.env.TANGO_PROFILE = "default";
+}
+
 describe("assembleAgentPrompt", () => {
   it("assembles soul, shared rules/user, and knowledge into one string", () => {
+    isolateProfileHome();
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "watson");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -59,6 +81,7 @@ describe("assembleAgentPrompt", () => {
   });
 
   it("falls back to a minimal prompt when no prompt files exist", () => {
+    isolateProfileHome();
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "workers", "missing-agent");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -69,6 +92,7 @@ describe("assembleAgentPrompt", () => {
   });
 
   it("finds the agents root for nested system agents without an override", () => {
+    isolateProfileHome();
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "system", "dispatch");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -85,6 +109,7 @@ describe("assembleAgentPrompt", () => {
   });
 
   it("uses per-agent USER.md when present instead of shared USER.md", () => {
+    isolateProfileHome();
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "cod-e");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -106,7 +131,8 @@ describe("assembleAgentPrompt", () => {
     expect(prompt).toContain("cod-e knowledge");
   });
 
-  it("uses per-agent RULES.md when present instead of shared RULES.md", () => {
+  it("stacks shared RULES.md and per-agent RULES.md when both exist", () => {
+    isolateProfileHome();
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "strict-agent");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -120,8 +146,27 @@ describe("assembleAgentPrompt", () => {
       agentsRootDir: agentsDir,
     });
 
+    expect(prompt).toContain("shared rules");
     expect(prompt).toContain("agent-specific rules");
-    expect(prompt).not.toContain("shared rules");
+    expect(prompt.indexOf("shared rules")).toBeLessThan(prompt.indexOf("agent-specific rules"));
+    expect(prompt).toContain("shared user");
+  });
+
+  it("loads only per-agent RULES.md when shared RULES.md is missing", () => {
+    isolateProfileHome();
+    const agentsDir = createAgentsDir();
+    const agentDir = path.join(agentsDir, "assistants", "agent-only-rules");
+    fs.mkdirSync(agentDir, { recursive: true });
+
+    fs.writeFileSync(path.join(agentsDir, "shared", "USER.md"), "shared user");
+    fs.writeFileSync(path.join(agentDir, "soul.md"), "agent soul");
+    fs.writeFileSync(path.join(agentDir, "RULES.md"), "agent-only rules");
+
+    const prompt = assembleAgentPrompt(agentDir, {
+      agentsRootDir: agentsDir,
+    });
+
+    expect(prompt).toContain("agent-only rules");
     expect(prompt).toContain("shared user");
   });
 
@@ -151,6 +196,7 @@ describe("assembleAgentPrompt", () => {
   });
 
   it("appends profile overlay prompt sections after the base prompt", () => {
+    isolateProfileHome();
     const agentsDir = createAgentsDir();
     const agentDir = path.join(agentsDir, "assistants", "watson");
     const overlayDir = path.join(agentsDir, "profile-overrides", "agents", "watson");
