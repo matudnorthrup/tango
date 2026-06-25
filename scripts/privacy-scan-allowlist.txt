@@ -4,9 +4,11 @@
 # scripts/privacy-scan.sh can never be allowlisted.
 # Every entry needs a comment explaining why it is legitimate.
 
-# Retro documenting the May 2026 private-data incident; it names the
-# categories of data that were removed, which is the point of the document.
+# Retros documenting the private-data incidents; they name the categories of
+# data that were removed (and the scanner gaps that missed them), which is the
+# point of the documents — no live values, only pattern descriptions.
 docs/retros/private-data-in-repo-2026-05.md
+docs/retros/personal-data-split-2026-06.md
 
 # Juliet is a mental-health support agent; her public files legitimately list
 # crisis resources and hotlines whose names can overlap denylisted topics.
