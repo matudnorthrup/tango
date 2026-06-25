@@ -20,6 +20,7 @@
     "test:voice-app": "npm run build -w @tango/core && npm run build -w @tango/voice && npm run test -w @tango/tango-voice",
     "test:voice-inbox-live": "node --import tsx ./apps/tango-voice/src/testing/live-inbox-watermark-smoke.ts",
     "test:discord-watermark-live": "node --import tsx ./apps/tango-voice/src/testing/live-discord-watermark-event-smoke.ts",
+    "test:orientation-nudge-live": "node --import tsx ./apps/tango-voice/src/testing/live-orientation-nudge-smoke.ts",
     "test:deterministic-wellness-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts",
     "test:deterministic-research-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent sierra --session sierra-live-deterministic --thread-name codex-sierra-live-deterministic --suite phase4-research",
     "test:deterministic-sierra-product-selection-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent sierra --session sierra-live-deterministic --thread-name codex-sierra-live-deterministic --suite phase4-research --case research-product-selection",

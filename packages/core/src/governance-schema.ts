@@ -324,6 +324,7 @@ export const GOVERNANCE_SEED = `
     ('linear', 'personal', 'Linear Project Management', 'write'),
     ('imessage', 'personal', 'iMessage Read/Send', 'write'),
     ('latitude_run', 'personal', 'Latitude Remote MCP (Notion, Slack, etc.)', 'write'),
+    ('orientation_nudge', 'personal', 'Orientation Nudge Controls', 'write'),
     ('youtube_transcript', 'research', 'YouTube Transcript', 'read'),
     ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read'),
     ('spawn_claude_session', 'tango', 'Spawn Claude Code Session', 'write'),
@@ -377,6 +378,7 @@ export const GOVERNANCE_SEED = `
     ('worker:personal-assistant', 'linear', 'write', 'seed from config'),
     ('worker:personal-assistant', 'imessage', 'write', 'seed from config'),
     ('worker:personal-assistant', 'latitude_run', 'write', 'seed from config'),
+    ('worker:personal-assistant', 'orientation_nudge', 'write', 'Watson controls orientation focus/vacation modes'),
     ('worker:personal-assistant', 'spawn_claude_session', 'write', 'spawn remote-controllable Claude Code sessions'),
     ('worker:personal-assistant', 'list_claude_sessions', 'read', 'list spawned Claude Code sessions');
 

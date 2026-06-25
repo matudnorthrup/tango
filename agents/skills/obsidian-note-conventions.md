@@ -44,6 +44,7 @@ For trip planning notes, use `types` with a `[[Project Plan]]` list item, choose
 
 - Keep task lines terse and action-oriented.
 - **Daily/weekly notes:** `- [ ] Task name (Xhr) [[Area]]` — estimate in parens, area link at end. See `daily_planning` skill.
+- **Current Task Rotation:** use top-level daily-note task checkboxes only. The orientation nudge system treats the first unchecked item in `## Current Task Rotation` as the current task.
 - **Area backlogs:** `- [ ] Task description (Xhr)—YYYY-MM-DD` — estimate in parens, date added after em-dash. See `backlog_management` skill.
 
 ## Base files (`.base`)
