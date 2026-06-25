@@ -29,7 +29,7 @@ Go to `https://www.chipotle.com/order` and immediately take a snapshot to see th
 Chipotle uses a **full-screen modal dialog** (`aria-label="Find a Chipotle"`) for location selection. This modal **intercepts all pointer events** on elements behind it.
 
 - **Do NOT try to click through the modal** — it will time out every time.
-- **Search by city/zip** in the modal's search field (e.g., "Corvallis, OR" or "97330").
+- **Search by city/zip** in the modal's search field (e.g., "City, ST" or a ZIP code). Use the profile-configured default pickup location when one is set.
 - After search results appear, take a snapshot to see the list of locations.
 - Click the correct location from the results, then click the **"Order"** or **"Start Order"** button for that location.
 - Wait for the modal to close before proceeding. Take a snapshot to confirm you're past location selection.

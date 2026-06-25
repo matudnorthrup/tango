@@ -41,13 +41,16 @@ For each uncategorized transaction, check payee against rules (first match wins)
   "endpoint": "/transactions/{id}",
   "body": {
     "transaction": {
-      "category_id": 2413616,
+      "category_id": 0,
       "status": "cleared",
       "notes": "Auto-categorized by rule: Safeway → Groceries"
     }
   }
 }
 ```
+
+Resolve `category_id` from a live `GET /categories` call — IDs are
+installation-specific. The `0` above is a placeholder.
 
 ## Step 3: Handle excluded vendors
 
@@ -65,8 +68,8 @@ value into the Lunch Money note so item details are visible in Lunch Money and
 the Obsidian receipt link remains the final line.
 
 Special Walmart rule:
-- If a cataloged Walmart delivery receipt shows a reimbursable driver tip, split the driver tip to **Latitude Reimbursements** and the remaining grocery merchandise to **Groceries** (plus any other non-grocery item categories present in the receipt).
-- If the driver tip posted as its own separate transaction, categorize that transaction entirely to **Latitude Reimbursements**.
+- If a cataloged Walmart delivery receipt shows a reimbursable driver tip, split the driver tip to the configured **work reimbursements** category and the remaining grocery merchandise to **Groceries** (plus any other non-grocery item categories present in the receipt).
+- If the driver tip posted as its own separate transaction, categorize that transaction entirely to the configured **work reimbursements** category.
 
 For Costco: use the browser to look up the order on costco.com (order history). Then use `receipt_logging` to create the receipt, same flow as Amazon/Walmart.
 
@@ -82,10 +85,11 @@ For receipt-backed transactions and splits:
 - Put category notes or split rationale after the items when useful.
 - Put the Obsidian receipt link as the final line.
 - Do not use notes that only say `Receipt`, only include a URL, or only repeat
-  a category label such as `Devin Spending`.
-- If the category is `Devin Spending`, include the purchased item details and
-  the evidence basis. If the evidence is ambiguous, leave it uncleared or ask
-  the user instead of silently assigning Devin Spending.
+  a category label such as the configured personal-spending category.
+- If the category is the configured personal-spending category, include the
+  purchased item details and the evidence basis. If the evidence is ambiguous,
+  leave it uncleared or ask the user instead of silently assigning the
+  personal-spending category.
 
 Preferred receipt-backed note format:
 
@@ -103,7 +107,7 @@ Receipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%
 When an order contains items spanning multiple categories (e.g., Walmart with groceries + a LEGO set), the transaction must be split.
 
 Also split when a Walmart delivery order includes a reimbursable driver tip:
-- reimbursement tip amount -> Latitude Reimbursements
+- reimbursement tip amount -> configured work reimbursements category
 - remaining merchandise -> Groceries and/or other item categories from the receipt
 
 Lunch Money split via API (use `PUT` on the parent transaction with a `split` array — there is no separate `/split` or `/group` endpoint):
@@ -114,8 +118,8 @@ Lunch Money split via API (use `PUT` on the parent transaction with a `split` ar
   "endpoint": "/transactions/{id}",
   "body": {
     "split": [
-      { "amount": 48.94, "category_id": 2413616, "notes": "Items:\n- Great Value Whole Strawberries 16 oz (Frozen) - $2.86\n- Other grocery items - $46.08\nTotal: $48.94\nReceipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%2F..." },
-      { "amount": 20.28, "category_id": 2413620, "notes": "Items:\n- Hookboards - $20.28\nTotal: $20.28\nReceipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%2F..." }
+      { "amount": 48.94, "category_id": 0, "notes": "Items:\n- Great Value Whole Strawberries 16 oz (Frozen) - $2.86\n- Other grocery items - $46.08\nTotal: $48.94\nReceipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%2F..." },
+      { "amount": 20.28, "category_id": 0, "notes": "Items:\n- Hookboards - $20.28\nTotal: $20.28\nReceipt: obsidian://open?vault=main&file=Records%2FFinance%2FReceipts%2FWalmart%2F..." }
     ]
   }
 }

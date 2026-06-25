@@ -192,16 +192,16 @@ The current system is close, but the control loop is incomplete. The next harden
 - Finance job logs now emit `**Flagged:**` when summaries contain review/exception signals instead of always writing `No flagged items.`
 - Weekly finance review instructions now treat `References/Finance/Budget Targets.md` as the source of truth; Lunch Money budgets are optional diagnostics only.
 - Sinking fund weekly/month-end schedules now write to the Finance domain log and explicitly do not create/manage Ramp drafts.
-- The finance runbook now separates SB transfer/draw review from Latitude/Ramp reimbursements.
+- The finance runbook now separates SB transfer/draw review from employer/Ramp reimbursements.
 - Receipt registry `upsert_reimbursement` now repairs frontmatter (`reimbursable`, `ramp_submitted`, `ramp_report_id`, `merchant`, `amount`) when it writes a reimbursable tracking section.
 - Receipt logging guidance now requires reimbursement frontmatter for Base view visibility.
 - Created the missing Obsidian directory: `Records/Finance/Reviews/`.
 - Weekly finance review runs are now idempotent: the review note is created with overwrite semantics so retries repair `Records/Finance/Reviews/YYYY-MM-DD Weekly Finance Review.md`.
 - Weekly finance review timeout increased from 300s to 600s after live validation showed the full review could write the note but time out before returning the scheduler summary.
 - Lunch Money status vocabulary was corrected in the transaction-categorization skill, default schedules, active profile schedules, and runbook: fetch `status=uncleared`, set `status=cleared`.
-- Human correction from the 2026-05-24 review was captured: House SB ($700) and Recreation SB ($300) did post on May 17 in savings accounts, so weekly/sinking-fund guidance now requires savings-side transfer checks before flagging missing contributions.
-- The HERE Europe B.V. charge was confirmed as a location/diesel lookup service under Software & Subscriptions, and the finance rules description was tightened.
-- Follow-up API verification found the May 17 Ally transfers were initially unavailable through Lunch Money `/transactions`; relevant Ally accounts reported last import/fetch timestamps around May 15. Triggering `POST /plaid_accounts/fetch` for the stale Ally accounts refreshed the data and exposed the May 17 transfer rows. The process now requires account-freshness checks, API refresh for stale accounts, and `unverified` rather than `missing` if refreshed data remains stale.
+- Human correction from the 2026-05-24 review was captured: two sinking-fund contributions (amounts redacted) did post on May 17 in savings accounts, so weekly/sinking-fund guidance now requires savings-side transfer checks before flagging missing contributions.
+- A recurring location/diesel lookup service charge was confirmed under Software & Subscriptions, and the finance rules description was tightened.
+- Follow-up API verification found the May 17 bank transfers were initially unavailable through Lunch Money `/transactions`; relevant bank accounts reported last import/fetch timestamps around May 15. Triggering `POST /plaid_accounts/fetch` for the stale accounts refreshed the data and exposed the May 17 transfer rows. The process now requires account-freshness checks, API refresh for stale accounts, and `unverified` rather than `missing` if refreshed data remains stale.
 - Corrected Lunch Money rows after refresh: House/Recreation checking-side contribution legs are categorized to their SB categories and cleared; savings-side mirror legs are categorized as `Transfer` and cleared.
 - Replaced separate weekly/month-end review semantics with a unified `finance_review` workflow. Weekly review is now the `rolling` phase, month-end is `close_prep`, and final close is stricter exit criteria rather than a separate process.
 - Disabled the standalone weekly sinking fund schedule because sinking fund contribution/draw review is now part of the rolling Finance Review.
@@ -211,29 +211,29 @@ The current system is close, but the control loop is incomplete. The next harden
 
 - Hardened Finance Review reimbursement instructions: Foxtrot must use
   `receipt_registry` gap, ledger, candidate, and reconciliation actions before
-  claiming Ramp/Latitude reimbursement status.
+  claiming Ramp/employer reimbursement status.
 - Updated router guardrails so finance budget-review and sinking-fund review
   paths have read access to `receipt_registry` and explicit instructions not to
   infer reimbursement status from Base views, old review notes, or note search.
 - Updated the active Foxtrot weekly/dry-run/close-prep schedules with the same
   reimbursement verification rule.
-- Updated Obsidian reimbursement/runbook docs: `Latitude Reimbursements.base` is
-  a human QA view; `receipt_registry` plus live Ramp reconciliation is the agent
-  source of truth.
+- Updated Obsidian reimbursement/runbook docs: the employer reimbursements Base
+  view is a human QA view; `receipt_registry` plus live Ramp reconciliation is
+  the agent source of truth.
 - Marked the reimbursement table in the 2026-05-24 dry-run review as
   unverified because it was created from receipt-note/Base fallback rather than
   registry/Ramp evidence.
 - Ran read-only registry/Ramp verification for 2026-05-01 through 2026-05-25:
   universal configured-vendor gap detection returned 0 gaps; configured-vendor
-  candidates show Maid in Newport Invoice 1738 ($350) pending; Walmart
-  delivery-tip candidates show 2026-05-02 ($16.53 tip, missing tracking) and
-  2026-05-09 order 2000146-30847351 ($28.90 tip, not submitted). The previously
-  reported May 19 / May 10 Walmart reimbursement rows were not present in the
-  verified May registry query.
+  candidates show a recurring service-vendor invoice (vendor/invoice/amount
+  redacted) pending; retailer delivery-tip candidates show 2026-05-02 (tip,
+  missing tracking) and 2026-05-09 (tip, not submitted) with amounts/order
+  numbers redacted. The previously reported May 19 / May 10 retailer
+  reimbursement rows were not present in the verified May registry query.
 - Split Ramp reimbursement automation into an explicit draft-first review gate:
   `prepare_ramp_reimbursement_draft` uploads evidence and fills the Ramp draft
   without final submission; `submit_reviewed_ramp_reimbursement` submits only
-  after Devin explicitly approves and the expected amount, date, memo, and
+  after the user explicitly approves and the expected amount, date, memo, and
   optional merchant checks pass. The old `submit_ramp_reimbursement` action is
   now documented as a deprecated draft-only alias.
 - Added stale-review-note hardening after Foxtrot repeated resolved review
@@ -265,7 +265,7 @@ Live validation:
 - Second trigger routed correctly to Foxtrot, loaded finance tools, read `References/Finance/Budget Targets.md`, queried Lunch Money by category ID, and created `Records/Finance/Reviews/2026-05-24 Weekly Finance Review.md`.
 - The second trigger still hit the 300s V2 timeout after the Obsidian write, so the Discord/scheduler return path did not complete. The generated review content was materially useful and surfaced real flags: Gas & Charging over target, Insurance target outdated, missing House/Recreation SB contributions, ambiguous Vehicles SB contribution, and uncleared transaction backlog.
 - After increasing the weekly review timeout to 600s and restarting the bot, a third trigger completed successfully in 195s. It returned through the scheduler, used `obsidian create ... --overwrite`, and updated `Records/Finance/Reviews/2026-05-24 Weekly Finance Review.md`.
-- After unifying the workflow, `manual-test-weekly-finance-review` completed successfully in 274s as a dry-run rolling Finance Review. It fetched account freshness first, triggered only `POST /plaid_accounts/fetch` for stale Devin's Spending data, avoided Lunch Money category/status writes and Ramp actions, and wrote `Records/Finance/Reviews/2026-05-24 Finance Review Dry Run.md`.
+- After unifying the workflow, `manual-test-weekly-finance-review` completed successfully in 274s as a dry-run rolling Finance Review. It fetched account freshness first, triggered only `POST /plaid_accounts/fetch` for stale spending-category data, avoided Lunch Money category/status writes and Ramp actions, and wrote `Records/Finance/Reviews/2026-05-24 Finance Review Dry Run.md`.
 
 Remaining validation:
 

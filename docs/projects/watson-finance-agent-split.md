@@ -128,7 +128,7 @@ discord:
 - `browser` -- receipt lookups on retailer websites (Amazon, Walmart, Costco)
 - `obsidian` -- receipt files, finance rules docs, domain job logs
 - `onepassword` -- retailer login credentials for receipt cataloging
-- `google` (email only) -- receipt email lookups (Venmo confirmations, Maid in Newport invoices, Factor receipts)
+- `google` (email only) -- receipt email lookups (peer-payment confirmations, service-vendor invoices, meal-kit receipts)
 - `memory` -- Atlas Memory (own namespace)
 - `agent-docs` -- self-update capability
 
@@ -428,4 +428,4 @@ The schedules are the critical path. If a schedule fails under Ledger, revert th
 
 1. **Voice:** Does `am_echo` work well for a finance agent, or should we audition other Kokoro voices? Can be decided during implementation.
 2. **Ramp server:** Ramp is only used during receipt cataloging for reimbursement tracking. If reimbursement submission moves to Ledger entirely, Watson never needs Ramp. Confirmed: remove from Watson.
-3. **Google email on Ledger:** The receipt cataloger uses `gog_email` to search for Venmo/Maid in Newport/Factor receipt emails. This is a narrow use case -- only receipt confirmation lookups. Included in Ledger's config with `gog_email` only (no calendar/docs).
+3. **Google email on Ledger:** The receipt cataloger uses `gog_email` to search for peer-payment/service-vendor/meal-kit receipt emails. This is a narrow use case -- only receipt confirmation lookups. Included in Ledger's config with `gog_email` only (no calendar/docs).
