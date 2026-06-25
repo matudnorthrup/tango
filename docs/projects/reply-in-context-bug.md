@@ -4,7 +4,7 @@
 **Commits:** 6afe84b (initial fix), fce2143 (hotfix — suppression escape hatch)
 **Linear:** https://linear.app/seaside-hq/project/reply-in-context-failure-mode-bug-37e35b739065
 **Agents:** Watson (original report), Malibu (recurrence)
-**Server:** Latitude → History Books category (Watson), Wellness channel (Malibu)
+**Server:** <session> → general category (Watson), Wellness channel (Malibu)
 
 ## Hotfix (2026-04-20)
 
@@ -24,7 +24,7 @@ Watson gives nonsensical responses mentioning something like "it needs to reply 
 
 The bug is a **provider session continuity + conversational follow-up interaction**. Here's the sequence:
 
-1. **Watson responds in a thread** — the system saves a Claude provider session ID for the conversation key `project:latitude:watson`.
+1. **Watson responds in a thread** — the system saves a Claude provider session ID for the conversation key `project:<session>:watson`.
 
 2. **On the next message in the same thread**, the system loads the persisted provider session ID.
 
@@ -58,7 +58,7 @@ Once this happens, the broken response gets saved as a new outbound message, and
 
 ### Contributing Factors
 
-1. **Session-level provider continuity, not thread-level** — The conversation key is `sessionId:agentId` (e.g., `project:latitude:watson`). All threads in the Latitude session share a single provider session. A response in one thread can set a session ID that breaks context in another thread.
+1. **Session-level provider continuity, not thread-level** — The conversation key is `sessionId:agentId` (e.g., `project:<session>:watson`). All threads in the same session share a single provider session. A response in one thread can set a session ID that breaks context in another thread.
 
 2. **The stale session normalization is insufficient** — `normalizeProviderContinuityMap` (main.ts:5160-5218) only drops a session if the latest assistant turn's provider doesn't match. It doesn't check whether the session is from the right thread.
 
