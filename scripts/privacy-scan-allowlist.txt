@@ -45,40 +45,9 @@ scripts/privacy-scan.sh
 # Synthetic Slack permalink timestamps (example.slack.com fixtures).
 packages/discord/test/slack-tools.test.ts
 
-# LEGACY: real Discord channel/avatar snowflake ids still tracked in config
-# defaults. Migrating these to the profile layer requires per-agent profile
-# overrides plus live validation — tracked as PM follow-up. Do NOT add new
-# config files here; new configs must use placeholder ids
-# (1 followed by zeros, e.g. 100000000000000003).
-config/defaults/sessions/charlie-ollama.yaml
-config/defaults/sessions/cod-e.yaml
-config/defaults/sessions/foxtrot-ollama.yaml
-config/defaults/sessions/jules.yaml
-config/defaults/sessions/juliet-ollama.yaml
-config/defaults/sessions/malibu-ollama.yaml
-config/defaults/sessions/ollama-test.yaml
-config/defaults/sessions/porter-ollama.yaml
-config/defaults/sessions/sierra-ollama.yaml
-config/defaults/sessions/victor-ollama.yaml
-config/defaults/sessions/watson-ollama.yaml
-config/v2/agents/charlie-ollama.yaml
-config/v2/agents/cod-e.yaml
-config/v2/agents/foxtrot-ollama.yaml
-config/v2/agents/jules.yaml
-config/v2/agents/juliet-ollama.yaml
-config/v2/agents/malibu-ollama.yaml
-config/v2/agents/ollama-test.yaml
-config/v2/agents/porter-ollama.yaml
-config/v2/agents/sierra-ollama.yaml
-config/v2/agents/victor-ollama.yaml
-config/v2/agents/watson-ollama.yaml
-
-# Added 2026-06-10: smoke_test_channel_id fields (real -test channel ids)
-# landed on main via the eval/validation work merged into this branch; same
-# legacy class as above — migrate with the per-agent follow-up, do not copy
-# the pattern into new files.
-config/v2/agents/sierra.yaml
-config/v2/agents/watson.yaml
-# Validation harness script with a default -test channel id flag; same
-# follow-up migrates it to a required flag or profile-sourced default.
-scripts/validate-thread-continuity.ts
+# NOTE: A former "LEGACY: real Discord channel/avatar snowflake ids" block was
+# removed once those config defaults were genericized to placeholders and the
+# real ids moved to the profile overlay (see
+# scripts/migrate-personal-config-to-profile.mjs and docs/guides/profile-model.md).
+# New config files MUST use placeholder ids (1 followed by zeros, e.g.
+# 100000000000000003); never re-add real ids to the repo or this allowlist.

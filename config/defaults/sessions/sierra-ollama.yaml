@@ -2,4 +2,4 @@ id: sierra-ollama
 type: persistent
 agent: sierra-ollama
 channels:
-  - "discord:1513207667479285850"
+  - "discord:100000000000000003"

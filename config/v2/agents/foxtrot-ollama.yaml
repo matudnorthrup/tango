@@ -92,14 +92,14 @@ memory:
   scheduled_reflection: enabled
 
 discord:
-  default_channel_id: "1513207675935129862"
+  default_channel_id: "100000000000000005"
   smoke_test_channel_id: "100000000000001005" # foxtrot-test (placeholder; real id in profile overlay)
 
 # Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
-    - "1513207675935129862"
+    - "100000000000000005"
     - "100000000000001005" # foxtrot-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
@@ -133,5 +133,5 @@ voice:
     - "Bravo Foxtrot"
     - Foxtrot
   kokoro_voice: am_echo
-  default_channel_id: "1513207675935129862"
+  default_channel_id: "100000000000000005"
   smoke_test_channel_id: "100000000000001005" # foxtrot-test (placeholder; real id in profile overlay)

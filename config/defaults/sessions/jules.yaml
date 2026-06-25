@@ -2,7 +2,7 @@ id: jules
 type: persistent
 agent: jules
 channels:
-  - discord:1469955798007283803
+  - discord:100000000000000015
 memory:
   max_context_tokens: 12000
   zones:
