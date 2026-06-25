@@ -26,6 +26,7 @@ class ScriptedProvider implements ChatProvider {
 describe("generateWithFailover", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     resetProviderCircuitStateForTests();
   });
 
@@ -186,6 +187,39 @@ describe("generateWithFailover", () => {
     expect(codex.calls).toHaveLength(1);
     expect(result.failures[0]?.providerName).toBe("claude-oauth");
     expect(result.failures[0]?.attempts).toBe(3);
+  });
+
+  it("uses a longer retry backoff for Ollama 429 overloads", async () => {
+    vi.useFakeTimers();
+    const ollama = new ScriptedProvider((callNumber) => {
+      if (callNumber < 3) {
+        return new Error('Ollama request failed: status=429 body={"error":"too many concurrent requests"}');
+      }
+      return { text: "ollama-ok" };
+    });
+
+    const resultPromise = generateWithFailover(
+      [{ providerName: "ollama", provider: ollama }],
+      { prompt: "hello" },
+      2,
+    );
+
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(ollama.calls).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ollama.calls).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(ollama.calls).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await resultPromise;
+
+    expect(result.providerName).toBe("ollama");
+    expect(result.retryResult.attempts).toBe(3);
+    expect(result.retryResult.attemptErrors).toHaveLength(2);
+    expect(result.retryResult.response.text).toBe("ollama-ok");
   });
 
   it("retries Claude on an empty-response failure before opening circuit and failing over", async () => {

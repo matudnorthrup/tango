@@ -2,6 +2,10 @@ import type { ChatProvider, ProviderRequest, ProviderResponse } from "@tango/cor
 
 const CLAUDE_FAST_FAIL_WINDOW_MS = 15_000;
 const CLAUDE_CIRCUIT_OPEN_MS = 2 * 60 * 1000;
+const DEFAULT_RETRY_BACKOFF_MS = 250;
+const DEFAULT_RETRY_BACKOFF_MAX_MS = 750;
+const TRANSIENT_OVERLOAD_RETRY_BACKOFF_MS = 1_500;
+const TRANSIENT_OVERLOAD_RETRY_BACKOFF_MAX_MS = 5_000;
 
 interface ProviderCircuitState {
   openUntilMs: number;
@@ -61,6 +65,22 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function isTransientProviderOverload(providerName: string, errorMessage: string): boolean {
+  if (!/status=429|too many concurrent requests|rate limit|rate_limit|temporarily overloaded/iu.test(errorMessage)) {
+    return false;
+  }
+
+  return providerName === "ollama" || providerName.startsWith("ollama-");
+}
+
+function retryBackoffMs(providerName: string, errorMessage: string, attempt: number): number {
+  if (isTransientProviderOverload(providerName, errorMessage)) {
+    return Math.min(TRANSIENT_OVERLOAD_RETRY_BACKOFF_MS * attempt, TRANSIENT_OVERLOAD_RETRY_BACKOFF_MAX_MS);
+  }
+
+  return Math.min(DEFAULT_RETRY_BACKOFF_MS * attempt, DEFAULT_RETRY_BACKOFF_MAX_MS);
 }
 
 function getProviderCircuitState(providerName: string, nowMs: number): ProviderCircuitState | null {
@@ -140,7 +160,7 @@ export async function generateWithRetry(
         // failures (e.g. a single empty response) should not immediately
         // block the provider for 2 minutes.
         if (attempt <= retryLimit) {
-          await wait(Math.min(250 * attempt, 750));
+          await wait(retryBackoffMs(providerName, message, attempt));
           continue;
         }
         openProviderCircuit(providerName, message, Date.now());
@@ -148,7 +168,7 @@ export async function generateWithRetry(
       }
 
       if (attempt <= retryLimit) {
-        await wait(Math.min(250 * attempt, 750));
+        await wait(retryBackoffMs(providerName, message, attempt));
         continue;
       }
 
