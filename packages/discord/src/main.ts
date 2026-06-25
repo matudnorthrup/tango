@@ -127,6 +127,10 @@ import { createDailyBriefAggregationHandler } from "./daily-brief-aggregator.js"
 import { createKiloLedgerMonitorHandler } from "./kilo-ledger-monitor.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
+import {
+  createOrientationNudgeHandler,
+  handleOrientationNudgeInteraction,
+} from "./orientation-nudge.js";
 import { coerceWorkerReplyForDisplay } from "./worker-text-sanitizer.js";
 import { z } from "zod";
 import {
@@ -2033,6 +2037,34 @@ const client = new Client({
 });
 
 registerDeterministicHandler("active-threads-tracker", createActiveThreadsTracker(client));
+const orientationNudgeChannelId =
+  process.env.ORIENTATION_NUDGE_CHANNEL_ID
+  ?? process.env.TANGO_ORIENTATION_NUDGE_CHANNEL_ID
+  ?? agentRegistry.get("watson")?.voice?.defaultChannelId
+  ?? null;
+registerDeterministicHandler("orientation-nudge", createOrientationNudgeHandler(client, {
+  channelId: orientationNudgeChannelId,
+  recordNudgeMessage(input) {
+    const route = sessionManager.route(`discord:${input.channelId}`)
+      ?? sessionManager.route("discord:default");
+    if (!route) return;
+    writeMessage({
+      sessionId: route.sessionId,
+      agentId: "watson",
+      direction: "outbound",
+      source: "tango",
+      visibility: "public",
+      discordMessageId: input.messageId,
+      discordChannelId: input.channelId,
+      content: input.content,
+      metadata: {
+        orientationNudge: true,
+        nudgeId: input.nudgeId,
+        task: input.task,
+      },
+    });
+  },
+}));
 
 const replyPresenter = createReplyPresenter({
   systemDisplayName,
@@ -7871,14 +7903,22 @@ client.once("clientReady", async () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== "tango") return;
-
   try {
+    if (await handleOrientationNudgeInteraction(interaction, {
+      db: storage.getDatabase(),
+    })) {
+      return;
+    }
+
+    if (!interaction.isChatInputCommand()) return;
+    if (interaction.commandName !== "tango") return;
+
     await handleTangoCommand(interaction);
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
-    console.error("[tango-discord] slash command failed", messageText);
+    console.error("[tango-discord] interaction failed", messageText);
+
+    if (!interaction.isRepliable()) return;
 
     if (interaction.deferred || interaction.replied) {
       await interaction

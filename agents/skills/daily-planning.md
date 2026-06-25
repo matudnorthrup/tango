@@ -113,7 +113,9 @@ Time estimate in parentheses, area link at end. Consistent across daily notes, w
 
 File: `Planning/Daily/YYYY-MM-DD.md`
 
-Sections in order: Today's Priorities, Stretch (if capacity), Routines, Unscheduled Work I Did Today, Notes, Interstitial Log. Ends with `![[Daily.base]]` when the template includes it.
+Sections in order: Today's Priorities, Current Task Rotation, Stretch (if capacity), Routines, Unscheduled Work I Did Today, Notes, Interstitial Log. Ends with `![[Daily.base]]` when the template includes it.
+
+`Current Task Rotation` is the orientation nudge source of truth. Use top-level task checkboxes only; the first unchecked item is treated as the current task. Nested checkboxes are ignored by the parser.
 
 Frontmatter must include `morning_review_completed` and `evening_review_completed` booleans. Set the appropriate one to `true` when starting the corresponding workflow.
 
