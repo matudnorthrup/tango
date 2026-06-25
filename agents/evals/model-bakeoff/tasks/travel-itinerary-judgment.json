@@ -30,7 +30,7 @@
     }
   ],
   "system": "You are Sierra, a careful travel-planning assistant. Use tools when a factual route, drive-time, or detour claim depends on real map data. Do not answer route questions from mental geography when routing tools are available. Label tool-backed facts separately from synthesis.",
-  "prompt": "I'm planning a two-day drive from Yachats, Oregon to Boise, Idaho in my diesel truck. Constraints: the tank gives me roughly 600 miles of range and I strongly prefer not to cut it closer than 100 miles between diesel stops; I'd rather take flatter routes over steep mountain passes when the time cost is reasonable; I want to leave around 9am, stop overnight somewhere with food and lodging around 6-7pm, and arrive in Boise by mid-afternoon the next day. Compare at least two route options, recommend one with a fuel-stop strategy and an overnight stop, and be explicit about which parts are verified versus your judgment.",
+  "prompt": "I'm planning a two-day drive from Florence, Oregon to Boise, Idaho in my diesel truck. Constraints: the tank gives me roughly 600 miles of range and I strongly prefer not to cut it closer than 100 miles between diesel stops; I'd rather take flatter routes over steep mountain passes when the time cost is reasonable; I want to leave around 9am, stop overnight somewhere with food and lodging around 6-7pm, and arrive in Boise by mid-afternoon the next day. Compare at least two route options, recommend one with a fuel-stop strategy and an overnight stop, and be explicit about which parts are verified versus your judgment.",
   "successCriteria": [
     "Calls driving_route and grounds distance/duration claims in its output.",
     "Compares at least two distinct route options before recommending one.",

@@ -16,7 +16,7 @@ Reference guidance for a general personal-assistant workflow.
 - Summaries should separate actionable threads from informational or bulk mail.
 - **Triage rules** live at `References/Email Triage Rules.md` in Obsidian.
   Read this file before triaging email. It defines what to ignore, delegate,
-  and flag. When Devin says to ignore a sender or reclassify an email type,
+  and flag. When the user says to ignore a sender or reclassify an email type,
   update this file using the Obsidian tool so future runs apply the new rule.
 
 ## Notes
@@ -71,13 +71,14 @@ You have MCP tools for managing personal tasks. Use them proactively.
 **Messaging** (via `slack` server):
 - `mcp__slack__slack` - read and post Slack messages
 
-**Latitude Remote** (via `latitude` MCP server):
-- `mcp__latitude__run` - Latitude's remote MCP server providing access to Notion, Slack, Postgres, GitHub, Datadog, Grafana, Heroku, Sentry, Outline, and Athena. Call as `run(category, tool, params)`. Examples:
-  - Search Notion: `run("notion", "search", {"query": "Brand Strategy"})`
-  - Read Notion page: `run("notion", "get-page-markdown", {"page_id": "..."})`
-  - Search Slack: `run("slack", "search-messages", {"query": "..."})`
-  - Query Postgres: `run("postgres", "query", {"sql": "SELECT ..."})`
-  - See `agents/tools/latitude-remote.md` for full category/tool reference
+**Workplace Remote MCP** (optional, profile-configured):
+- A profile may attach a workplace remote MCP server that brokers access to the
+  user's organization tools (e.g. a wiki, chat, databases, source control, and
+  observability platforms) behind a single `run(category, tool, params)` entry
+  point. When present, the concrete server name, available categories, and usage
+  examples are supplied by Watson's profile overlay (and any companion tool doc
+  it references). Treat it as an optional integration; if no such server is
+  configured, simply skip it.
 
 **Memory** (via `memory` MCP server):
 - `mcp__memory__memory_search` - search stored memories
@@ -88,8 +89,8 @@ You have MCP tools for managing personal tasks. Use them proactively.
 - `mcp__agent-docs__agent_docs` - read, write, patch, and list agent documentation files (knowledge.md, soul.md, etc.)
 
 **Claude Code Sessions** (via `claude-sessions` MCP server):
-- `mcp__claude-sessions__spawn_claude_session` - spawn a remote-controllable Claude Code session on the Mac (tmux + Remote Control) seeded with Devin's dictated prompt, so he can pick it up from his phone
+- `mcp__claude-sessions__spawn_claude_session` - spawn a remote-controllable Claude Code session on the host machine (tmux + Remote Control) seeded with the user's dictated prompt, so they can pick it up from their phone
 - `mcp__claude-sessions__list_claude_sessions` - list spawned CC- sessions and whether each is working or idle
-- Workflow rules (confirmation before spawning, verbatim prompts, repo names) live in `agents/skills/remote-claude-sessions.md` — read it via agent_docs before first use. NEVER spawn without an explicit confirmed request from Devin; in voice, always read back repo + prompt summary and get a yes first.
+- Workflow rules (confirmation before spawning, verbatim prompts, repo names) live in `agents/skills/remote-claude-sessions.md` — read it via agent_docs before first use. NEVER spawn without an explicit confirmed request from the user; in voice, always read back repo + prompt summary and get a yes first.
 
 **Always use tools to look up data before responding.** Don't say "I don't have access" - you DO have access via MCP tools.

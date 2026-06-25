@@ -34,8 +34,8 @@ Input:
 
 ```json
 {
-  "input_file": "~/Documents/3d-printing/gridfinity/src/bin.scad",
-  "output_file": "~/Documents/3d-printing/gridfinity/stl/bin.stl",
+  "input_file": "~/3d-printing/gridfinity/src/bin.scad",
+  "output_file": "~/3d-printing/gridfinity/stl/bin.stl",
   "parameters": {
     "gridx": 3,
     "gridy": 2
@@ -78,7 +78,7 @@ Notes:
 **Fix:** Use a pre-resolved flat INI file instead of relying on `--printer-profile`. A resolved profile already exists at:
 
 ```
-~/Documents/3d-printing/opengrid/mk4is_profile.ini
+~/3d-printing/opengrid/mk4is_profile.ini
 ```
 
 Pass it via `--load` when invoking PrusaSlicer CLI directly. The `prusa_slice` tool handles this automatically — but if you're calling PrusaSlicer manually, do **not** use `--printer-profile` alone.

@@ -15,15 +15,15 @@ The deterministic tool handling overhaul replaced flexible LLM reasoning with ri
 | 1 | Workout tracker can't find routines | Missing tool scoping for workout intents |
 | 2 | Health report is a one-liner | Direct fast-path bypasses LLM reasoning |
 | 3 | Watson runs data query when asked about workflow implementation | Classifier routes planning as action intent |
-| 4 | Freeze dried apples not logged | Unit conversion fails on "1 package" |
-| 5 | White rice not logged | Unit conversion fails on "2 tablespoons" |
+| 4 | A packaged food item not logged | Unit conversion fails on "1 package" |
+| 5 | A volume-measured food item not logged | Unit conversion fails on "2 tablespoons" |
 | 6 | "Ok. Try adding..." blocked | Regex bypass catches action requests |
-| 7 | "want to try adding that rice?" blocked | Follow-up bypass catches action requests |
+| 7 | "want to try adding that?" blocked | Follow-up bypass catches action requests |
 | 8 | Reimbursement receipts rejected | Wrong evidence format (email screenshots vs PDFs) |
-| 9 | Watson claims 6 unsubmitted tips | Stale Obsidian data not cross-referenced with Ramp |
+| 9 | Watson claims several unsubmitted tips | Stale Obsidian data not cross-referenced with Ramp |
 | 10 | Sierra drops messages silently | Processing pipeline failure, no error logged |
 | 11 | Malibu says "you sent that twice" | False duplicate detection from warm-start context |
-| 12 | Subway sandwich logged as 110 cal (not 730) | Restaurant item decomposed into individual ingredients |
+| 12 | A restaurant menu item logged with wrong calories | Restaurant item decomposed into individual ingredients |
 | 13 | Watson mega-prompt timeout | 900s too short for multi-step finance operations |
 
 ### Common thread

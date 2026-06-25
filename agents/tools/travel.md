@@ -47,7 +47,7 @@ Input, single route:
 
 ```json
 {
-  "origin": "Yachats, OR",
+  "origin": "Florence, OR",
   "destination": "San Mateo, CA"
 }
 ```
@@ -59,13 +59,13 @@ Input, route comparison:
   "routes": [
     {
       "label": "direct via CA-505",
-      "origin": "Yachats, OR",
+      "origin": "Florence, OR",
       "destination": "San Mateo, CA",
       "waypoints": ["Dunnigan, CA", "Vacaville, CA"]
     },
     {
       "label": "via Sacramento",
-      "origin": "Yachats, OR",
+      "origin": "Florence, OR",
       "destination": "San Mateo, CA",
       "waypoints": ["Sacramento, CA"]
     }

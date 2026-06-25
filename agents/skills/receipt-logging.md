@@ -97,15 +97,15 @@ Any relevant context (partial shipment, return pending, Walmart Cash used, etc.)
 When the receipt source is a Venmo confirmation email, use the same structure and include reimbursement tracking when the payment is reimbursable.
 
 ```markdown
-# Venmo Payment to Kip Everitt
+# Venmo Payment to Jane Doe
 
 - **Date:** 2026-04-04
-- **Total:** $600.00
-- **Recipient:** Kip Everitt
+- **Total:** $250.00
+- **Recipient:** Jane Doe
 
 ## Linked Transactions
 
-- Lunch Money TXN 2376200290: $600.00 (One-off Expenses)
+- Lunch Money TXN 1234567890: $250.00 (One-off Expenses)
 
 ## Notes
 
@@ -116,25 +116,24 @@ Invoice-backed Venmo reimbursement created from the Gmail payment confirmation.
 - Status: not_submitted
 - System: Ramp
 - Ramp Report ID: null
-- Amount: $600.00
-- Note: Exec Buy Back Time
+- Amount: $250.00
+- Note: use the installation's configured reimbursement memo
 ```
 
 ## Category assignment rules
 
-Reference the installation's active finance rules note for the authoritative rules file.
+Reference the installation's active finance rules note for the authoritative rules file. The concrete product-to-category mappings are tuned per installation and supplied by a profile overlay; resolve category names against the live Lunch Money categories.
 
-Common product-to-Lunch-Money-category mappings for receipt items:
+Common product-to-category mapping shape (categories are profile-configured — examples only):
 
-- Tea, coffee, food, beverages, snacks → Groceries
-- Cleaning supplies, toiletries, household consumables → Groceries (don't split)
-- Supplements, medicine, health items → Health
-- Electronics, gadgets → One-off Expenses
-- Kitchen items, tools, home items → Home Improvement
-- LEGO, toys, kids items → Kids / Allowance
-- Motor oil, filters, car parts → Auto Repair
-- Boat oil, marine parts → Fishing & Outdoors
-- Travel gear → Travel
+- Tea, coffee, food, beverages, snacks → grocery category
+- Cleaning supplies, toiletries, household consumables → grocery category (don't split)
+- Supplements, medicine, health items → health category
+- Electronics, gadgets → one-off/discretionary category
+- Kitchen items, tools, home items → home category
+- Toys, kids items → kids/allowance category
+- Motor oil, filters, car parts → auto category
+- Travel gear → travel collection
 
 ## Rules
 

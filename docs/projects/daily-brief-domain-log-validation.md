@@ -6,7 +6,7 @@
 
 ## Problem
 
-The daily brief architecture requires overnight jobs to write structured log entries to `~/Documents/main/Records/Jobs/{domain}/YYYY-MM.md`. The daily-brief aggregator at 5:15am reads these logs. But no domain job had ever successfully written a log entry (except slack-saved-review).
+The daily brief architecture requires overnight jobs to write structured log entries to `Records/Jobs/{domain}/YYYY-MM.md`. The daily-brief aggregator at 5:15am reads these logs. But no domain job had ever successfully written a log entry (except slack-saved-review).
 
 ## Root Cause
 
@@ -28,7 +28,7 @@ obsidian_log:
 
 1. Job runs normally via v2/deterministic/worker runtime
 2. Executor captures the summary (already truncated to 2000 chars)
-3. `writeObsidianLog()` appends a formatted entry to `~/Documents/main/Records/Jobs/{domain}/YYYY-MM.md`
+3. `writeObsidianLog()` appends a formatted entry to `Records/Jobs/{domain}/YYYY-MM.md`
 4. Fail-open: log write errors are caught and logged, never fail the job
 
 ## Additional Fixes

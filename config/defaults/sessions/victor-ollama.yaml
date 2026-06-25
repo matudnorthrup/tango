@@ -2,4 +2,4 @@ id: victor-ollama
 type: persistent
 agent: victor-ollama
 channels:
-  - "discord:1513207701088243793"
+  - "discord:100000000000000004"

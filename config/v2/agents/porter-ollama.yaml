@@ -77,14 +77,14 @@ memory:
 
 # Discord routing
 discord:
-  default_channel_id: "1513207696331898981"
+  default_channel_id: "100000000000000006"
   smoke_test_channel_id: "100000000000001006" # porter-test (placeholder; real id in profile overlay)
 
 # Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
-    - "1513207696331898981"
+    - "100000000000000006"
     - "100000000000001006" # porter-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
@@ -124,5 +124,5 @@ voice:
     - Porter
     - Brother Porter
   kokoro_voice: am_liam
-  default_channel_id: "1513207696331898981"
+  default_channel_id: "100000000000000006"
   smoke_test_channel_id: "100000000000001006" # porter-test (placeholder; real id in profile overlay)

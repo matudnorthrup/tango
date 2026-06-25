@@ -6,7 +6,7 @@ First-class model selection fixtures for Tango.
 
 Choose the cheapest and fastest model that **consistently** completes the task
 contract. Reliability dominates: a failed job costs trust, redone tokens, and
-Devin's attention — far more than the price difference between models. So the
+the user's attention — far more than the price difference between models. So the
 harness gates on pass-rate across repeated runs first; cost and speed only rank
 the models that pass.
 
@@ -96,7 +96,7 @@ Use the Obsidian "Tango Jobs — Manual Test Checklist" as the coverage inventor
 Tier jobs before running expensive bake-offs:
 
 - **Tier 0: high trust impact** — travel, finance, health, calendar commitments,
-  live purchasing, and anything that can waste Devin's time or money.
+  live purchasing, and anything that can waste the user's time or money.
 - **Tier 1: recurring operations** — scheduled jobs and common assistant tasks
   where consistency matters more than creativity.
 - **Tier 2: ad hoc research/judgment** — ambiguous planning or synthesis where
@@ -109,7 +109,7 @@ process (Claude/Fable or by hand), then bake off candidate models against that
 fixed contract, then record the assignment. **No new scheduled job or intent
 ships without a fixture** — the golden-path transcript is the fixture draft.
 
-Write-path fixtures may touch live services for Devin's OWN data with cleanup
+Write-path fixtures may touch live services for the user's OWN data with cleanup
 baked into the task (create-then-delete an Obsidian note, update-then-revert a
-Notion page). Never third parties, never the `-ollama` Discord channels (Devin
+Notion page). Never third parties, never the `-ollama` Discord channels (the user
 dogfoods those); Discord-loop evals go through `-test` channels.

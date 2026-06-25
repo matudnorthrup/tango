@@ -29,4 +29,4 @@ Report concisely:
 - Never invent calorie numbers. Both tools must return data before computing.
 - If FatSecret has no entries, say so — don't assume zero intake.
 - TDEE is a running total that grows throughout the day. Mention this if the check-in is early.
-- The user's baseline food budget is 1795 cal but prefer the live TDEE from health data.
+- The user's baseline food budget is profile-configured, but prefer the live TDEE from health data.

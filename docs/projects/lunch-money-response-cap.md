@@ -6,7 +6,7 @@
 
 ## Problem
 
-Watson timed out (120s) handling a Lunch Money query in a finance thread. The `lunch_money` MCP tool returned 598,165 characters of transaction data — a `GET /transactions` call with no date filtering that dumped all historical transactions.
+Watson timed out (120s) handling a Lunch Money query in a finance thread. The `lunch_money` MCP tool returned hundreds of thousands of characters of transaction data — a `GET /transactions` call with no date filtering that dumped all historical transactions.
 
 ## Root Cause
 

@@ -4,7 +4,7 @@
 
 ## Problem
 
-Stakeholder's phone shows 1,116 active calories for April 17, but Malibu reports TDEE of only ~2,492. Phone shows 2,808. Gap of 316 calories.
+Stakeholder's phone shows the day's active calories, but Malibu reports a TDEE that is materially lower than the phone's figure for the same day (April 17). Gap of ~316 calories. (Specific calorie values redacted.)
 
 ## Root Cause
 
@@ -14,18 +14,18 @@ The `getBasalCal()` function in `health-query.js` filters `basal_energy_burned` 
 
 | Source | Calories | Records | Matches `/Apple.?Watch/`? |
 |--------|---------|---------|--------------------------|
-| Sleep Watch\|Devin's Apple Watch Ultra | 1,367 | 66,981 | Yes |
-| Sleep Watch | 385 | 18,802 | **No** |
-| **Total** | **1,752** | | |
+| Sleep Watch\|<Apple Watch source> | (redacted) | 66,981 | Yes |
+| Sleep Watch | (redacted) | 18,802 | **No** |
+| **Total** | **(redacted)** | | |
 
-The "Sleep Watch" records (385 cal) cover time periods when only the Sleep Watch app is active (e.g., when Apple Watch is charging, during sleep transitions). These are non-overlapping with the Watch records — the Health Auto Export app exports deduplicated records from Apple Health.
+The "Sleep Watch"-only records cover time periods when only the Sleep Watch app is active (e.g., when the watch is charging, during sleep transitions). These are non-overlapping with the Watch records — the Health Auto Export app exports deduplicated records from Apple Health.
 
-### Impact on TDEE:
+### Impact on TDEE (calorie values redacted):
 
-| Calculation | Basal | Active | TDEE | Gap vs Phone (2,808) |
+| Calculation | Basal | Active | TDEE | Gap vs Phone |
 |------------|-------|--------|------|---------------------|
-| Current (Watch-filtered) | 1,367 | 1,125 | 2,492 | **-316 cal** |
-| Fixed (all sources) | 1,752 | 1,131 | 2,883 | -75 cal (within dedup rounding) |
+| Current (Watch-filtered) | (redacted) | (redacted) | (redacted) | **-316 cal** |
+| Fixed (all sources) | (redacted) | (redacted) | (redacted) | -75 cal (within dedup rounding) |
 
 ### Not a timezone issue
 
@@ -35,7 +35,7 @@ The TDEE formula itself is correct (`basal + active`). The health-query.js scrip
 
 ### File: external health-data `health-query.js`
 
-**Function `getBasalCal()` (lines 178-201):** Remove the Watch-first source filter. Always aggregate all sources for `basal_energy_burned`. Keep the `< 1000` fallback to `TYPICAL_BASAL` (1,744) as a safety net.
+**Function `getBasalCal()` (lines 178-201):** Remove the Watch-first source filter. Always aggregate all sources for `basal_energy_burned`. Keep the `< 1000` fallback to `TYPICAL_BASAL` (value redacted) as a safety net.
 
 Current:
 ```javascript
@@ -73,7 +73,7 @@ async function getBasalCal(db, dayStart, dayEnd, dateStr) {
 
 ### Why not fix `getActiveCal()` too?
 
-Active energy Watch filtering is fine — the main Watch source covers 99% of active calories (1,118 of 1,131 total). The non-Watch sources add only ~13 cal. Not worth the risk of double-counting.
+Active energy Watch filtering is fine — the main Watch source covers ~99% of active calories. The non-Watch sources add only a handful of calories. Not worth the risk of double-counting. (Calorie values redacted.)
 
 ## Scope
 

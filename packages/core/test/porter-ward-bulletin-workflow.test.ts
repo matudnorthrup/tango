@@ -122,19 +122,22 @@ describe("Porter ward bulletin workflow", () => {
     }, { repoRoot });
     const compactPrompt = prompt.replace(/\s+/gu, " ");
 
-    expect(prompt).toContain("Ward Bulletin Workflow");
+    // The repo persona base carries the GENERIC contract; the congregation-
+    // specific framing (tradition, exact subject typos, program field layout)
+    // lives in the profile overlay (see docs/guides/profile-model.md).
+    expect(prompt).toContain("Meeting Bulletin Workflow");
     expect(prompt).toContain("gmail messages search");
-    expect(prompt).toContain("--account <ward-bulletin-mailbox>");
-    expect(prompt).toContain("Church Bulleting");
-    expect(compactPrompt).toContain("newest relevant ward sacrament meeting bulletin");
+    expect(prompt).toContain("--account <bulletin-mailbox>");
+    expect(compactPrompt).toContain("newest relevant bulletin by message date");
     expect(prompt).toContain("gmail get <messageId> --format full");
     expect(prompt).toContain("gmail attachment <messageId> <attachmentId>");
     expect(prompt).toContain("Preserve exact program fields");
     expect(compactPrompt).toContain("verbatim substring from the PDF text");
     expect(compactPrompt).toContain("overwrite or update it from the current PDF");
     expect(prompt).toContain("attachment_search");
-    expect(prompt).toContain("Gmail remains read-only");
-    expect(compactPrompt).toContain("never request or call drafts, sends, archives");
+    expect(prompt).toContain("Email is read-only");
+    // Repo base must NOT carry the installation's congregation-specific terms.
+    expect(prompt).not.toContain("Church Bulleting");
   });
 
   it("fixtures the latest typo-subject PDF bulletin and exact program field preservation", () => {

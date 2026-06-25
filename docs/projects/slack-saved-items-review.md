@@ -6,12 +6,12 @@
 
 ## Problem
 
-Devin saves/bookmarks items in Slack throughout the day but has no systematic way to review and action them. They get forgotten.
+The user saves/bookmarks items in Slack throughout the day but has no systematic way to review and action them. They get forgotten.
 
 ## Solution
 
 A daily scheduled job that:
-1. Scans Devin's recent Slack saved messages through `stars.list`
+1. Scans the user's recent Slack saved messages through `stars.list`
 2. Summarizes each bookmarked item
 3. Logs them to `Records/Jobs/Slack/YYYY-MM.md` for daily brief aggregation
 4. Attempts to unsave processed items so they do not repeat
@@ -20,14 +20,14 @@ A daily scheduled job that:
 
 **Phase 1 (shipped 2026-04-27):** Used `:bookmark:` emoji reactions as proxy — bot token can't call `stars.list`.
 
-**Phase 2 (shipped 2026-04-28):** Devin added `stars:read` user scope to the Watson Slack app and stored the user token in 1Password as "Watson Slack User Token". The `saved_items` action now calls `stars.list` with the user token directly. The user token is used for `stars.list` and `stars.remove`; all other Slack API calls use the bot token.
+**Phase 2 (shipped 2026-04-28):** The user added `stars:read` user scope to the Watson Slack app and stored the user token in 1Password as "Watson Slack User Token". The `saved_items` action now calls `stars.list` with the user token directly. The user token is used for `stars.list` and `stars.remove`; all other Slack API calls use the bot token.
 
 **Phase 3 (2026-05-25):** The job was hardened after repeated `missing_scope` failures on `stars.remove`.
 
 - `saved_items` defaults to `since_hours: 48` so old saved items from 2022-2023 do not keep polluting the daily brief when cleanup cannot run.
 - `remove_star` returns a structured `missing_scope` warning instead of throwing a generic tool failure.
 - The schedule writes only to the Slack domain log. Morning planning owns daily note updates.
-- Devin added `stars:write` and live validation confirmed the Watson Slack user token can remove message stars.
+- The user added `stars:write` and live validation confirmed the Watson Slack user token can remove message stars.
 - The stale saved-message backlog was cleared on 2026-05-25. Slack still has seven starred non-message objects, which this job intentionally skips.
 
 ## Architecture
@@ -57,7 +57,7 @@ Added to `packages/discord/src/slack-tools.ts`. Calls `stars.list` with the Slac
 ## Validation Results (2026-04-27) — Phase 1
 
 1. **Schedule loaded**: `slack-saved-review` registered, next fire 4:45am PDT
-2. **Empty run**: Manual trigger found 0 items for Devin (correct — no bookmarks). Domain log created at `Records/Jobs/Slack/2026-04.md` with empty-run entry. Daily note correctly skipped.
+2. **Empty run**: Manual trigger found 0 items for the user (correct — no bookmarks). Domain log created at `Records/Jobs/Slack/2026-04.md` with empty-run entry. Daily note correctly skipped.
 3. **Items-found path**: Direct tool call with bot's user ID found 1 bookmarked message in `#share-random` with correct channel name, text, user, timestamp, and permalink.
 4. **Build**: Clean on main, no TypeScript errors.
 5. **Bot restart**: Clean startup, all schedules loaded.
