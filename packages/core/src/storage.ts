@@ -1728,8 +1728,7 @@ const MIGRATIONS: Migration[] = [
       ORDER BY
         CASE
           WHEN id = 'user:owner' THEN 0
-          WHEN id = 'user:devin' THEN 1
-          ELSE 2
+          ELSE 1
         END,
         id
       LIMIT 1;
