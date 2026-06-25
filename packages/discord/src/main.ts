@@ -5097,6 +5097,47 @@ function writeDeadLetter(input: DeadLetterInsertInput): number | null {
   }
 }
 
+function recordUnhandledDiscordTurnFailure(message: Message, errorText: string): number | null {
+  const storedMessage = storage.getMessageByDiscordMessageId(message.id, {
+    channelId: message.channelId,
+  });
+  if (
+    !storedMessage
+    || storedMessage.source !== "discord"
+    || storedMessage.direction !== "inbound"
+    || storedMessage.visibility !== "public"
+    || !storedMessage.agentId
+  ) {
+    return null;
+  }
+
+  const routingChannelId = resolveRoutingChannelId(message);
+  const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
+  const conversationKey = threadId ? `thread:${threadId}` : `channel:${routingChannelId}`;
+  const providerName =
+    storedMessage.providerName
+    ?? agentRegistry.get(storedMessage.agentId)?.provider.default
+    ?? "unknown";
+
+  return writeDeadLetter({
+    sessionId: storedMessage.sessionId,
+    agentId: storedMessage.agentId,
+    providerName,
+    conversationKey,
+    requestMessageId: storedMessage.id,
+    discordChannelId: storedMessage.discordChannelId ?? message.channelId,
+    discordUserId: storedMessage.discordUserId ?? message.author.id,
+    discordUsername: storedMessage.discordUsername ?? message.author.username,
+    promptText: storedMessage.content,
+    lastErrorMessage: errorText,
+    metadata: {
+      recoverySource: "unhandled-discord-turn-failure",
+      originalCreatedAt: storedMessage.createdAt,
+      discordMessageId: message.id,
+    },
+  });
+}
+
 function upsertSessionForRoute(
   route: { sessionId: string; agentId: string },
   fallbackChannel = "discord:default"
@@ -7930,7 +7971,11 @@ client.on("messageCreate", async (message) => {
         return;
       }
       const errorText = error instanceof Error ? error.message : String(error);
-      console.error(`[tango-discord] handleMessage failed for ${message.author.username} in ${message.channelId}: ${errorText}`);
+      const deadLetterId = recordUnhandledDiscordTurnFailure(message, errorText);
+      console.error(
+        `[tango-discord] handleMessage failed for ${message.author.username} in ${message.channelId}: ${errorText}`
+        + (deadLetterId ? ` dead_letter_id=${deadLetterId}` : "")
+      );
       try {
         await sendPresentedReply(message.channel, `Something went wrong processing your message. Please try again.`, systemAgent);
       } catch (replyError) {
