@@ -291,7 +291,7 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "File conventions:",
         "  Shared (all agents): shared/RULES.md, shared/USER.md — profile shared/ wins",
         "  Per-agent: assistants/<id>/{soul,knowledge,USER,RULES}.md — profile assistants/<id>/ wins",
-        "  Per-agent USER/RULES override shared USER/RULES for that agent only (same as prompt assembly)",
+        "  Per-agent RULES add to shared RULES; per-agent USER overrides shared USER (same as prompt assembly)",
         "  Repo tools/skills: agents/tools/*.md, agents/skills/*.md",
       ].join("\n"),
       inputSchema: {
