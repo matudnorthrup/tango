@@ -21,6 +21,8 @@ Calendar checks use `gog calendar events --all` by default. If
 `ORIENTATION_NUDGE_CALENDAR_ACCOUNTS` is set, the runtime queries each listed
 account explicitly. Timed events suppress nudges, including focus blocks,
 tentative events, and travel. All-day events do not suppress nudges.
+Timed events whose title starts with `Block:` are placeholders and do not
+suppress nudges.
 
 ## Daily Note Contract
 
