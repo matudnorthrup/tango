@@ -2040,6 +2040,7 @@ registerDeterministicHandler("active-threads-tracker", createActiveThreadsTracke
 const orientationNudgeChannelId =
   process.env.ORIENTATION_NUDGE_CHANNEL_ID
   ?? process.env.TANGO_ORIENTATION_NUDGE_CHANNEL_ID
+  ?? agentRegistry.get("watson-ollama")?.voice?.defaultChannelId
   ?? agentRegistry.get("watson")?.voice?.defaultChannelId
   ?? null;
 registerDeterministicHandler("orientation-nudge", createOrientationNudgeHandler(client, {
