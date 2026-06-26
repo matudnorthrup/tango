@@ -186,23 +186,103 @@ function findNumericField(
   return undefined;
 }
 
+function readUsageField(
+  usage: Record<string, unknown>,
+  snakeKey: string,
+  camelKey: string,
+): number {
+  const snake = usage[snakeKey];
+  if (typeof snake === "number" && Number.isFinite(snake)) {
+    return snake;
+  }
+
+  const camel = usage[camelKey];
+  if (typeof camel === "number" && Number.isFinite(camel)) {
+    return camel;
+  }
+
+  return 0;
+}
+
+function extractOccupancyFromEventStream(events: unknown[]): ResponderContextUsage | undefined {
+  let peakOccupancyTokens = 0;
+  let contextWindowTokens: number | undefined;
+
+  for (const event of events) {
+    const record = asRecord(event);
+    if (!record) {
+      continue;
+    }
+
+    const eventType = typeof record.type === "string" ? record.type : undefined;
+    if (eventType === "assistant") {
+      const message = asRecord(record.message);
+      const usage = asRecord(message?.usage);
+      if (usage) {
+        const occupancy =
+          readUsageField(usage, "input_tokens", "inputTokens")
+          + readUsageField(usage, "cache_read_input_tokens", "cacheReadInputTokens")
+          + readUsageField(usage, "cache_creation_input_tokens", "cacheCreationInputTokens");
+        if (occupancy > peakOccupancyTokens) {
+          peakOccupancyTokens = occupancy;
+        }
+      }
+    }
+
+    if (eventType === "result") {
+      const modelUsage = asRecord(record.modelUsage);
+      if (modelUsage) {
+        const firstModel = asRecord(Object.values(modelUsage)[0]);
+        const contextWindow = firstModel?.contextWindow;
+        if (typeof contextWindow === "number" && contextWindow > 0) {
+          contextWindowTokens = contextWindow;
+        }
+      }
+    }
+  }
+
+  if (
+    peakOccupancyTokens <= 0
+    || contextWindowTokens === undefined
+    || contextWindowTokens <= 0
+  ) {
+    return undefined;
+  }
+
+  return {
+    fraction: peakOccupancyTokens / contextWindowTokens,
+    totalTokens: peakOccupancyTokens,
+    contextWindow: contextWindowTokens,
+  };
+}
+
 function extractOccupancyUsage(
   metadata: Record<string, unknown>,
 ): ResponderContextUsage | undefined {
   const occupancy = findNumericField(metadata, "contextOccupancyTokens");
   const contextWindow = findNumericField(metadata, "contextWindowTokens");
   if (
-    occupancy === undefined || occupancy <= 0
-    || contextWindow === undefined || contextWindow <= 0
+    occupancy !== undefined && occupancy > 0
+    && contextWindow !== undefined && contextWindow > 0
   ) {
-    return undefined;
+    return {
+      fraction: occupancy / contextWindow,
+      totalTokens: occupancy,
+      contextWindow,
+    };
   }
 
-  return {
-    fraction: occupancy / contextWindow,
-    totalTokens: occupancy,
-    contextWindow,
-  };
+  const raw = asRecord(metadata.raw);
+  const events = Array.isArray(raw?.events)
+    ? raw.events
+    : Array.isArray(metadata.events)
+      ? metadata.events
+      : undefined;
+  if (events) {
+    return extractOccupancyFromEventStream(events);
+  }
+
+  return undefined;
 }
 
 /**

@@ -164,6 +164,17 @@ export class TangoRouter {
     );
   }
 
+  restoreContextAutoResetNotice(
+    channelId: string,
+    threadId: string | undefined,
+    notice: ContextAutoResetNotice,
+  ): void {
+    this.lifecycleManager.restoreContextAutoResetNotice(
+      this.getConversationKey(channelId, threadId),
+      notice,
+    );
+  }
+
   /** Shut down all runtimes */
   async shutdown(): Promise<void> {
     await this.lifecycleManager.shutdown();
