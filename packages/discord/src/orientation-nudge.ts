@@ -765,6 +765,7 @@ export function findBlockingCalendarEvent(rawEvents: unknown[], now: Date): Cale
     const parsed = parseCalendarEvent(event);
     if (!parsed || parsed.allDay) continue;
     if (parsed.status === "cancelled") continue;
+    if (isIgnoredCalendarBlocker(parsed.title)) continue;
     if (parsed.start.getTime() <= now.getTime() && now.getTime() < parsed.end.getTime()) {
       return {
         title: parsed.title,
@@ -774,6 +775,10 @@ export function findBlockingCalendarEvent(rawEvents: unknown[], now: Date): Cale
     }
   }
   return null;
+}
+
+function isIgnoredCalendarBlocker(title: string): boolean {
+  return title.trim().toLowerCase().startsWith("block:");
 }
 
 function parseCalendarEvent(event: unknown): {
