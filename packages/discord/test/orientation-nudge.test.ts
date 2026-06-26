@@ -45,6 +45,36 @@ function writeDailyNote(vaultRoot: string, date: string, body: string): string {
   return notePath;
 }
 
+describe("orientation nudge config", () => {
+  it("keeps defaults when live handler options are explicitly undefined", () => {
+    const previousTimeZone = process.env.ORIENTATION_NUDGE_TIME_ZONE;
+    const previousVaultRoot = process.env.ORIENTATION_NUDGE_VAULT_ROOT;
+    try {
+      delete process.env.ORIENTATION_NUDGE_TIME_ZONE;
+      delete process.env.ORIENTATION_NUDGE_VAULT_ROOT;
+
+      const config = resolveOrientationNudgeConfig({
+        timeZone: undefined,
+        vaultRoot: undefined,
+      });
+
+      expect(config.timeZone).toBe("America/Los_Angeles");
+      expect(config.vaultRoot).toBe(path.join(os.homedir(), "Documents", "main"));
+    } finally {
+      if (previousTimeZone === undefined) {
+        delete process.env.ORIENTATION_NUDGE_TIME_ZONE;
+      } else {
+        process.env.ORIENTATION_NUDGE_TIME_ZONE = previousTimeZone;
+      }
+      if (previousVaultRoot === undefined) {
+        delete process.env.ORIENTATION_NUDGE_VAULT_ROOT;
+      } else {
+        process.env.ORIENTATION_NUDGE_VAULT_ROOT = previousVaultRoot;
+      }
+    }
+  });
+});
+
 describe("orientation nudge daily-note parsing", () => {
   it("uses the first top-level unchecked task rotation item and latest interstitial entry", () => {
     const parsed = parseDailyNote([
