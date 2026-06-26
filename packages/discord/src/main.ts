@@ -6577,7 +6577,7 @@ type ContextAlertUsage = {
 };
 
 function extractTurnContextUsage(metadata: unknown): ContextAlertUsage | undefined {
-  const usage = extractResponderContextUsage(asRecord(metadata));
+  const usage = extractResponderContextUsage(asRecord(metadata) ?? undefined);
   if (!usage) {
     return undefined;
   }
