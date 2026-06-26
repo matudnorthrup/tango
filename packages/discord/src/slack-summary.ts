@@ -13,16 +13,28 @@
  */
 
 import type { DeterministicHandler } from "@tango/core";
+import { readProfileConfigStringList } from "@tango/core";
 import { getSecret } from "./op-secret.js";
 
 const SLACK_API = "https://slack.com/api";
 const DEFAULT_LOOKBACK_MS = 24 * 3600_000;
 
-// AI-related channel names for the AI briefing filter
-const AI_CHANNEL_NAMES = new Set([
-  "ai", "ai-productivity", "agents", "share-news", "share-learning",
-  "claudes-office", "devins-agents", "openclaw",
-]);
+// AI-related channel names for the AI briefing filter. The generic starter set
+// ships in config/defaults/slack/ai-channels.txt; an installation's real channel
+// names are added via the profile overlay (config/slack/ai-channels.txt) or the
+// TANGO_SLACK_AI_CHANNELS env var — keeping personal channel names out of the repo.
+const AI_CHANNELS_CONFIG_PATH = "slack/ai-channels.txt";
+
+function loadAiChannelNames(): Set<string> {
+  return new Set(
+    readProfileConfigStringList({
+      relativePath: AI_CHANNELS_CONFIG_PATH,
+      envPathVar: "TANGO_SLACK_AI_CHANNELS_FILE",
+      envValueVar: "TANGO_SLACK_AI_CHANNELS",
+      lowercase: true,
+    }).map((name) => name.trim().toLowerCase()).filter(Boolean),
+  );
+}
 
 // In-memory: last successful run timestamps (epoch seconds), keyed by handler
 const lastRunTimestamps = new Map<string, number>();
@@ -302,9 +314,10 @@ export const slackSummaryHandler: DeterministicHandler = async (_ctx) => {
 
 /** AI-related channels only — for the AI intelligence briefing. */
 export const slackAiBriefingHandler: DeterministicHandler = async (_ctx) => {
+  const aiChannelNames = loadAiChannelNames();
   return await runSlackSummary({
     handlerId: "slack-ai-briefing",
-    channelFilter: (ch) => AI_CHANNEL_NAMES.has(ch.name),
+    channelFilter: (ch) => aiChannelNames.has(ch.name.toLowerCase()),
     title: "AI & Agents Briefing",
   });
 };

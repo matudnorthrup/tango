@@ -56,9 +56,14 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "claude-sessions"]
     env:
       ALLOWED_TOOL_IDS: "spawn_claude_session,list_claude_sessions"
+  - name: orientation
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "orientation"]
+    env:
+      ALLOWED_TOOL_IDS: "orientation_nudge"
   - name: latitude
     command: mcp-remote
-    args: ["https://mcp.preview.aidungeon.com/oauth/mcp"]
+    args: ["https://mcp.example.invalid/oauth/mcp"]
   - name: send-image
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "send-image"]
@@ -93,18 +98,18 @@ memory:
 
 # Discord routing
 discord:
-  default_channel_id: "1513207663419330650"
+  default_channel_id: "100000000000000001"
   smoke_test_channel_id: "100000000000001001" # watson-test (placeholder; real id in profile overlay)
 
 # Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
-    - "1513207663419330650"
+    - "100000000000000001"
     - "100000000000001001" # watson-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields (used by agentRegistry consumers)
-avatar_url: https://cdn.discordapp.com/avatars/1480550056523468861/ff5bac712e31630feba87803474bc0c6.webp
+avatar_url: https://example.com/tango/avatars/watson.png
 default_topic: personal/default
 default_project: personal
 response_mode: concise
@@ -139,5 +144,5 @@ voice:
     - "Bravo Watson"
     - Watson
   kokoro_voice: bm_george
-  default_channel_id: "1513207663419330650"
+  default_channel_id: "100000000000000001"
   smoke_test_channel_id: "100000000000001001" # watson-test (placeholder; real id in profile overlay)

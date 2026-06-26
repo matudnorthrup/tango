@@ -45,7 +45,7 @@ Review the non-actionable mail before bulk archiving.
    - **Action/Attention** — renewals, billing, deadlines, security alerts that need response
    - **Business/Work** — reports, app reviews, stability alerts worth a glance
    - **Family** — kids' activity reports, school notifications
-   - **Sales/Revenue** — LearnSamoan purchases, business transactions
+   - **Sales/Revenue** — purchase confirmations and business transactions from the user's own businesses/side projects
    - **Safe to archive** — marketing, promos, routine automated alerts
 3. Present the categorized summary. Flag anything that might need attention.
 4. Wait for direction on flagged items. Fetch full email if requested.

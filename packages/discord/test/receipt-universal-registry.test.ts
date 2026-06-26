@@ -9,6 +9,7 @@ import {
   reconcileUniversalReimbursements,
   upsertReimbursementTracking,
 } from "../src/receipt-universal-registry.js";
+import { writeTestReimbursementConfig } from "./helpers/reimbursement-test-config.js";
 
 const cleanupDirs: string[] = [];
 const originalTangoHome = process.env.TANGO_HOME;
@@ -150,7 +151,10 @@ describe("receipt universal registry", () => {
   it("repairs reimbursement frontmatter when upserting tracking state", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-universal-receipts-"));
     cleanupDirs.push(tempDir);
-    const filePath = path.join(tempDir, "2026-04-07 Maid in Newport Invoice 1707.md");
+    process.env.TANGO_HOME = tempDir;
+    process.env.TANGO_PROFILE = "test";
+    writeTestReimbursementConfig(path.join(tempDir, "profiles", "test", "config"));
+    const filePath = path.join(tempDir, "2026-04-07 Home Service Co Invoice 1707.md");
 
     fs.writeFileSync(
       filePath,
@@ -160,11 +164,11 @@ describe("receipt universal registry", () => {
         "areas:",
         "  - \"[[Finance]]\"",
         "---",
-        "# Maid in Newport Invoice 1707",
+        "# Home Service Co Invoice 1707",
         "",
         "- **Date:** 2026-04-07",
         "- **Total:** $350.00",
-        "- **Merchant:** Maid in Newport",
+        "- **Merchant:** Home Service Co",
         "",
         "## Notes",
         "",
@@ -175,11 +179,11 @@ describe("receipt universal registry", () => {
 
     const result = upsertReimbursementTracking({
       notePath: filePath,
-      vendor: "maid_in_newport",
+      vendor: "home_service",
       status: "not_submitted",
       system: "Ramp",
       amount: 350,
-      note: "Exec Buy Back Time",
+      note: "Reimbursable expense",
     });
 
     expect(result.reimbursement.status).toBe("not_submitted");
@@ -188,7 +192,7 @@ describe("receipt universal registry", () => {
     expect(updated).toContain("reimbursable: true");
     expect(updated).toContain("ramp_submitted: null");
     expect(updated).toContain("ramp_report_id: null");
-    expect(updated).toContain("merchant: Maid in Newport");
+    expect(updated).toContain("merchant: Home Service Co");
     expect(updated).toContain("amount: 350.00");
     expect(updated).toContain("## Reimbursement Tracking");
     expect(updated).toContain("- Status: not_submitted");
@@ -234,7 +238,7 @@ describe("receipt universal registry", () => {
         "| System | Ramp |",
         "| Reimbursable Item | Driver tip |",
         "| Amount | $24.94 |",
-        "| Note | Exec Buy Back Time |",
+        "| Note | Reimbursable expense |",
       ].join("\n"),
       "utf8",
     );
@@ -251,7 +255,7 @@ describe("receipt universal registry", () => {
     expect(candidates[0]?.reimbursableAmount).toBe(24.94);
     expect(candidates[0]?.reimbursement.status).toBe("not_submitted");
     expect(candidates[0]?.reimbursement.system).toBe("Ramp");
-    expect(candidates[0]?.reimbursement.note).toBe("Exec Buy Back Time");
+    expect(candidates[0]?.reimbursement.note).toBe("Reimbursable expense");
 
     const gaps = detectReimbursementGaps({
       since: "2026-05-27",
@@ -266,10 +270,11 @@ describe("receipt universal registry", () => {
     cleanupDirs.push(tempHome);
     process.env.TANGO_HOME = tempHome;
     process.env.TANGO_PROFILE = "test";
+    writeTestReimbursementConfig(path.join(tempHome, "profiles", "test", "config"));
 
-    const receiptDir = path.join(tempHome, "profiles", "test", "data", "receipts", "Maid in Newport");
+    const receiptDir = path.join(tempHome, "profiles", "test", "data", "receipts", "Home Service Co");
     fs.mkdirSync(receiptDir, { recursive: true });
-    const filePath = path.join(receiptDir, "2026-04-07 Maid in Newport Invoice 1707.md");
+    const filePath = path.join(receiptDir, "2026-04-07 Home Service Co Invoice 1707.md");
     fs.writeFileSync(
       filePath,
       [
@@ -278,11 +283,11 @@ describe("receipt universal registry", () => {
         "areas:",
         "  - \"[[Finance]]\"",
         "---",
-        "# Maid in Newport Invoice 1707",
+        "# Home Service Co Invoice 1707",
         "",
         "- **Date:** 2026-04-07",
         "- **Total:** $350.00",
-        "- **Merchant:** Maid in Newport",
+        "- **Merchant:** Home Service Co",
         "",
         "## Reimbursement Tracking",
         "",
@@ -290,7 +295,7 @@ describe("receipt universal registry", () => {
         "- System: Ramp",
         "- Reimbursable Item: House cleaning",
         "- Amount: $350.00",
-        "- Note: Exec Buy Back Time",
+        "- Note: Reimbursable expense",
         "- Ramp Report ID: stale-draft-id",
       ].join("\n"),
       "utf8",
@@ -299,7 +304,7 @@ describe("receipt universal registry", () => {
     const reconciled = reconcileUniversalReimbursements({
       history: [],
       since: "2026-04-01",
-      vendor: "maid_in_newport",
+      vendor: "home_service",
       updateNotes: true,
     });
 

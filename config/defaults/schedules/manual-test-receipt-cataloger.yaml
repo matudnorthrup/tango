@@ -33,7 +33,7 @@ execution:
     Reimbursement gap candidates:
     {{reimbursementGapDetails}}
 
-    1. Check Lunch Money for recent Amazon, Walmart, Costco, Venmo, Maid in Newport,
+    1. Check Lunch Money for recent Amazon, Walmart, Costco, Venmo, and configured recurring vendors,
        and Factor
        transactions for exactly that date window.
     1a. Focus on the candidate transactions above, even if they are already
@@ -54,7 +54,7 @@ execution:
        - **Venmo**: Use gog_email to search Gmail for the Venmo payment
          confirmation email matching the amount and approximate date.
          Venmo emails contain the recipient, note, and payment details.
-       - **Maid in Newport / Factor**: When found in Lunch Money, use gog_email
+       - **Recurring reimbursable vendors (from reimbursement config)**: When found in Lunch Money, use gog_email
          to find the matching Gmail invoice or receipt email and create the
          receipt from that invoice or attachment.
     3. Create or update the Obsidian receipt file following the receipt_logging

@@ -1,7 +1,12 @@
 # finance_review
 
-Unified finance review workflow for Foxtrot. Use this for scheduled rolling
+Unified finance review workflow. Use this for scheduled rolling
 reviews, month-end close prep, final month close, and ad-hoc dry runs.
+
+Account names, sinking-fund names, child-spending reserve names, and covered
+category names are profile-configured. Where this doc names a specific account,
+fund, or person, treat it as a placeholder and use the profile-configured values
+for the installation.
 
 The review is one process with conditional depth. Weekly and monthly schedules
 are just different phases of the same workflow.
@@ -123,14 +128,12 @@ For each relevant account, inspect:
 - `plaid_last_successful_update`
 
 At minimum check:
-- Devin's Checking
+- the primary checking account
 - main credit card account
-- House SB
-- Vehicles SB
-- Recreation SB
-- Spending SB when discretionary spending is in scope
-- profile-configured Kilo spending reserve when Kilo spending or sinking budget
-  coverage is in scope
+- each profile-configured sinking fund account
+- the discretionary spending reserve when discretionary spending is in scope
+- the profile-configured child-spending reserve when child spending or sinking
+  budget coverage is in scope
 
 If a relevant account has not fetched/imported data after a date needed for the
 review, trigger:
@@ -193,7 +196,7 @@ unless explicitly carried forward.
 Read:
 
 ```
-~/Documents/main/References/Finance/Budget Targets.md
+References/Finance/Budget Targets.md
 ```
 
 Use Budget Targets as source of truth. Lunch Money budgets are optional
@@ -226,46 +229,49 @@ Always check:
 - current fund balances when available
 - covered-category spend
 - outstanding SB draw/reimbursement needs
-- Profile-configured Kilo spending reserve separately from any owner spending
-  reserve. The Kilo reserve covers the configured Kilo spending category, uses
-  the ledger's configured backing account, and should produce draw
-  recommendations when child spending needs to be offset.
-- Kilo ledger bookkeeping for approved configured child-spending items. Read the
-  private Obsidian Kilo spending runbook when Kilo spending is in scope.
-- Kilo review subroutine:
-  1. Verify the configured Kilo contribution from real account activity once it
-     is due.
-  2. Read `kilo_ledger summary` and treat the returned active bucket list as
+- The profile-configured child-spending reserve, kept separate from any owner
+  spending reserve. The child-spending reserve covers the configured child
+  spending category, uses the ledger's configured backing account, and should
+  produce draw recommendations when child spending needs to be offset.
+- Child-spending ledger bookkeeping for approved configured child-spending
+  items. Read the profile-configured child-spending runbook when child spending
+  is in scope.
+- Child-spending review subroutine (the ledger tool is named per profile; the
+  generic name `child_ledger` is used below):
+  1. Verify the configured child-spending contribution from real account
+     activity once it is due.
+  2. Read `child_ledger summary` and treat the returned active bucket list as
      authoritative. Do not assume discretionary buckets from documentation or
      history still exist.
-  3. Find current configured Kilo spending Lunch Money transactions in the
+  3. Find current configured child-spending Lunch Money transactions in the
      review window.
-  4. Recommend the best matching active discretionary Kilo bucket for each
+  4. Recommend the best matching active discretionary bucket for each
      transaction. If no active bucket fits, ask the owner whether to use an
      existing bucket, create one, or defer the debit.
-  5. Use `kilo_ledger record_spend` for approved current transactions only.
-     This immediately lowers the Kilo spendable ledger even if the real
+  5. Use `child_ledger record_spend` for approved current transactions only.
+     This immediately lowers the spendable ledger even if the real
      bank/Lunch Money movement happens later.
   6. When the later bank/Lunch Money transfer out posts, use
-     `kilo_ledger settle_spending` to mark already-recorded spends as settled.
+     `child_ledger settle_spending` to mark already-recorded spends as settled.
      Do not debit buckets twice.
-  7. Use `kilo_ledger record_historical_spend` only for old/context purchases
+  7. Use `child_ledger record_historical_spend` only for old/context purchases
      that should appear in history without changing current balances.
   8. Reconcile expected external balance against the configured backing account.
      Expected external balance is ledger total plus pending settlement. Report
      drift as a warning, not a write blocker.
-- Kilo bucket matching examples: food/treats -> active food-like bucket,
+- Bucket matching examples: food/treats -> active food-like bucket,
   clothes/shoes -> active clothing-like bucket,
   games/media/apps/subscriptions/LEGO/toys/activities/fun fallback -> active
   fun/activity-like bucket, gifts -> active gifts-like bucket. These are
-  semantic examples, not fixed bucket ids. Never debit Tithing or Savings for
-  spending. Do not assume an `entertainment` bucket exists just because older
-  history references one; only use it if the current summary says it is active.
+  semantic examples, not fixed bucket ids. Never debit reserved buckets such as
+  tithing/donation or savings for spending. Do not assume an `entertainment`
+  bucket exists just because older history references one; only use it if the
+  current summary says it is active.
 
 Contribution rule:
 - Contributions should be verified according to the cadence in the finance
-  source note. Monthly funds are verified after their due date; Kilo funding is
-  verified against the configured posted transfer after its due date.
+  source note. Monthly funds are verified after their due date; child-spending
+  funding is verified against the configured posted transfer after its due date.
 - Refresh stale Lunch Money/Plaid data before deciding.
 - Check both checking-side outflows and savings-side mirror activity.
 - Report stale data as unverified, not missing.
@@ -277,7 +283,8 @@ Draw recommendation thresholds:
 - `close_prep` and `close`: true up all intentional remaining draws unless the
   user explicitly carries them forward.
 
-Do not create or manage Ramp drafts. Ramp is only for Latitude reimbursements.
+Do not create or manage Ramp drafts. Ramp is only for the configured
+employer/work reimbursement program.
 
 ## Step 6: Reimbursements and receipts
 
@@ -311,7 +318,7 @@ Check receipt/reimbursement gaps:
 
 If `receipt_registry` is unavailable, errors, or cannot verify live Ramp state,
 report reimbursement state as `unverified - receipt registry/Ramp check failed`.
-Do not infer pending reimbursement amounts from `Latitude Reimbursements.base`,
+Do not infer pending reimbursement amounts from the reimbursements Base view,
 Obsidian search results, old review notes, or loose receipt-note text.
 
 For `rolling`, surface and prioritize gaps. For `close_prep` and `close`,
@@ -325,7 +332,7 @@ Do not submit to Ramp unless the user explicitly approves.
 For `rolling`, the review is complete when:
 - data freshness is known
 - backlog and flags are listed
-- decisions needed from Devin are clear
+- decisions needed from the owner are clear
 - review note is written
 
 For `close_prep`, the review is complete when:
@@ -348,7 +355,7 @@ Return a concise scheduler/Discord summary:
 - data freshness / refreshes performed
 - top open flags
 - sinking fund recommendation summary
-- Kilo spending review summary when in scope: contribution status, approved
+- child-spending review summary when in scope: contribution status, approved
   ledger debits, pending settlements, pending owner decisions, and drift status
 - reimbursement/receipt gaps
 - budget pace signals

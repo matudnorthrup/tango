@@ -7,7 +7,7 @@
 
 ## Problem
 
-Tango's receipt/reimbursement tracking was Walmart-only. Non-Walmart reimbursable expenses (Venmo payments, Maid in Newport, Factor meals) had no dedup check, no automated tracking state, and no default memo policy.
+Tango's receipt/reimbursement tracking was single-retailer-only. Non-retailer reimbursable expenses (peer-payment apps, service-provider invoices, meal-kit subscriptions) had no dedup check, no automated tracking state, and no default memo policy.
 
 ## What shipped (2026-04-16)
 
@@ -24,26 +24,26 @@ All 7 phases merged to main across 4 commits:
 - `loadReimbursementConfig()`, `resolveDefaultMemo()`, `resolveVendorConfig()` in `receipt-universal-registry.ts`
 - Submit handler resolves: vendor/merchant → category → memo automatically
 - Memo field now optional — auto-fills from config, explicit memo overrides
-- **Validated:** All candidates resolve "Exec Buy Back Time" from config
+- **Validated:** All candidates resolve the configured reimbursement memo from config
 
 ### Phase 3: Universal Receipt Record + Scanner
-- `UniversalReceiptRecord` interface with vendor-specific parsers (Venmo, generic)
+- `UniversalReceiptRecord` interface with vendor-specific parsers (peer-payment, generic)
 - `loadAllReceiptRecords()` walks all subdirs of `Records/Finance/Receipts/`
 - `upsertReimbursementTracking()` — universal upsert for any note
 - 1495 lines in `receipt-universal-registry.ts`
-- **Validated:** 57 records across Amazon/Walmart/Venmo/Costco, vendorKeys resolve correctly
+- **Validated:** 57 records across multiple retailers and a peer-payment vendor, vendorKeys resolve correctly
 
 ### Phase 4: Universal Tool Actions
 - 6 new actions on `receipt_registry`: `list_reimbursement_candidates`, `reconcile_reimbursements`, `upsert_reimbursement`, `generate_monthly_ledger`, `detect_gaps`, `check_submission_dedup`
-- Existing Walmart-specific actions preserved for backward compat
-- **Validated:** Candidates list returns Venmo + Walmart together
+- Existing single-retailer-specific actions preserved for backward compat
+- **Validated:** Candidates list returns peer-payment + retailer candidates together
 
 ### Phase 5: Gap Detection + Cataloger Extension
 - `detectReimbursementGaps()` — missing tracking sections, stale submitted status, missing recurring receipts
 - `buildReimbursementGapCandidates()` in `receipt-catalog-precheck.ts`
-- RETAILER_PATTERN extended with `maid in newport|factor`
-- Cataloger task template updated for non-Walmart receipt creation
-- **Validated:** Found 6 real gaps (2 missing Venmo tracking, 1 Walmart, 3 Maid in Newport recurring)
+- RETAILER_PATTERN extended with additional configured vendor patterns (service provider, meal-kit subscription)
+- Cataloger task template updated for non-retailer receipt creation
+- **Validated:** Found 6 real gaps (2 missing peer-payment tracking, 1 retailer, 3 recurring service-vendor)
 
 ### Phase 6: Skill Updates
 - `ramp-reimbursements.md` — dedup gate policy, memo auto-resolution, universal actions documented, vendor param guidance
@@ -52,7 +52,7 @@ All 7 phases merged to main across 4 commits:
 ### Ramp Browser Automation Fixes
 - Timing fix: wait for draft form fields to render before filling (`waitFor visible`)
 - Overlay fix: Ramp's receipt analysis overlay blocks form inputs; added trial click wait
-- **Partially validated:** Fresh submissions succeed (April 10 Walmart $27.19 submitted with auto-resolved memo). Retries with stale state fail.
+- **Partially validated:** Fresh submissions succeed (an April 10 retailer tip submitted with auto-resolved memo; amount redacted). Retries with stale state fail.
 
 ## What's broken — pick up in Ramp Submission Automation Hardening
 
@@ -75,7 +75,7 @@ Current fix (trial click wait on amount input) works for fresh drafts but not wh
 **File:** `browser-manager.ts` ~line 1970-1972
 
 ### 3. No draft cleanup capability
-Failed submission attempts create orphan Ramp drafts. No `delete_ramp_draft` action exists. Watson can't clean them up. 15 accumulated during testing on 2026-04-16 (manually deleted by Devin).
+Failed submission attempts create orphan Ramp drafts. No `delete_ramp_draft` action exists. Watson can't clean them up. 15 accumulated during testing on 2026-04-16 (manually deleted by the user).
 
 **Fix:** Add `delete_ramp_draft` action to `ramp_reimbursement` tool — navigate to draft URL, click overflow menu, click delete/discard.
 
@@ -92,15 +92,15 @@ Watson's per-agent allowlist didn't include the smoke test parent channel. Fixed
 | Test | Result |
 |------|--------|
 | Dedup gate (offline) | Pass — blocks matching date::amount |
-| Memo auto-fill (offline) | Pass — all candidates resolve "Exec Buy Back Time" |
+| Memo auto-fill (offline) | Pass — all candidates resolve the configured default memo |
 | Universal scan (offline) | Pass — 57 records, correct vendorKeys |
 | Gap detection (offline) | Pass — 6 real gaps found |
-| Walmart tip submission (live) | Pass — $27.19 submitted with auto-resolved memo, receipt note updated |
-| Venmo submission (live) | Fail — Watson hit overlay timeout, fell back to old PNG flow instead of PDF |
-| Maid in Newport submission (live) | Fail — Watson couldn't find invoice autonomously |
+| Retailer tip submission (live) | Pass — tip submitted with auto-resolved memo, receipt note updated (amount redacted) |
+| Peer-payment submission (live) | Fail — Watson hit overlay timeout, fell back to old PNG flow instead of PDF |
+| Service-vendor submission (live) | Fail — Watson couldn't find invoice autonomously |
 | Stale draft cleanup (live) | Fail — Watson couldn't navigate Ramp draft deletion UI |
 
-Venmo and Maid in Newport were submitted manually by Devin after Watson failed.
+The peer-payment and service-vendor reimbursements were submitted manually by the user after Watson failed.
 
 ## Key files
 

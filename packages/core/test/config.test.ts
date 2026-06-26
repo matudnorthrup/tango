@@ -554,11 +554,11 @@ describe("loadScheduleConfigs", () => {
     for (const schedule of [morningPlanning, manualTest]) {
       expect(schedule, "schedule exists").toBeDefined();
       const task = schedule?.execution.task ?? "";
-      expect(task).toContain("~/Documents/main/References/Email Triage Rules.md");
+      expect(task).toContain("References/Email Triage Rules.md");
       expect(task).toContain("filter every email-sourced item");
       expect(task).toContain("Today's Priorities");
       expect(task).toContain("Stretch (if capacity)");
-      expect(task).toContain("tech@latitude.io");
+      expect(task).toContain("alerts@example.com");
     }
 
     expect(manualTest?.enabled).toBe(false);
@@ -577,7 +577,7 @@ describe("loadScheduleConfigs", () => {
     for (const schedule of [production, manualTest]) {
       expect(schedule, "schedule exists").toBeDefined();
       const task = schedule?.execution.task ?? "";
-      expect(task).toContain("~/Documents/main/References/Email Triage Rules.md");
+      expect(task).toContain("References/Email Triage Rules.md");
       expect(task).toContain("Apply the");
       expect(task).toContain("triage rules");
       expect(task).toContain("Ignore");

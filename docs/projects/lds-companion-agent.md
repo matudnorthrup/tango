@@ -12,7 +12,7 @@ The agent should be grounded in the doctrine, scriptures, and language of The Ch
 
 ## Product Shape
 
-This agent is a spiritual study companion and church-work aide, not an ecclesiastical authority. It should help Devin think, prepare, remember, draft, and organize while keeping final judgment, revelation, and pastoral stewardship with Devin and local leaders.
+This agent is a spiritual study companion and church-work aide, not an ecclesiastical authority. It should help the user think, prepare, remember, draft, and organize while keeping final judgment, revelation, and pastoral stewardship with the user and local leaders.
 
 Core jobs:
 
@@ -36,11 +36,11 @@ Legacy `config/defaults/agents/{id}.yaml` is not required for new agents because
 
 Porter is now configured through the v2 runtime, and the live Discord bot has been restarted with Porter present in routing.
 
-Relevant private vault references exist:
+Relevant private vault references exist (kept in the user's private/profile layer, not the repo):
 
 - Gospel Library scripture-linking API notes
 - scripture marking system notes
-- sacrament meeting template notes
+- meeting-conducting template notes
 - a current lesson-prep note
 
 The scripture-linking note documents an authenticated Gospel Library notes API flow for creating reference annotations between scripture verses and lesson content. Tango now wraps that flow in a dedicated `gospel_library` MCP tool.
@@ -56,7 +56,7 @@ The scripture-marking note defines a useful marking taxonomy:
 - Pink: favorite
 - Gray: common/first pass
 
-The sacrament meeting template is usable but sparse. The conducting protocol note is a placeholder and should not be treated as authoritative until researched.
+The meeting-conducting template is usable but sparse. The conducting protocol note is a placeholder and should not be treated as authoritative until researched.
 
 ## Discord Channels
 
@@ -83,7 +83,7 @@ Safety boundaries:
 - Do not give confidential pastoral counsel as if acting for a bishopric.
 - For calling-related work, prefer drafts, outlines, and checklists over assertions about private members.
 - Email sends and sensitive note writes should stay confirmation-gated.
-- Avoid storing sensitive ward/person information in broad, evergreen notes unless Devin explicitly asks.
+- Avoid storing sensitive congregation/person information in broad, evergreen notes unless the user explicitly asks.
 
 ## Tool Direction
 
@@ -105,7 +105,7 @@ Authentication improvement: `gospel_library status` now launches/navigates the
 managed browser instead of asking the user to open a tab. `gospel_library login`
 opens the Church site, checks annotation auth, and uses the configured
 1Password Church login item to fill the sign-in form without returning
-credentials to the model. Porter should ask Devin only when
+credentials to the model. Porter should ask the user only when
 1Password access, captcha, or 2FA is actually blocking the browser.
 
 Implementation also includes reusable skill guidance for LDS study, talk prep, lesson prep, sacrament conducting, scripture marking, Obsidian notes, and read-only email review.
@@ -143,7 +143,7 @@ Persona direction:
 
 ## Avatar
 
-Devin selected a Porter portrait: an illustrated older bearded man with round
+The user selected a Porter portrait: an illustrated older bearded man with round
 glasses, direct expression, fringed jacket, and mountain backdrop. It fits the
 practical, direct, wise Porter persona.
 
@@ -213,7 +213,7 @@ Current validation results:
 - Passed: sacrament meeting conducting outline using the Obsidian sacrament meeting template.
 - Passed: `gospel_library status` read-only check; the tool reached the browser context and did not modify annotations.
 - Passed: updated Gospel Library auth/read smoke. Porter launched/used the
-  managed browser without asking Devin to open a tab, corrected the annotation
+  managed browser without asking the user to open a tab, corrected the annotation
   auth probe, confirmed authenticated status, ran `prepare_login` as an
   authenticated no-op, and read 595 highlight annotations with `list_annotations`
   without exposing private IDs. Passing records: `5570`, `5572`, `5574`.

@@ -116,7 +116,7 @@ interface VaultAuditJsonSummary {
   };
 }
 
-const DEFAULT_VAULT_PATH = "~/Documents/main";
+const DEFAULT_VAULT_PATH = process.env.TANGO_OBSIDIAN_VAULT ?? "";
 const DEFAULT_OUTPUT_DIR = "data/reports";
 const REQUIRED_FRONTMATTER_FIELDS = ["date", "types", "areas"];
 const LIST_WIKILINK_FIELDS = ["types", "areas", "categories", "collections"];
@@ -1451,7 +1451,7 @@ Usage:
   node --import tsx ./scripts/vault-audit.ts [options]
 
 Options:
-  --vault-path <path>      Obsidian vault path (default: ~/Documents/main)
+  --vault-path <path>      Obsidian vault path (default: $TANGO_OBSIDIAN_VAULT)
   --db-path <path>         Tango SQLite path (default: active Tango profile DB)
   --output-path <path>     Markdown report path (default: data/reports/vault-audit-YYYY-MM-DD.md)
   --summary-json <path>    Also write a machine-readable JSON summary

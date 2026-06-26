@@ -10,6 +10,7 @@ import {
   formatReceiptCatalogCandidateDetails,
   formatReimbursementGapCandidateDetails,
 } from "../src/receipt-catalog-precheck.js";
+import { writeTestReimbursementConfig } from "./helpers/reimbursement-test-config.js";
 
 const cleanupDirs: string[] = [];
 const originalTangoHome = process.env.TANGO_HOME;
@@ -62,20 +63,26 @@ describe("receipt catalog precheck", () => {
         "# Amazon Order 123",
         "",
         "## Linked Transactions",
-        "- Lunch Money TXN 2376200290: $109.78",
+        "- Lunch Money TXN 1000000290: $109.78",
         "  - TXN 2376496784: $244.64",
       ].join("\n"),
     );
 
     const ids = collectLinkedReceiptTransactionIds(dir);
-    expect(ids).toEqual(new Set(["2376200290", "2376496784"]));
+    expect(ids).toEqual(new Set(["1000000290", "2376496784"]));
   });
 
   it("returns retailer transactions that are still missing linked receipt notes", () => {
+    const tangoHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-precheck-retailers-"));
+    cleanupDirs.push(tangoHome);
+    process.env.TANGO_HOME = tangoHome;
+    process.env.TANGO_PROFILE = "receipt-precheck";
+    writeTestReimbursementConfig(path.join(tangoHome, "profiles", "receipt-precheck", "config"));
+
     const candidates = buildMissingReceiptCandidates(
       [
         {
-          id: 2376200290,
+          id: 1000000290,
           date: "2026-04-01",
           payee: "Amazon",
           original_name: "AMAZON MKTPL*BC5RG8Y02",
@@ -101,16 +108,16 @@ describe("receipt catalog precheck", () => {
         {
           id: 6001,
           date: "2026-04-03",
-          payee: "Maid in Newport",
-          original_name: "MAID IN NEWPORT",
+          payee: "Home Service Co",
+          original_name: "HOME SERVICE CO",
           amount: "350.0000",
           status: "cleared",
         },
         {
           id: 6002,
           date: "2026-04-04",
-          payee: "Factor",
-          original_name: "FACTOR_",
+          payee: "Meal Kit Co",
+          original_name: "MEAL KIT CO",
           amount: "89.9900",
           status: "uncleared",
         },
@@ -123,7 +130,7 @@ describe("receipt catalog precheck", () => {
           status: "uncleared",
         },
       ],
-      new Set(["2376200290", "2376496784"]),
+      new Set(["1000000290", "2376496784"]),
     );
 
     expect(candidates).toEqual([
@@ -138,24 +145,24 @@ describe("receipt catalog precheck", () => {
       {
         id: "6001",
         date: "2026-04-03",
-        payee: "Maid in Newport",
-        originalName: "MAID IN NEWPORT",
+        payee: "Home Service Co",
+        originalName: "HOME SERVICE CO",
         amount: "350.00",
         status: "cleared",
       },
       {
         id: "6002",
         date: "2026-04-04",
-        payee: "Factor",
-        originalName: "FACTOR_",
+        payee: "Meal Kit Co",
+        originalName: "MEAL KIT CO",
         amount: "89.99",
         status: "uncleared",
       },
     ]);
     expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("TXN 2375784675");
     expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("$292.23");
-    expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("Maid in Newport");
-    expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("Factor");
+    expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("Home Service Co");
+    expect(formatReceiptCatalogCandidateDetails(candidates)).toContain("Meal Kit Co");
   });
 
   it("builds reimbursement gap candidates for configured vendors and recurring receipts", () => {
@@ -163,6 +170,7 @@ describe("receipt catalog precheck", () => {
     cleanupDirs.push(tangoHome);
     process.env.TANGO_HOME = tangoHome;
     process.env.TANGO_PROFILE = "receipt-precheck";
+    writeTestReimbursementConfig(path.join(tangoHome, "profiles", "receipt-precheck", "config"));
 
     const receiptsRoot = path.join(
       tangoHome,
@@ -172,27 +180,27 @@ describe("receipt catalog precheck", () => {
       "receipts",
     );
     fs.mkdirSync(path.join(receiptsRoot, "Venmo"), { recursive: true });
-    fs.mkdirSync(path.join(receiptsRoot, "Factor"), { recursive: true });
+    fs.mkdirSync(path.join(receiptsRoot, "Meal Kit Co"), { recursive: true });
 
     fs.writeFileSync(
       path.join(receiptsRoot, "Venmo", "2026-04-04 Payment 123.md"),
       [
-        "# Venmo Payment to Kip Everitt",
+        "# Venmo Payment to Jane Doe",
         "",
         "- **Date:** 2026-04-04",
         "- **Total:** $600.00",
-        "- **Recipient:** Kip Everitt",
+        "- **Recipient:** Jane Doe",
       ].join("\n"),
     );
 
     fs.writeFileSync(
-      path.join(receiptsRoot, "Factor", "2026-04-08 Invoice 456.md"),
+      path.join(receiptsRoot, "Meal Kit Co", "2026-04-08 Invoice 456.md"),
       [
-        "# Factor Invoice 456",
+        "# Meal Kit Co Invoice 456",
         "",
         "- **Date:** 2026-04-08",
         "- **Total:** $89.99",
-        "- **Merchant:** Factor",
+        "- **Merchant:** Meal Kit Co",
         "",
         "## Reimbursement Tracking",
         "",
@@ -216,12 +224,12 @@ describe("receipt catalog precheck", () => {
       }),
       expect.objectContaining({
         type: "stale_tracking",
-        vendorKey: "factor",
-        noteName: "Factor/2026-04-08 Invoice 456.md",
+        vendorKey: "meal_kit",
+        noteName: "Meal Kit Co/2026-04-08 Invoice 456.md",
       }),
       expect.objectContaining({
         type: "missing_recurring_receipt",
-        vendorKey: "maid_in_newport",
+        vendorKey: "home_service",
         month: "2026-04",
       }),
     ]));

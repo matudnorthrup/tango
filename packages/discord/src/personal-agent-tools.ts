@@ -2111,7 +2111,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
         "",
         "  submit_reviewed_ramp_reimbursement",
         "    Submit an already-prepared Ramp draft after checking the expected amount, transaction date, memo, and optional merchant.",
-        "    Requires submission_confirmation='DEVIN_REVIEWED_AND_APPROVED_SUBMISSION'.",
+        "    Requires submission_confirmation='OWNER_REVIEWED_AND_APPROVED_SUBMISSION'.",
         "",
         "  submit_ramp_reimbursement",
         "    Deprecated alias for prepare_ramp_reimbursement_draft. It prepares a draft only; it does not click final Submit.",
@@ -2189,7 +2189,7 @@ export function createReimbursementAutomationTools(): AgentTool[] {
           },
           submission_confirmation: {
             type: "string",
-            description: "For submit_reviewed_ramp_reimbursement only: exact confirmation token DEVIN_REVIEWED_AND_APPROVED_SUBMISSION after Devin explicitly approves submission.",
+            description: "For submit_reviewed_ramp_reimbursement only: exact confirmation token OWNER_REVIEWED_AND_APPROVED_SUBMISSION after the owner explicitly approves submission.",
           },
         },
         required: ["action"],
@@ -2309,9 +2309,9 @@ export function createReimbursementAutomationTools(): AgentTool[] {
             if (typeof input.review_url !== "string" || input.review_url.trim().length === 0) {
               return { error: "submit_reviewed_ramp_reimbursement requires review_url" };
             }
-            if (input.submission_confirmation !== "DEVIN_REVIEWED_AND_APPROVED_SUBMISSION") {
+            if (input.submission_confirmation !== "OWNER_REVIEWED_AND_APPROVED_SUBMISSION") {
               return {
-                error: "submit_reviewed_ramp_reimbursement requires submission_confirmation=DEVIN_REVIEWED_AND_APPROVED_SUBMISSION after Devin explicitly approves submission",
+                error: "submit_reviewed_ramp_reimbursement requires submission_confirmation=OWNER_REVIEWED_AND_APPROVED_SUBMISSION after the owner explicitly approves submission",
               };
             }
             if (typeof input.amount !== "number") {

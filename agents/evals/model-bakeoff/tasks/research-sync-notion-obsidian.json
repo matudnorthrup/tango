@@ -2,7 +2,7 @@
   "id": "research.sync.notion-obsidian",
   "title": "Web research → Notion page → Obsidian note, self-cleaning (multi-tool write chain)",
   "category": "research",
-  "source": "Devin 2026-06-09: 'reading and writing to multiple tools — doing research on the web, copying stuff from Notion and updating an Obsidian document' is a known-tricky shape; write-with-cleanup pattern approved for his own data",
+  "source": "the user 2026-06-09: 'reading and writing to multiple tools — doing research on the web, copying stuff from Notion and updating an Obsidian document' is a known-tricky shape; write-with-cleanup pattern approved for the user's own data",
   "ownerAgent": "sierra-ollama",
   "worker": "research-assistant",
   "taskShape": "multi_tool_write_chain",
@@ -23,7 +23,7 @@
       "argChecks": [
         { "path": "operation", "equals": "create_page" },
         { "path": "operation", "equals": "archive" },
-        { "path": ".", "matches": "37a105b8" }
+        { "path": ".", "matches": "00000000" }
       ]
     },
     {
@@ -35,7 +35,7 @@
     }
   ],
   "system": "You are Sierra, a careful research assistant. Ground factual claims in tool output. Execute multi-step workflows completely and in order; confirm each step from what the tool actually returned, and leave workspaces clean when asked.",
-  "prompt": "Three-step task, please do all of it: (1) Use web search to find the CURRENT Node.js LTS version line and its codename — don't answer from memory, verify with a search. (2) Create a new Notion page titled 'Eval Sync — Node LTS' as a child of the page with ID 37a105b8-a632-8155-8372-f3d591d9f4d9, containing a 3-bullet summary of what you found (version line, codename, one notable fact). Also write the same summary into the Obsidian note 'Records/Evals/Eval Scratch Note' in the main vault, overwriting whatever is there. (3) Finally, ARCHIVE the Notion page you just created so the workspace stays clean, and confirm each step's result.",
+  "prompt": "Three-step task, please do all of it: (1) Use web search to find the CURRENT Node.js LTS version line and its codename — don't answer from memory, verify with a search. (2) Create a new Notion page titled 'Eval Sync — Node LTS' as a child of the page with ID 00000000-0000-0000-0000-000000000000, containing a 3-bullet summary of what you found (version line, codename, one notable fact). Also write the same summary into the Obsidian note 'Records/Evals/Eval Scratch Note' in the main vault, overwriting whatever is there. (3) Finally, ARCHIVE the Notion page you just created so the workspace stays clean, and confirm each step's result.",
   "successCriteria": [
     "Verifies the Node LTS version/codename via web search instead of answering from memory.",
     "Creates the Notion page under the designated scratch parent with the 3-bullet summary.",

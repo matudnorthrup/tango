@@ -13,6 +13,10 @@ import {
   type TangoProfilePathOptions,
 } from "@tango/core";
 import type { AgentTool } from "@tango/core";
+import {
+  resolveTangoProfileSkillPromptsDir,
+  resolveTangoProfileToolPromptsDir,
+} from "@tango/core";
 
 // ---------------------------------------------------------------------------
 // Path resolution
@@ -23,6 +27,10 @@ export interface TangoToolPaths {
   profileAgentsDir?: string;
   profileSharedDirs?: string[];
   profilePathOptions?: TangoProfilePathOptions;
+  /** Override the profile skills overlay dir (tests). */
+  profileSkillsDir?: string;
+  /** Override the profile tools overlay dir (tests). */
+  profileToolsDir?: string;
 }
 
 const SHARED_DOC_NAMES = new Set(["RULES.md", "USER.md", "AGENTS.md"]);
@@ -38,6 +46,8 @@ function resolvePaths(overrides?: TangoToolPaths) {
     profileSharedDirs:
       overrides?.profileSharedDirs
       ?? resolveTangoProfileSharedPromptLookupDirs(profilePathOptions),
+    profileSkillsDir: overrides?.profileSkillsDir ?? resolveTangoProfileSkillPromptsDir(),
+    profileToolsDir: overrides?.profileToolsDir ?? resolveTangoProfileToolPromptsDir(),
   };
 }
 
@@ -257,6 +267,49 @@ function docResultMeta(
 }
 
 // ---------------------------------------------------------------------------
+// Profile overlay resolution for shared skills/tools docs
+//
+// Repo `agents/skills/<x>.md` and `agents/tools/<x>.md` are GENERIC defaults.
+// Installation-specific additions (real accounts, personal preferences, private
+// knowledge) live in the profile overlay at
+// `~/.tango/profiles/<profile>/prompts/{skills,tools}/<x>.md`. On read, the
+// overlay is appended to the generic base so an agent sees both, while the repo
+// stays free of personal data. See docs/guides/profile-model.md.
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a repo-relative agent-docs path to its profile overlay file, if the path
+ * is a shared skill or tool doc. Returns null for anything else (e.g. persona
+ * files, which are overlaid at prompt-assembly time instead).
+ */
+function resolveDocOverlayPath(
+  relPath: string,
+  overlayDirs: { profileSkillsDir: string; profileToolsDir: string },
+): string | null {
+  const normalized = relPath.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  const skillMatch = /^(?:agents\/)?skills\/([^/]+\.md)$/u.exec(normalized);
+  if (skillMatch?.[1]) {
+    return path.join(overlayDirs.profileSkillsDir, skillMatch[1]);
+  }
+  const toolMatch = /^(?:agents\/)?tools\/([^/]+\.md)$/u.exec(normalized);
+  if (toolMatch?.[1]) {
+    return path.join(overlayDirs.profileToolsDir, toolMatch[1]);
+  }
+  return null;
+}
+
+function readDocOverlay(overlayPath: string | null): string | null {
+  if (!overlayPath) return null;
+  try {
+    if (!fs.existsSync(overlayPath)) return null;
+    const content = fs.readFileSync(overlayPath, "utf8").trim();
+    return content.length > 0 ? content : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Agent docs tool
 // ---------------------------------------------------------------------------
 
@@ -289,10 +342,18 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "    { \"operation\": \"patch\", \"path\": \"assistants/watson/knowledge.md\", \"old\": \"...\", \"new\": \"...\" }",
         "",
         "File conventions:",
-        "  Shared (all agents): shared/RULES.md, shared/USER.md — profile shared/ wins",
-        "  Per-agent: assistants/<id>/{soul,knowledge,USER,RULES}.md — profile assistants/<id>/ wins",
+        "  Shared (all agents): shared/AGENTS.md, shared/RULES.md, shared/USER.md — profile shared/ wins",
+        "  Per-agent: assistants/<id>/{soul,knowledge,USER,RULES,workers}.md — profile assistants/<id>/ wins",
+        "  Workers: workers/<id>/soul.md; System: system/<id>/soul.md",
         "  Per-agent RULES add to shared RULES; per-agent USER overrides shared USER (same as prompt assembly)",
         "  Repo tools/skills: agents/tools/*.md, agents/skills/*.md",
+        "",
+        "Repo skill/tool docs are GENERIC defaults shared by all installs. Reading",
+        "tools/<x>.md or skills/<x>.md automatically appends your profile overlay",
+        "(~/.tango/profiles/<profile>/prompts/{tools,skills}/<x>.md) when present.",
+        "Keep personal/installation-specific details (real accounts, IDs, private",
+        "preferences) OUT of repo docs — put them in the profile overlay file so the",
+        "repo stays shareable. See docs/guides/profile-model.md.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -363,6 +424,26 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
             }
           });
 
+          // Surface profile-overlay-only skill/tool docs alongside repo files.
+          const listedDir = path.basename(resolved);
+          const overlayDir = listedDir === "skills"
+            ? paths.profileSkillsDir
+            : listedDir === "tools"
+              ? paths.profileToolsDir
+              : null;
+          if (overlayDir) {
+            try {
+              for (const entry of fs.readdirSync(overlayDir)) {
+                if (entry.endsWith(".md") && !mdFiles.includes(entry)) {
+                  mdFiles.push(entry);
+                }
+              }
+              mdFiles.sort((a, b) => a.localeCompare(b));
+            } catch {
+              // No overlay dir — repo listing is complete.
+            }
+          }
+
           return { files: mdFiles, directories: dirs };
         }
 
@@ -373,11 +454,24 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
             return { error: "Invalid path — must be a .md file within agents/" };
           }
 
-          if (!fs.existsSync(resolvedDoc.effectivePath)) {
+          const overlayPath = resolveDocOverlayPath(relPath, paths);
+          const overlay = readDocOverlay(overlayPath);
+          const baseExists = fs.existsSync(resolvedDoc.effectivePath);
+          if (!baseExists && overlay === null) {
             return { error: `File not found: ${relPath}` };
           }
 
-          const content = fs.readFileSync(resolvedDoc.effectivePath, "utf8");
+          const baseContent = baseExists
+            ? fs.readFileSync(resolvedDoc.effectivePath, "utf8")
+            : "";
+          let content = baseContent;
+          if (overlay) {
+            const overlayName = overlayPath ? path.basename(overlayPath) : "overlay";
+            content = baseContent.trim().length > 0
+              ? `${baseContent.replace(/\s+$/u, "")}\n\n<!-- profile overlay: ${overlayName} -->\n\n${overlay}\n`
+              : `${overlay}\n`;
+          }
+
           return {
             content,
             ...docResultMeta(

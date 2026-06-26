@@ -76,6 +76,14 @@ If the tool belongs to an existing shared doc such as `exa.md` or `printing.md`,
 
 Keep tool docs focused on callable surface area. Reusable workflow guidance belongs in `agents/skills/*.md`.
 
+**Keep personal data out of the repo doc.** `agents/tools/*.md` and
+`agents/skills/*.md` are generic, shareable defaults. Real account names, ids,
+amounts, vendors, biometrics, machine paths, or anything true for one operator go
+in the profile overlay (`~/.tango/profiles/<profile>/prompts/{tools,skills}/<doc>.md`),
+which `agent_docs` appends to the repo base at read time. Use placeholders/config
+keys in the repo doc. See [`profile-model.md`](./profile-model.md); the CI gate is
+`scripts/privacy-scan.sh`.
+
 ## Common mistakes
 
 | Symptom | Missed step |

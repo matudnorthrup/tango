@@ -9,11 +9,11 @@ Reusable workflow guidance for daily planning, evening check-ins, and weekly pla
 Collect all inputs silently before presenting anything:
 
 1. Today's date and day of week.
-2. Today's calendar events from both accounts. Always use `--all` to include non-primary calendars (Exercise, Meals, Task Timeboxes, School & Sports).
+2. Today's calendar events from all configured accounts. Always use `--all` to include non-primary calendars (the profile-configured calendar set).
 3. Today's daily note — pre-scheduled tasks, any "Notes from Last Night" context.
 4. Yesterday's daily note — unchecked items are carryover candidates.
 5. Current week plan — outstanding weekly tasks not yet scheduled.
-6. Calculate available hours: allocatable window is 5am–9pm (16 hrs) minus fixed calendar events. Ignore `Block:` prefix events.
+6. Calculate available hours: allocatable window is the profile-configured waking window (default 5am–9pm) minus fixed calendar events. Ignore `Block:` prefix events.
 
 7. Linear issues assigned to you — IC Work → schedule as tasks, Watching/Reviewer → awareness only.
 
@@ -69,7 +69,7 @@ After response, propose a time-blocked agenda filling gaps around existing event
 
 1. **Review previous week** — what got done vs planned? Fill in the Retro section of last week's plan.
 2. **Count focus hours** — scan next week's calendar (both accounts, `--all`) for fixed events. Calculate available deep work hours per day.
-3. **Drive time planning** — scan for events with locations. Add drive time blocks per the drive times in Watson's knowledge.
+3. **Drive time planning** — scan for events with locations. Add drive time blocks using known/estimated drive times for those locations.
 4. **Groom backlogs** — review each area backlog per the `backlog_management` skill. Remove items older than 30 days, add missing time estimates where easy.
 5. **Select tasks** — pull from area backlogs (`[Notes Root]/[Area] Backlog.md`), match to available time.
 6. **Draft week plan** — tasks with time estimates mapped to specific days.
@@ -79,26 +79,29 @@ Day mapping: early week front-load team-dependent work, midweek opens space for 
 
 ## Calendar Classification
 
-| Type | Calendars | Treatment |
-|------|-----------|-----------|
-| **Fixed** | Agenda, Family, Best Buddies, School and Sports, Primary Calendar | Immovable — subtract from available time |
-| **Informational** | Team OOO, Holidays, Birthdays | Reference only — don't subtract |
-| **Flexible** | Task Timeboxes, Exercise, Meals, Focus Time | Prefer to keep, can move if necessary |
+Map each configured calendar to one of these classes. The specific calendar
+names and which class each belongs to are profile-configured.
+
+| Type | Treatment |
+|------|-----------|
+| **Fixed** | Immovable — subtract from available time |
+| **Informational** | Reference only — don't subtract |
+| **Flexible** | Prefer to keep, can move if necessary |
 
 Special rules:
 - **`Block:` prefix** — protective holds to prevent meetings, NOT commitments. Ignore when counting available time.
-- **Arrival windows** (e.g. "Heater Schneider 2-4pm") — workable time until they arrive; don't block the full window.
-- **Workout (12:30pm)** — protected, never schedule over it.
-- **Lunch (~2pm)** — schedulable; the user may eat while working after a workout.
+- **Arrival windows** (e.g. "<Name> 2-4pm") — workable time until they arrive; don't block the full window.
+- **Protected recurring blocks** (e.g. a fixed-time workout) — never schedule over them. The profile configures which blocks and their times.
+- **Lunch** — schedulable; the user may eat while working. The profile configures the typical time.
 
 ## Conflict Check Process
 
 Before creating time blocks:
-1. List ALL existing events including Exercise (Workout, Morning Walk, Evening Walk), Meals, and School & Sports.
-2. Flag conflicts between existing events (e.g. basketball game overlapping evening walk).
+1. List ALL existing events including exercise/walk events, meals, and family/school events.
+2. Flag conflicts between existing events (e.g. a sports game overlapping an evening walk).
 3. Ask about alternatives for conflicted recurring events (move earlier? skip today?).
-4. Never schedule task blocks over Workout or Walk events.
-5. Lunch is schedulable — the user may eat while working after a workout.
+4. Never schedule task blocks over protected exercise or walk events.
+5. Lunch is schedulable — the user may eat while working.
 
 ## Task Format
 
@@ -110,7 +113,9 @@ Time estimate in parentheses, area link at end. Consistent across daily notes, w
 
 File: `Planning/Daily/YYYY-MM-DD.md`
 
-Sections in order: Today's Priorities, Stretch (if capacity), Routines, Unscheduled Work I Did Today, Notes, Interstitial Log. Ends with `![[Daily.base]]` when the template includes it.
+Sections in order: Today's Priorities, Current Task Rotation, Stretch (if capacity), Routines, Unscheduled Work I Did Today, Notes, Interstitial Log. Ends with `![[Daily.base]]` when the template includes it.
+
+`Current Task Rotation` is the orientation nudge source of truth. Use top-level task checkboxes only; the first unchecked item is treated as the current task. Nested checkboxes are ignored by the parser.
 
 Frontmatter must include `morning_review_completed` and `evening_review_completed` booleans. Set the appropriate one to `true` when starting the corresponding workflow.
 

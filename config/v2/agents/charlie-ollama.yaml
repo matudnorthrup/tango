@@ -72,14 +72,14 @@ memory:
 
 # Discord routing
 discord:
-  default_channel_id: "1513207671615000586"
+  default_channel_id: "100000000000000007"
   smoke_test_channel_id: "100000000000001008" # charlie-test (placeholder; real id in profile overlay)
 
 # Restrict this clone to its own channel plus its persona's -test smoke channel
 access:
   mode: allowlist
   allowlist_channel_ids:
-    - "1513207671615000586"
+    - "100000000000000007"
     - "100000000000001008" # charlie-test smoke channel (placeholder; real id in profile overlay)
 
 # Legacy registry fields
@@ -117,5 +117,5 @@ voice:
     - "Bravo Charlie"
     - Charlie
   kokoro_voice: af_aoede
-  default_channel_id: "1513207671615000586"
+  default_channel_id: "100000000000000007"
   smoke_test_channel_id: "100000000000001008" # charlie-test (placeholder; real id in profile overlay)

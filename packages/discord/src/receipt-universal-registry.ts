@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveConfiguredPath } from "@tango/core";
+import { resolveConfiguredPath, resolveTangoProfileConfigDir } from "@tango/core";
 import { loadReimbursementEvidenceRecord } from "./reimbursement-evidence.js";
 import { parseFlexibleDateToIso } from "./reimbursement-automation.js";
 import {
@@ -251,8 +251,7 @@ export interface DetectReimbursementGapsResult {
 
 let cachedConfig:
   | {
-      path: string;
-      mtimeMs: number;
+      cacheKey: string;
       value: ReimbursementConfig;
     }
   | null = null;
@@ -680,19 +679,10 @@ function resolveCategoryKeyForVendor(config: ReimbursementConfig, vendorKey: str
   )?.[0];
 }
 
-export function loadReimbursementConfig(): ReimbursementConfig {
-  const configPath = resolveReimbursementConfigPath();
-  const mtimeMs = fs.existsSync(configPath) ? fs.statSync(configPath).mtimeMs : 0;
-  if (cachedConfig && cachedConfig.path === configPath && cachedConfig.mtimeMs === mtimeMs) {
-    return cachedConfig.value;
-  }
-
-  const raw = fs.readFileSync(configPath, "utf8");
-  const parsed = parseSimpleYaml(raw);
+function mapParsedReimbursementConfig(parsed: YamlObject): ReimbursementConfig {
   const categoriesObject = (parsed.categories ?? {}) as YamlObject;
   const vendorsObject = (parsed.vendors ?? {}) as YamlObject;
-
-  const value: ReimbursementConfig = {
+  return {
     defaultSystem:
       typeof parsed.default_system === "string" && parsed.default_system.trim().length > 0
         ? parsed.default_system
@@ -728,13 +718,70 @@ export function loadReimbursementConfig(): ReimbursementConfig {
       }),
     ),
   };
+}
 
-  cachedConfig = {
-    path: configPath,
-    mtimeMs,
-    value,
-  };
+function readReimbursementConfigFile(filePath: string): ReimbursementConfig | null {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  return mapParsedReimbursementConfig(parseSimpleYaml(fs.readFileSync(filePath, "utf8")));
+}
+
+function mtimeOf(filePath: string): number {
+  return fs.existsSync(filePath) ? fs.statSync(filePath).mtimeMs : 0;
+}
+
+/**
+ * Load reimbursement config from the repo defaults, then deep-merge an optional
+ * profile overlay (`<profile>/config/reimbursement-config.yaml`) over it so a real
+ * installation's vendors/categories (which are personal) stay out of the repo.
+ * Profile vendors/categories override repo entries by key; new keys are added.
+ */
+export function loadReimbursementConfig(): ReimbursementConfig {
+  const configPath = resolveReimbursementConfigPath();
+  const profilePath = path.join(resolveTangoProfileConfigDir(), "reimbursement-config.yaml");
+  const cacheKey = `${configPath}:${mtimeOf(configPath)}|${profilePath}:${mtimeOf(profilePath)}`;
+  if (cachedConfig && cachedConfig.cacheKey === cacheKey) {
+    return cachedConfig.value;
+  }
+
+  const base = readReimbursementConfigFile(configPath) ?? { defaultSystem: "Ramp", categories: {}, vendors: {} };
+  const overlay = profilePath === configPath ? null : readReimbursementConfigFile(profilePath);
+
+  const value: ReimbursementConfig = overlay
+    ? {
+        defaultSystem: overlay.defaultSystem || base.defaultSystem,
+        categories: { ...base.categories, ...overlay.categories },
+        vendors: { ...base.vendors, ...overlay.vendors },
+      }
+    : base;
+
+  cachedConfig = { cacheKey, value };
   return value;
+}
+
+// Generic big retailers that always count as receipt candidates. Installation-
+// specific merchants come from the (profile-merged) reimbursement config so no
+// personal vendor names need to be hardcoded here.
+const BASE_RETAILER_NAMES = ["amazon", "walmart", "costco", "venmo"];
+
+/** Lower-cased retailer/merchant names for receipt-candidate detection. */
+export function getReimbursementRetailerNames(): string[] {
+  const config = loadReimbursementConfig();
+  const names = new Set(BASE_RETAILER_NAMES);
+  for (const vendor of Object.values(config.vendors)) {
+    if (vendor.merchantName) names.add(vendor.merchantName.toLowerCase());
+    if (vendor.receiptDir) names.add(vendor.receiptDir.toLowerCase());
+  }
+  return [...names];
+}
+
+/** Regex matching any configured retailer/merchant name (word-bounded, case-insensitive). */
+export function buildReimbursementRetailerPattern(): RegExp {
+  const escaped = getReimbursementRetailerNames()
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+    .filter((name) => name.length > 0);
+  return new RegExp(`\\b(${escaped.join("|")})\\b`, "iu");
 }
 
 export function resolveVendorConfig(input: string | undefined): ResolvedReimbursementVendorConfig | null {

@@ -11,7 +11,7 @@ Migrated Watson, Sierra, Victor, and Juliet from the legacy runtime to the v2 Cl
 ## What Shipped
 
 ### Config files created
-- `config/v2/agents/watson.yaml` — 12 MCP servers (google, obsidian, lunch-money, receipt-registry, ramp, browser, onepassword, linear, imessage, latitude, slack, memory)
+- `config/v2/agents/watson.yaml` — 12 MCP servers (google, obsidian, lunch-money, receipt-registry, ramp, browser, onepassword, linear, imessage, <service>, slack, memory)
 - `config/v2/agents/juliet.yaml` — 1 MCP server (memory only)
 - `config/v2/agents/sierra.yaml` — 11 MCP servers (exa, browser, obsidian, onepassword, printer, location, walmart, file-ops, slack, youtube, memory)
 - `config/v2/agents/victor.yaml` — 3 MCP servers (tango-dev, discord-manage, memory)
@@ -42,7 +42,7 @@ All proxy-based MCP servers use `ALLOWED_TOOL_IDS` env var to filter which tools
 
 1. **Sierra/Victor smoke test channels not allowlisted** — The `smoke_test_channel_id` values in the v2 configs use placeholder IDs. When the test harness sends to the actual smoke test channels, the thread channel isn't in the default allowlist. This needs a channel access config update (not a v2 issue).
 
-2. **Watson `latitude_run` returns 0 tools** — The `latitude_run` tool ID may not be registered on the persistent MCP server. Needs investigation.
+2. **Watson `<service>_run` returns 0 tools** — The `<service>_run` tool ID may not be registered on the persistent MCP server. Needs investigation.
 
 3. **Atlas-memory database is empty** — The migration from legacy tango.sqlite memories to atlas-memory hasn't been run. Historical memory context isn't available to v2 agents until migration is executed.
 

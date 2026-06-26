@@ -41,7 +41,7 @@ describe("receipt reimbursement registry", () => {
       "- System: Ramp",
       "- Amount: $41.03",
       "- Submitted: 2026-04-02",
-      "- Note: Exec Buy Back Time",
+      "- Note: Reimbursable expense",
     ].join("\n");
 
     const record = parseWalmartReceiptMarkdown(filePath, markdown);
@@ -98,7 +98,7 @@ describe("receipt reimbursement registry", () => {
         "| System | Ramp |",
         "| Reimbursable Item | Driver tip |",
         "| Amount | $24.94 |",
-        "| Note | Exec Buy Back Time |",
+        "| Note | Reimbursable expense |",
       ].join("\n"),
     );
 
@@ -110,7 +110,7 @@ describe("receipt reimbursement registry", () => {
     expect(record.reimbursement.system).toBe("Ramp");
     expect(record.reimbursement.reimbursableItem).toBe("Driver tip");
     expect(record.reimbursement.amount).toBe(24.94);
-    expect(record.reimbursement.note).toBe("Exec Buy Back Time");
+    expect(record.reimbursement.note).toBe("Reimbursable expense");
   });
 
   it("parses bold date lines without a list marker", () => {
@@ -159,7 +159,7 @@ describe("receipt reimbursement registry", () => {
       status: "submitted",
       system: "Ramp",
       submitted: "2026-04-02",
-      note: "Exec Buy Back Time",
+      note: "Reimbursable expense",
       evidencePath: "/tmp/tango-screenshot.png",
     });
 
@@ -169,7 +169,7 @@ describe("receipt reimbursement registry", () => {
     expect(updated).toContain("- Status: submitted");
     expect(updated).toContain("- System: Ramp");
     expect(updated).toContain("- Amount: $41.03");
-    expect(updated).toContain("- Note: Exec Buy Back Time");
+    expect(updated).toContain("- Note: Reimbursable expense");
     expect(updated).toContain("- Evidence: /tmp/tango-screenshot.png");
   });
 
@@ -388,7 +388,7 @@ describe("receipt reimbursement registry", () => {
           submittedDate: "2026-04-02",
           merchant: "Walmart",
           amount: 41.03,
-          memo: "Exec Buy Back Time",
+          memo: "Reimbursable expense",
         },
         {
           reviewUrl: "https://app.ramp.com/details/list/reimbursement/maid/review",
@@ -396,9 +396,9 @@ describe("receipt reimbursement registry", () => {
           status: "Paid",
           transactionDate: "2026-04-01",
           submittedDate: "2026-04-02",
-          merchant: "Maid in Newport",
+          merchant: "Home Service Co",
           amount: 350,
-          memo: "Exec Buy Back Time",
+          memo: "Reimbursable expense",
         },
       ],
       since: "2026-04-01",
@@ -420,7 +420,7 @@ describe("receipt reimbursement registry", () => {
     const updatedMarkdown = fs.readFileSync(stalePath, "utf8");
     expect(updatedMarkdown).toContain("- Status: reimbursed");
     expect(updatedMarkdown).toContain("- Submitted: 2026-04-02");
-    expect(updatedMarkdown).toContain("- Note: Exec Buy Back Time");
+    expect(updatedMarkdown).toContain("- Note: Reimbursable expense");
     expect(updatedMarkdown).toContain("- Ramp Report ID: 6bd4a150-a102-4118-8628-a8f3ec7ff7af");
   });
 
@@ -499,7 +499,7 @@ describe("receipt reimbursement registry", () => {
         "- System: Ramp",
         "- Reimbursable Item: Driver tip",
         "- Amount: $28.90",
-        "- Note: Exec Buy Back Time",
+        "- Note: Reimbursable expense",
         "- Ramp Report ID: stale-draft-id",
       ].join("\n"),
       "utf8",
