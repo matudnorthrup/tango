@@ -20,7 +20,16 @@ Emergency bootstrap if the vault is unavailable:
 
 ```bash
 cd /Users/devinnorthrup/GitHub/tango
+scripts/startup.sh --dry-run
 scripts/startup.sh
+scripts/startup.sh --health
 ```
+
+The repo startup entrypoint is config-driven: defaults live in
+`config/defaults/startup.yaml`, active-profile overrides live in
+`~/.tango/profiles/<profile>/config/startup.yaml`, and executable profile hooks
+may be placed in `~/.tango/profiles/<profile>/scripts/startup.d/`. Keep
+machine-specific launchd or install wrappers in the profile/local layer rather
+than tracked repo files.
 
 After bootstrap, still verify the Obsidian checklist when the vault is available.

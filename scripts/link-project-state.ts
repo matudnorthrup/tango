@@ -8,7 +8,9 @@
  * Usage:
  *   node --import tsx scripts/link-project-state.ts \
  *     --key thread:<threadId>            # or channel:<channelId>
- *     --path "Projects/Launch Plan.md"   # vault-relative .md
+ *     --path "Projects/Launch Plan.md"   # legacy Obsidian/vault-relative .md
+ *     # or: --provider profile --path "threads/launch-plan.md"
+ *     # or: --path "profile:threads/launch-plan.md"
  *     [--title "Launch Plan"] [--status planning] \
  *     [--quick-read "Release path locked; vendor decision open."] [--agent sierra]
  *
@@ -17,6 +19,11 @@
  * The body is the canonical narrative; the head is the recall index/pointer.
  */
 import { resolveDatabasePath, TangoStorage } from "@tango/core";
+import {
+  formatStateBodyPointer,
+  parseStateBodyPointer,
+  type StateBodyProviderId,
+} from "../packages/discord/src/state-body-provider.js";
 
 function arg(name: string): string | undefined {
   const idx = process.argv.indexOf(`--${name}`);
@@ -24,19 +31,28 @@ function arg(name: string): string | undefined {
 }
 
 const key = arg("key");
-const obsidianPath = arg("path");
-if (!key || !obsidianPath) {
+const bodyPath = arg("path");
+const provider = arg("provider") as StateBodyProviderId | undefined;
+if (!key || !bodyPath) {
   console.error(
-    "required: --key <thread:ID|channel:ID> --path <vault-relative.md> "
-    + "[--title T] [--status S] [--quick-read Q] [--agent A]",
+    "required: --key <thread:ID|channel:ID> --path <vault-relative.md|profile:threads/file.md> "
+    + "[--provider obsidian|profile] [--title T] [--status S] [--quick-read Q] [--agent A]",
   );
+  process.exit(1);
+}
+
+let stateBodyPointer: string;
+try {
+  stateBodyPointer = formatStateBodyPointer(parseStateBodyPointer(bodyPath, { provider }));
+} catch (error) {
+  console.error(`invalid state body pointer: ${(error as Error).message}`);
   process.exit(1);
 }
 
 const storage = new TangoStorage(resolveDatabasePath(process.env.TANGO_DB_PATH));
 const record = storage.upsertProjectState({
   projectId: key,
-  obsidianPath,
+  obsidianPath: stateBodyPointer,
   ...(arg("title") ? { title: arg("title")! } : {}),
   ...(arg("status") ? { status: arg("status")! } : {}),
   ...(arg("quick-read") ? { quickRead: arg("quick-read")! } : {}),

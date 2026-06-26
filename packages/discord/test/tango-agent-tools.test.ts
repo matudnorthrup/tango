@@ -24,6 +24,12 @@ function createOverlayDir(): string {
   return dir;
 }
 
+function createProfileRoot(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-state-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
 describe("agent_docs tool", () => {
   it("lists nested assistant directories by explicit path", async () => {
     const agentsDir = createAgentsDir();
@@ -146,5 +152,114 @@ describe("agent_docs tool", () => {
     expect(result.files).toEqual(
       expect.arrayContaining(["deep-research.md", "my-private-skill.md"]),
     );
+  });
+
+  it("reads, lists, writes, and patches scoped profile state docs", async () => {
+    const agentsDir = createAgentsDir();
+    const profileStateRoot = createProfileRoot();
+    fs.mkdirSync(path.join(profileStateRoot, "threads"), { recursive: true });
+    fs.writeFileSync(path.join(profileStateRoot, "threads", "launch.md"), "old quick read");
+
+    const tool = createTangoTools({ agentsDir, profileStateRoot }).find(
+      (entry) => entry.name === "agent_docs",
+    );
+
+    const listed = (await tool?.handler({
+      operation: "state_list",
+      path: "threads",
+    })) as { files?: string[]; path?: string };
+    expect(listed.path).toBe("profile:threads");
+    expect(listed.files).toEqual(["launch.md"]);
+
+    const read = (await tool?.handler({
+      operation: "state_read",
+      path: "threads/launch.md",
+    })) as { content?: string; path?: string; layer?: string };
+    expect(read).toMatchObject({
+      content: "old quick read",
+      path: "profile:threads/launch.md",
+      layer: "profile",
+    });
+
+    await tool?.handler({
+      operation: "state_write",
+      path: "collab/handoff.md",
+      content: "handoff body",
+    });
+    expect(fs.readFileSync(path.join(profileStateRoot, "collab", "handoff.md"), "utf8"))
+      .toBe("handoff body");
+
+    const patched = await tool?.handler({
+      operation: "state_patch",
+      path: "collab/handoff.md",
+      old: "handoff",
+      new: "updated",
+    });
+    expect(patched).toMatchObject({
+      success: true,
+      path: "profile:collab/handoff.md",
+      layer: "profile",
+    });
+    expect(fs.readFileSync(path.join(profileStateRoot, "collab", "handoff.md"), "utf8"))
+      .toBe("updated body");
+  });
+
+  it("blocks unsafe profile state paths and source-kind mutations", async () => {
+    const agentsDir = createAgentsDir();
+    const profileStateRoot = createProfileRoot();
+    fs.mkdirSync(path.join(profileStateRoot, "reference"), { recursive: true });
+    fs.writeFileSync(
+      path.join(profileStateRoot, "reference", "source.md"),
+      "---\nsource_kind: source\n---\n\nProtected",
+    );
+
+    const tool = createTangoTools({ agentsDir, profileStateRoot }).find(
+      (entry) => entry.name === "agent_docs",
+    );
+
+    const traversal = await tool?.handler({
+      operation: "state_read",
+      path: "../reference/source.md",
+    });
+    expect(traversal).toMatchObject({ error: expect.stringMatching(/traverse/i) });
+
+    const blocked = await tool?.handler({
+      operation: "state_patch",
+      path: "reference/source.md",
+      old: "Protected",
+      new: "changed",
+    });
+    expect(blocked).toMatchObject({ error: expect.stringMatching(/source_kind: source/i) });
+
+    const forced = await tool?.handler({
+      operation: "state_patch",
+      path: "reference/source.md",
+      old: "Protected",
+      new: "changed",
+      force: true,
+    });
+    expect(forced).toMatchObject({ success: true });
+    expect(fs.readFileSync(path.join(profileStateRoot, "reference", "source.md"), "utf8"))
+      .toContain("changed");
+  });
+
+  it("blocks profile state writes through a symlinked subdirectory", async () => {
+    const agentsDir = createAgentsDir();
+    const profileStateRoot = createProfileRoot();
+    const outsideRoot = createProfileRoot();
+    fs.mkdirSync(path.join(profileStateRoot, "threads"), { recursive: true });
+    fs.symlinkSync(outsideRoot, path.join(profileStateRoot, "threads", "outside"));
+
+    const tool = createTangoTools({ agentsDir, profileStateRoot }).find(
+      (entry) => entry.name === "agent_docs",
+    );
+    const result = await tool?.handler({
+      operation: "state_write",
+      path: "threads/outside/new.md",
+      content: "should not write outside",
+    });
+
+    expect(result).toMatchObject({ error: expect.stringMatching(/escapes/i) });
+    expect(fs.existsSync(path.join(outsideRoot, "new.md"))).toBe(false);
   });
 });
