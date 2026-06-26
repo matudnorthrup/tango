@@ -258,6 +258,7 @@ import {
   conversationKeyFor,
   refreshProjectHeadOnTurn,
   renderProjectStateBlock,
+  resolveStateProfileRoot,
   resolveStateVaultRoot,
 } from "./project-state.js";
 import {
@@ -715,7 +716,10 @@ const tangoRouter = new TangoRouter({
   lifecycleConfig: v2LifecycleConfig,
   buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient, {
     projectStateProvider: (conversationKey) =>
-      renderProjectStateBlock(storage, conversationKey, { vaultRoot: resolveStateVaultRoot() }),
+      renderProjectStateBlock(storage, conversationKey, {
+        vaultRoot: resolveStateVaultRoot(),
+        profileRoot: resolveStateProfileRoot(),
+      }),
     attachmentStore,
     v2Configs,
   }),
@@ -3887,6 +3891,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
   const voiceConversationKey = conversationKeyFor(voiceRouterChannelId, voiceRouterThreadId);
   const voiceStateFilePointer = buildStateFilePointer(storage, voiceConversationKey, {
     vaultRoot: resolveStateVaultRoot(),
+    profileRoot: resolveStateProfileRoot(),
   });
   const voiceTurnBriefingPrompt = buildTurnBriefingPrompt({
     ...(voiceStateFilePointer ? { stateFile: voiceStateFilePointer } : {}),
@@ -7428,6 +7433,7 @@ async function handleMessage(
       const briefingConversationKey = conversationKeyFor(routingChannelId, threadId);
       const stateFilePointer = buildStateFilePointer(storage, briefingConversationKey, {
         vaultRoot: resolveStateVaultRoot(),
+        profileRoot: resolveStateProfileRoot(),
       });
       const turnBriefingPrompt = buildTurnBriefingPrompt({
         ...(stateFilePointer ? { stateFile: stateFilePointer } : {}),

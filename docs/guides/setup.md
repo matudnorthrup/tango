@@ -92,6 +92,35 @@ Launch the full stack after a reboot:
 bash scripts/startup.sh
 ```
 
+`scripts/startup.sh` is the durable operator entrypoint. It loads repo defaults
+from `config/defaults/startup.yaml`, then overlays the active profile config at
+`~/.tango/profiles/<profile>/config/startup.yaml` where `<profile>` is
+`TANGO_PROFILE` or `default`.
+
+Useful startup checks:
+
+```bash
+bash scripts/startup.sh --dry-run        # print services, commands, hooks
+bash scripts/startup.sh --health         # check tmux windows and configured ports
+bash scripts/startup.sh --only discord   # start/check one service
+bash scripts/startup.sh --skip kokoro    # omit an optional service
+```
+
+Profile-local hooks run after services start when they are executable `.sh`
+files under:
+
+```text
+~/.tango/profiles/<profile>/scripts/startup.d/
+```
+
+Hooks are sorted by filename. Non-executable `.sh` files are skipped with a
+clear message, and the startup runner does not execute hook paths outside the
+active profile.
+
+Use the profile config for local service tuning, for example custom Whisper
+model paths, prompts, optional service disables, or extra services. Service
+entries merge by `id`.
+
 Window layout inside the `tango` session:
 
 | Window                   | Service                               |
@@ -106,8 +135,8 @@ Window layout inside the `tango` session:
 Everyday commands:
 
 ```bash
-tmux attach -t tango        # attach; Ctrl-b w to pick a window, Ctrl-b d to detach
-tmux list-windows -t tango  # list windows and their running commands
+tmux -L tango-service attach -t tango        # attach; Ctrl-b w to pick a window, Ctrl-b d to detach
+tmux -L tango-service list-windows -t tango  # list windows and their running commands
 ```
 
 Per-service management goes through npm scripts (these automatically target the
