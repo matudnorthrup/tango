@@ -124,21 +124,24 @@ export interface OrientationNudgeInteractionOptions {
 export function resolveOrientationNudgeConfig(
   overrides: Partial<OrientationNudgeConfig> = {},
 ): OrientationNudgeConfig {
+  const envTimeZone = process.env.ORIENTATION_NUDGE_TIME_ZONE?.trim() || undefined;
+  const envVaultRoot = process.env.ORIENTATION_NUDGE_VAULT_ROOT?.trim() || undefined;
+
   return {
-    userId: DEFAULT_USER_ID,
-    timeZone: process.env.ORIENTATION_NUDGE_TIME_ZONE?.trim() || DEFAULT_TIME_ZONE,
-    vaultRoot: process.env.ORIENTATION_NUDGE_VAULT_ROOT?.trim() || DEFAULT_VAULT_ROOT,
-    activeStartHour: numberFromEnv("ORIENTATION_NUDGE_ACTIVE_START_HOUR", 5),
-    activeEndHour: numberFromEnv("ORIENTATION_NUDGE_ACTIVE_END_HOUR", 20),
-    inactivityMinutes: numberFromEnv("ORIENTATION_NUDGE_INACTIVITY_MINUTES", 60),
-    minNudgeIntervalMinutes: numberFromEnv("ORIENTATION_NUDGE_MIN_INTERVAL_MINUTES", 30),
-    ignoreAfterMinutes: numberFromEnv("ORIENTATION_NUDGE_IGNORE_AFTER_MINUTES", 30),
-    defaultFocusMinutes: numberFromEnv("ORIENTATION_NUDGE_DEFAULT_FOCUS_MINUTES", 120),
-    defaultVacationDays: numberFromEnv("ORIENTATION_NUDGE_DEFAULT_VACATION_DAYS", 7),
-    cooldownAfterMisses: numberFromEnv("ORIENTATION_NUDGE_COOLDOWN_AFTER_MISSES", 2),
-    cooldownBaseMinutes: numberFromEnv("ORIENTATION_NUDGE_COOLDOWN_BASE_MINUTES", 30),
-    cooldownMaxMinutes: numberFromEnv("ORIENTATION_NUDGE_COOLDOWN_MAX_MINUTES", 8 * 60),
-    ...overrides,
+    userId: overrides.userId ?? DEFAULT_USER_ID,
+    timeZone: overrides.timeZone ?? envTimeZone ?? DEFAULT_TIME_ZONE,
+    vaultRoot: overrides.vaultRoot ?? envVaultRoot ?? DEFAULT_VAULT_ROOT,
+    activeStartHour: overrides.activeStartHour ?? numberFromEnv("ORIENTATION_NUDGE_ACTIVE_START_HOUR", 5),
+    activeEndHour: overrides.activeEndHour ?? numberFromEnv("ORIENTATION_NUDGE_ACTIVE_END_HOUR", 20),
+    inactivityMinutes: overrides.inactivityMinutes ?? numberFromEnv("ORIENTATION_NUDGE_INACTIVITY_MINUTES", 60),
+    minNudgeIntervalMinutes:
+      overrides.minNudgeIntervalMinutes ?? numberFromEnv("ORIENTATION_NUDGE_MIN_INTERVAL_MINUTES", 30),
+    ignoreAfterMinutes: overrides.ignoreAfterMinutes ?? numberFromEnv("ORIENTATION_NUDGE_IGNORE_AFTER_MINUTES", 30),
+    defaultFocusMinutes: overrides.defaultFocusMinutes ?? numberFromEnv("ORIENTATION_NUDGE_DEFAULT_FOCUS_MINUTES", 120),
+    defaultVacationDays: overrides.defaultVacationDays ?? numberFromEnv("ORIENTATION_NUDGE_DEFAULT_VACATION_DAYS", 7),
+    cooldownAfterMisses: overrides.cooldownAfterMisses ?? numberFromEnv("ORIENTATION_NUDGE_COOLDOWN_AFTER_MISSES", 2),
+    cooldownBaseMinutes: overrides.cooldownBaseMinutes ?? numberFromEnv("ORIENTATION_NUDGE_COOLDOWN_BASE_MINUTES", 30),
+    cooldownMaxMinutes: overrides.cooldownMaxMinutes ?? numberFromEnv("ORIENTATION_NUDGE_COOLDOWN_MAX_MINUTES", 8 * 60),
   };
 }
 
