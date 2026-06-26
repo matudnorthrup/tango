@@ -267,6 +267,19 @@ const PHASE4_RESEARCH_EXPANSION_CASES: readonly DeterministicSmokeCase[] = [
     waitTimeoutMs: 900_000,
   },
   {
+    id: "research-local-business-shortlist",
+    transcript:
+      "Find a shortlist of restaurants worth checking out in Puerto Escondido. Use local candidate discovery first, and only include hours or contact details if you verified them from a source.",
+    expectIntents: ["research.local_business"],
+    expectWorkers: ["research-coordinator"],
+    expectRoute: "executed",
+    expectWriteOperations: false,
+    expectStepCount: 1,
+    requiredResponsePatterns: [/(Puerto Escondido|restaurant|restaurants)/i, /(verified|unverified|source|official)/i],
+    requiredOperationNames: ["local_business_search"],
+    waitTimeoutMs: 300_000,
+  },
+  {
     id: "research-video-read",
     transcript: "Use the transcript to summarize this YouTube video briefly: https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     expectIntents: ["research.video_read"],

@@ -7,6 +7,7 @@ const OPEN_WORLD_TOOLS = new Set<string>([
   "browser",
   "gospel_library",
   "walmart",
+  "local_business_search",
   "driving_route",
   "find_diesel",
   "walking_route",

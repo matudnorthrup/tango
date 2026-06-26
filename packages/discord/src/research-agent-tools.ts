@@ -1168,10 +1168,40 @@ export function createTravelTools(): AgentTool[] {
     }
   };
 
+  interface HereNamedItem {
+    id?: string;
+    name?: string;
+    primary?: boolean;
+  }
+
+  interface HereContactValue {
+    value?: string;
+  }
+
+  interface HereContact {
+    phone?: HereContactValue[];
+    mobile?: HereContactValue[];
+    tollFree?: HereContactValue[];
+    www?: HereContactValue[];
+    email?: HereContactValue[];
+  }
+
+  interface HereOpeningHour {
+    text?: string[];
+    isOpen?: boolean;
+  }
+
   interface HereSearchItem {
+    id?: string;
+    resultType?: string;
     position?: { lat?: number; lng?: number };
-    address?: { label?: string };
+    address?: { label?: string; city?: string; stateCode?: string; countryCode?: string };
     title?: string;
+    distance?: number;
+    categories?: HereNamedItem[];
+    foodTypes?: HereNamedItem[];
+    contacts?: HereContact[];
+    openingHours?: HereOpeningHour[];
   }
 
   const parseHereItem = (
@@ -1206,6 +1236,180 @@ export function createTravelTools(): AgentTool[] {
       return parseHereItem(value, data.items?.[0], "here-geocode");
     }
     return null;
+  };
+
+  const collectHereNamedValues = (values: HereNamedItem[] | undefined): string[] => {
+    const seen = new Set<string>();
+    const output: string[] = [];
+    for (const entry of [...(values ?? [])].sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)))) {
+      const value = entry.name?.trim();
+      if (!value || seen.has(value.toLocaleLowerCase())) continue;
+      seen.add(value.toLocaleLowerCase());
+      output.push(value);
+    }
+    return output;
+  };
+
+  const collectHereContactValues = (
+    contacts: HereContact[] | undefined,
+    field: keyof HereContact,
+  ): string[] => {
+    const seen = new Set<string>();
+    const output: string[] = [];
+    for (const contact of contacts ?? []) {
+      for (const entry of contact[field] ?? []) {
+        const value = entry.value?.trim();
+        if (!value || seen.has(value.toLocaleLowerCase())) continue;
+        seen.add(value.toLocaleLowerCase());
+        output.push(value);
+      }
+    }
+    return output;
+  };
+
+  const normalizeWebsite = (value: string): string => (
+    /^https?:\/\//iu.test(value) ? value : `https://${value}`
+  );
+
+  const buildGoogleMapsSearchUrl = (item: HereSearchItem): string => {
+    const queryParts = [
+      item.title,
+      item.address?.label,
+      typeof item.position?.lat === "number" && typeof item.position?.lng === "number"
+        ? `${item.position.lat},${item.position.lng}`
+        : null,
+    ].filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+    return `https://www.google.com/maps/search/?${new URLSearchParams({
+      api: "1",
+      query: queryParts.join(" "),
+    }).toString()}`;
+  };
+
+  const parseLocalBusinessItem = (item: HereSearchItem): Record<string, unknown> | null => {
+    const lat = item.position?.lat;
+    const lon = item.position?.lng;
+    if (!item.title || typeof lat !== "number" || typeof lon !== "number") {
+      return null;
+    }
+
+    const websites = collectHereContactValues(item.contacts, "www").map(normalizeWebsite);
+    const openingHours = [...new Set((item.openingHours ?? []).flatMap((hours) => hours.text ?? []))];
+    const isOpenValues = (item.openingHours ?? [])
+      .map((hours) => hours.isOpen)
+      .filter((value): value is boolean => typeof value === "boolean");
+
+    return {
+      name: item.title,
+      resultType: item.resultType,
+      address: item.address?.label,
+      position: { lat, lon },
+      ...(typeof item.distance === "number"
+        ? { distanceMiles: Number((item.distance / 1609.34).toFixed(2)) }
+        : {}),
+      categories: collectHereNamedValues(item.categories),
+      foodTypes: collectHereNamedValues(item.foodTypes),
+      phoneNumbers: [
+        ...collectHereContactValues(item.contacts, "phone"),
+        ...collectHereContactValues(item.contacts, "mobile"),
+        ...collectHereContactValues(item.contacts, "tollFree"),
+      ],
+      websites,
+      emails: collectHereContactValues(item.contacts, "email"),
+      openingHours,
+      ...(isOpenValues.length > 0 ? { isOpen: isOpenValues[0] } : {}),
+      hereId: item.id,
+      googleMapsSearchUrl: buildGoogleMapsSearchUrl(item),
+    };
+  };
+
+  const normalizeLimit = (value: unknown): number => {
+    const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+    if (!Number.isFinite(parsed)) return 12;
+    return Math.max(1, Math.min(25, Math.trunc(parsed)));
+  };
+
+  const normalizeRadiusMeters = (value: unknown): number => {
+    const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+    if (!Number.isFinite(parsed)) return 12_000;
+    return Math.max(500, Math.min(50_000, Math.trunc(parsed)));
+  };
+
+  const normalizeStringArray = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0);
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+    }
+    return [];
+  };
+
+  const handleLocalBusinessSearch = async (input: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const query = String(input.query ?? "").trim();
+    if (!query) {
+      return { error: "local_business_search requires a non-empty query." };
+    }
+    if (!hereApiKey) {
+      return { error: "HERE_API_KEY not configured; local business candidate search is unavailable." };
+    }
+
+    try {
+      const nearInput = typeof input.near === "string" && input.near.trim().length > 0
+        ? input.near.trim()
+        : "current location";
+      const anchor = await resolvePlace(nearInput);
+      const limit = normalizeLimit(input.limit);
+      const radiusMeters = normalizeRadiusMeters(input.radius_meters);
+      const categories = normalizeStringArray(input.categories);
+      const params = new URLSearchParams({
+        q: query,
+        limit: String(limit),
+        lang: "en-US",
+        in: `circle:${anchor.lat},${anchor.lon};r=${radiusMeters}`,
+        apiKey: hereApiKey,
+      });
+      if (categories.length > 0) {
+        params.set("categories", categories.join(","));
+      }
+
+      const url = `https://discover.search.hereapi.com/v1/discover?${params.toString()}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        return { error: `HERE Discover failed: HTTP ${response.status}` };
+      }
+
+      const data = await response.json() as { items?: HereSearchItem[] };
+      const results = (data.items ?? [])
+        .map(parseLocalBusinessItem)
+        .filter((item): item is Record<string, unknown> => item !== null);
+      const warnings: string[] = [];
+      if (results.length === 0) {
+        warnings.push("No HERE Discover candidates returned for this query and radius.");
+      }
+      if (anchor.source === "current_location" && typeof anchor.ageSec === "number" && anchor.ageSec > 3600) {
+        warnings.push("Current location is stale; confirm the area before relying on nearby results.");
+      }
+
+      return {
+        source: "here-discover",
+        searchedAt: new Date().toISOString(),
+        query,
+        near: {
+          input: anchor.input,
+          displayName: anchor.displayName,
+          lat: anchor.lat,
+          lon: anchor.lon,
+          source: anchor.source,
+          ageSec: anchor.ageSec,
+        },
+        radiusMeters,
+        resultCount: results.length,
+        results,
+        warnings,
+      };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
   };
 
   const resolvePlace = async (input: unknown): Promise<ResolvedRoutePoint> => {
@@ -1623,6 +1827,43 @@ export function createTravelTools(): AgentTool[] {
           return { error: `Cannot read location: ${err instanceof Error ? err.message : err}` };
         }
       },
+    },
+
+    {
+      name: "local_business_search",
+      description: [
+        "Find candidate local businesses, restaurants, venues, attractions, classes, or activity providers near a place.",
+        "Uses HERE Discover with a hard circular area filter, so it is good for broad candidate discovery before web/source verification.",
+        "",
+        "Parameters:",
+        "  query: Free-form search such as 'restaurants', 'cooking class', 'turtle release', or 'coffee shops'.",
+        "  near: Place/address/POI, 'lat,lon', or omit/use 'current location'.",
+        "  radius_meters: Search radius around the resolved place. Defaults to 12000, max 50000.",
+        "  limit: Number of candidates to return. Defaults to 12, max 25.",
+        "  categories: Optional HERE category IDs if known; ordinary agents should usually leave this empty and use query text.",
+        "",
+        "Returns candidate names, addresses, positions, distance, categories, food types, phone numbers, websites, emails, opening-hour text, source id, and a Google Maps search URL.",
+        "",
+        "Grounding rules:",
+        "  This is a candidate-discovery tool, not final verification. Use official websites/social pages/browser/Exa to verify hours, event times, booking links, phone/WhatsApp numbers, and ratings before recommending or planning.",
+        "  If returned contact/opening-hour fields conflict with official pages, treat the official page as stronger evidence and call out the conflict.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Free-form local search query." },
+          near: { type: "string", description: "Place/address/POI, lat,lon, or current location." },
+          radius_meters: { type: "number", description: "Radius around the resolved place; default 12000, max 50000." },
+          limit: { type: "number", description: "Candidate count; default 12, max 25." },
+          categories: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional HERE category ids.",
+          },
+        },
+        required: ["query"],
+      },
+      handler: handleLocalBusinessSearch,
     },
 
     {
