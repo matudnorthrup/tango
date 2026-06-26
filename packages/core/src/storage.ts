@@ -1728,8 +1728,7 @@ const MIGRATIONS: Migration[] = [
       ORDER BY
         CASE
           WHEN id = 'user:owner' THEN 0
-          WHEN id = 'user:devin' THEN 1
-          ELSE 2
+          ELSE 1
         END,
         id
       LIMIT 1;
@@ -2365,6 +2364,59 @@ const MIGRATIONS: Migration[] = [
       SELECT 'worker:research-coordinator', 'walking_route', 'read', 'travel walking route planning and walk-time verification'
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-coordinator')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'walking_route');
+    `,
+  },
+  {
+    version: 58,
+    sql: `
+      CREATE TABLE IF NOT EXISTS orientation_nudge_state (
+        user_id TEXT PRIMARY KEY,
+        focus_mode_active INTEGER NOT NULL DEFAULT 0,
+        focus_mode_task TEXT,
+        focus_mode_expires_at TEXT,
+        vacation_mode_active INTEGER NOT NULL DEFAULT 0,
+        vacation_mode_expires_at TEXT,
+        last_interstitial_log_at TEXT,
+        last_task_rotation_change_at TEXT,
+        task_rotation_signature TEXT,
+        task_rotation_task TEXT,
+        last_nudge_at TEXT,
+        last_nudge_response_at TEXT,
+        active_nudge_id TEXT,
+        active_nudge_message_id TEXT,
+        active_nudge_channel_id TEXT,
+        active_nudge_task TEXT,
+        active_nudge_sent_at TEXT,
+        unanswered_nudge_count INTEGER NOT NULL DEFAULT 0,
+        cooldown_until TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS orientation_nudge_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES orientation_nudge_state(user_id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_orientation_nudge_events_user_created
+        ON orientation_nudge_events(user_id, created_at);
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('orientation_nudge', 'personal', 'Orientation Nudge Controls', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:personal-assistant', 'orientation_nudge', 'write', 'Watson controls orientation focus/vacation modes'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:personal-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'orientation_nudge');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:watson-ollama', 'orientation_nudge', 'write', 'Watson Ollama controls orientation focus/vacation modes'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:watson-ollama')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'orientation_nudge');
     `,
   },
 ];

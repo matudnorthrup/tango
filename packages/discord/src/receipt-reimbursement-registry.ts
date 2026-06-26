@@ -12,6 +12,11 @@ import {
 
 const REIMBURSEMENT_SECTION_HEADING = "## Reimbursement Tracking";
 const WALMART_RECEIPTS_ENV = "TANGO_WALMART_RECEIPTS_DIR";
+// Memo written on driver-tip reimbursement notes. Generic default; an
+// installation can set TANGO_REIMBURSEMENT_TIP_MEMO to a program-specific memo.
+// Keeps any employer/program-specific memo string out of the repo.
+const TIP_REIMBURSEMENT_MEMO =
+  process.env.TANGO_REIMBURSEMENT_TIP_MEMO?.trim() || "Reimbursable expense";
 
 export interface ReceiptReimbursementState {
   status?: string;
@@ -239,7 +244,7 @@ function renderBackfilledWalmartReceipt(input: BackfillWalmartReceiptInput): str
     `- Amount: ${reimbursementAmount}`,
   );
   if (tip > 0) {
-    lines.push("- Note: Exec Buy Back Time");
+    lines.push(`- Note: ${TIP_REIMBURSEMENT_MEMO}`);
   } else {
     lines.push("- Note: no driver tip on order detail");
   }

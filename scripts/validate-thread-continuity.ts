@@ -30,7 +30,12 @@ function flag(name: string, fallback: string): string {
 }
 
 const AGENT_ID = flag("agent", "ollama-test");
-const CHANNEL_ID = flag("channel", "1512999369866088518");
+// Placeholder default; pass --channel <id> (or set TANGO_VALIDATION_CHANNEL_ID)
+// with a real channel id for a live run. Real ids live in the profile, not the repo.
+const CHANNEL_ID = flag(
+  "channel",
+  process.env.TANGO_VALIDATION_CHANNEL_ID?.trim() || "100000000000000017",
+);
 const THREAD_NAME = flag("thread-name", "memory-continuity-validation");
 const TURN_TIMEOUT_MS = 180_000;
 

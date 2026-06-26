@@ -110,7 +110,7 @@ DB is the index + fast-recall cache.**
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Arc scope | **Tango `project:{id}`** | A project spans threads/topics and outlives any one thread; matches existing project routing and the real Master-Plan→trip portfolio shape. Threads/topics attach to a project. |
+| Arc scope | **Tango `project:{id}`** | A project spans threads/topics and outlives any one thread; matches existing project routing and the real master-plan→sub-project portfolio shape. Threads/topics attach to a project. |
 | State-file substrate | **Hybrid: DB head + Obsidian body** | DB head is source of truth for *recall* (status, open items, pointer); Obsidian body is the human-collaborative narrative. Robust to concurrent agents and off-vault-machine operation. |
 | Slice-1 proving ground | **A bounded planning project** | A low-stakes project with a real evolving arc and an existing markdown doc; a bad write costs little while the new plumbing is shaken out. |
 | Governance anchor (Slice 2) | **A sensitive-operations project**, staged after the spine | Sensitive documents make source-protection + versioning non-negotiable, so they drive the governance design. No private content enters the repo spec, Linear, or agent context beyond what is operationally necessary. |
@@ -265,19 +265,19 @@ widens. "Done" requires live testing end-to-end (not unit tests alone).
 ### Slice 1 — The spine (one project arc, end-to-end)
 - **Scope:** `project_state` head + body contract (extend frontmatter) ↔
   `active_context_items` working set ↔ whisper pointer ↔ rich reseed reads it ↔
-  save updates it. Anchor: the motorcycle-trip doc.
-- **Acceptance (live, Devin's vault):** start a trip-planning thread → make
+  save updates it. Anchor: a bounded trip-planning doc.
+- **Acceptance (live, the user's vault):** start a trip-planning thread → make
   decisions → force a rotation → the agent resumes knowing the trip's current
   state, open decisions, and where the doc lives, and updates the doc on save.
 
-### Slice 2 — Governance, anchored on the Victor legal-matter project
+### Slice 2 — Governance, anchored on a sensitive legal/ops project
 - **Scope:** source-vs-working protection (`source_kind`); versioning of working
-  docs; write-time schema validation; a legal-matter template + state file.
+  docs; write-time schema validation; a sensitive-matter template + state file.
   Repeatable-process templates (e.g. onboarding) generalize from here.
-- **Privacy:** validated on Devin's private vault; the spec and Linear reference
-  the matter abstractly; no legal content enters repo/Linear or agent context
+- **Privacy:** validated on the user's private vault; the spec and Linear reference
+  the matter abstractly; no sensitive content enters repo/Linear or agent context
   beyond what is operationally necessary.
-- **Acceptance (live, Devin's vault):** a write to a `source_kind: canonical`
+- **Acceptance (live, the user's vault):** a write to a `source_kind: canonical`
   filing is refused with a clear reason; a working draft is revised with
   retrievable version history; a schema-violating write is rejected with a fix
   hint; Victor answers "what's outstanding / latest draft" after a rotation.

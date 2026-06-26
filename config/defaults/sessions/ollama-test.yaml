@@ -2,4 +2,4 @@ id: ollama-test
 type: persistent
 agent: ollama-test
 channels:
-  - discord:1512999369866088518
+  - discord:100000000000000017

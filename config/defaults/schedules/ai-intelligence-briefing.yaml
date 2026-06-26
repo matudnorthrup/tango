@@ -2,7 +2,7 @@ id: ai-intelligence-briefing
 display_name: AI Intelligence Briefing
 description: >
   Synthesize AI-related Slack channels (ai, ai-productivity, agents,
-  share-news, share-learning, claudes-office, devins-agents, openclaw)
+  share-news, share-learning, ai-news, ai-updates, ai-lab)
   into a daily briefing on what the team is discussing around AI.
 enabled: true
 runtime: v2
@@ -23,7 +23,7 @@ execution:
     Use the slack tool to:
     1. List all channels
     2. Filter to AI-related channels: ai, ai-productivity, agents,
-       share-news, share-learning, claudes-office, devins-agents, openclaw
+       share-news, share-learning, ai-news, ai-updates, ai-lab
     3. Fetch the last 24 hours of history from each
     4. Resolve user IDs to names
     5. Read thread replies for high-engagement threads

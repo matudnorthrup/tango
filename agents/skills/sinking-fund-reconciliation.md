@@ -1,16 +1,20 @@
 # sinking_fund_reconciliation
 
-Reconcile Watson's sinking-fund-backed Lunch Money spending against the
-configured Ally sinking fund balances. Use this for weekly tracking, month-end
-pre-close, and ad-hoc requests like "run a sinking fund reconciliation for
-April."
+Reconcile sinking-fund-backed Lunch Money spending against the configured
+sinking fund balances. Use this for weekly tracking, month-end pre-close, and
+ad-hoc requests like "run a sinking fund reconciliation for April."
+
+Fund names, the bank/account suffixes that back each fund, dollar
+targets/floors/contributions, contribution dates, covered categories, and any
+child-spending reserve are profile-configured. Read the configured source note
+(below) for the live values; the rows in this doc are illustrative placeholders.
 
 This skill is now a module inside the unified `finance_review` workflow. Use it
 for the sinking-fund section of rolling, close-prep, and close reviews.
 
-This workflow does **not** create or manage Ramp drafts. Ramp is only for
-Latitude reimbursements. In this file, "reimbursement" means an SB transfer
-that offsets a covered personal budget category in Lunch Money.
+This workflow does **not** create or manage Ramp drafts. Ramp is only for the
+configured work reimbursement program. In this file, "reimbursement" means an SB
+transfer that offsets a covered personal budget category in Lunch Money.
 
 ## Source of truth
 
@@ -28,32 +32,35 @@ Execution order for the note:
   note when the dedicated note is present.
 
 The note can evolve faster than this repo snapshot. Read the note first and let
-it override the fallback rows below. Current known fallback rows:
+it override anything here. The note defines the live fund rows, with at minimum:
 
-| Fund | Ally account | Covered categories | Target | Floor | Contribution |
+| Fund | Backing account | Covered categories | Target | Floor | Contribution |
 | --- | --- | --- | --- | --- | --- |
-| House SB | Ally `...5721` | Home Improvement, Home Repair | $20,000 | $10,000 | $700 |
-| Vehicles SB | Ally `...3271` | Auto Repair, Boat | $10,000 | $5,000 | $350 |
-| Recreation SB | Ally `...5846` | Fishing and Outdoors (`Fishing & Outdoors` in some reports) | $10,000 | none | $300 |
-| Kilo spending reserve | profile-configured backing account | profile-configured child spending category | note-defined | note-defined | note-defined |
+| (profile-configured) | (bank account suffix) | (Lunch Money categories) | $ | $ | $ |
+
+A profile overlay carries the concrete fund table (fund names, account
+suffixes, dollar targets/floors/contributions, contribution dates, covered
+categories, and any child-spending reserve). Prefer the note, then the overlay,
+then ask.
 
 Important exclusions and context:
-- `Gas & Charging` is **not** covered by any sinking fund.
-- Any owner spending reserve is separate from the profile-configured Kilo
-  spending reserve; never merge them.
-- The Kilo spending reserve is in scope for this workflow when the note lists
-  it or when the user asks about Kilo child spending.
-- Kilo ledger bookkeeping for child spending review is governed by the private
-  Kilo spending runbook: recommend Kilo bucket draws, wait for owner approval,
-  then record approved current spends with `kilo_ledger record_spend`. Later
-  bank transfers out of the backing account are settlements of already-recorded
-  spends, not second debits.
+- Fuel/charging categories are **not** covered by any sinking fund unless the
+  note says otherwise.
+- Any owner spending reserve is separate from the profile-configured
+  child-spending reserve; never merge them.
+- The child-spending reserve is in scope for this workflow when the note lists
+  it or when the user asks about child spending.
+- Child-spending ledger bookkeeping is governed by the profile-configured
+  child-spending runbook: recommend bucket draws, wait for owner approval, then
+  record approved current spends with the configured ledger tool's
+  `record_spend`. Later bank transfers out of the backing account are
+  settlements of already-recorded spends, not second debits.
 - Historical back-payments may exist, so do not assume older months were
   fully reconciled already.
 - Contribution cadences come from the note. Monthly contribution checks apply
-  to the monthly funds unless the note says otherwise. Kilo funding should be
-  verified from transaction history and backing-account activity after its
-  configured due date.
+  to the monthly funds unless the note says otherwise. Child-spending funding
+  should be verified from transaction history and backing-account activity after
+  its configured due date.
 
 If the note conflicts with a newer explicit user instruction, prefer the newer
 instruction and call out the override in the report.
@@ -77,7 +84,7 @@ At minimum:
 - Read `Sinking Fund Budget System` from Obsidian.
 - Fetch Lunch Money categories so category names and ids are current.
 - Fetch Lunch Money transactions for the reporting window.
-- Fetch current balances for the note-defined Ally sinking fund accounts using
+- Fetch current balances for the note-defined sinking fund accounts using
   the account or asset endpoints available in this installation.
 
 Balances are required output fields for this workflow. If one Lunch Money
@@ -88,7 +95,7 @@ When you need contribution verification:
 - Check the current month's transaction history for SB contribution categories
   instead of relying on recurring-item data.
 - Check savings-side transfer activity before marking a contribution missing.
-  Contributions may be visible on their dedicated Ally savings accounts even
+  Contributions may be visible on their dedicated savings accounts even
   when checking-account outflows are hard to match.
 - Fetch `/plaid_accounts` and verify `last_import`, `last_fetch`, and
   `plaid_last_successful_update` for checking and the note-defined SB accounts.
@@ -102,15 +109,14 @@ When you need contribution verification:
 
 ### 1. Map only the in-scope categories
 
-Reconcile only these category-to-fund mappings unless the note has changed:
-- House SB: `Home Improvement`, `Home Repair`
-- Vehicles SB: `Auto Repair`, `Boat`
-- Recreation SB: `Fishing and Outdoors` (or `Fishing & Outdoors`)
-- Kilo spending reserve: profile-configured child spending category
+Reconcile only the category-to-fund mappings defined by the source note and the
+profile overlay. Each configured fund maps to one or more Lunch Money
+categories; the child-spending reserve maps to the configured child spending
+category.
 
-Do not pull `Gas & Charging` into any sinking fund totals.
-Do not merge any owner spending reserve and the Kilo spending reserve; they are
-separate reserves.
+Do not pull fuel/charging categories into any sinking fund totals unless the
+note says otherwise. Do not merge any owner spending reserve and the
+child-spending reserve; they are separate reserves.
 
 ### 2. Calculate category spending
 
@@ -156,7 +162,7 @@ Recommendation thresholds when called from `finance_review`:
 ### 5. Compare against current balances, floors, and targets
 
 For each fund:
-- Record the current Ally balance.
+- Record the current account balance.
 - Calculate `after_reimbursement = current_balance - fund_outstanding`.
 - Compare `after_reimbursement` to the configured floor.
 - Compare the current balance to the target and note the remaining target gap.
@@ -166,16 +172,14 @@ Warnings:
 - If `after_reimbursement` falls below the floor, flag it clearly.
 - If the fund is already below the floor before any reimbursement, call that
   out as a stronger warning.
-- For House and Vehicles, remind the user that below-floor use should be
-  essential-only based on the configured floor philosophy.
+- For funds with a configured floor philosophy, remind the user that below-floor
+  use should be essential-only.
 
 ### 6. Check contribution status
 
-Expected fallback contribution timing:
-- House SB: $700 on the 16th
-- Vehicles SB: $350 on the 16th
-- Recreation SB: $300 on the 16th
-- Kilo spending reserve: note/profile-configured cadence and amount
+Expected contribution amounts, dates, and cadences come from the source note and
+profile overlay. Verify each fund's configured contribution; the child-spending
+reserve uses its note/profile-configured cadence and amount.
 
 Contribution reporting rules:
 - For monthly funds, if the run date is before the due date in the current
@@ -205,8 +209,8 @@ Include:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 Include the note-defined sinking funds that are in scope for the request or
-Finance Review phase. Keep owner spending reserves separate from the Kilo
-spending reserve.
+Finance Review phase. Keep owner spending reserves separate from the
+child-spending reserve.
 
 Status should be concise:
 - `On track`
@@ -244,7 +248,7 @@ Status examples:
 
 If any outstanding reimbursement exists, say exactly what would clear the books
 today, for example:
-- `House SB -> checking: $206.85, categorize inbound transfer to Home Improvement / Home Repair as needed`
+- `<Fund> -> checking: $206.85, categorize inbound transfer to <covered category> as needed`
 
 If nothing is outstanding, say:
 - `No sinking fund reimbursement transfers are needed right now.`

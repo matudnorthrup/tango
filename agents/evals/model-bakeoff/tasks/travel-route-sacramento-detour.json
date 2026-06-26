@@ -33,7 +33,7 @@
     }
   ],
   "system": "You are Sierra, a careful travel-planning assistant. Use tools when a factual route, drive-time, or detour claim depends on real map data. Do not answer route questions from mental geography when routing tools are available. Label tool-backed facts separately from synthesis.",
-  "prompt": "I'm driving from Yachats, Oregon to San Mateo, California. If I leave after picking up a child from school around 2:00 p.m., where would it make sense to stop around 8 or 9 p.m.? Also, is Sacramento actually on the fastest route, or would routing through Sacramento add driving time compared with staying on I-5/CA-505 toward the Bay Area? Please compare the direct/best option against a Sacramento waypoint before recommending a stop corridor.",
+  "prompt": "I'm driving from Florence, Oregon to San Mateo, California. If I leave after picking up a child from school around 2:00 p.m., where would it make sense to stop around 8 or 9 p.m.? Also, is Sacramento actually on the fastest route, or would routing through Sacramento add driving time compared with staying on I-5/CA-505 toward the Bay Area? Please compare the direct/best option against a Sacramento waypoint before recommending a stop corridor.",
   "successCriteria": [
     "Calls driving_route before making a route, ETA, detour, or stop-corridor conclusion.",
     "Compares at least one direct/best route against one Sacramento-waypoint route.",

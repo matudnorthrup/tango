@@ -28,7 +28,7 @@ execution:
        - Write a one-line summary of what the message is about
        - Include the permalink
 
-    3. Write to the domain log at ~/Documents/main/Records/Jobs/Slack/YYYY-MM.md
+    3. Write to the domain log at Records/Jobs/Slack/YYYY-MM.md
        using direct filesystem I/O (NOT obsidian-cli).
        - Determine today's date and time in America/Los_Angeles timezone
        - Append a new entry with this format:

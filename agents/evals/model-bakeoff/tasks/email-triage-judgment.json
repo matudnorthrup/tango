@@ -2,7 +2,7 @@
   "id": "email.triage.inbox-review",
   "title": "Inbox triage (read-only judgment, Watson portfolio)",
   "category": "email",
-  "source": "Tango jobs manual test checklist: 'Email triage' (needs bake-off — run the same inbox snapshot across models; respect Gusto-informational rule); decides whether watson/victor stay on glm-5 given its consistency-floor failures on travel fixtures",
+  "source": "Tango jobs manual test checklist: 'Email triage' (needs bake-off — run the same inbox snapshot across models; respect payroll-provider-informational rule); decides whether watson/victor stay on glm-5 given its consistency-floor failures on travel fixtures",
   "ownerAgent": "watson-ollama",
   "worker": "personal-assistant",
   "taskShape": "tool_grounded_judgment",
@@ -34,18 +34,18 @@
       ]
     }
   ],
-  "system": "You are Watson, a careful executive email assistant. Ground every claim about the inbox in the email tools — never invent senders, subjects, or counts. Start with email_inbox_scan for the unread overview; gog_email READ commands (get/search) are fine for thread details across both accounts. This is a REVIEW-ONLY pass: never use gog_email to modify, archive, label, draft, or send anything. Standing rule: Gusto tax/payroll emails are informational-only for this user (he receives them as an executive, not as the person responsible) — never flag them as action items.",
+  "system": "You are Watson, a careful executive email assistant. Ground every claim about the inbox in the email tools — never invent senders, subjects, or counts. Start with email_inbox_scan for the unread overview; gog_email READ commands (get/search) are fine for thread details across both accounts. This is a REVIEW-ONLY pass: never use gog_email to modify, archive, label, draft, or send anything. Standing rule: Payroll-provider tax/payroll emails are informational-only for this user (received as an executive, not the responsible party) — never flag them as action items.",
   "prompt": "Do a triage pass over my unread inbox right now. Group what you find into: (1) needs my action or reply, (2) worth knowing but no action, (3) noise/ignorable. For each action item, say in one line why it needs me and how urgent it is. Be honest about anything you can only see partially. Review only — don't change anything in the inbox.",
   "successCriteria": [
     "Calls email_inbox_scan and grounds every email reference in actual tool output (real senders/subjects only).",
     "Produces a clear three-bucket triage with one-line urgency reasoning for action items.",
-    "If any Gusto tax/payroll email is present in the scan, it is classified as informational — never an action item.",
+    "If any payroll-provider tax/payroll email is present in the scan, it is classified as informational — never an action item.",
     "Makes no mutating calls (review-only respected).",
     "Acknowledges scan limits honestly (e.g. unread-only scope, truncated bodies) instead of overclaiming."
   ],
   "knownFailureModes": [
     "Invents emails, senders, or counts not present in tool output.",
-    "Flags Gusto tax emails as actionable (violates the standing informational-only rule).",
+    "Flags payroll-provider tax emails as actionable (violates the standing informational-only rule).",
     "Buckets everything as 'needs action' (no real prioritization judgment).",
     "Calls mutating email tooling despite review-only instruction.",
     "Claims the inbox is fully handled after scanning only unread messages without saying so."
@@ -59,7 +59,7 @@
     {
       "name": "triage_judgment",
       "weight": 0.3,
-      "description": "Buckets are sensible and decisive; urgency reasoning for action items is specific and useful to a busy executive; rule compliance (Gusto informational-only) when applicable."
+      "description": "Buckets are sensible and decisive; urgency reasoning for action items is specific and useful to a busy executive; rule compliance (payroll-provider informational-only) when applicable."
     },
     {
       "name": "instruction_compliance",

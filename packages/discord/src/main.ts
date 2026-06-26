@@ -127,6 +127,10 @@ import { createDailyBriefAggregationHandler } from "./daily-brief-aggregator.js"
 import { createKiloLedgerMonitorHandler } from "./kilo-ledger-monitor.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
 import { createActiveThreadsTracker } from "./active-threads-tracker.js";
+import {
+  createOrientationNudgeHandler,
+  handleOrientationNudgeInteraction,
+} from "./orientation-nudge.js";
 import { coerceWorkerReplyForDisplay } from "./worker-text-sanitizer.js";
 import { z } from "zod";
 import {
@@ -1172,7 +1176,7 @@ registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
     return {
       action: "skip" as const,
       reason:
-        `No recent receipt candidates or reimbursement tracking gaps for Amazon/Walmart/Costco/Venmo/Maid in Newport/Factor in the last ${lookbackDays} days.`,
+        `No recent receipt candidates or reimbursement tracking gaps for configured retailers in the last ${lookbackDays} days.`,
     };
   }
 
@@ -2033,6 +2037,35 @@ const client = new Client({
 });
 
 registerDeterministicHandler("active-threads-tracker", createActiveThreadsTracker(client));
+const orientationNudgeChannelId =
+  process.env.ORIENTATION_NUDGE_CHANNEL_ID
+  ?? process.env.TANGO_ORIENTATION_NUDGE_CHANNEL_ID
+  ?? agentRegistry.get("watson-ollama")?.voice?.defaultChannelId
+  ?? agentRegistry.get("watson")?.voice?.defaultChannelId
+  ?? null;
+registerDeterministicHandler("orientation-nudge", createOrientationNudgeHandler(client, {
+  channelId: orientationNudgeChannelId,
+  recordNudgeMessage(input) {
+    const route = sessionManager.route(`discord:${input.channelId}`)
+      ?? sessionManager.route("discord:default");
+    if (!route) return;
+    writeMessage({
+      sessionId: route.sessionId,
+      agentId: "watson",
+      direction: "outbound",
+      source: "tango",
+      visibility: "public",
+      discordMessageId: input.messageId,
+      discordChannelId: input.channelId,
+      content: input.content,
+      metadata: {
+        orientationNudge: true,
+        nudgeId: input.nudgeId,
+        task: input.task,
+      },
+    });
+  },
+}));
 
 const replyPresenter = createReplyPresenter({
   systemDisplayName,
@@ -5097,6 +5130,47 @@ function writeDeadLetter(input: DeadLetterInsertInput): number | null {
   }
 }
 
+function recordUnhandledDiscordTurnFailure(message: Message, errorText: string): number | null {
+  const storedMessage = storage.getMessageByDiscordMessageId(message.id, {
+    channelId: message.channelId,
+  });
+  if (
+    !storedMessage
+    || storedMessage.source !== "discord"
+    || storedMessage.direction !== "inbound"
+    || storedMessage.visibility !== "public"
+    || !storedMessage.agentId
+  ) {
+    return null;
+  }
+
+  const routingChannelId = resolveRoutingChannelId(message);
+  const threadId = message.channelId !== routingChannelId ? message.channelId : undefined;
+  const conversationKey = threadId ? `thread:${threadId}` : `channel:${routingChannelId}`;
+  const providerName =
+    storedMessage.providerName
+    ?? agentRegistry.get(storedMessage.agentId)?.provider.default
+    ?? "unknown";
+
+  return writeDeadLetter({
+    sessionId: storedMessage.sessionId,
+    agentId: storedMessage.agentId,
+    providerName,
+    conversationKey,
+    requestMessageId: storedMessage.id,
+    discordChannelId: storedMessage.discordChannelId ?? message.channelId,
+    discordUserId: storedMessage.discordUserId ?? message.author.id,
+    discordUsername: storedMessage.discordUsername ?? message.author.username,
+    promptText: storedMessage.content,
+    lastErrorMessage: errorText,
+    metadata: {
+      recoverySource: "unhandled-discord-turn-failure",
+      originalCreatedAt: storedMessage.createdAt,
+      discordMessageId: message.id,
+    },
+  });
+}
+
 function upsertSessionForRoute(
   route: { sessionId: string; agentId: string },
   fallbackChannel = "discord:default"
@@ -7830,14 +7904,22 @@ client.once("clientReady", async () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== "tango") return;
-
   try {
+    if (await handleOrientationNudgeInteraction(interaction, {
+      db: storage.getDatabase(),
+    })) {
+      return;
+    }
+
+    if (!interaction.isChatInputCommand()) return;
+    if (interaction.commandName !== "tango") return;
+
     await handleTangoCommand(interaction);
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
-    console.error("[tango-discord] slash command failed", messageText);
+    console.error("[tango-discord] interaction failed", messageText);
+
+    if (!interaction.isRepliable()) return;
 
     if (interaction.deferred || interaction.replied) {
       await interaction
@@ -7930,7 +8012,11 @@ client.on("messageCreate", async (message) => {
         return;
       }
       const errorText = error instanceof Error ? error.message : String(error);
-      console.error(`[tango-discord] handleMessage failed for ${message.author.username} in ${message.channelId}: ${errorText}`);
+      const deadLetterId = recordUnhandledDiscordTurnFailure(message, errorText);
+      console.error(
+        `[tango-discord] handleMessage failed for ${message.author.username} in ${message.channelId}: ${errorText}`
+        + (deadLetterId ? ` dead_letter_id=${deadLetterId}` : "")
+      );
       try {
         await sendPresentedReply(message.channel, `Something went wrong processing your message. Please try again.`, systemAgent);
       } catch (replyError) {

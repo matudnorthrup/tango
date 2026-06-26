@@ -101,7 +101,7 @@ harness's own logic tests run with `npm run eval:test`.
 
 ## What the data shows (and why it generalizes)
 
-A bake-off (2026-06-08, [DEV-57]) established the pattern we expect to keep seeing:
+A bake-off (2026-06-08, tracked in the employer Linear workspace) established the pattern we expect to keep seeing:
 
 - **Bounded / clear tasks** (a fixed recipe of tool calls): every candidate
   completes *identically correctly*. There is no quality difference — **take the
@@ -172,5 +172,3 @@ persona handles an occasional "help me think through X" on a thinking model.
   real constraint for long/auth-in-turn flows is architectural (stateless single
   turn + iteration cap), not just the model. Model choice raises the ceiling;
   keeping sessions authenticated / decomposing the flow is the rest of the fix.
-
-[DEV-57]: https://linear.app/latitudegames/issue/DEV-57
