@@ -23,6 +23,10 @@ import {
   type AgentTool,
   type DeterministicHandler,
 } from "@tango/core";
+import {
+  appendInterstitialLogEntry,
+  appendLineToSection,
+} from "./interstitial-log-capture.js";
 
 const DEFAULT_TIME_ZONE = "America/Los_Angeles";
 const DEFAULT_VAULT_ROOT = path.join(os.homedir(), "Documents", "main");
@@ -1252,42 +1256,7 @@ async function clearOriginalComponents(interaction: ModalSubmitInteraction): Pro
   await maybeMessage?.edit({ components: [] }).catch(() => undefined);
 }
 
-function appendInterstitialLogEntry(
-  vaultRoot: string,
-  now: Date,
-  timeZone: string,
-  task: string,
-): void {
-  const date = localDateString(now, timeZone);
-  const notePath = path.join(vaultRoot, "Planning", "Daily", `${date}.md`);
-  const before = fs.readFileSync(notePath, "utf8");
-  const line = `- ${formatLocalTime(now, timeZone)} - ${task}`;
-  const after = appendLineToSection(before, "Interstitial Log", line);
-  fs.writeFileSync(notePath, after, "utf8");
-}
-
-export function appendLineToSection(content: string, heading: string, line: string): string {
-  const lines = content.split(/\r?\n/u);
-  const headingPattern = new RegExp(`^##\\s+${escapeRegExp(heading)}\\s*$`, "u");
-  const start = lines.findIndex((candidate) => headingPattern.test(candidate.trim()));
-  if (start < 0) {
-    return `${content.replace(/\s*$/u, "")}\n\n## ${heading}\n${line}\n`;
-  }
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^##\s+\S/u.test(lines[index] ?? "")) {
-      end = index;
-      break;
-    }
-  }
-  const insertAt = end;
-  const nextLines = [
-    ...lines.slice(0, insertAt),
-    line,
-    ...lines.slice(insertAt),
-  ];
-  return nextLines.join("\n");
-}
+export { appendLineToSection };
 
 function parseUntil(raw: string, now: Date, defaultDurationMinutes: number): Date {
   if (!raw) {
