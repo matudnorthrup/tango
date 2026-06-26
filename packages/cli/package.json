@@ -11,6 +11,6 @@
   },
   "dependencies": {
     "@tango/core": "0.1.0",
-    "commander": "^13.1.0"
+    "commander": "^15.0.0"
   }
 }
