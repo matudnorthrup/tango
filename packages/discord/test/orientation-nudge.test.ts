@@ -258,7 +258,7 @@ describe("orientation nudge trigger decisions", () => {
 });
 
 describe("orientation nudge calendar blocking", () => {
-  it("blocks timed events but ignores all-day events", () => {
+  it("blocks timed events but ignores all-day events and Block placeholders", () => {
     const now = new Date("2026-06-25T17:30:00.000Z");
     expect(findBlockingCalendarEvent([
       {
@@ -275,6 +275,32 @@ describe("orientation nudge calendar blocking", () => {
         end: { dateTime: "2026-06-25T18:00:00.000Z" },
       },
     ], now)).toMatchObject({ title: "Tentative focus block" });
+
+    expect(findBlockingCalendarEvent([
+      {
+        summary: "  Block: Collaboration",
+        start: { dateTime: "2026-06-25T17:00:00.000Z" },
+        end: { dateTime: "2026-06-25T18:00:00.000Z" },
+      },
+      {
+        summary: "block: Morning focus work",
+        start: { dateTime: "2026-06-25T17:00:00.000Z" },
+        end: { dateTime: "2026-06-25T18:00:00.000Z" },
+      },
+    ], now)).toBeNull();
+
+    expect(findBlockingCalendarEvent([
+      {
+        summary: "Block: Collaboration",
+        start: { dateTime: "2026-06-25T17:00:00.000Z" },
+        end: { dateTime: "2026-06-25T18:00:00.000Z" },
+      },
+      {
+        summary: "Doctor appointment",
+        start: { dateTime: "2026-06-25T17:15:00.000Z" },
+        end: { dateTime: "2026-06-25T18:15:00.000Z" },
+      },
+    ], now)).toMatchObject({ title: "Doctor appointment" });
   });
 });
 
