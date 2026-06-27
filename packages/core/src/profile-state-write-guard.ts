@@ -83,9 +83,21 @@ export function validateProfileStateFileMutation(input: ProfileStateGuardInput):
     };
   }
 
+  // OpenClaw soft-denylist pattern: block full-file write on existing thread files.
+  // Agents and subagents must use patch/Edit; create-on-missing only for new paths.
+  if (existing !== undefined && input.operation === "write") {
+    return {
+      allowed: false,
+      reason:
+        "Refusing full-file write on an existing profile thread file. "
+        + "The write operation replaces the entire file — use state_patch or Edit for targeted updates. "
+        + "To start a new thread, write only when the path does not exist yet.",
+    };
+  }
+
   const governed = existing !== undefined
     ? (isStateManagedContent(existing) || PROFILE_STATE_FROZEN_HEADINGS.some((h) => hasFrozenHeading(existing, h)))
-    : isStateManagedContent(next);
+    : true;
 
   if (!governed) {
     return { allowed: true };
@@ -107,21 +119,6 @@ export function validateProfileStateFileMutation(input: ProfileStateGuardInput):
         + missing.map((heading) => `## ${heading}`).join(", ")
         + ". Patch the section in place; do not remove contract anchors.",
     };
-  }
-
-  if (existing !== undefined && input.operation === "write") {
-    const existingTrimmed = existing.trim();
-    if (
-      existingTrimmed.length >= 200
-      && nextTrimmed.length < existingTrimmed.length * 0.5
-    ) {
-      return {
-        allowed: false,
-        reason:
-          "Refusing full-file overwrite on an existing profile thread file "
-          + "(content shrink exceeds guard threshold). Use Edit/state_patch for targeted updates.",
-      };
-    }
   }
 
   return { allowed: true };

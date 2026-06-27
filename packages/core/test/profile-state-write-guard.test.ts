@@ -47,7 +47,97 @@ describe("profile-state-write-guard", () => {
       profileRoot: "/tmp/profile",
     });
     expect(result.allowed).toBe(false);
-    expect(result.reason).toMatch(/full-file overwrite|frozen heading/i);
+    expect(result.reason).toMatch(/full-file write on an existing/i);
+  });
+
+  it("blocks write on existing thread even when frozen headings are preserved", () => {
+    const replacement = `---
+status: active
+state_managed: true
+---
+
+# Cod-E canary
+
+## Quick Read
+
+Replaced entirely via write.
+
+## Open Items
+
+- [ ] still here
+
+## Notes
+
+${"x".repeat(500)}
+`;
+    const result = validateProfileStateFileMutation({
+      filePath: "/tmp/profile/threads/infrastructure/cod-e-canary/cod-e-canary.md",
+      existingContent: CANARY,
+      nextContent: replacement,
+      operation: "write",
+      profileRoot: "/tmp/profile",
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/full-file write on an existing/i);
+  });
+
+  it("allows create-on-missing thread file with contract headings", () => {
+    const result = validateProfileStateFileMutation({
+      filePath: "/tmp/profile/threads/infrastructure/new-thread/new-thread.md",
+      nextContent: CANARY,
+      operation: "write",
+      profileRoot: "/tmp/profile",
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows patch that removes a mistaken non-contract section", () => {
+    const withMistake = `${CANARY}
+
+## Oops Wrong Section
+
+This should not have been added.
+`;
+    const next = applyEditPatch(
+      withMistake,
+      "\n## Oops Wrong Section\n\nThis should not have been added.\n",
+      "",
+    )!;
+    expect(next).not.toContain("Oops Wrong Section");
+    const result = validateProfileStateFileMutation({
+      filePath: "/tmp/profile/threads/infrastructure/cod-e-canary/cod-e-canary.md",
+      existingContent: withMistake,
+      nextContent: next,
+      operation: "patch",
+      profileRoot: "/tmp/profile",
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  it("blocks patch that removes a frozen heading", () => {
+    const next = applyEditPatch(CANARY, "## Open Items\n\n- [ ] A8 pending\n", "")!;
+    const result = validateProfileStateFileMutation({
+      filePath: "/tmp/profile/threads/infrastructure/cod-e-canary/cod-e-canary.md",
+      existingContent: CANARY,
+      nextContent: next,
+      operation: "patch",
+      profileRoot: "/tmp/profile",
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/missing frozen heading/i);
+  });
+
+  it("blocks patch that would empty the thread file", () => {
+    const next = applyEditPatch(CANARY, CANARY.trim(), "") ?? "";
+    const result = validateProfileStateFileMutation({
+      filePath: "/tmp/profile/threads/infrastructure/cod-e-canary/cod-e-canary.md",
+      existingContent: CANARY,
+      nextContent: next,
+      operation: "patch",
+      profileRoot: "/tmp/profile",
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/empty/i);
   });
 
   it("blocks empty write", () => {
