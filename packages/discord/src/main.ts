@@ -229,6 +229,7 @@ import {
   shouldInitializeSlotMode,
 } from "./slot-mode.js";
 import {
+  buildSavePassEphemeralReply,
   buildSendContextWithOptionalSavePass,
   buildV2ConversationKey,
   mergeSendContext,
@@ -6808,11 +6809,7 @@ async function handleSaveCommand(interaction: ChatInputCommandInteraction): Prom
   );
 
   await interaction.reply({
-    content: [
-      `Save pass queued for ${scopeLabel}.`,
-      "Your next message will ask the agent to review this conversation and capture durable items to Atlas.",
-      "The agent should confirm what was saved.",
-    ].join(" "),
+    content: buildSavePassEphemeralReply(scopeLabel),
     ephemeral: true,
   });
 }

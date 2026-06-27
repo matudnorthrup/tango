@@ -15,6 +15,16 @@ export function buildSavePassContext(): string {
   ].join("\n");
 }
 
+/** Ephemeral Discord reply when the operator runs `/tango save`. */
+export function buildSavePassEphemeralReply(scopeLabel: string): string {
+  return [
+    `Save pass queued for ${scopeLabel}.`,
+    "Your next message will ask the agent to review this conversation and route saves:",
+    "linked **thread file** (project state), **daily log** headline (when wired), and **Atlas** (partnership recall).",
+    "The agent should confirm what went to each layer.",
+  ].join(" ");
+}
+
 export function mergeSendContext(...sections: Array<string | undefined | null>): string | undefined {
   const merged = sections
     .map((section) => section?.trim())
