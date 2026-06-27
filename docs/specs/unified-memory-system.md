@@ -330,3 +330,22 @@ more triggers — rather than building layer-by-layer.
   its own validation). A Discovery issue captures this review + the §11 questions.
 - **Per-slice issues:** carry the §10 acceptance criteria as the validation gate;
   live-test evidence attached before Done.
+
+---
+
+## 13. Operator profile decisions (2026-06-27 — Operator mini)
+
+These live in **`~/.tango/profiles/default/`** (not repo). Canonical clawd handoffs:
+
+| Topic | Location |
+| --- | --- |
+| Fleet save (Atlas + thread + daily log) | `skills/session-save.md` |
+| Fast breakage checks | `~/clawd/handoffs/2026-06-27-tango-memory-health-spec.md` |
+| Cod-E canary thread shape | `~/clawd/handoffs/2026-06-27-cod-e-canary-thread-shape.md` |
+
+**Updates to findings above:**
+
+- **`/tango save`** exists on Discord v2 (`session-ops.ts`); fleet policy in profile skill.
+- **Fleet daily log (new):** `profile/memory/YYYY-MM-DD.md` — complements Obsidian `Planning/Daily/` and Atlas; channel-stamped append, all agents.
+- **`memory_add` provenance:** TangoRouter injects `TANGO_CONVERSATION_KEY`, `TANGO_DISCORD_CHANNEL_ID`, `TANGO_DISCORD_THREAD_ID` into atlas-memory MCP env (`discord-memory-provenance.ts`).
+- **Validation:** deterministic health script (30–60m) for breakages; Marion weekly for learnings only.

@@ -128,7 +128,18 @@ describe("TangoRouter", () => {
     });
     expect(mockState.sendMessage).toHaveBeenCalledWith(
       "channel:channel-1",
-      bravoConfig,
+      {
+        ...bravoConfig,
+        mcpServers: [
+          {
+            ...bravoConfig.mcpServers[0]!,
+            env: {
+              TANGO_CONVERSATION_KEY: "channel:channel-1",
+              TANGO_DISCORD_CHANNEL_ID: "channel-1",
+            },
+          },
+        ],
+      },
       "hello",
       sendOptions,
     );
@@ -167,7 +178,18 @@ describe("TangoRouter", () => {
     expect(result.conversationKey).toBe("voice:session-42:alpha");
     expect(mockState.sendMessage).toHaveBeenCalledWith(
       "voice:session-42:alpha",
-      createAgentConfig("alpha"),
+      {
+        ...createAgentConfig("alpha"),
+        mcpServers: [
+          {
+            ...createAgentConfig("alpha").mcpServers[0]!,
+            env: {
+              TANGO_CONVERSATION_KEY: "voice:session-42:alpha",
+              TANGO_DISCORD_CHANNEL_ID: "channel-1",
+            },
+          },
+        ],
+      },
       "hello",
       undefined,
     );

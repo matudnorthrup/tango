@@ -10,6 +10,7 @@ import {
   type SendOptions,
   type SessionLifecycleConfig,
 } from "@tango/core";
+import { augmentRuntimeConfigWithDiscordProvenance } from "./discord-memory-provenance.js";
 
 export interface TangoRouterConfig {
   /** Map of agent IDs to their v2 runtime configs */
@@ -92,7 +93,14 @@ export class TangoRouter {
     const conversationKey =
       params.conversationKey?.trim()
       || this.getConversationKey(params.channelId, params.threadId);
-    const agentConfig = this.resolveAgentConfig(params.agentId);
+    const agentConfig = augmentRuntimeConfigWithDiscordProvenance(
+      this.resolveAgentConfig(params.agentId),
+      {
+        conversationKey,
+        channelId: params.channelId,
+        ...(params.threadId ? { threadId: params.threadId } : {}),
+      },
+    );
     const runtimeResponse = await this.lifecycleManager.sendMessage(
       conversationKey,
       agentConfig,
