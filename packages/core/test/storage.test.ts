@@ -500,6 +500,25 @@ describe("TangoStorage", () => {
     db.close();
   });
 
+  it("seeds local_business_search governance for Sierra local research", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
+    const checker = new GovernanceChecker(db);
+    const tool = db.prepare(
+      "SELECT id, domain, access_type FROM governance_tools WHERE id = 'local_business_search'",
+    ).get() as { id: string; domain: string; access_type: string } | undefined;
+
+    expect(tool).toEqual({ id: "local_business_search", domain: "research", access_type: "read" });
+    expect(checker.hasPermission("worker:research-assistant", "local_business_search", "read")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "local_business_search", "read")).toBe(true);
+    expect(checker.hasPermission("worker:research-coordinator", "local_business_search", "read")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "local_business_search", "write")).toBe(false);
+
+    db.close();
+  });
+
   it("moves Walmart shopping governance from Sierra to Foxtrot", () => {
     const { storage, dir } = createStorage();
     storage.close();

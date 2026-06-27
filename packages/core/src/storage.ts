@@ -2419,6 +2419,28 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'orientation_nudge');
     `,
   },
+  {
+    version: 59,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('local_business_search', 'research', 'Local Business Search', 'read');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:research-assistant', 'local_business_search', 'read', 'local business, restaurant, venue, class, and event candidate discovery'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'local_business_search');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:sierra-ollama', 'local_business_search', 'read', 'Sierra Ollama local business and activity candidate discovery'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'local_business_search');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:research-coordinator', 'local_business_search', 'read', 'local business and event candidate discovery for source-grounded research'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-coordinator')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'local_business_search');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

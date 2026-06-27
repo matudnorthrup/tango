@@ -129,13 +129,13 @@ granular working set: open items, decisions, entities — keyed by `project_id`)
 `project_state` (proposed):
 - `project_id` (PK), `title`, `status` (active|planning|waiting|deferred|evergreen|reference|closed)
 - `quick_read` (short current-state summary)
-- `obsidian_path` (pointer to the markdown body), `template_id`
+- `obsidian_path` (legacy column name; stores the state body pointer), `template_id`
 - `prev_session_id` (session chaining for deep recall), `lead_agent_id`
 - `created_at`, `updated_at`, `last_saved_at`
 
-### 5.2 Obsidian body — canonical narrative (collaborative tier)
-The human+AI markdown doc. **Extends the existing vault frontmatter** rather than
-inventing a new schema. Today's trip docs already carry:
+### 5.2 Markdown body — canonical narrative (collaborative tier)
+The human+AI markdown doc. **Extends the existing state-file frontmatter**
+rather than inventing a new schema. Existing project docs already carry:
 `date`, `types: [[Project Plan]]`, `areas`, `collections`, `source_kind`.
 
 Add a minimal state-managed header:
@@ -157,22 +157,32 @@ linked body, exactly:
 Everything else in the body is free narrative. A body missing these anchors still
 works — the reseed falls back to the head's stored `quick_read`.
 
+**Body providers (as built, Slice 1b).** The pointer is provider-neutral even
+while the DB column keeps its legacy name:
+- plain `Projects/Foo.md` remains an Obsidian/vault-relative body pointer;
+- `profile:threads/foo.md` points at the active Tango profile;
+- profile bodies are limited to markdown files under `threads/`, `collab/`,
+  `specs/`, or `reference/`, with traversal, absolute paths, and symlink escapes
+  rejected.
+
 ### 5.3 Sync model (as built, Slice 1)
 - **Head** (`project_state`) is keyed by the runtime `conversationKey`
   (`thread:{id}` / `channel:{id}`). Mapping a Tango `project:{id}` onto this key
   is a tracked refinement (§11).
-- **Whisper** (every turn) reads only the head → a cheap pointer (path, title,
-  status). No file I/O on the hot path.
+- **Whisper** (every turn) reads the head and, when a provider root is available,
+  a short live body snapshot (status + Quick Read) → a pointer plus current
+  summary.
 - **Reseed** (cold-start / rotation) reads the head *and* the linked body live,
   so a rotated session re-orients on the current narrative (body overrides the
   head's cached `quick_read`; missing file → head fallback).
 - **Per-turn save bookkeeping** stamps the head's `prev_session_id` + `updated_at`
   (session chaining), no-op unless a head exists.
 - **Linking** a conversation to a body: `scripts/link-project-state.ts`
-  (`--key thread:ID --path note.md ...`). Auto-link on first agent write and a
-  `/tango project link` command are tracked refinements.
+  (`--key thread:ID --path note.md ...` for legacy Obsidian, or
+  `--provider profile --path threads/foo.md`). Auto-link on first agent write
+  and a `/tango project link` command are tracked refinements.
 - The body's frontmatter and the head cross-reference (`project_id` ↔
-  `obsidian_path`).
+  state body pointer).
 
 ### 5.4 Source-vs-working protection (L0)
 Key off the existing `source_kind` frontmatter. Proposed policy:
@@ -197,7 +207,7 @@ The single channel that already survives resume is `current_turn_metadata`
 - Implementation: add `SendOptions.turnBriefingPrompt` (sibling field). Append it
   in `ClaudeCodeAdapter.buildPrompt`. It is preserved on resume because the strip
   logic only removes `context`.
-- v1 contents: state-file pointer (`obsidian_path` + project + status);
+- v1 contents: state-file pointer (body pointer + project + status);
   "read before responding, update after"; "search first"; context %; threshold
   and delta signals when boundaries are crossed.
 - Visibility: **silent to the user by default** (like Sage's whisper). A subset is

@@ -13,6 +13,15 @@ Reference guidance for research, product-selection, travel, and fabrication work
   it.
 - Use source-grounded tools directly. Do not describe a worker handoff or
   background research job unless a real durable job was created.
+- For restaurants, local businesses, activities, classes, tours, venues, and
+  events, follow `agents/skills/local-business-research.md`: build a real
+  candidate inventory with `mcp__location__local_business_search` plus web
+  search, then verify decision-critical details from official or high-quality
+  sources before recommending, making a plan, or giving a phone/WhatsApp
+  number, schedule, hours, price, booking link, address, or meeting point.
+- Do not use `mcp__exa__exa_answer` alone for local plans or contact details.
+  If exact hours, event time, WhatsApp/phone, or booking information cannot be
+  verified, say what is unverified instead of filling the gap.
 
 ## Travel
 
@@ -105,7 +114,11 @@ You have MCP tools for research, travel, notes, and fabrication. Use them proact
 
 **Location** (via `location` MCP server):
 - `mcp__location__location_read` - get current GPS info only
+- `mcp__location__local_business_search` - find candidate local businesses,
+  restaurants, attractions, classes, tours, venues, and activity providers near
+  a place
 - `mcp__location__driving_route` - compute driving route distance/duration and compare route options
+- `mcp__location__walking_route` - compute walking route distance/duration for walkability checks
 - `mcp__location__find_diesel` - find nearby diesel stations
 
 **Files** (via `file-ops` MCP server):

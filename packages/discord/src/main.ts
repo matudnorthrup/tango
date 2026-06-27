@@ -131,7 +131,13 @@ import { createActiveThreadsTracker } from "./active-threads-tracker.js";
 import {
   createOrientationNudgeHandler,
   handleOrientationNudgeInteraction,
+  OrientationNudgeStore,
+  resolveOrientationNudgeConfig,
 } from "./orientation-nudge.js";
+import {
+  appendInterstitialLogEntry,
+  parseInterstitialStatusCapture,
+} from "./interstitial-log-capture.js";
 import { coerceWorkerReplyForDisplay } from "./worker-text-sanitizer.js";
 import { z } from "zod";
 import {
@@ -253,6 +259,7 @@ import {
   conversationKeyFor,
   refreshProjectHeadOnTurn,
   renderProjectStateBlock,
+  resolveStateProfileRoot,
   resolveStateVaultRoot,
 } from "./project-state.js";
 import {
@@ -710,7 +717,10 @@ const tangoRouter = new TangoRouter({
   lifecycleConfig: v2LifecycleConfig,
   buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient, {
     projectStateProvider: (conversationKey) =>
-      renderProjectStateBlock(storage, conversationKey, { vaultRoot: resolveStateVaultRoot() }),
+      renderProjectStateBlock(storage, conversationKey, {
+        vaultRoot: resolveStateVaultRoot(),
+        profileRoot: resolveStateProfileRoot(),
+      }),
     attachmentStore,
     v2Configs,
   }),
@@ -3886,6 +3896,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
   const voiceConversationKey = conversationKeyFor(voiceRouterChannelId, voiceRouterThreadId);
   const voiceStateFilePointer = buildStateFilePointer(storage, voiceConversationKey, {
     vaultRoot: resolveStateVaultRoot(),
+    profileRoot: resolveStateProfileRoot(),
   });
   const voiceSessionContextUsage = voiceLastContextUsage?.fraction;
   const voiceTurnBriefingPrompt = buildTurnBriefingPrompt({
@@ -5101,6 +5112,109 @@ function writeMessage(input: MessageInsertInput): number | null {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[tango-storage] failed to write message", message);
     return null;
+  }
+}
+
+function isWatsonInterstitialCaptureAgent(agentId: string): boolean {
+  return agentId === "watson" || agentId === "watson-ollama";
+}
+
+async function maybeHandleWatsonInterstitialStatusCapture(input: {
+  message: Message;
+  promptText: string;
+  targetAgent: AgentConfig;
+  promptRoute: ReturnType<typeof resolvePromptTextRoute>;
+  inboundMessageId: number | null;
+}): Promise<boolean> {
+  if (!isWatsonInterstitialCaptureAgent(input.targetAgent.id)) {
+    return false;
+  }
+
+  const config = resolveOrientationNudgeConfig();
+  const capture = parseInterstitialStatusCapture({
+    message: input.promptText,
+    messageTimestamp: input.message.createdAt,
+    timeZone: config.timeZone,
+    hasAttachments: input.message.attachments.size > 0,
+  });
+  if (!capture) {
+    return false;
+  }
+
+  try {
+    const appendResult = appendInterstitialLogEntry(
+      config.vaultRoot,
+      capture.timestamp,
+      config.timeZone,
+      capture.task,
+    );
+    const store = new OrientationNudgeStore(storage.getDatabase());
+    store.recordInterstitialActivity(config.userId, capture.timestamp, capture.task);
+
+    const replyText = "Captured.";
+    const replyDelivery = await sendPresentedReply(input.message.channel, replyText, input.targetAgent);
+    ensureReplyDeliverySucceeded(replyDelivery, input.message.channelId);
+    writeMessage({
+      sessionId: input.promptRoute.sessionId,
+      agentId: input.targetAgent.id,
+      providerName: "interstitial-log-capture",
+      direction: "outbound",
+      source: "tango",
+      visibility: "public",
+      discordMessageId: replyDelivery.lastMessageId ?? null,
+      discordChannelId: input.message.channelId,
+      discordUserId: replyDelivery.delivery === "bot" ? client.user?.id ?? null : null,
+      discordUsername: replyDelivery.actualDisplayName,
+      content: replyText,
+      metadata: {
+        replyToDiscordMessageId: input.message.id,
+        sentChunks: replyDelivery.sentChunks,
+        senderIdentity: {
+          intendedDisplayName: replyDelivery.intendedDisplayName,
+          actualDisplayName: replyDelivery.actualDisplayName,
+          delivery: replyDelivery.delivery,
+        },
+        runtimePath: "interstitial-log-capture",
+        requestMessageId: input.inboundMessageId,
+        task: capture.task,
+        timestampUtc: capture.timestamp.toISOString(),
+        timestampSource: capture.timestampSource,
+        localDate: capture.localDate,
+        localTime: capture.localTime,
+        notePath: appendResult.notePath,
+        noteLine: appendResult.line,
+      },
+    });
+    console.log(
+      `[interstitial-log-capture] captured agent=${input.targetAgent.id} channel=${input.message.channelId} timestamp=${capture.timestamp.toISOString()} source=${capture.timestampSource}`,
+    );
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[interstitial-log-capture] failed to capture status update: ${message}`);
+    const replyText = "I couldn't write that to the Interstitial Log.";
+    const replyDelivery = await sendPresentedReply(input.message.channel, replyText, input.targetAgent);
+    ensureReplyDeliverySucceeded(replyDelivery, input.message.channelId);
+    writeMessage({
+      sessionId: input.promptRoute.sessionId,
+      agentId: input.targetAgent.id,
+      providerName: "interstitial-log-capture",
+      direction: "error",
+      source: "tango",
+      visibility: "public",
+      discordMessageId: replyDelivery.lastMessageId ?? null,
+      discordChannelId: input.message.channelId,
+      discordUserId: replyDelivery.delivery === "bot" ? client.user?.id ?? null : null,
+      discordUsername: replyDelivery.actualDisplayName,
+      content: replyText,
+      metadata: {
+        replyToDiscordMessageId: input.message.id,
+        requestMessageId: input.inboundMessageId,
+        runtimePath: "interstitial-log-capture",
+        error: message,
+      },
+    });
+    return true;
   }
 }
 
@@ -7193,6 +7307,17 @@ async function handleMessage(
     return;
   }
 
+  const promptText = naturalRoute?.promptText ?? commandParse.promptText;
+  if (await maybeHandleWatsonInterstitialStatusCapture({
+    message,
+    promptText,
+    targetAgent,
+    promptRoute,
+    inboundMessageId,
+  })) {
+    return;
+  }
+
   const responseMode = resolveResponseMode(targetAgent, commandParse.responseModeOverride);
   // Ollama-backed clones run the stateless OpenAI-compatible loop with no Claude-CLI
   // Read tool, so they can't open a file by path. But they DO hold attachment_* tool
@@ -7353,6 +7478,7 @@ async function handleMessage(
       const briefingConversationKey = conversationKeyFor(routingChannelId, threadId);
       const stateFilePointer = buildStateFilePointer(storage, briefingConversationKey, {
         vaultRoot: resolveStateVaultRoot(),
+        profileRoot: resolveStateProfileRoot(),
       });
       const sessionContextUsage = lastContextUsage?.fraction;
       const turnBriefingPrompt = buildTurnBriefingPrompt({
