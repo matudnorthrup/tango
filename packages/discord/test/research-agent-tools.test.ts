@@ -169,6 +169,83 @@ describe("travel tools", () => {
     vi.restoreAllMocks();
   });
 
+  it("searches local businesses through HERE Discover and preserves contact evidence", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    process.env.HERE_API_KEY = "test-here-key";
+    try {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.hostname === "discover.search.hereapi.com") {
+          expect(url.searchParams.get("q")).toBe("restaurants");
+          expect(url.searchParams.get("limit")).toBe("20");
+          expect(url.searchParams.get("in")).toBe("circle:15.87,-97.077;r=12000");
+          expect(url.searchParams.get("apiKey")).toBe("test-here-key");
+          return new Response(JSON.stringify({
+            items: [{
+              id: "here:pds:place:4849abcd",
+              resultType: "place",
+              title: "Almoraduz Cocina de Autor",
+              address: { label: "Benito Juarez, Puerto Escondido, Oaxaca, Mexico" },
+              position: { lat: 15.861, lng: -97.071 },
+              distance: 950,
+              categories: [{ name: "Restaurant", primary: true }],
+              foodTypes: [{ name: "Mexican", primary: true }],
+              contacts: [{
+                phone: [{ value: "+52 954 100 0000" }],
+                www: [{ value: "almoraduz.mx" }],
+                email: [{ value: "hola@almoraduz.mx" }],
+              }],
+              openingHours: [{ text: ["Tue-Sat: 2:00 PM-10:00 PM"], isOpen: true }],
+            }],
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected fetch: ${url.toString()}`);
+      });
+
+      const tools = createTravelTools();
+      const localBusinessSearch = tools.find((tool) => tool.name === "local_business_search");
+      expect(localBusinessSearch).toBeDefined();
+
+      const result = await localBusinessSearch!.handler({
+        query: "restaurants",
+        near: "15.8700,-97.0770",
+        limit: 20,
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        source: "here-discover",
+        query: "restaurants",
+        near: { source: "coordinate", lat: 15.87, lon: -97.077 },
+        radiusMeters: 12000,
+        resultCount: 1,
+        results: [{
+          name: "Almoraduz Cocina de Autor",
+          resultType: "place",
+          address: "Benito Juarez, Puerto Escondido, Oaxaca, Mexico",
+          position: { lat: 15.861, lon: -97.071 },
+          distanceMiles: 0.59,
+          categories: ["Restaurant"],
+          foodTypes: ["Mexican"],
+          phoneNumbers: ["+52 954 100 0000"],
+          websites: ["https://almoraduz.mx"],
+          emails: ["hola@almoraduz.mx"],
+          openingHours: ["Tue-Sat: 2:00 PM-10:00 PM"],
+          isOpen: true,
+          hereId: "here:pds:place:4849abcd",
+          googleMapsSearchUrl: expect.stringContaining("google.com/maps/search"),
+        }],
+        warnings: [],
+      });
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
+  });
+
   it("routes through HERE Router v8 with traffic-aware ETA, via roads, and passes-through towns", async () => {
     const previousKey = process.env.HERE_API_KEY;
     process.env.HERE_API_KEY = "test-here-key";

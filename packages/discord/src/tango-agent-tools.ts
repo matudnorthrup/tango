@@ -14,9 +14,17 @@ import {
 } from "@tango/core";
 import type { AgentTool } from "@tango/core";
 import {
+  resolveTangoProfileDir,
   resolveTangoProfileSkillPromptsDir,
   resolveTangoProfileToolPromptsDir,
 } from "@tango/core";
+import {
+  PROFILE_STATE_BODY_NAMESPACES,
+  normalizeProfileStateBodyDirectoryPath,
+  normalizeProfileStateBodyPath,
+  resolveProfileStateBodyDirectoryPath,
+  resolveProfileStateBodyPath,
+} from "./state-body-provider.js";
 
 // ---------------------------------------------------------------------------
 // Path resolution
@@ -31,6 +39,8 @@ export interface TangoToolPaths {
   profileSkillsDir?: string;
   /** Override the profile tools overlay dir (tests). */
   profileToolsDir?: string;
+  /** Override the profile root for state body docs (tests). */
+  profileStateRoot?: string;
 }
 
 const SHARED_DOC_NAMES = new Set(["RULES.md", "USER.md", "AGENTS.md"]);
@@ -48,6 +58,7 @@ function resolvePaths(overrides?: TangoToolPaths) {
       ?? resolveTangoProfileSharedPromptLookupDirs(profilePathOptions),
     profileSkillsDir: overrides?.profileSkillsDir ?? resolveTangoProfileSkillPromptsDir(),
     profileToolsDir: overrides?.profileToolsDir ?? resolveTangoProfileToolPromptsDir(),
+    profileStateRoot: overrides?.profileStateRoot ?? resolveTangoProfileDir(),
   };
 }
 
@@ -341,6 +352,12 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "  patch — Replace a specific string in a file",
         "    { \"operation\": \"patch\", \"path\": \"assistants/watson/knowledge.md\", \"old\": \"...\", \"new\": \"...\" }",
         "",
+        "  state_list / state_read / state_write / state_patch — profile state files",
+        "    { \"operation\": \"state_list\", \"path\": \"threads\" }",
+        "    { \"operation\": \"state_read\", \"path\": \"threads/launch.md\" }",
+        "    { \"operation\": \"state_write\", \"path\": \"threads/launch.md\", \"content\": \"...\" }",
+        "    { \"operation\": \"state_patch\", \"path\": \"threads/launch.md\", \"old\": \"old\", \"new\": \"new\" }",
+        "",
         "File conventions:",
         "  Shared (all agents): shared/AGENTS.md, shared/RULES.md, shared/USER.md — profile shared/ wins",
         "  Per-agent: assistants/<id>/{soul,knowledge,USER,RULES,workers}.md — profile assistants/<id>/ wins",
@@ -354,18 +371,23 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "Keep personal/installation-specific details (real accounts, IDs, private",
         "preferences) OUT of repo docs — put them in the profile overlay file so the",
         "repo stays shareable. See docs/guides/profile-model.md.",
+        "",
+        "Profile state files are private markdown bodies for ongoing threads/projects.",
+        `They are limited to: ${PROFILE_STATE_BODY_NAMESPACES.join(", ")}.`,
+        "The tool rejects path traversal, absolute paths, non-markdown files, and",
+        "symlink escapes. Mutating source_kind: source|reference files requires force.",
       ].join("\n"),
       inputSchema: {
         type: "object",
         properties: {
           operation: {
             type: "string",
-            enum: ["list", "read", "write", "patch"],
+            enum: ["list", "read", "write", "patch", "state_list", "state_read", "state_write", "state_patch"],
             description: "Operation to perform",
           },
           path: {
             type: "string",
-            description: "Relative path within agents/ (e.g. 'assistants/watson/knowledge.md', 'tools/atlas-sql.md')",
+            description: "Relative path within agents/ or profile state namespace (e.g. 'assistants/watson/knowledge.md', 'tools/atlas-sql.md', 'threads/launch.md')",
           },
           agent: {
             type: "string",
@@ -383,12 +405,20 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
             type: "string",
             description: "Replacement text for patch operation",
           },
+          force: {
+            type: "boolean",
+            description: "Allow state_write/state_patch on source_kind: source|reference files.",
+          },
         },
         required: ["operation"],
       },
       handler: async (input) => {
         const operation = String(input.operation);
         const agentsDir = paths.agentsDir;
+
+        if (operation.startsWith("state_")) {
+          return handleStateDocsOperation(operation, input, paths.profileStateRoot);
+        }
 
         if (operation === "list") {
           const relPath = input.path ? String(input.path) : "";
@@ -565,4 +595,123 @@ function validateDirectoryPath(agentsDir: string, relPath: string): string | nul
   if (!resolved.startsWith(path.resolve(agentsDir))) return null;
 
   return resolved;
+}
+
+function handleStateDocsOperation(
+  operation: string,
+  input: Record<string, unknown>,
+  profileStateRoot: string,
+): Record<string, unknown> {
+  try {
+    if (operation === "state_list") {
+      return listStateDocs(String(input.path ?? ""), profileStateRoot);
+    }
+
+    if (operation === "state_read") {
+      const relPath = normalizeProfileStateBodyPath(String(input.path ?? ""));
+      const filePath = resolveProfileStateBodyPath(relPath, { profileRoot: profileStateRoot });
+      if (!fs.existsSync(filePath)) {
+        return { error: `State file not found: profile:${relPath}` };
+      }
+      return {
+        content: fs.readFileSync(filePath, "utf8"),
+        path: `profile:${relPath}`,
+        layer: "profile",
+      };
+    }
+
+    if (operation === "state_write") {
+      const relPath = normalizeProfileStateBodyPath(String(input.path ?? ""));
+      const content = String(input.content ?? "");
+      const filePath = resolveProfileStateBodyPath(relPath, { profileRoot: profileStateRoot });
+      const guard = guardStateMutation(filePath, input.force === true);
+      if (guard) return { error: guard };
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, content, "utf8");
+      return { success: true, path: `profile:${relPath}`, layer: "profile" };
+    }
+
+    if (operation === "state_patch") {
+      const relPath = normalizeProfileStateBodyPath(String(input.path ?? ""));
+      const oldText = String(input.old ?? "");
+      const newText = String(input.new ?? "");
+      const filePath = resolveProfileStateBodyPath(relPath, { profileRoot: profileStateRoot });
+      if (!fs.existsSync(filePath)) {
+        return { error: `State file not found: profile:${relPath}` };
+      }
+      const guard = guardStateMutation(filePath, input.force === true);
+      if (guard) return { error: guard };
+      const current = fs.readFileSync(filePath, "utf8");
+      if (!current.includes(oldText)) {
+        return { error: "Old text not found in state file" };
+      }
+      fs.writeFileSync(filePath, current.replace(oldText, newText), "utf8");
+      return { success: true, path: `profile:${relPath}`, layer: "profile" };
+    }
+
+    return { error: `Unknown state operation: ${operation}` };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function listStateDocs(relPathInput: string, profileStateRoot: string): Record<string, unknown> {
+  const relPath = normalizeProfileStateBodyDirectoryPath(relPathInput);
+  if (!relPath) {
+    return {
+      path: "profile:",
+      layer: "profile",
+      directories: [...PROFILE_STATE_BODY_NAMESPACES],
+      files: [],
+    };
+  }
+
+  const dirPath = resolveProfileStateBodyDirectoryPath(relPath, { profileRoot: profileStateRoot });
+  if (!fs.existsSync(dirPath)) {
+    return { error: `State directory not found: profile:${relPath}` };
+  }
+  if (!fs.statSync(dirPath).isDirectory()) {
+    return { error: `State path is not a directory: profile:${relPath}` };
+  }
+
+  const entries = fs.readdirSync(dirPath);
+  const files = entries.filter((entry) => {
+    try {
+      return entry.endsWith(".md") && fs.statSync(path.join(dirPath, entry)).isFile();
+    } catch {
+      return false;
+    }
+  }).sort((a, b) => a.localeCompare(b));
+  const directories = entries.filter((entry) => {
+    try {
+      return fs.statSync(path.join(dirPath, entry)).isDirectory();
+    } catch {
+      return false;
+    }
+  }).sort((a, b) => a.localeCompare(b));
+
+  return {
+    path: `profile:${relPath}`,
+    layer: "profile",
+    files,
+    directories,
+  };
+}
+
+function guardStateMutation(filePath: string, force: boolean): string | null {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  const sourceKind = readSourceKind(fs.readFileSync(filePath, "utf8"));
+  if ((sourceKind === "source" || sourceKind === "reference") && !force) {
+    return `Refusing to modify profile state file with source_kind: ${sourceKind}; pass force=true only when explicitly intended.`;
+  }
+  return null;
+}
+
+function readSourceKind(content: string): string | null {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(content);
+  if (!match) return null;
+  const sourceKind = /^source_kind:\s*["']?([^"'\r\n#]+)["']?\s*(?:#.*)?$/imu.exec(match[1] ?? "");
+  return sourceKind?.[1]?.trim().toLowerCase() ?? null;
 }

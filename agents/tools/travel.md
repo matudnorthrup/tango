@@ -1,6 +1,7 @@
 # Travel Tools
 
-Shared doc for `location_read`, `driving_route`, `walking_route`, and `find_diesel`.
+Shared doc for `location_read`, `local_business_search`, `driving_route`,
+`walking_route`, and `find_diesel`.
 Sierra owns the full travel tool bundle. Charlie may use `location_read` only
 for ephemeral location narration.
 
@@ -25,6 +26,40 @@ Typical output fields:
 - `ageSec`
 
 `ageSec` is seconds since the last GPS update.
+
+## `local_business_search`
+
+Finds candidate local businesses, restaurants, venues, attractions, classes,
+tours, and activity providers near a place using HERE Discover.
+
+Input:
+
+```json
+{
+  "query": "restaurants",
+  "near": "Puerto Escondido, Oaxaca",
+  "radius_meters": 12000,
+  "limit": 20
+}
+```
+
+Typical output fields:
+- `source` as `here-discover`
+- `near` with the resolved place/coordinates
+- `radiusMeters`
+- `results[]` with `name`, `address`, `position`, `distanceMiles`,
+  `categories`, `foodTypes`, `phoneNumbers`, `websites`, `emails`,
+  `openingHours`, `isOpen`, `hereId`, and `googleMapsSearchUrl`
+
+Notes:
+- Use this to build the candidate set before narrowing a restaurant,
+  activity, class, tour, event, or local business recommendation.
+- Do not treat this tool as final proof of hours, event times, ratings,
+  WhatsApp numbers, prices, or booking rules. Verify those with official
+  pages, controlled social profiles, booking pages, browser reads, or
+  multi-source web research.
+- Pair with `agents/skills/local-business-research.md` when the user needs a
+  trustworthy plan or contact detail.
 
 ## `driving_route`
 
