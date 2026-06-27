@@ -53,6 +53,7 @@
     "diag:deterministic-regressions": "node --import tsx ./scripts/harvest-deterministic-regressions.ts",
     "eval:validate": "node ./scripts/validate-model-eval-fixtures.mjs",
     "eval:test": "node --test \"scripts/lib/bakeoff/*.test.mjs\"",
+    "startup:test": "node --test scripts/startup-runner.test.mjs",
     "eval:bakeoff": "node ./scripts/model-bakeoff.mjs",
     "diag:nutrition-catalog": "node --import tsx ./scripts/audit-nutrition-catalog.ts",
     "diag:walmart-reimbursements": "node --import tsx ./scripts/audit-walmart-reimbursements.ts",
@@ -109,6 +110,7 @@
   "dependencies": {
     "@mapbox/polyline": "^1.2.1",
     "better-sqlite3": "^12.9.0",
-    "geolib": "^3.3.4"
+    "geolib": "^3.3.4",
+    "js-yaml": "^4.2.0"
   }
 }
