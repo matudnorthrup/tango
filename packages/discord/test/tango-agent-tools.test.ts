@@ -429,7 +429,7 @@ describe("agent_docs tool", () => {
       content: "This is a full overwrite test. All original content should be gone.",
     });
 
-    expect(blocked).toMatchObject({ error: expect.stringMatching(/overwrite|frozen heading/i) });
+    expect(blocked).toMatchObject({ error: expect.stringMatching(/full-file write on an existing/i) });
     expect(fs.readFileSync(threadPath, "utf8")).toContain("## Quick Read");
   });
 });
