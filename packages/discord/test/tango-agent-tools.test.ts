@@ -392,4 +392,44 @@ describe("agent_docs tool", () => {
     expect(result).toMatchObject({ error: expect.stringMatching(/escapes/i) });
     expect(fs.existsSync(path.join(outsideRoot, "new.md"))).toBe(false);
   });
+
+  it("blocks full overwrite on existing profile thread files", async () => {
+    const agentsDir = createAgentsDir();
+    const profileStateRoot = createProfileRoot();
+    const threadPath = path.join(profileStateRoot, "threads", "canary.md");
+    fs.mkdirSync(path.dirname(threadPath), { recursive: true });
+    fs.writeFileSync(
+      threadPath,
+      [
+        "---",
+        "state_managed: true",
+        "---",
+        "",
+        "# Canary",
+        "",
+        "## Quick Read",
+        "",
+        "status",
+        "",
+        "## Open Items",
+        "",
+        "- [ ] A8",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const tool = createTangoTools({ agentsDir, profileStateRoot }).find(
+      (entry) => entry.name === "agent_docs",
+    );
+
+    const blocked = await tool?.handler({
+      operation: "state_write",
+      path: "threads/canary.md",
+      content: "This is a full overwrite test. All original content should be gone.",
+    });
+
+    expect(blocked).toMatchObject({ error: expect.stringMatching(/overwrite|frozen heading/i) });
+    expect(fs.readFileSync(threadPath, "utf8")).toContain("## Quick Read");
+  });
 });

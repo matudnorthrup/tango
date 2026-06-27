@@ -37,6 +37,7 @@ export * from "./provider-registry.js";
 export * from "./prompt-layer-audit.js";
 export * from "./profile-config.js";
 export * from "./runtime-pool.js";
+export * from "./profile-state-write-guard.js";
 export * from "./runtime-paths.js";
 export * from "./v2-config-loader.js";
 export * from "./v2-legacy-bridge.js";

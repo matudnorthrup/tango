@@ -10,6 +10,7 @@ import * as path from "node:path";
 import {
   resolveTangoProfileAgentsDir,
   resolveTangoProfileSharedPromptLookupDirs,
+  validateProfileStateFileMutation,
   type TangoProfilePathOptions,
 } from "@tango/core";
 import type { AgentTool } from "@tango/core";
@@ -624,6 +625,20 @@ function handleStateDocsOperation(
       const relPath = normalizeProfileStateBodyPath(String(input.path ?? ""));
       const content = String(input.content ?? "");
       const filePath = resolveProfileStateBodyPath(relPath, { profileRoot: profileStateRoot });
+      const existingContent = fs.existsSync(filePath)
+        ? fs.readFileSync(filePath, "utf8")
+        : undefined;
+      const profileGuard = validateProfileStateFileMutation({
+        filePath,
+        existingContent,
+        nextContent: content,
+        operation: "write",
+        profileRoot: profileStateRoot,
+        force: input.force === true,
+      });
+      if (!profileGuard.allowed) {
+        return { error: profileGuard.reason ?? "Profile thread write blocked." };
+      }
       const guard = guardStateMutation(filePath, input.force === true);
       if (guard) return { error: guard };
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -639,13 +654,25 @@ function handleStateDocsOperation(
       if (!fs.existsSync(filePath)) {
         return { error: `State file not found: profile:${relPath}` };
       }
-      const guard = guardStateMutation(filePath, input.force === true);
-      if (guard) return { error: guard };
       const current = fs.readFileSync(filePath, "utf8");
       if (!current.includes(oldText)) {
         return { error: "Old text not found in state file" };
       }
-      fs.writeFileSync(filePath, current.replace(oldText, newText), "utf8");
+      const nextContent = current.replace(oldText, newText);
+      const profileGuard = validateProfileStateFileMutation({
+        filePath,
+        existingContent: current,
+        nextContent,
+        operation: "patch",
+        profileRoot: profileStateRoot,
+        force: input.force === true,
+      });
+      if (!profileGuard.allowed) {
+        return { error: profileGuard.reason ?? "Profile thread patch blocked." };
+      }
+      const guard = guardStateMutation(filePath, input.force === true);
+      if (guard) return { error: guard };
+      fs.writeFileSync(filePath, nextContent, "utf8");
       return { success: true, path: `profile:${relPath}`, layer: "profile" };
     }
 
