@@ -20,9 +20,11 @@ describe("buildSavePassContext", () => {
   it("includes save pass instructions and confirmation requirement", () => {
     const context = buildSavePassContext();
     expect(context).toContain("Save pass (requested via /tango save):");
-    expect(context).toContain('source: "manual"');
-    expect(context).toContain('metadata captured_by: "save_pass"');
-    expect(context).toContain("Confirm what you saved in your reply.");
+    expect(context).toContain("Linked thread file");
+    expect(context).toContain("Daily log");
+    expect(context).toContain("Atlas (memory_add)");
+    expect(context).toContain('metadata captured_by save_pass');
+    expect(context).toContain("Confirm what you saved in each layer");
   });
 });
 

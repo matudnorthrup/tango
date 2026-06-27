@@ -6,10 +6,12 @@ export function buildSavePassContext(): string {
   return [
     "Save pass (requested via /tango save):",
     "Review this conversation and capture anything that would be lost if the session ended now.",
-    "Use memory_add for decisions, insights, corrections, and commitments.",
-    'Use source: "manual" and metadata captured_by: "save_pass".',
+    "Route each item to the right layer (see profile skill session-save.md):",
+    "- Linked thread file: project decisions, test results, Open Items / Quick Read — patch only, never full overwrite.",
+    "- Daily log (when enabled): one headline per session block — what happened today, not detail.",
+    "- Atlas (memory_add): partnership, preferences, durable lessons — source manual, metadata captured_by save_pass.",
     "Do not save test artifacts, smoke-test codewords, or ephemeral session-only details unless the user explicitly asked to preserve them.",
-    "Confirm what you saved in your reply.",
+    "Confirm what you saved in each layer (or what would go to daily log if not wired yet).",
   ].join("\n");
 }
 
