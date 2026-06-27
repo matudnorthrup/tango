@@ -230,6 +230,7 @@ import {
 } from "./slot-mode.js";
 import {
   buildSavePassEphemeralReply,
+  matchesPendingSessionSave,
   buildSendContextWithOptionalSavePass,
   buildV2ConversationKey,
   mergeSendContext,
@@ -6784,7 +6785,7 @@ async function handleContextCommand(interaction: ChatInputCommandInteraction): P
 }
 
 async function handleSaveCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  const { routingChannelId, threadId, route } = resolveSlashCommandContext(interaction);
+  const { routingChannelId, threadId, channelKey, route } = resolveSlashCommandContext(interaction);
 
   if (!route) {
     await interaction.reply({ content: "No session found for this channel.", ephemeral: true });
@@ -6792,9 +6793,10 @@ async function handleSaveCommand(interaction: ChatInputCommandInteraction): Prom
   }
 
   const conversationKey = buildV2ConversationKey(routingChannelId, threadId);
+  const activeRoute = resolveActiveTextRoute(route, channelKey);
   storage.upsertPendingSessionSave({
     conversationKey,
-    sessionId: route.sessionId,
+    sessionId: activeRoute.sessionId,
     agentId: route.agentId,
     requestedByUserId: interaction.user.id,
     trigger: "slash_command",
@@ -6805,7 +6807,7 @@ async function handleSaveCommand(interaction: ChatInputCommandInteraction): Prom
     : `channel \`${routingChannelId}\``;
 
   console.log(
-    `[tango-discord] pending session save upsert conversation=${conversationKey} session=${route.sessionId} agent=${route.agentId} user=${interaction.user.id}`,
+    `[tango-discord] pending session save upsert conversation=${conversationKey} session=${activeRoute.sessionId} agent=${route.agentId} user=${interaction.user.id}`,
   );
 
   await interaction.reply({
@@ -7435,10 +7437,9 @@ async function handleMessage(
     try {
       const conversationKey = buildV2ConversationKey(routingChannelId, threadId);
       const pendingSave = storage.getPendingSessionSave(conversationKey);
-      const hasPendingSavePass =
-        pendingSave !== null
-        && pendingSave.sessionId === promptRoute.sessionId
-        && pendingSave.agentId === targetAgent.id;
+      const hasPendingSavePass = matchesPendingSessionSave(pendingSave, {
+        agentId: targetAgent.id,
+      });
 
       if (hasPendingSavePass) {
         console.log(
@@ -7483,6 +7484,13 @@ async function handleMessage(
         searchFirst: Boolean(stateFilePointer) || process.env.TANGO_TURN_BRIEFING_SEARCH_FIRST === "1",
         ...(typeof sessionContextUsage === "number" && Number.isFinite(sessionContextUsage)
           ? { contextUsageFraction: sessionContextUsage }
+          : {}),
+        ...(hasPendingSavePass
+          ? {
+              extraLines: [
+                "Save pass active this turn (/tango save): review the conversation and route saves to thread file, daily log, and Atlas per session-save.md; confirm what you saved.",
+              ],
+            }
           : {}),
       });
       const sendContext = buildSendContextWithOptionalSavePass(warmStartPrompt, hasPendingSavePass);
