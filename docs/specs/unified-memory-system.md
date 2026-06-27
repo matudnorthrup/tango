@@ -349,7 +349,7 @@ These live in **`~/.tango/profiles/default/`** (not repo). Canonical clawd hando
 
 | Topic | Location |
 | --- | --- |
-| Fleet save (Atlas + thread + daily log) | `skills/session-save.md` |
+| Fleet save (Atlas + thread + daily log) | Repo template `agents/skills/session-save.md`; operator overlay in profile |
 | Fast breakage checks | `~/clawd/handoffs/2026-06-27-tango-memory-health-spec.md` |
 | Cod-E canary thread shape | `~/clawd/handoffs/2026-06-27-cod-e-canary-thread-shape.md` |
 

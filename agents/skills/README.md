@@ -28,6 +28,7 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `orientation-nudge-system.md` | `orientation_nudge_system` | Watson / planning | Runtime orientation nudges, task rotation contract, focus/vacation behavior |
 | `printing-profile-selection.md` | `printing_profile_selection` | Sierra / fabrication | Print/material selection and reporting rules |
 | `receipt-logging.md` | `receipt_logging` | Foxtrot / finance | General-purpose Obsidian receipt file creation |
+| `session-save.md` | `session_save` | All agents | Three-layer save routing (thread file, daily log, Atlas); `/tango save` checklist |
 | `sinking-fund-reconciliation.md` | `sinking_fund_reconciliation` | Foxtrot / finance | Lunch Money and Obsidian workflow for SB-backed expense reconciliation |
 | `recipe-format.md` | `recipe_format` | Malibu / recipes | Recipe markdown structure and write rules |
 | `remote-claude-sessions.md` | `remote_claude_sessions` | Watson / dev sessions | Spawn phone-controllable Claude Code sessions (confirmation rail, verbatim prompts) |
