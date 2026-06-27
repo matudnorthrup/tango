@@ -1,0 +1,148 @@
+version: 1
+description: Generic Tango full-stack tmux startup.
+
+tmux:
+  session: tango
+  socketName: tango-service
+  cleanup:
+    staleSocket: true
+  legacySessions:
+    - tango-discord
+    - tango-voice
+    - kokoro
+    - whisper-server
+    - whisper-partials
+    - owntracks
+
+hooks:
+  enabled: true
+
+services:
+  - id: kokoro
+    name: Kokoro TTS server
+    enabled: true
+    optional: true
+    cwd: "${HOME}/Kokoro-FastAPI"
+    command: >-
+      .venv/bin/python -m uvicorn api.src.main:app --host 0.0.0.0 --port 8880
+    tmux:
+      window: kokoro
+    retries:
+      attempts: 2
+      delayMs: 1000
+      timeoutMs: 15000
+    health:
+      checks:
+        - type: tmux-window
+        - type: tcp
+          host: 127.0.0.1
+          port: 8880
+
+  - id: whisper-main
+    name: Whisper STT server main
+    enabled: true
+    optional: true
+    cwd: "${REPO_DIR}"
+    env:
+      WHISPER_MODEL: "${HOME}/whisper-models/ggml-small.en.bin"
+      WHISPER_LANGUAGE: "en"
+      WHISPER_PROMPT: "Tango"
+    command: >-
+      whisper-server --model "$WHISPER_MODEL" --port 8178 --language "$WHISPER_LANGUAGE" --prompt "$WHISPER_PROMPT"
+    tmux:
+      window: whisper-main
+    retries:
+      attempts: 2
+      delayMs: 1000
+      timeoutMs: 15000
+    health:
+      checks:
+        - type: tmux-window
+        - type: tcp
+          host: 127.0.0.1
+          port: 8178
+
+  - id: whisper-partials
+    name: Whisper STT server partials
+    enabled: true
+    optional: true
+    cwd: "${REPO_DIR}"
+    env:
+      WHISPER_MODEL: "${HOME}/whisper-models/ggml-small.en.bin"
+      WHISPER_LANGUAGE: "en"
+      WHISPER_PROMPT: "Tango"
+    command: >-
+      whisper-server --model "$WHISPER_MODEL" --port 8179 --language "$WHISPER_LANGUAGE" --prompt "$WHISPER_PROMPT"
+    tmux:
+      window: whisper-partials
+    retries:
+      attempts: 2
+      delayMs: 1000
+      timeoutMs: 15000
+    health:
+      checks:
+        - type: tmux-window
+        - type: tcp
+          host: 127.0.0.1
+          port: 8179
+
+  - id: owntracks
+    name: OwnTracks receiver
+    enabled: true
+    optional: false
+    cwd: "${REPO_DIR}"
+    envFiles:
+      - path: ".env"
+        required: false
+    command: >-
+      node apps/owntracks-receiver/server.js
+    tmux:
+      window: owntracks
+    retries:
+      attempts: 2
+      delayMs: 1000
+      timeoutMs: 15000
+    health:
+      checks:
+        - type: tmux-window
+        - type: tcp
+          host: 127.0.0.1
+          port: 3456
+
+  - id: discord
+    name: Tango Discord runtime
+    enabled: true
+    optional: false
+    cwd: "${REPO_DIR}"
+    unsetEnv:
+      - CLAUDECODE
+    env:
+      DISCORD_LISTEN_ONLY: "false"
+    command: >-
+      "${NODE_BIN}" packages/discord/dist/main.js
+    tmux:
+      window: discord
+    retries:
+      attempts: 2
+      delayMs: 1000
+      timeoutMs: 15000
+    health:
+      checks:
+        - type: tmux-window
+
+  - id: voice
+    name: Tango Voice pipeline
+    enabled: true
+    optional: false
+    cwd: "${VOICE_APP_DIR}"
+    command: >-
+      "${NODE_BIN}" dist/index.js 2>&1 | tee /tmp/tango-voice.log
+    tmux:
+      window: voice
+    retries:
+      attempts: 2
+      delayMs: 1000
+      timeoutMs: 15000
+    health:
+      checks:
+        - type: tmux-window
