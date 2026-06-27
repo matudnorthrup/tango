@@ -48,6 +48,8 @@ adversarial pass), not the default builder.
 
 ## Memory Discovery
 
+**Operator profile (Darla mini):** Fleet save behavior — `~/.tango/profiles/default/skills/session-save.md`. Atlas `memory_add` auto-stamps Discord `channel_id` / `thread_id` when the memory MCP receives `TANGO_CONVERSATION_KEY` env (see `packages/discord/src/discord-memory-provenance.ts`).
+
 Do not assume project memory is tied to the current agent brand. Check every
 existing candidate and read the relevant `MEMORY.md` index before relying on a
 memory file:
