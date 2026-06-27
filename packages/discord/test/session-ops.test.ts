@@ -4,6 +4,7 @@ import {
   buildSavePassEphemeralReply,
   buildSendContextWithOptionalSavePass,
   buildV2ConversationKey,
+  matchesPendingSessionSave,
   mergeSendContext,
 } from "../src/session-ops.js";
 
@@ -14,6 +15,30 @@ describe("buildV2ConversationKey", () => {
 
   it("uses thread scope for thread conversations", () => {
     expect(buildV2ConversationKey("parent-id", "thread-id")).toBe("thread:thread-id");
+  });
+});
+
+describe("matchesPendingSessionSave", () => {
+  it("matches when agent id matches regardless of session id drift", () => {
+    expect(
+      matchesPendingSessionSave(
+        { agentId: "cod-e", sessionId: "cod-e" },
+        { agentId: "cod-e" },
+      ),
+    ).toBe(true);
+    expect(
+      matchesPendingSessionSave(
+        { agentId: "cod-e", sessionId: "topic:389148c3-00c1-4bbe-ac75-9a58fa569996" },
+        { agentId: "cod-e" },
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects null pending save or agent mismatch", () => {
+    expect(matchesPendingSessionSave(null, { agentId: "cod-e" })).toBe(false);
+    expect(
+      matchesPendingSessionSave({ agentId: "cod-e", sessionId: "cod-e" }, { agentId: "malibu" }),
+    ).toBe(false);
   });
 });
 

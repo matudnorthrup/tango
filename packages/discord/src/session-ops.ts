@@ -2,6 +2,28 @@ export function buildV2ConversationKey(channelId: string, threadId?: string): st
   return threadId ? `thread:${threadId}` : `channel:${channelId}`;
 }
 
+export interface PendingSessionSaveMatchInput {
+  agentId: string;
+}
+
+/**
+ * Pending save passes are scoped to a Discord conversation (channel or thread) plus
+ * agent. Do not require sessionId equality: slash commands store the thread-session
+ * id from persistence while the next message may route through an active topic
+ * (topic:…) or project session.
+ */
+export function matchesPendingSessionSave(
+  pendingSave: { agentId: string } | null,
+  input: PendingSessionSaveMatchInput,
+): boolean {
+  if (!pendingSave) {
+    return false;
+  }
+
+  const agentId = input.agentId.trim();
+  return agentId.length > 0 && pendingSave.agentId === agentId;
+}
+
 export function buildSavePassContext(): string {
   return [
     "Save pass (requested via /tango save):",
