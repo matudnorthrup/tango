@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSavePassContext,
+  buildSavePassEphemeralReply,
   buildSendContextWithOptionalSavePass,
   buildV2ConversationKey,
   mergeSendContext,
@@ -25,6 +26,15 @@ describe("buildSavePassContext", () => {
     expect(context).toContain("Atlas (memory_add)");
     expect(context).toContain('metadata captured_by save_pass');
     expect(context).toContain("Confirm what you saved in each layer");
+  });
+
+  it("describes three save layers in the ephemeral slash reply", () => {
+    const reply = buildSavePassEphemeralReply("thread `123`");
+    expect(reply).toContain("Save pass queued for thread `123`");
+    expect(reply).toContain("thread file");
+    expect(reply).toContain("daily log");
+    expect(reply).toContain("Atlas");
+    expect(reply).not.toContain("capture durable items to Atlas");
   });
 });
 
