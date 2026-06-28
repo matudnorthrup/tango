@@ -32,6 +32,10 @@ export interface V2AgentConfig {
     url?: string;
     headers?: Record<string, string>;
   }>;
+  mcp?: {
+    defaultServers?: string[];
+    availableServers?: string[];
+  };
   runtime: {
     mode: V2RuntimeMode;
     provider: V2RuntimeProvider;
@@ -145,6 +149,10 @@ const rawV2AgentConfigSchema = z.object({
       }),
     ]),
   ).min(1),
+  mcp: z.object({
+    default_servers: z.array(z.string().min(1)).optional(),
+    available_servers: z.array(z.string().min(1)).optional(),
+  }).optional(),
   runtime: z.object({
     mode: z.enum(["persistent", "fresh"]),
     provider: z.enum(["legacy", "claude-code-v2"]),
@@ -251,6 +259,19 @@ function deepMergeValues(base: unknown, override: unknown): unknown {
 
 function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
   const parsed = rawV2AgentConfigSchema.parse(rawConfig);
+  const serverNames = new Set(parsed.mcp_servers.map((server) => server.name));
+  const validateMcpServerNames = (field: string, values: string[] | undefined): string[] | undefined => {
+    if (!values) {
+      return undefined;
+    }
+    const missing = values.filter((name) => !serverNames.has(name));
+    if (missing.length > 0) {
+      throw new Error(
+        `V2 agent '${parsed.id}' ${field} references unknown MCP server(s): ${missing.join(", ")}`,
+      );
+    }
+    return values;
+  };
 
   return {
     id: parsed.id,
@@ -268,6 +289,12 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
       ...("url" in server ? { url: server.url } : {}),
       ...("headers" in server ? { headers: server.headers } : {}),
     })),
+    mcp: parsed.mcp
+      ? {
+          defaultServers: validateMcpServerNames("mcp.default_servers", parsed.mcp.default_servers),
+          availableServers: validateMcpServerNames("mcp.available_servers", parsed.mcp.available_servers),
+        }
+      : undefined,
     runtime: {
       mode: parsed.runtime.mode,
       provider: parsed.runtime.provider,
