@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Claude Code PreToolUse hook — guard Write/Edit on profile thread files.
+ * Claude Code PreToolUse hook - guard Write/Edit/MultiEdit on profile thread files.
  *
  * Exit 0 = allow. Exit 2 = block (stderr shown to Claude).
  */
@@ -42,7 +42,7 @@ async function main() {
   }
 
   const toolName = payload.tool_name ?? payload.toolName;
-  if (toolName !== "Write" && toolName !== "Edit") {
+  if (toolName !== "Write" && toolName !== "Edit" && toolName !== "MultiEdit") {
     process.exit(0);
   }
 
@@ -63,12 +63,22 @@ async function main() {
     nextContent = typeof toolInput.content === "string" ? toolInput.content : "";
     operation = "write";
   } else {
-    const oldString = typeof toolInput.old_string === "string" ? toolInput.old_string : "";
-    const newString = typeof toolInput.new_string === "string" ? toolInput.new_string : "";
     if (existingContent === undefined) {
       process.exit(0);
     }
-    const patched = applyEditPatch(existingContent, oldString, newString);
+    const edits = toolName === "MultiEdit"
+      ? Array.isArray(toolInput.edits) ? toolInput.edits : []
+      : [toolInput];
+    let patched = existingContent;
+    for (const edit of edits) {
+      const oldString = typeof edit?.old_string === "string" ? edit.old_string : "";
+      const newString = typeof edit?.new_string === "string" ? edit.new_string : "";
+      const nextPatched = applyEditPatch(patched, oldString, newString, edit?.replace_all === true);
+      if (nextPatched === null) {
+        process.exit(0);
+      }
+      patched = nextPatched;
+    }
     if (patched === null) {
       process.exit(0);
     }

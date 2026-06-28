@@ -10,14 +10,14 @@ describe("discord provenance for memory_add", () => {
   });
 
   it("reads discord location env vars", () => {
-    vi.stubEnv("TANGO_CONVERSATION_KEY", "thread:1509320762287456457");
-    vi.stubEnv("TANGO_DISCORD_CHANNEL_ID", "1469909960199503913");
-    vi.stubEnv("TANGO_DISCORD_THREAD_ID", "1509320762287456457");
+    vi.stubEnv("TANGO_CONVERSATION_KEY", "thread:test-thread-1");
+    vi.stubEnv("TANGO_DISCORD_CHANNEL_ID", "test-channel-1");
+    vi.stubEnv("TANGO_DISCORD_THREAD_ID", "test-thread-1");
 
     expect(readDiscordProvenanceFromEnv()).toEqual({
-      conversation_key: "thread:1509320762287456457",
-      channel_id: "1469909960199503913",
-      thread_id: "1509320762287456457",
+      conversation_key: "thread:test-thread-1",
+      channel_id: "test-channel-1",
+      thread_id: "test-thread-1",
     });
   });
 
@@ -28,7 +28,7 @@ describe("discord provenance for memory_add", () => {
 
     const merged = mergeDiscordProvenanceIntoMemoryAddArgs(
       {
-        content: "Operator prefers agent saves with context.",
+        content: "The operator prefers agent saves with context.",
         source: "manual",
         agent_id: "cod-e",
         metadata: {

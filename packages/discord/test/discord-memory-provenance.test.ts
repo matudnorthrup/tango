@@ -35,14 +35,14 @@ describe("discord memory provenance runtime config", () => {
   it("builds env patch for conversation location", () => {
     expect(
       buildDiscordMemoryProvenanceEnv({
-        conversationKey: "thread:1509320762287456457",
-        channelId: "1469909960199503913",
-        threadId: "1509320762287456457",
+        conversationKey: "thread:test-thread-1",
+        channelId: "test-channel-1",
+        threadId: "test-thread-1",
       }),
     ).toEqual({
-      TANGO_CONVERSATION_KEY: "thread:1509320762287456457",
-      TANGO_DISCORD_CHANNEL_ID: "1469909960199503913",
-      TANGO_DISCORD_THREAD_ID: "1509320762287456457",
+      TANGO_CONVERSATION_KEY: "thread:test-thread-1",
+      TANGO_DISCORD_CHANNEL_ID: "test-channel-1",
+      TANGO_DISCORD_THREAD_ID: "test-thread-1",
     });
   });
 

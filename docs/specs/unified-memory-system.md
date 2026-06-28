@@ -343,15 +343,16 @@ more triggers — rather than building layer-by-layer.
 
 ---
 
-## 13. Operator profile decisions (2026-06-27 — Operator mini)
+## 13. Operator profile decisions (2026-06-27)
 
-These live in **`~/.tango/profiles/default/`** (not repo). Canonical clawd handoffs:
+These live in **`~/.tango/profiles/<profile>/`** (not repo). Profile-local
+handoffs and installation-specific notes stay outside tracked files.
 
 | Topic | Location |
 | --- | --- |
 | Fleet save (Atlas + thread + daily log) | Repo template `agents/skills/session-save.md`; operator overlay in profile |
-| Fast breakage checks | `~/clawd/handoffs/2026-06-27-tango-memory-health-spec.md` |
-| Cod-E canary thread shape | `~/clawd/handoffs/2026-06-27-cod-e-canary-thread-shape.md` |
+| Fast breakage checks | Profile-local handoff notes |
+| Cod-E canary thread shape | Profile-local handoff notes |
 
 **Updates to findings above:**
 
