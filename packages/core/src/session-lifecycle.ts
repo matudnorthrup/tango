@@ -343,6 +343,21 @@ export class SessionLifecycleManager {
     return notice;
   }
 
+  restoreContextAutoResetNotice(
+    conversationKey: string,
+    notice: ContextAutoResetNotice,
+  ): void {
+    const session = this.sessions.get(conversationKey);
+    if (!session) {
+      return;
+    }
+
+    session.contextAutoResetNotice = {
+      fraction: notice.fraction,
+      recordedAt: new Date(notice.recordedAt),
+    };
+  }
+
   async resetSession(conversationKey: string, agentConfig: AgentRuntimeConfig): Promise<void> {
     await this.recreateRuntime(conversationKey, agentConfig, {});
   }

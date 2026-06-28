@@ -61,6 +61,13 @@ function createTempConfigDir(): string {
   return dir;
 }
 
+function isolateProfileHome(): void {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-home-"));
+  tempDirs.push(homeDir);
+  process.env.TANGO_HOME = homeDir;
+  process.env.TANGO_PROFILE = "default";
+}
+
 describe("resolveConfigDir", () => {
   it("prefers repo defaults when config/defaults is present", () => {
     const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-config-defaults-"));
@@ -851,6 +858,7 @@ describe("loadWorkerConfigs", () => {
   });
 
   it("assembles worker soul prompts from soul, shared files, and knowledge", () => {
+    isolateProfileHome();
     const dir = createTempConfigDir();
     const workerPromptDir = path.join(dir, "agents", "workers", "recipe-librarian");
     fs.mkdirSync(workerPromptDir, { recursive: true });

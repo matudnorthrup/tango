@@ -17,6 +17,15 @@ when present at either:
 - `~/.tango/profiles/<profile>/prompts/shared/` (preferred)
 - `~/.tango/profiles/<profile>/agents/shared/` (legacy)
 
+Per-agent persona files may also live under legacy
+`~/.tango/profiles/<profile>/agents/assistants/<id>/` when
+`system_prompt_file` points there. Preferred overlay path:
+`prompts/agents/<agent-id>/`.
+
+The `agent_docs` tool uses profile-first resolution for `shared/` and
+`assistants|workers|system/` paths when configured. Repo copies are templates
+only.
+
 That overlay surface can include:
 
 - `prompts/shared/` for operator-specific shared rules and user context
