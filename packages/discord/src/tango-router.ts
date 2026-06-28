@@ -1,6 +1,7 @@
 import {
   RuntimePool,
   SessionLifecycleManager,
+  selectMcpServersForTurn,
   type AgentRuntimeConfig,
   type ChatProvider,
   type ColdStartContextBuilder,
@@ -62,6 +63,23 @@ export function sanitizeInternalWorkerDispatchResponse(response: RuntimeResponse
   };
 }
 
+function attachMcpSelectionMetadata(
+  response: RuntimeResponse,
+  selection: AgentRuntimeConfig["mcpMountSelection"],
+): RuntimeResponse {
+  if (!selection) {
+    return response;
+  }
+
+  return {
+    ...response,
+    metadata: {
+      ...(response.metadata ?? {}),
+      mcpTooling: selection,
+    },
+  };
+}
+
 export class TangoRouter {
   private readonly lifecycleManager: SessionLifecycleManager;
   private readonly agentConfigs: Map<string, AgentRuntimeConfig>;
@@ -93,12 +111,19 @@ export class TangoRouter {
     const conversationKey =
       params.conversationKey?.trim()
       || this.getConversationKey(params.channelId, params.threadId);
-    const agentConfig = augmentRuntimeConfigWithDiscordProvenance(
+    const baseAgentConfig = augmentRuntimeConfigWithDiscordProvenance(
       this.resolveAgentConfig(params.agentId),
       {
         conversationKey,
         channelId: params.channelId,
         ...(params.threadId ? { threadId: params.threadId } : {}),
+      },
+    );
+    const { config: agentConfig, selection: mcpSelection } = selectMcpServersForTurn(
+      baseAgentConfig,
+      {
+        message: params.message,
+        sendOptions: params.sendOptions,
       },
     );
     const runtimeResponse = await this.lifecycleManager.sendMessage(
@@ -107,8 +132,9 @@ export class TangoRouter {
       params.message,
       params.sendOptions,
     );
-    const response = sanitizeInternalWorkerDispatchResponse(runtimeResponse);
-    if (response !== runtimeResponse) {
+    const sanitizedResponse = sanitizeInternalWorkerDispatchResponse(runtimeResponse);
+    const response = attachMcpSelectionMetadata(sanitizedResponse, mcpSelection);
+    if (sanitizedResponse !== runtimeResponse) {
       console.warn(
         `[tango-router] suppressed internal worker-dispatch markup for ${conversationKey} agent=${params.agentId}`,
       );

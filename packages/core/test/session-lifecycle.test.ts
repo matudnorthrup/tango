@@ -225,6 +225,58 @@ describe("SessionLifecycleManager", () => {
     expect(manager.getSession("conversation-1")?.messageCount).toBe(2);
   });
 
+  it("rotates the provider session when the mounted MCP server set changes", async () => {
+    const pool = new MockRuntimePool();
+    const firstRuntime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    const secondRuntime = pool.enqueueRuntime(new MockRuntime("runtime-2"));
+    firstRuntime.queueResponse(createResponse("First reply", { sessionId: "session-1" }));
+    secondRuntime.queueResponse(createResponse("Second reply", { sessionId: "session-2" }));
+
+    const builder = vi.fn(async () => ({
+      pinnedFacts: "Pinned fact A",
+      recentMessages: "Recent summary A",
+      relevantMemories: "Memory hit A",
+    }));
+
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      undefined,
+      builder,
+    );
+
+    await manager.sendMessage("conversation-1", createConfig(), "hello");
+    await manager.sendMessage(
+      "conversation-1",
+      createConfig({
+        mcpServers: [
+          {
+            name: "memory",
+            command: "node",
+            args: ["memory.js"],
+          },
+          {
+            name: "attachments",
+            command: "node",
+            args: ["attachments.js"],
+          },
+        ],
+      }),
+      "read the attachment",
+    );
+
+    expect(pool.closeCalls).toEqual(["conversation-1"]);
+    expect(pool.getOrCreateCalls).toHaveLength(2);
+    expect(builder).toHaveBeenCalledTimes(2);
+    expect(firstRuntime.teardown).toHaveBeenCalledTimes(1);
+    expect(secondRuntime.resumeSession).not.toHaveBeenCalled();
+    expect(manager.getSession("conversation-1")).toMatchObject({
+      state: "idle",
+      sessionId: "session-2",
+      messageCount: 1,
+      mcpServerNames: ["memory", "attachments"],
+    });
+  });
+
   it("includes attachment directory context in cold-start context", async () => {
     const pool = new MockRuntimePool();
     const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
