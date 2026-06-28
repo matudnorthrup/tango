@@ -207,6 +207,23 @@ describe("loadSessionConfigs", () => {
       channels: ["discord:100000000000001006"],
     });
   });
+
+  it("loads Cod-E with stateless orchestrator continuity", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+
+    const sessions = loadSessionConfigs(defaultsDir);
+    const codE = sessions.find((session) => session.id === "cod-e");
+    expect(codE).toMatchObject({
+      id: "cod-e",
+      type: "persistent",
+      agent: "cod-e",
+      orchestratorContinuity: "stateless",
+      memory: {
+        maxContextTokens: 12000,
+      },
+    });
+  });
 });
 
 describe("loadAgentConfigs", () => {

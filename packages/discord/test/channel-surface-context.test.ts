@@ -110,6 +110,43 @@ describe("selectWarmStartMessages", () => {
     expect(result.supplementalMessageCount).toBe(0);
   });
 
+  it("excludes legacy public session messages without a Discord channel when channel-scoping is enabled", () => {
+    const sessionMessages = [
+      makeMessage({
+        id: 1,
+        sessionId: "cod-e",
+        agentId: "cod-e",
+        direction: "inbound",
+        source: "discord",
+        visibility: "public",
+        discordChannelId: null,
+        content: "legacy orphan row from another thread",
+        createdAt: minutesAgo(20),
+      }),
+      makeMessage({
+        id: 2,
+        sessionId: "cod-e",
+        agentId: "cod-e",
+        direction: "outbound",
+        source: "tango",
+        visibility: "public",
+        discordChannelId: "thread-1",
+        content: "thread scoped response",
+        createdAt: minutesAgo(10),
+      }),
+    ];
+
+    const result = selectWarmStartMessages({
+      sessionMessages,
+      recentChannelMessages: [],
+      channelId: "thread-1",
+      agentId: "cod-e",
+    });
+
+    expect(result.messages.map((message) => message.id)).toEqual([2]);
+    expect(result.supplementalMessageCount).toBe(0);
+  });
+
   it("skips supplemental inbound messages whose content duplicates a session message", () => {
     const duplicatedContent = "check the balance on the joint account";
     const sessionMessages = [

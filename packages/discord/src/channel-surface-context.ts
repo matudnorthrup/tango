@@ -14,7 +14,7 @@ export function selectWarmStartMessages(input: {
   const channelId = input.channelId?.trim() || null;
   const sessionMessages = channelId
     ? input.sessionMessages.filter(
-        (message) => !message.discordChannelId || message.discordChannelId === channelId
+        (message) => isSessionMessageInChannelScope(message, channelId)
       )
     : input.sessionMessages;
 
@@ -67,4 +67,19 @@ export function selectWarmStartMessages(input: {
     messages: [...byId.values()].sort((a, b) => a.id - b.id),
     supplementalMessageCount,
   };
+}
+
+function isSessionMessageInChannelScope(
+  message: StoredMessageRecord,
+  channelId: string,
+): boolean {
+  if (message.discordChannelId === channelId) {
+    return true;
+  }
+
+  if (message.discordChannelId) {
+    return false;
+  }
+
+  return message.visibility !== "public" || message.direction === "system";
 }
