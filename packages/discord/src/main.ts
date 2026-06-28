@@ -205,6 +205,7 @@ import {
 } from "./natural-routing.js";
 import { resolveTargetAgent } from "./target-agent.js";
 import { processAttachments, cleanupAttachments } from "./attachment-processor.js";
+import { resolveWarmStartContinuityMode } from "./orchestrator-continuity.js";
 import {
   buildPromptWithReferent,
   buildReferentSystemMessage,
@@ -3162,25 +3163,17 @@ function resolveOrchestratorContinuityMode(sessionId: string): OrchestratorConti
 
 /**
  * Per-agent continuity resolution for the warm-start producer. Ollama-backed
- * agents are forced to "stateless" so warm start always does the full
- * zone-budgeted reconstruction (allowFullHistoryBypass=false) rather than
- * short-circuiting to the raw transcript — the stateless provider has no
- * resumable session to lean on. Everyone else gets "provider" (the prior
- * default), preserving the resume optimization byte-for-byte.
- *
- * NOTE: the session-level `orchestrator_continuity` config is intentionally
- * left INERT here. Wiring resolveOrchestratorContinuityMode(sessionId) in would
- * activate the `stateless` values set in several session YAMLs and flip Claude
- * agents to full-history reconstruction — out of scope for Phase 1 and contrary
- * to the cost goal. Honoring that config is tracked as a separate bug.
+ * agents are forced to "stateless"; Claude-backed agents honor the effective
+ * session YAML so operators can opt individual sessions into bounded warm-start.
  */
 function resolveOrchestratorContinuityModeForAgent(
   agentId: string,
+  sessionId: string,
 ): OrchestratorContinuityMode {
-  if (isOllamaBackedAgent(v2Configs.get(agentId))) {
-    return "stateless";
-  }
-  return "provider";
+  return resolveWarmStartContinuityMode({
+    isOllamaBacked: isOllamaBackedAgent(v2Configs.get(agentId)),
+    sessionMode: resolveOrchestratorContinuityMode(sessionId),
+  });
 }
 
 function getConversationKey(sessionId: string, agentId: string, threadChannelId?: string | null): string {
@@ -3878,6 +3871,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       currentUserPrompt: turnInput.transcript,
       orchestratorContinuityMode: resolveOrchestratorContinuityModeForAgent(
         targetAgent.id,
+        turnInput.sessionId,
       ),
       discordChannelId: voiceRouterChannelId,
       discordThreadId: voiceRouterThreadId,
@@ -6322,6 +6316,7 @@ async function handleReplayCommand(interaction: ChatInputCommandInteraction): Pr
     excludeMessageIds: deadLetter.requestMessageId !== null ? [deadLetter.requestMessageId] : undefined,
     orchestratorContinuityMode: resolveOrchestratorContinuityModeForAgent(
       deadLetter.agentId,
+      deadLetter.sessionId,
     ),
     discordChannelId: deadLetter.discordChannelId,
   });
@@ -7453,6 +7448,7 @@ async function handleMessage(
         currentUserPrompt: prompt,
         orchestratorContinuityMode: resolveOrchestratorContinuityModeForAgent(
           targetAgent.id,
+          promptRoute.sessionId,
         ),
         discordChannelId: routingChannelId,
         discordThreadId: threadId,
