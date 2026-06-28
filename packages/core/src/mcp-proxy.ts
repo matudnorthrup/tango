@@ -20,7 +20,7 @@ import { request as httpRequest } from "node:http";
 import { writeFileSync } from "node:fs";
 import {
   discordTurnProvenanceToHttpHeaders,
-  pickDiscordTurnProvenanceEnv,
+  resolveDiscordTurnProvenanceEnv,
 } from "./discord-turn-provenance-transport.js";
 
 const PORT = parseInt(process.env.MCP_SERVER_PORT || "9100", 10);
@@ -28,9 +28,10 @@ const WORKER_ID = process.env.WORKER_ID || "";
 const READ_ONLY_STEP = process.env.READ_ONLY_STEP === "1";
 const ALLOWED_TOOL_IDS = process.env.ALLOWED_TOOL_IDS;
 const KEEPALIVE_FILE = process.env.MCP_KEEPALIVE_FILE || "";
-const TURN_PROVENANCE_HEADERS = discordTurnProvenanceToHttpHeaders(
-  pickDiscordTurnProvenanceEnv(process.env),
-);
+
+function buildTurnProvenanceHeaders(): Record<string, string> {
+  return discordTurnProvenanceToHttpHeaders(resolveDiscordTurnProvenanceEnv(process.env));
+}
 
 const debug = (...args: unknown[]) => {
   process.stderr.write(`[mcp-proxy] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")}\n`);
@@ -60,7 +61,7 @@ function postToServer(body: string): Promise<string | null> {
           ...(WORKER_ID ? { "X-Worker-ID": WORKER_ID } : {}),
           ...(READ_ONLY_STEP ? { "X-Read-Only-Step": "1" } : {}),
           ...(ALLOWED_TOOL_IDS !== undefined ? { "X-Allowed-Tool-Ids": ALLOWED_TOOL_IDS } : {}),
-          ...TURN_PROVENANCE_HEADERS,
+          ...buildTurnProvenanceHeaders(),
         },
       },
       (res) => {

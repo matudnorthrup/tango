@@ -30,7 +30,7 @@ export function buildSavePassContext(): string {
     "Review this conversation and capture anything that would be lost if the session ended now.",
     "Route each item to the right layer (see profile skill session-save.md):",
     "- Linked thread file: project decisions, test results, Open Items / Quick Read — patch only, never full overwrite.",
-    "- Daily log: call daily_log_append with 1-3 headline bullets — platform stamps metadata.",
+    "- Daily log: call daily_log_append with 1–3 outcome bullets for fleet peers (Sage/Piper scan) — platform stamps metadata. Not gate steps or incremental progress.",
     "- Atlas (memory_add): partnership, preferences, durable lessons — source manual, metadata captured_by save_pass.",
     "Do not save test artifacts, smoke-test codewords, or ephemeral session-only details unless the user explicitly asked to preserve them.",
     "Confirm what you saved in each layer.",

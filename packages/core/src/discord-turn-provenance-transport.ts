@@ -1,8 +1,6 @@
-/**
- * Forward Discord turn provenance from MCP proxy (stdio child) to the
- * persistent HTTP wellness server. Atlas-memory uses a direct stdio server;
- * mcp-proxy tools must pass provenance out-of-band via HTTP headers.
- */
+import fs from "node:fs";
+import path from "node:path";
+import { resolveTangoCurrentTurnProvenancePath } from "./runtime-paths.js";
 
 export const DISCORD_TURN_PROVENANCE_ENV_KEYS = [
   "TANGO_CONVERSATION_KEY",
@@ -41,6 +39,40 @@ export function pickDiscordTurnProvenanceEnv(
     }
   }
   return picked;
+}
+
+export function resolveDiscordTurnProvenanceEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const filePath =
+    env.TANGO_TURN_PROVENANCE_FILE?.trim()
+    ?? resolveTangoCurrentTurnProvenancePath();
+  let fromFile: Record<string, string> = {};
+  try {
+    if (fs.existsSync(filePath)) {
+      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        fromFile = pickDiscordTurnProvenanceEnv(parsed as NodeJS.ProcessEnv);
+      }
+    }
+  } catch {
+    // Fall back to process env only.
+  }
+  return {
+    ...pickDiscordTurnProvenanceEnv(env),
+    ...fromFile,
+  };
+}
+
+export function writeDiscordTurnProvenanceSnapshot(
+  provenance: Record<string, string>,
+  options: { filePath?: string } = {},
+): string {
+  const filePath = options.filePath?.trim() || resolveTangoCurrentTurnProvenancePath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const payload = pickDiscordTurnProvenanceEnv(provenance as NodeJS.ProcessEnv);
+  fs.writeFileSync(filePath, `${JSON.stringify(payload)}\n`, "utf8");
+  return filePath;
 }
 
 export function discordTurnProvenanceToHttpHeaders(

@@ -84,6 +84,7 @@ class MockRuntime implements AgentRuntime {
     this.sessionId = sessionId;
   });
   readonly abortActiveRun = vi.fn(() => false);
+  readonly refreshRuntimeConfig = vi.fn((_config: AgentRuntimeConfig) => {});
 
   constructor(readonly id: string) {}
 
@@ -221,6 +222,7 @@ describe("SessionLifecycleManager", () => {
 
     expect(pool.getOrCreateCalls).toHaveLength(1);
     expect(runtime.send).toHaveBeenCalledTimes(2);
+    expect(runtime.refreshRuntimeConfig).toHaveBeenCalledTimes(2);
     expect(builder).toHaveBeenCalledTimes(1);
     expect(manager.getSession("conversation-1")?.messageCount).toBe(2);
   });

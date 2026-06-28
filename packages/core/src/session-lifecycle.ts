@@ -119,6 +119,15 @@ function cloneRuntimeConfig(config: AgentRuntimeConfig): AgentRuntimeConfig {
   };
 }
 
+function syncRuntimeTurnConfig(runtime: AgentRuntime, config: AgentRuntimeConfig): void {
+  const refresh = (
+    runtime as AgentRuntime & { refreshRuntimeConfig?: (next: AgentRuntimeConfig) => void }
+  ).refreshRuntimeConfig;
+  if (refresh) {
+    refresh.call(runtime, cloneRuntimeConfig(config));
+  }
+}
+
 function normalizeTextBlock(value: string): string | undefined {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
@@ -311,6 +320,8 @@ export class SessionLifecycleManager {
       session.state = "error";
       throw new Error(`Failed to acquire runtime for conversation '${conversationKey}'.`);
     }
+
+    syncRuntimeTurnConfig(runtime, agentConfig);
 
     this.ensureRuntimeSessionBound(runtime, session.sessionId);
 

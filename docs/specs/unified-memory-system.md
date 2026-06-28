@@ -350,7 +350,7 @@ handoffs and installation-specific notes stay outside tracked files.
 
 | Topic | Location |
 | --- | --- |
-| Fleet save (Atlas + thread + daily log) | Repo template `agents/skills/session-save.md`; operator overlay in profile |
+| Fleet save (Atlas + thread + daily log) | Agent: profile `skills/session-save.md` · Builders: **§14 Capture pipelines** |
 | Fast breakage checks | Profile-local handoff notes |
 | Cod-E canary thread shape | Profile-local handoff notes |
 
@@ -361,3 +361,82 @@ handoffs and installation-specific notes stay outside tracked files.
 - **`memory_add` provenance:** TangoRouter injects `TANGO_CONVERSATION_KEY`, `TANGO_DISCORD_CHANNEL_ID`, `TANGO_DISCORD_THREAD_ID` into atlas-memory MCP env (`discord-memory-provenance.ts`).
 - **Profile thread write guard (Phase 1b, 2026-06-27):** `profile-state-write-guard.ts` blocks full-file `write` on existing `profile/threads/**/*.md` (create-on-missing allowed), rejects empty content and missing frozen anchors on governed files; Claude Code `Write|Edit` guarded via PreToolUse hook (`scripts/claude/profile-state-pretooluse-hook.mjs`) wired in `ClaudeCodeAdapter`.
 - **Validation:** deterministic health script (30–60m) for breakages; Marion weekly for learnings only.
+
+---
+
+## 14. Capture pipelines (builder reference)
+
+**Audience:** Cursor, Claude Code, platform builders — **not** agents on save pass.
+
+**Agent-facing save routing** lives in one place only:
+
+- Repo template: `agents/skills/session-save.md`
+- Operator overlay: `~/.tango/profiles/<profile>/skills/session-save.md`
+
+Agents read that skill for **what to save where** (three layers + presence lens). This section documents **how capture is wired** — metadata, pipelines, and infra — when changing Atlas, save behavior, or fleet daily log.
+
+### 14.1 Four lanes (do not merge)
+
+| Lane | Store | Trigger | Agent action | Typical metadata |
+| --- | --- | --- | --- | --- |
+| **Agent Atlas save** | Atlas (`memory.db`) | Save pass, checkpoint, mid-turn judgment | `memory_add` | `source: manual` · `captured_by: agent_save` or `save_pass` |
+| **Background capture** | Atlas | After each Discord turn (async) | **None** — platform | `source: conversation` · `captured_by: post_turn_extraction` |
+| **Obsidian vault sync** | Atlas | Nightly index of vault markdown | **None** — separate pipeline | `source: obsidian` (not post-turn; not agent save) |
+| **Fleet daily log** | `profile/memory/YYYY-MM-DD.md` | Save pass (headlines) | `daily_log_append` (bullets only) | Platform stamps `agent_id`, time, `channel_id`, `thread_id`, `conversation_key`, `captured_by` |
+
+**Sorting principle (agents):** one question per fact — thread file (project proof) · daily log (fleet-peer outcomes — Sage/Piper scan) · Atlas (durable meaning). Daily log **audience and voice** live only in profile `session-save.md`; do not duplicate here.
+
+### 14.2 Parallel lanes — not agent dedup (locked 2026-06-27)
+
+Background capture and agent saves **run in parallel**. Agents **do not** search Atlas or compare against background capture before saving.
+
+- **Background capture** gets facts from the **last exchange** (narrow context).
+- **Agent saves** add **meaning** from the **full session** (presence lens in profile skill): why, shift, partnership, corrections with context.
+
+Overlap in *topic* is acceptable when the agent write adds framing background capture cannot see from one exchange. Agents skip replays of the last turn, not “topics Haiku might have touched.”
+
+**Decision record:** T-F-001 Known Decisions · profile `session-save.md` trim (2026-06-28, Cod-E review).
+
+### 14.3 Background capture (Haiku post-turn) — infra
+
+- **Implementation:** `packages/discord/src/v2-runtime.ts` — post-turn extraction hook; provider from agent config.
+- **Importance floor:** `importance_threshold` in agent yaml (e.g. `0.25`) — candidates below the floor drop. This is a **volume filter for background capture**, not a quality gate on agent saves (agents skip importance scoring).
+- **Context window:** last user + agent message only — not full session arc.
+
+Do not document threshold tuning in the agent save skill; change it here or in agent yaml when tuning background volume.
+
+### 14.4 Fleet daily log (T-F-001) — infra
+
+Built 2026-06-27 · Gate 5 PASS on production Discord 2026-06-28.
+
+| Piece | Location |
+| --- | --- |
+| Append + stamps | `packages/core/src/fleet-daily-log.ts` · `packages/discord/src/daily-log-tools.ts` |
+| Write guard | `packages/core/src/profile-state-write-guard.ts` — blocks raw Write on existing `profile/memory/*.md`; use `daily_log_append` |
+| Bootstrap cron | `config/defaults/schedules/daily-log-bootstrap.yaml` — `00:05 America/Denver`, creates `# YYYY-MM-DD` header if missing |
+| Provenance on HTTP MCP path | `discord-turn-provenance-transport` · snapshot file · `mcp-proxy` headers (T-F-001 re-run archaeology) |
+| Agent tool mount | Per-agent `fleet-log` MCP in `config/v2/agents/*.yaml` — `ALLOWED_TOOL_IDS: daily_log_append` |
+
+**Separate from:** Obsidian `Planning/Daily/` (planner pipeline) · morning brief · Watson/Piper daily notes.
+
+**Spec / proof:** `~/.tango/profiles/default/specs/active/T-F-001-fleet-daily-log.md`
+
+### 14.5 Agent rollout (when enabling save on more agents)
+
+Per-agent, not automatic when T-F-001 ships:
+
+1. Add `fleet-log` MCP + `daily_log_append` to agent yaml (if daily log headlines needed).
+2. Point agent knowledge at profile `skills/session-save.md` on save / `/tango save`.
+3. Smoke: one Discord save pass → stamped block in `memory/YYYY-MM-DD.md` with correct `agent_id` and provenance.
+
+Lifecycle template should record rollout in Gate 3 Documentation / Deploy bundle — see process review (spec #1).
+
+### 14.6 Related builder docs
+
+| Doc | Role |
+| --- | --- |
+| Profile `skills/session-save.md` | Agent save skill (single story) |
+| T-F-001 spec | Fleet daily log build, Gate 5 proof, known decisions |
+| `docs/guides/agent-operating-model.md` | Provenance env on `memory_add` |
+| §2–§8 above | Whisper, reseed, save protocol evolution (some findings pre-T-F-001) |
+

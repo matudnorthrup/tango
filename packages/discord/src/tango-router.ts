@@ -11,7 +11,8 @@ import {
   type SendOptions,
   type SessionLifecycleConfig,
 } from "@tango/core";
-import { augmentRuntimeConfigWithDiscordProvenance, type DiscordTurnProvenance } from "./discord-memory-provenance.js";
+import { augmentRuntimeConfigWithDiscordProvenance, buildDiscordTurnProvenanceEnv, type DiscordTurnProvenance } from "./discord-memory-provenance.js";
+import { writeDiscordTurnProvenanceSnapshot } from "@tango/core";
 
 export interface TangoRouterConfig {
   /** Map of agent IDs to their v2 runtime configs */
@@ -112,20 +113,22 @@ export class TangoRouter {
     const conversationKey =
       params.conversationKey?.trim()
       || this.getConversationKey(params.channelId, params.threadId);
+    const turnProvenance: DiscordTurnProvenance = {
+      conversationKey,
+      channelId: params.channelId,
+      ...(params.threadId ? { threadId: params.threadId } : {}),
+      agentId: params.agentId,
+      capturedBy: params.discordTurn?.capturedBy ?? "agent_save",
+      ...(params.discordTurn?.requestedByUserId
+        ? { requestedByUserId: params.discordTurn.requestedByUserId }
+        : {}),
+      ...(params.discordTurn?.trigger ? { trigger: params.discordTurn.trigger } : {}),
+      ...(params.discordTurn?.timeZone ? { timeZone: params.discordTurn.timeZone } : {}),
+    };
+    writeDiscordTurnProvenanceSnapshot(buildDiscordTurnProvenanceEnv(turnProvenance));
     const baseAgentConfig = augmentRuntimeConfigWithDiscordProvenance(
       this.resolveAgentConfig(params.agentId),
-      {
-        conversationKey,
-        channelId: params.channelId,
-        ...(params.threadId ? { threadId: params.threadId } : {}),
-        agentId: params.agentId,
-        capturedBy: params.discordTurn?.capturedBy ?? "agent_save",
-        ...(params.discordTurn?.requestedByUserId
-          ? { requestedByUserId: params.discordTurn.requestedByUserId }
-          : {}),
-        ...(params.discordTurn?.trigger ? { trigger: params.discordTurn.trigger } : {}),
-        ...(params.discordTurn?.timeZone ? { timeZone: params.discordTurn.timeZone } : {}),
-      },
+      turnProvenance,
     );
     const { config: agentConfig, selection: mcpSelection } = selectMcpServersForTurn(
       baseAgentConfig,

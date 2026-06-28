@@ -1,4 +1,5 @@
 import type { AgentRuntimeConfig, McpServerConfig } from "@tango/core";
+import { resolveTangoCurrentTurnProvenancePath } from "@tango/core";
 
 export type DiscordCapturedBy = "save_pass" | "agent_save";
 
@@ -90,6 +91,9 @@ export function augmentRuntimeConfigWithDiscordProvenance(
         env: {
           ...(server.env ?? {}),
           ...envPatch,
+          ...(isMcpProxyServer(server)
+            ? { TANGO_TURN_PROVENANCE_FILE: resolveTangoCurrentTurnProvenancePath() }
+            : {}),
         },
       };
     }),

@@ -196,6 +196,19 @@ export function resolveTangoProfileLogsDir(
   return path.join(resolveTangoProfileDir(options), "logs");
 }
 
+export function resolveTangoProfileRuntimeDir(
+  options: TangoProfilePathOptions = {},
+): string {
+  return path.join(resolveTangoProfileDir(options), "runtime");
+}
+
+/** Sidecar file mcp-proxy reads per HTTP request (stdio child env is frozen at spawn). */
+export function resolveTangoCurrentTurnProvenancePath(
+  options: TangoProfilePathOptions = {},
+): string {
+  return path.join(resolveTangoProfileRuntimeDir(options), "current-turn-provenance.json");
+}
+
 export function resolveLegacyDatabasePath(baseDir = process.cwd()): string {
   return path.join(resolveLegacyDataDir(baseDir), "tango.sqlite");
 }

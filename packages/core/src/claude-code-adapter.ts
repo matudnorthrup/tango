@@ -365,6 +365,22 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     this.stateValue = "idle";
   }
 
+  /** Sync per-turn MCP env (e.g. Discord provenance) without tearing down the Claude session. */
+  refreshRuntimeConfig(config: AgentRuntimeConfig): void {
+    if (!this.config) {
+      throw new Error("ClaudeCodeAdapter has not been initialized.");
+    }
+    this.config = cloneRuntimeConfig(config);
+    if (!this.mcpConfigPath) {
+      return;
+    }
+    fs.writeFileSync(
+      this.mcpConfigPath,
+      JSON.stringify({ mcpServers: normalizeMcpServers(this.config.mcpServers) }),
+      "utf8",
+    );
+  }
+
   async send(message: string, options: SendOptions = {}): Promise<RuntimeResponse> {
     if (!this.config) {
       throw new Error("ClaudeCodeAdapter has not been initialized.");
