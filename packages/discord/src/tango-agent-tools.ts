@@ -7,6 +7,12 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  resolveTangoProfileAgentsDir,
+  resolveTangoProfileSharedPromptLookupDirs,
+  validateProfileStateFileMutation,
+  type TangoProfilePathOptions,
+} from "@tango/core";
 import type { AgentTool } from "@tango/core";
 import {
   resolveTangoProfileDir,
@@ -27,6 +33,9 @@ import {
 
 export interface TangoToolPaths {
   agentsDir?: string;
+  profileAgentsDir?: string;
+  profileSharedDirs?: string[];
+  profilePathOptions?: TangoProfilePathOptions;
   /** Override the profile skills overlay dir (tests). */
   profileSkillsDir?: string;
   /** Override the profile tools overlay dir (tests). */
@@ -35,12 +44,237 @@ export interface TangoToolPaths {
   profileStateRoot?: string;
 }
 
+const SHARED_DOC_NAMES = new Set(["RULES.md", "USER.md", "AGENTS.md"]);
+const AGENT_TREE_PREFIXES = new Set(["assistants", "workers", "system"]);
+
 function resolvePaths(overrides?: TangoToolPaths) {
+  const profilePathOptions = overrides?.profilePathOptions;
   return {
     agentsDir: overrides?.agentsDir ?? path.resolve("agents"),
+    profileAgentsDir:
+      overrides?.profileAgentsDir
+      ?? resolveTangoProfileAgentsDir(profilePathOptions),
+    profileSharedDirs:
+      overrides?.profileSharedDirs
+      ?? resolveTangoProfileSharedPromptLookupDirs(profilePathOptions),
     profileSkillsDir: overrides?.profileSkillsDir ?? resolveTangoProfileSkillPromptsDir(),
     profileToolsDir: overrides?.profileToolsDir ?? resolveTangoProfileToolPromptsDir(),
     profileStateRoot: overrides?.profileStateRoot ?? resolveTangoProfileDir(),
+  };
+}
+
+function normalizeRelativePath(relPath: string): string {
+  return relPath.replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function parseSharedDocRelativePath(relPath: string): string | null {
+  const normalized = normalizeRelativePath(relPath);
+  const match = normalized.match(/^shared\/(.+\.md)$/);
+  if (!match?.[1]) return null;
+  const filename = path.basename(match[1]);
+  return SHARED_DOC_NAMES.has(filename) ? filename : null;
+}
+
+function isAgentTreeRelativePath(relPath: string): boolean {
+  const first = normalizeRelativePath(relPath).split("/")[0];
+  return AGENT_TREE_PREFIXES.has(first ?? "");
+}
+
+function profileLayerNote(source: "profile" | "repo", kind: "shared" | "agent"): string {
+  if (source === "profile" && kind === "shared") {
+    return "Shared docs load from the Tango profile layer, not the repo template.";
+  }
+  if (source === "repo" && kind === "shared") {
+    return "Repo template only. On profile installs, edit ~/.tango/profiles/<profile>/agents/shared/ instead.";
+  }
+  if (source === "profile" && kind === "agent") {
+    return "Agent docs load from the profile layer (~/.tango/profiles/<profile>/agents/).";
+  }
+  return "Repo template only. On profile installs, edit the matching path under ~/.tango/profiles/<profile>/agents/.";
+}
+
+function resolveSharedDocPath(
+  agentsDir: string,
+  relPath: string,
+  profileSharedDirs: string[],
+): { repoPath: string; effectivePath: string; source: "profile" | "repo" } | null {
+  const filename = parseSharedDocRelativePath(relPath);
+  if (!filename) return null;
+
+  const repoPath = path.resolve(agentsDir, "shared", filename);
+  for (const profileDir of profileSharedDirs) {
+    const profilePath = path.join(profileDir, filename);
+    if (fs.existsSync(profilePath)) {
+      return { repoPath, effectivePath: profilePath, source: "profile" };
+    }
+  }
+
+  return { repoPath, effectivePath: repoPath, source: "repo" };
+}
+
+function resolveSharedDocWritePath(
+  agentsDir: string,
+  relPath: string,
+  profileSharedDirs: string[],
+): { effectivePath: string; source: "profile" | "repo" } | null {
+  const filename = parseSharedDocRelativePath(relPath);
+  if (!filename) return null;
+
+  const preferredProfileDir = profileSharedDirs[0];
+  if (preferredProfileDir) {
+    return {
+      effectivePath: path.join(preferredProfileDir, filename),
+      source: "profile",
+    };
+  }
+
+  return {
+    effectivePath: path.resolve(agentsDir, "shared", filename),
+    source: "repo",
+  };
+}
+
+function resolveAgentTreeDocPath(
+  agentsDir: string,
+  profileAgentsDir: string | undefined,
+  relPath: string,
+  mode: "read" | "write",
+): { repoPath: string; effectivePath: string; source: "profile" | "repo" } | null {
+  if (!isAgentTreeRelativePath(relPath)) return null;
+
+  const normalized = normalizeRelativePath(relPath);
+  const repoPath = path.resolve(agentsDir, normalized);
+  if (!repoPath.startsWith(path.resolve(agentsDir))) return null;
+  if (!normalized.endsWith(".md")) return null;
+
+  if (profileAgentsDir) {
+    const profilePath = path.resolve(profileAgentsDir, normalized);
+    if (!profilePath.startsWith(path.resolve(profileAgentsDir))) return null;
+
+    if (mode === "write" || fs.existsSync(profilePath)) {
+      return {
+        repoPath,
+        effectivePath: profilePath,
+        source: "profile",
+      };
+    }
+  }
+
+  return { repoPath, effectivePath: repoPath, source: "repo" };
+}
+
+function resolveAgentTreeDirectoryPath(
+  agentsDir: string,
+  profileAgentsDir: string | undefined,
+  relPath: string,
+): { effectivePath: string; source: "profile" | "repo" } | null {
+  if (!relPath) return null;
+
+  const normalized = normalizeRelativePath(relPath);
+  if (!isAgentTreeRelativePath(normalized)) {
+    return validateDirectoryPath(agentsDir, normalized)
+      ? { effectivePath: path.resolve(agentsDir, normalized), source: "repo" }
+      : null;
+  }
+
+  const repoPath = path.resolve(agentsDir, normalized);
+  if (!repoPath.startsWith(path.resolve(agentsDir))) return null;
+
+  if (profileAgentsDir) {
+    const profilePath = path.resolve(profileAgentsDir, normalized);
+    if (profilePath.startsWith(path.resolve(profileAgentsDir)) && fs.existsSync(profilePath)) {
+      return { effectivePath: profilePath, source: "profile" };
+    }
+  }
+
+  if (fs.existsSync(repoPath)) {
+    return { effectivePath: repoPath, source: "repo" };
+  }
+
+  return null;
+}
+
+function resolveAgentDirectory(
+  agentsDir: string,
+  profileAgentsDir: string | undefined,
+  agentId: string,
+): string | null {
+  const candidates = [
+    path.join("assistants", agentId),
+    path.join("workers", agentId),
+    path.join("system", agentId),
+    agentId,
+  ];
+
+  if (profileAgentsDir) {
+    for (const candidate of candidates) {
+      const resolved = path.resolve(profileAgentsDir, candidate);
+      if (fs.existsSync(resolved)) return resolved;
+    }
+  }
+
+  for (const candidate of candidates) {
+    const resolved = path.resolve(agentsDir, candidate);
+    if (fs.existsSync(resolved)) return resolved;
+  }
+
+  return null;
+}
+
+function resolveDocPath(
+  paths: ReturnType<typeof resolvePaths>,
+  relPath: string,
+  mode: "read" | "write",
+): {
+  effectivePath: string;
+  source: "profile" | "repo";
+  kind: "shared" | "agent" | "repo";
+} | null {
+  const sharedDoc = mode === "write"
+    ? resolveSharedDocWritePath(paths.agentsDir, relPath, paths.profileSharedDirs)
+    : resolveSharedDocPath(paths.agentsDir, relPath, paths.profileSharedDirs);
+
+  if (sharedDoc) {
+    return {
+      effectivePath: sharedDoc.effectivePath,
+      source: sharedDoc.source,
+      kind: "shared",
+    };
+  }
+
+  const agentDoc = resolveAgentTreeDocPath(
+    paths.agentsDir,
+    paths.profileAgentsDir,
+    relPath,
+    mode,
+  );
+  if (agentDoc) {
+    return {
+      effectivePath: agentDoc.effectivePath,
+      source: agentDoc.source,
+      kind: "agent",
+    };
+  }
+
+  const repoPath = validatePath(paths.agentsDir, relPath);
+  if (!repoPath) return null;
+
+  return { effectivePath: repoPath, source: "repo", kind: "repo" };
+}
+
+function docResultMeta(
+  source: "profile" | "repo",
+  kind: "shared" | "agent" | "repo",
+  resolvedPath: string,
+): Record<string, string> {
+  if (kind === "repo") {
+    return {};
+  }
+
+  return {
+    source,
+    path: resolvedPath,
+    note: profileLayerNote(source, kind),
   };
 }
 
@@ -102,7 +336,7 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "when you discover a mistake or missing knowledge, update the relevant doc so",
         "future sessions get it right.",
         "",
-        "Scoped to the agents/ directory only. Allowed files: *.md",
+        "Profile layer (operator installs): profile wins over repo for shared/ and assistants|workers|system/.",
         "",
         "Operations:",
         "  list — List files in a directory",
@@ -111,14 +345,13 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "",
         "  read — Read a file",
         "    { \"operation\": \"read\", \"path\": \"assistants/watson/knowledge.md\" }",
-        "    { \"operation\": \"read\", \"path\": \"shared/AGENTS.md\" }",
-        "    { \"operation\": \"read\", \"path\": \"tools/atlas-sql.md\" }",
+        "    { \"operation\": \"read\", \"path\": \"shared/USER.md\" }",
         "",
         "  write — Write/overwrite a file (creates if missing)",
-        "    { \"operation\": \"write\", \"path\": \"assistants/watson/knowledge.md\", \"content\": \"# Watson Domain Knowledge\\n...\" }",
+        "    { \"operation\": \"write\", \"path\": \"assistants/watson/knowledge.md\", \"content\": \"...\" }",
         "",
         "  patch — Replace a specific string in a file",
-        "    { \"operation\": \"patch\", \"path\": \"assistants/watson/knowledge.md\", \"old\": \"old text\", \"new\": \"new text\" }",
+        "    { \"operation\": \"patch\", \"path\": \"assistants/watson/knowledge.md\", \"old\": \"...\", \"new\": \"...\" }",
         "",
         "  state_list / state_read / state_write / state_patch — profile state files",
         "    { \"operation\": \"state_list\", \"path\": \"threads\" }",
@@ -127,12 +360,11 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "    { \"operation\": \"state_patch\", \"path\": \"threads/launch.md\", \"old\": \"old\", \"new\": \"new\" }",
         "",
         "File conventions:",
-        "  Shared: shared/AGENTS.md, shared/RULES.md, shared/USER.md",
-        "  Assistants: assistants/<id>/{soul,knowledge,workers}.md",
-        "  Workers: workers/<id>/soul.md",
-        "  System: system/<id>/soul.md",
-        "  Shared tool docs: agents/tools/*.md",
-        "  Shared skills: agents/skills/*.md",
+        "  Shared (all agents): shared/AGENTS.md, shared/RULES.md, shared/USER.md — profile shared/ wins",
+        "  Per-agent: assistants/<id>/{soul,knowledge,USER,RULES,workers}.md — profile assistants/<id>/ wins",
+        "  Workers: workers/<id>/soul.md; System: system/<id>/soul.md",
+        "  Per-agent RULES add to shared RULES; per-agent USER overrides shared USER (same as prompt assembly)",
+        "  Repo tools/skills: agents/tools/*.md, agents/skills/*.md",
         "",
         "Repo skill/tool docs are GENERIC defaults shared by all installs. Reading",
         "tools/<x>.md or skills/<x>.md automatically appends your profile overlay",
@@ -192,28 +424,32 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         if (operation === "list") {
           const relPath = input.path ? String(input.path) : "";
           const agentId = input.agent ? String(input.agent) : "";
-          const targetDir = relPath
-            ? validateDirectoryPath(agentsDir, relPath)
-            : agentId
-              ? resolveAgentDirectory(agentsDir, agentId)
-              : path.resolve(agentsDir);
-          if (!targetDir) {
+
+          let resolved: string | null = null;
+          if (relPath) {
+            resolved = resolveAgentTreeDirectoryPath(
+              agentsDir,
+              paths.profileAgentsDir,
+              relPath,
+            )?.effectivePath ?? null;
+          } else if (agentId) {
+            resolved = resolveAgentDirectory(agentsDir, paths.profileAgentsDir, agentId);
+          } else {
+            resolved = path.resolve(agentsDir);
+          }
+
+          if (!resolved) {
             return { error: "Invalid path — list target must stay within agents/" };
           }
-          const resolved = path.resolve(targetDir);
-
-          if (!resolved.startsWith(path.resolve(agentsDir))) {
-            return { error: "Path escapes agents/ directory" };
-          }
           if (!fs.existsSync(resolved)) {
-            return { error: `Directory not found: ${agentId || "/"}` };
+            return { error: `Directory not found: ${agentId || relPath || "/"}` };
           }
 
           const entries = fs.readdirSync(resolved);
           const mdFiles = entries.filter((e) => e.endsWith(".md"));
           const dirs = entries.filter((e) => {
             try {
-              return fs.statSync(path.join(resolved, e)).isDirectory();
+              return fs.statSync(path.join(resolved!, e)).isDirectory();
             } catch {
               return false;
             }
@@ -244,60 +480,93 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
 
         if (operation === "read") {
           const relPath = String(input.path ?? "");
-          const resolved = validatePath(agentsDir, relPath);
-          if (!resolved) return { error: "Invalid path — must be a .md file within agents/" };
+          const resolvedDoc = resolveDocPath(paths, relPath, "read");
+          if (!resolvedDoc) {
+            return { error: "Invalid path — must be a .md file within agents/" };
+          }
 
-          // Shared skill/tool docs may carry an installation-specific profile
-          // overlay; append it to the generic repo base so the agent sees both.
           const overlayPath = resolveDocOverlayPath(relPath, paths);
           const overlay = readDocOverlay(overlayPath);
-          const baseExists = fs.existsSync(resolved);
+          const baseExists = fs.existsSync(resolvedDoc.effectivePath);
           if (!baseExists && overlay === null) {
             return { error: `File not found: ${relPath}` };
           }
 
-          const baseContent = baseExists ? fs.readFileSync(resolved, "utf8") : "";
-          if (!overlay) {
-            return { content: baseContent };
+          const baseContent = baseExists
+            ? fs.readFileSync(resolvedDoc.effectivePath, "utf8")
+            : "";
+          let content = baseContent;
+          if (overlay) {
+            const overlayName = overlayPath ? path.basename(overlayPath) : "overlay";
+            content = baseContent.trim().length > 0
+              ? `${baseContent.replace(/\s+$/u, "")}\n\n<!-- profile overlay: ${overlayName} -->\n\n${overlay}\n`
+              : `${overlay}\n`;
           }
-          const overlayName = overlayPath ? path.basename(overlayPath) : "overlay";
-          const content = baseContent.trim().length > 0
-            ? `${baseContent.replace(/\s+$/u, "")}\n\n<!-- profile overlay: ${overlayName} -->\n\n${overlay}\n`
-            : `${overlay}\n`;
-          return { content };
+
+          return {
+            content,
+            ...docResultMeta(
+              resolvedDoc.source,
+              resolvedDoc.kind,
+              resolvedDoc.effectivePath,
+            ),
+          };
         }
 
         if (operation === "write") {
           const relPath = String(input.path ?? "");
           const content = String(input.content ?? "");
-          const resolved = validatePath(agentsDir, relPath);
-          if (!resolved) return { error: "Invalid path — must be a .md file within agents/" };
+          const resolvedDoc = resolveDocPath(paths, relPath, "write");
+          if (!resolvedDoc) {
+            return { error: "Invalid path — must be a .md file within agents/" };
+          }
 
-          const dir = path.dirname(resolved);
+          const dir = path.dirname(resolvedDoc.effectivePath);
           if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
           }
-          fs.writeFileSync(resolved, content, "utf8");
-          return { success: true, path: relPath };
+          fs.writeFileSync(resolvedDoc.effectivePath, content, "utf8");
+          return {
+            success: true,
+            path: relPath,
+            ...(resolvedDoc.source === "profile"
+              ? {
+                  written_to: "profile",
+                  resolved_path: resolvedDoc.effectivePath,
+                }
+              : {}),
+          };
         }
 
         if (operation === "patch") {
           const relPath = String(input.path ?? "");
           const oldText = String(input.old ?? "");
           const newText = String(input.new ?? "");
-          const resolved = validatePath(agentsDir, relPath);
-          if (!resolved) return { error: "Invalid path — must be a .md file within agents/" };
+          const resolvedDoc = resolveDocPath(paths, relPath, "read");
+          if (!resolvedDoc) {
+            return { error: "Invalid path — must be a .md file within agents/" };
+          }
 
-          if (!fs.existsSync(resolved)) {
+          if (!fs.existsSync(resolvedDoc.effectivePath)) {
             return { error: `File not found: ${relPath}` };
           }
-          const current = fs.readFileSync(resolved, "utf8");
+
+          const current = fs.readFileSync(resolvedDoc.effectivePath, "utf8");
           if (!current.includes(oldText)) {
             return { error: "Old text not found in file" };
           }
+
+          const writeTarget = resolveDocPath(paths, relPath, "write");
+          const targetPath = writeTarget?.effectivePath ?? resolvedDoc.effectivePath;
           const updated = current.replace(oldText, newText);
-          fs.writeFileSync(resolved, updated, "utf8");
-          return { success: true, path: relPath };
+          fs.writeFileSync(targetPath, updated, "utf8");
+          return {
+            success: true,
+            path: relPath,
+            ...(writeTarget?.source === "profile"
+              ? { written_to: "profile", resolved_path: targetPath }
+              : {}),
+          };
         }
 
         return { error: `Unknown operation: ${operation}` };
@@ -329,22 +598,6 @@ function validateDirectoryPath(agentsDir: string, relPath: string): string | nul
   return resolved;
 }
 
-function resolveAgentDirectory(agentsDir: string, agentId: string): string | null {
-  const candidates = [
-    path.join("assistants", agentId),
-    path.join("workers", agentId),
-    path.join("system", agentId),
-    agentId,
-  ];
-
-  for (const candidate of candidates) {
-    const resolved = path.resolve(agentsDir, candidate);
-    if (fs.existsSync(resolved)) return resolved;
-  }
-
-  return null;
-}
-
 function handleStateDocsOperation(
   operation: string,
   input: Record<string, unknown>,
@@ -372,6 +625,20 @@ function handleStateDocsOperation(
       const relPath = normalizeProfileStateBodyPath(String(input.path ?? ""));
       const content = String(input.content ?? "");
       const filePath = resolveProfileStateBodyPath(relPath, { profileRoot: profileStateRoot });
+      const existingContent = fs.existsSync(filePath)
+        ? fs.readFileSync(filePath, "utf8")
+        : undefined;
+      const profileGuard = validateProfileStateFileMutation({
+        filePath,
+        existingContent,
+        nextContent: content,
+        operation: "write",
+        profileRoot: profileStateRoot,
+        force: input.force === true,
+      });
+      if (!profileGuard.allowed) {
+        return { error: profileGuard.reason ?? "Profile thread write blocked." };
+      }
       const guard = guardStateMutation(filePath, input.force === true);
       if (guard) return { error: guard };
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -387,13 +654,25 @@ function handleStateDocsOperation(
       if (!fs.existsSync(filePath)) {
         return { error: `State file not found: profile:${relPath}` };
       }
-      const guard = guardStateMutation(filePath, input.force === true);
-      if (guard) return { error: guard };
       const current = fs.readFileSync(filePath, "utf8");
       if (!current.includes(oldText)) {
         return { error: "Old text not found in state file" };
       }
-      fs.writeFileSync(filePath, current.replace(oldText, newText), "utf8");
+      const nextContent = current.replace(oldText, newText);
+      const profileGuard = validateProfileStateFileMutation({
+        filePath,
+        existingContent: current,
+        nextContent,
+        operation: "patch",
+        profileRoot: profileStateRoot,
+        force: input.force === true,
+      });
+      if (!profileGuard.allowed) {
+        return { error: profileGuard.reason ?? "Profile thread patch blocked." };
+      }
+      const guard = guardStateMutation(filePath, input.force === true);
+      if (guard) return { error: guard };
+      fs.writeFileSync(filePath, nextContent, "utf8");
       return { success: true, path: `profile:${relPath}`, layer: "profile" };
     }
 

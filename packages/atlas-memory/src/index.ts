@@ -7,10 +7,12 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { pathToFileURL } from "node:url";
+import { mergeDiscordProvenanceIntoMemoryAddArgs } from "./discord-provenance.js";
 import { openAtlasMemoryDatabase } from "./schema.js";
 import { createAtlasMemoryTools } from "./tools.js";
 
 export * from "./context-read.js";
+export * from "./discord-provenance.js";
 export * from "./obsidian-sync.js";
 export * from "./schema.js";
 export * from "./tools.js";
@@ -91,6 +93,9 @@ function applyProcessMemoryScopeToToolArgs(
   memoryScope: ProcessMemoryScope | null,
 ): Record<string, unknown> {
   if (!memoryScope) {
+    if (toolName === "memory_add") {
+      return mergeDiscordProvenanceIntoMemoryAddArgs(args);
+    }
     return args;
   }
 
@@ -116,7 +121,17 @@ function applyProcessMemoryScopeToToolArgs(
     };
   }
 
-  if (toolName === "memory_add" || toolName === "memory_reflect") {
+  if (toolName === "memory_add") {
+    return mergeDiscordProvenanceIntoMemoryAddArgs(
+      {
+        ...args,
+        agent_id: memoryScope.canonicalAgentId,
+      },
+      memoryScope.runtimeAgentId,
+    );
+  }
+
+  if (toolName === "memory_reflect") {
     return {
       ...args,
       agent_id: memoryScope.canonicalAgentId,

@@ -340,3 +340,24 @@ more triggers — rather than building layer-by-layer.
   its own validation). A Discovery issue captures this review + the §11 questions.
 - **Per-slice issues:** carry the §10 acceptance criteria as the validation gate;
   live-test evidence attached before Done.
+
+---
+
+## 13. Operator profile decisions (2026-06-27)
+
+These live in **`~/.tango/profiles/<profile>/`** (not repo). Profile-local
+handoffs and installation-specific notes stay outside tracked files.
+
+| Topic | Location |
+| --- | --- |
+| Fleet save (Atlas + thread + daily log) | Repo template `agents/skills/session-save.md`; operator overlay in profile |
+| Fast breakage checks | Profile-local handoff notes |
+| Cod-E canary thread shape | Profile-local handoff notes |
+
+**Updates to findings above:**
+
+- **`/tango save`** exists on Discord v2 (`session-ops.ts`); fleet policy in profile skill.
+- **Fleet daily log (new):** `profile/memory/YYYY-MM-DD.md` — complements Obsidian `Planning/Daily/` and Atlas; channel-stamped append, all agents.
+- **`memory_add` provenance:** TangoRouter injects `TANGO_CONVERSATION_KEY`, `TANGO_DISCORD_CHANNEL_ID`, `TANGO_DISCORD_THREAD_ID` into atlas-memory MCP env (`discord-memory-provenance.ts`).
+- **Profile thread write guard (Phase 1b, 2026-06-27):** `profile-state-write-guard.ts` blocks full-file `write` on existing `profile/threads/**/*.md` (create-on-missing allowed), rejects empty content and missing frozen anchors on governed files; Claude Code `Write|Edit` guarded via PreToolUse hook (`scripts/claude/profile-state-pretooluse-hook.mjs`) wired in `ClaudeCodeAdapter`.
+- **Validation:** deterministic health script (30–60m) for breakages; Marion weekly for learnings only.
