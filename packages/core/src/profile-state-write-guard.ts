@@ -132,9 +132,17 @@ export function readExistingFileContent(filePath: string): string | undefined {
   }
 }
 
-export function applyEditPatch(existingContent: string, oldString: string, newString: string): string | null {
-  if (!existingContent.includes(oldString)) {
+export function applyEditPatch(
+  existingContent: string,
+  oldString: string,
+  newString: string,
+  replaceAll = false,
+): string | null {
+  if (oldString.length === 0 || !existingContent.includes(oldString)) {
     return null;
+  }
+  if (replaceAll) {
+    return existingContent.split(oldString).join(newString);
   }
   return existingContent.replace(oldString, newString);
 }

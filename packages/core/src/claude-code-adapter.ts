@@ -270,7 +270,7 @@ function buildClaudeSettingsPayload(): Record<string, unknown> {
     hooks: {
       PreToolUse: [
         {
-          matcher: "Write|Edit",
+          matcher: "Write|Edit|MultiEdit",
           hooks: [
             {
               type: "command",

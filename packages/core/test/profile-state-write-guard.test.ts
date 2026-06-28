@@ -155,6 +155,17 @@ This should not have been added.
     expect(missingFrozenHeadings("# no headings")).toEqual(["Quick Read", "Open Items"]);
   });
 
+  it("can simulate replace-all edits before validating hook output", () => {
+    const content = `${CANARY}\nA8 pending again\n`;
+    const next = applyEditPatch(content, "A8 pending", "A8 pass", true)!;
+    expect(next).not.toContain("A8 pending");
+    expect(next.match(/A8 pass/gu)).toHaveLength(2);
+  });
+
+  it("does not simulate empty-string edits", () => {
+    expect(applyEditPatch(CANARY, "", "prefix")).toBeNull();
+  });
+
   it("ignores non-thread paths", () => {
     const result = validateProfileStateFileMutation({
       filePath: "/tmp/profile/agents/assistants/cod-e/knowledge.md",
