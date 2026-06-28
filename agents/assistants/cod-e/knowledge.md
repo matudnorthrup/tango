@@ -56,7 +56,7 @@ had substance.
 | Layer | Question | Examples |
 | --- | --- | --- |
 | **Thread file** (if linked) | What was decided and proved for *this project*? | Test results, Decisions Log, Open Items, Quick Read — **patch/Edit only** |
-| **Daily log** (when wired) | What happened today? (headline) | One-line fleet calendar entry — until wired, say *would append to daily log: …* |
+| **Daily log** (`daily_log_append`) | What happened today? (headline) | One-line fleet calendar entry — platform stamps channel/thread metadata |
 | **Atlas** (`memory_add`) | Who are we / durable lessons? | Partnership, preferences, insights that shape future behavior |
 
 Confirm saves by layer: *Thread: … / Daily log: … / Atlas: …*

@@ -27,6 +27,12 @@ export interface FeatureFlaggedRouteRequest {
   threadId?: string;
   agentId: string;
   sendOptions?: SendOptions;
+  discordTurn?: {
+    capturedBy: "save_pass" | "agent_save";
+    requestedByUserId?: string;
+    trigger?: string;
+    timeZone?: string;
+  };
 }
 
 export interface FeatureFlaggedRouteResult {
@@ -295,6 +301,7 @@ export async function routeV2MessageIfEnabled(
     ...(params.threadId ? { threadId: params.threadId } : {}),
     agentId: params.agentId,
     sendOptions: params.sendOptions,
+    ...(params.discordTurn ? { discordTurn: params.discordTurn } : {}),
   });
 }
 

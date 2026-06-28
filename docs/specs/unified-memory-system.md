@@ -357,7 +357,7 @@ handoffs and installation-specific notes stay outside tracked files.
 **Updates to findings above:**
 
 - **`/tango save`** exists on Discord v2 (`session-ops.ts`); fleet policy in profile skill.
-- **Fleet daily log (new):** `profile/memory/YYYY-MM-DD.md` — complements Obsidian `Planning/Daily/` and Atlas; channel-stamped append, all agents.
+- **Fleet daily log (T-F-001, built 2026-06-27):** `profile/memory/YYYY-MM-DD.md` — `daily_log_append` tool + write guard + `daily-log-bootstrap` cron; channel-stamped append, all agents. Complements Obsidian `Planning/Daily/` and Atlas.
 - **`memory_add` provenance:** TangoRouter injects `TANGO_CONVERSATION_KEY`, `TANGO_DISCORD_CHANNEL_ID`, `TANGO_DISCORD_THREAD_ID` into atlas-memory MCP env (`discord-memory-provenance.ts`).
 - **Profile thread write guard (Phase 1b, 2026-06-27):** `profile-state-write-guard.ts` blocks full-file `write` on existing `profile/threads/**/*.md` (create-on-missing allowed), rejects empty content and missing frozen anchors on governed files; Claude Code `Write|Edit` guarded via PreToolUse hook (`scripts/claude/profile-state-pretooluse-hook.mjs`) wired in `ClaudeCodeAdapter`.
 - **Validation:** deterministic health script (30–60m) for breakages; Marion weekly for learnings only.

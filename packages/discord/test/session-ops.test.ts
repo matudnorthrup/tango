@@ -56,10 +56,9 @@ describe("buildSavePassContext", () => {
   it("describes three save layers in the ephemeral slash reply", () => {
     const reply = buildSavePassEphemeralReply("thread `123`");
     expect(reply).toContain("Save pass queued for thread `123`");
-    expect(reply).toContain("thread file");
-    expect(reply).toContain("daily log");
+    expect(reply).toContain("next message in this conversation");
+    expect(reply).toContain("daily_log_append");
     expect(reply).toContain("Atlas");
-    expect(reply).not.toContain("capture durable items to Atlas");
   });
 });
 

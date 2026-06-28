@@ -25,6 +25,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "send-image"]
     env:
       ALLOWED_TOOL_IDS: "discord_send_image"
+  - name: fleet-log
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "fleet-log"]
+    env:
+      ALLOWED_TOOL_IDS: "daily_log_append"
 
 current_turn_metadata:
   timezone: America/Denver

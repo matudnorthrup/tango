@@ -1,0 +1,35 @@
+id: daily-log-bootstrap
+display_name: Fleet Daily Log Bootstrap
+description: >
+  Create today's fleet daily log under profile/memory/ if missing.
+enabled: true
+
+schedule:
+  cron: "5 0 * * *"
+  timezone: America/Denver
+
+execution:
+  mode: deterministic
+  handler: daily-log-bootstrap
+  timeout_seconds: 30
+
+delivery:
+  mode: none
+
+completion:
+  workflow_id: daily-log-bootstrap
+  scope: daily
+
+policy:
+  max_consecutive_failures: 1
+  alert_channel_id: "100000000000000016"
+  priority: 20
+  backoff:
+    enabled: true
+    initial_seconds: 60
+    max_seconds: 600
+
+tags:
+  - fleet
+  - memory
+  - deterministic

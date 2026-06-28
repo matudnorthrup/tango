@@ -61,12 +61,63 @@ export function isProfileThreadsStateFile(filePath: string, profileRoot = resolv
   return resolved.endsWith(".md");
 }
 
-export function validateProfileStateFileMutation(input: ProfileStateGuardInput): ProfileStateGuardResult {
+export function isProfileMemoryDailyLogFile(filePath: string, profileRoot = resolveTangoProfileDir()): boolean {
+  const resolved = path.resolve(filePath);
+  const memoryRoot = path.resolve(profileRoot, "memory");
+  if (!resolved.startsWith(memoryRoot + path.sep)) {
+    return false;
+  }
+  return /^[\d]{4}-[\d]{2}-[\d]{2}\.md$/u.test(path.basename(resolved));
+}
+
+export function validateProfileMemoryDailyLogMutation(input: ProfileStateGuardInput): ProfileStateGuardResult {
   if (input.force) {
     return { allowed: true };
   }
 
   const profileRoot = input.profileRoot ?? resolveTangoProfileDir();
+  if (!isProfileMemoryDailyLogFile(input.filePath, profileRoot)) {
+    return { allowed: true };
+  }
+
+  const existing = input.existingContent;
+  const nextTrimmed = input.nextContent.trim();
+
+  if (existing !== undefined && nextTrimmed.length === 0) {
+    return {
+      allowed: false,
+      reason: "Refusing to empty a fleet daily log file. Use daily_log_append instead.",
+    };
+  }
+
+  if (existing !== undefined) {
+    return {
+      allowed: false,
+      reason:
+        "Refusing write/patch on an existing fleet daily log file. "
+        + "Use daily_log_append — the platform stamps metadata from the current Discord turn.",
+    };
+  }
+
+  if (nextTrimmed.length === 0) {
+    return {
+      allowed: false,
+      reason: "Refusing to write empty content to a fleet daily log file.",
+    };
+  }
+
+  return { allowed: true };
+}
+
+export function validateProfileStateFileMutation(input: ProfileStateGuardInput): ProfileStateGuardResult {
+  const profileRoot = input.profileRoot ?? resolveTangoProfileDir();
+  if (isProfileMemoryDailyLogFile(input.filePath, profileRoot)) {
+    return validateProfileMemoryDailyLogMutation(input);
+  }
+
+  if (input.force) {
+    return { allowed: true };
+  }
   if (!isProfileThreadsStateFile(input.filePath, profileRoot)) {
     return { allowed: true };
   }

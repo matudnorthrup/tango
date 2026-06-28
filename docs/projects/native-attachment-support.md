@@ -16,7 +16,7 @@ The architecture deliberately separates three layers:
 3. **Agent-facing directory and tools:** compact versioned JSON records support context-safe discovery; explicit retrieval tools provide exact text, source refs, status, and reprocessing.
 
 High-volume image-heavy workflows are the power-user validation case: many images
-per day, frequent `/new` resets, multi-day project continuation, and retrieval
+per day, frequent **`/tango new`** resets, multi-day project continuation, and retrieval
 of older images without flooding the model context.
 
 ## Goals
@@ -405,7 +405,7 @@ Minimum validation gates:
 - **Context behavior:** compact directory injection helps discovery without raw document/image flooding or duplicate reinjection.
 - **Retention dry run:** scoped rules produce review/audit/grace records without deleting artifacts.
 - **Power-user scenario:** high-volume image-heavy workflow validates
-  multi-image, multi-day retrieval across `/new` resets and normal
+  multi-image, multi-day retrieval across **`/tango new`** resets and normal
   continuation.
 
 Ship is blocked until validation milestone issues are Done with evidence.

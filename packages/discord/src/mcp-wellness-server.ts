@@ -43,6 +43,8 @@ import { createDiscordManageTools } from "./discord-manage-tools.js";
 import { createDiscordSendImageTools } from "./discord-send-image-tools.js";
 import { createOnePasswordTools } from "./onepassword-agent-tools.js";
 import { createMemoryTools } from "./memory-agent-tools.js";
+import { createDailyLogTools } from "./daily-log-tools.js";
+import { discordTurnProvenanceContext } from "./discord-turn-provenance-context.js";
 import { applyMemoryScopeToToolArgs } from "./memory-tool-scope.js";
 import { createAttachmentTools } from "./attachment-agent-tools.js";
 import { createLinearTools } from "./linear-agent-tools.js";
@@ -60,6 +62,7 @@ import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
 import {
   GovernanceChecker,
+  httpHeadersToDiscordTurnProvenanceEnv,
   loadLayeredV2AgentConfigs,
   resolveConfigDir,
   resolveDatabasePath,
@@ -167,6 +170,7 @@ const allTools: AgentTool[] = [
   ...createDiscordSendImageTools(),
   ...createOnePasswordTools(),
   ...createMemoryTools(),
+  ...createDailyLogTools(),
   ...createAttachmentTools(),
   ...createLinearTools(),
   ...createSlackTools(),
@@ -622,13 +626,16 @@ if (isHttpMode) {
             `allowedTools=${allowedToolIds ? [...allowedToolIds].join(",") || "(none)" : "all"}) ` +
             `args=${argsStr.length > 200 ? argsStr.slice(0, 200) + "…" : argsStr}`,
           );
-          const toolResult = await executeToolCall(
-            params.name,
-            params.arguments || {},
-            governance,
-            principalId,
-            readOnlyStep,
-            allowedToolIds,
+          const turnProvenance = httpHeadersToDiscordTurnProvenanceEnv(req.headers);
+          const toolResult = await discordTurnProvenanceContext.run(turnProvenance, () =>
+            executeToolCall(
+              params.name,
+              params.arguments || {},
+              governance,
+              principalId,
+              readOnlyStep,
+              allowedToolIds,
+            ),
           );
           response = {
             jsonrpc: "2.0",

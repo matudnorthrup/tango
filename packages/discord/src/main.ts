@@ -125,6 +125,7 @@ import {
   createDailyNoteBootstrapHandler,
   createMorningFlowSentinelHandler,
 } from "./morning-flow.js";
+import { createDailyLogBootstrapHandler } from "./fleet-daily-log-bootstrap.js";
 import { createDailyBriefAggregationHandler } from "./daily-brief-aggregator.js";
 import { createKiloLedgerMonitorHandler } from "./kilo-ledger-monitor.js";
 import { isChannelAllowed, parseAllowedChannels } from "./allowed-channels.js";
@@ -1078,6 +1079,7 @@ registerDeterministicHandler("contacts-sync", contactsSyncHandler);
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
 registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
 registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
+registerDeterministicHandler("daily-log-bootstrap", createDailyLogBootstrapHandler());
 registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
 registerDeterministicHandler("kilo-ledger-monitor", createKiloLedgerMonitorHandler({
   getLunchMoneyAccessToken: getLunchMoneyApiKey,
@@ -7570,6 +7572,18 @@ async function handleMessage(
             currentTurnMetadataPrompt,
             ...(turnBriefingPrompt ? { turnBriefingPrompt } : {}),
             ...(inlineImages.length > 0 ? { images: inlineImages } : {}),
+          },
+          discordTurn: {
+            capturedBy: hasPendingSavePass ? "save_pass" : "agent_save",
+            ...(hasPendingSavePass && pendingSave?.requestedByUserId
+              ? { requestedByUserId: pendingSave.requestedByUserId }
+              : {}),
+            ...(hasPendingSavePass && pendingSave?.trigger
+              ? { trigger: pendingSave.trigger }
+              : {}),
+            ...(v2AgentConfig?.currentTurnMetadata?.timeZone
+              ? { timeZone: v2AgentConfig.currentTurnMetadata.timeZone }
+              : {}),
           },
         },
         {

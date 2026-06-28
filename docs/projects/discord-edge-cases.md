@@ -1,4 +1,4 @@
-# Discord Edge Cases: Forwards, Pastes, /new
+# Discord Edge Cases: Forwards, Pastes, session reset
 
 ## Problem
 
@@ -8,7 +8,7 @@ Three Discord edge cases where messages are silently dropped or mangled:
 
 2. **Long pastes → message.txt** — Discord auto-converts pastes over ~2000 characters into a `message.txt` attachment. Since `message.content` is empty and Tango didn't download text attachments, these were also dropped.
 
-3. **`/new` slash command** — Referenced in the brief as potentially broken, but investigation found no `/new` command registered and no agent prompts referencing it. The only slash command is `/tango` (with subcommands including `session reset`). Non-issue.
+3. **Session reset** — There is no `/new` slash command. Operator session reset is **`/tango new`** (under the `/tango` command). Docs and handoffs must never say `/new` alone.
 
 ## Solution
 

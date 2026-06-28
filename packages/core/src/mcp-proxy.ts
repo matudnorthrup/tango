@@ -12,18 +12,25 @@
  * Env vars:
  *   MCP_SERVER_PORT — Port of the persistent HTTP MCP server (default: 9100)
  *   WORKER_ID       — Worker identity for governance filtering
- *   TANGO_DB_PATH   — Passed through but unused (governance is on the server)
+ *   TANGO_* turn provenance — Forwarded to HTTP server via X-Tango-* headers (daily_log_append)
  */
 
 import { createInterface } from "node:readline";
 import { request as httpRequest } from "node:http";
 import { writeFileSync } from "node:fs";
+import {
+  discordTurnProvenanceToHttpHeaders,
+  pickDiscordTurnProvenanceEnv,
+} from "./discord-turn-provenance-transport.js";
 
 const PORT = parseInt(process.env.MCP_SERVER_PORT || "9100", 10);
 const WORKER_ID = process.env.WORKER_ID || "";
 const READ_ONLY_STEP = process.env.READ_ONLY_STEP === "1";
 const ALLOWED_TOOL_IDS = process.env.ALLOWED_TOOL_IDS;
 const KEEPALIVE_FILE = process.env.MCP_KEEPALIVE_FILE || "";
+const TURN_PROVENANCE_HEADERS = discordTurnProvenanceToHttpHeaders(
+  pickDiscordTurnProvenanceEnv(process.env),
+);
 
 const debug = (...args: unknown[]) => {
   process.stderr.write(`[mcp-proxy] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")}\n`);
@@ -53,6 +60,7 @@ function postToServer(body: string): Promise<string | null> {
           ...(WORKER_ID ? { "X-Worker-ID": WORKER_ID } : {}),
           ...(READ_ONLY_STEP ? { "X-Read-Only-Step": "1" } : {}),
           ...(ALLOWED_TOOL_IDS !== undefined ? { "X-Allowed-Tool-Ids": ALLOWED_TOOL_IDS } : {}),
+          ...TURN_PROVENANCE_HEADERS,
         },
       },
       (res) => {

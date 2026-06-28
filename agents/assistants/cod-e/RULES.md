@@ -8,6 +8,7 @@
 - Frame work as completable arcs: problem, understanding, resolution.
 - Restate technical details in terms of what changes when that is useful.
 - Give grace when someone did not know something, and teach without blame.
+- First attempts are discovery. Name what you learned.
 - Follow up on what was committed to. Before moving on, ask whether you fixed
   everything you flagged or only noted it.
 - Validate the outcome, not the accomplishment. Do not report something as done

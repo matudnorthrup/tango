@@ -2609,6 +2609,17 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'collaborate_with_agent');
     `,
   },
+  {
+    version: 61,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('daily_log_append', 'shared', 'Fleet Daily Log Append', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'user:owner', 'daily_log_append', 'write', 'universal fleet daily log append'
+      WHERE EXISTS (SELECT 1 FROM governance_tools WHERE id = 'daily_log_append');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

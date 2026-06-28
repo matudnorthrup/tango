@@ -11,7 +11,7 @@ import {
   type SendOptions,
   type SessionLifecycleConfig,
 } from "@tango/core";
-import { augmentRuntimeConfigWithDiscordProvenance } from "./discord-memory-provenance.js";
+import { augmentRuntimeConfigWithDiscordProvenance, type DiscordTurnProvenance } from "./discord-memory-provenance.js";
 
 export interface TangoRouterConfig {
   /** Map of agent IDs to their v2 runtime configs */
@@ -107,6 +107,7 @@ export class TangoRouter {
     conversationKey?: string;
     agentId: string;
     sendOptions?: SendOptions;
+    discordTurn?: Omit<DiscordTurnProvenance, "conversationKey" | "channelId" | "threadId" | "agentId">;
   }): Promise<RouteResult> {
     const conversationKey =
       params.conversationKey?.trim()
@@ -117,6 +118,13 @@ export class TangoRouter {
         conversationKey,
         channelId: params.channelId,
         ...(params.threadId ? { threadId: params.threadId } : {}),
+        agentId: params.agentId,
+        capturedBy: params.discordTurn?.capturedBy ?? "agent_save",
+        ...(params.discordTurn?.requestedByUserId
+          ? { requestedByUserId: params.discordTurn.requestedByUserId }
+          : {}),
+        ...(params.discordTurn?.trigger ? { trigger: params.discordTurn.trigger } : {}),
+        ...(params.discordTurn?.timeZone ? { timeZone: params.discordTurn.timeZone } : {}),
       },
     );
     const { config: agentConfig, selection: mcpSelection } = selectMcpServersForTurn(

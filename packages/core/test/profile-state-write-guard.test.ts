@@ -176,4 +176,27 @@ This should not have been added.
     });
     expect(result.allowed).toBe(true);
   });
+
+  it("blocks write on existing fleet daily log file", () => {
+    const logPath = "/tmp/profile/memory/2026-06-27.md";
+    const result = validateProfileStateFileMutation({
+      filePath: logPath,
+      existingContent: "# 2026-06-27\n",
+      nextContent: "# 2026-06-27\n\n## overwrite",
+      operation: "write",
+      profileRoot: "/tmp/profile",
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/daily_log_append/i);
+  });
+
+  it("allows create-on-missing fleet daily log file", () => {
+    const result = validateProfileStateFileMutation({
+      filePath: "/tmp/profile/memory/2026-06-27.md",
+      nextContent: "# 2026-06-27\n",
+      operation: "write",
+      profileRoot: "/tmp/profile",
+    });
+    expect(result.allowed).toBe(true);
+  });
 });

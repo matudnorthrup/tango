@@ -30,10 +30,10 @@ export function buildSavePassContext(): string {
     "Review this conversation and capture anything that would be lost if the session ended now.",
     "Route each item to the right layer (see profile skill session-save.md):",
     "- Linked thread file: project decisions, test results, Open Items / Quick Read — patch only, never full overwrite.",
-    "- Daily log (when enabled): one headline per session block — what happened today, not detail.",
+    "- Daily log: call daily_log_append with 1-3 headline bullets — platform stamps metadata.",
     "- Atlas (memory_add): partnership, preferences, durable lessons — source manual, metadata captured_by save_pass.",
     "Do not save test artifacts, smoke-test codewords, or ephemeral session-only details unless the user explicitly asked to preserve them.",
-    "Confirm what you saved in each layer (or what would go to daily log if not wired yet).",
+    "Confirm what you saved in each layer.",
   ].join("\n");
 }
 
@@ -41,9 +41,9 @@ export function buildSavePassContext(): string {
 export function buildSavePassEphemeralReply(scopeLabel: string): string {
   return [
     `Save pass queued for ${scopeLabel}.`,
-    "Your next message will ask the agent to review this conversation and route saves:",
-    "linked **thread file** (project state), **daily log** headline (when wired), and **Atlas** (partnership recall).",
-    "The agent should confirm what went to each layer.",
+    "Your **next message in this conversation** triggers the save pass (even \"go\").",
+    "It will not run in other channels — `/tango save` there separately if needed.",
+    "Layers: thread file · daily log (`daily_log_append`) · Atlas. Agent confirms what was saved.",
   ].join(" ");
 }
 
