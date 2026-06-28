@@ -60,7 +60,7 @@ The user may type naturally. Translate into structured entries.
 
 **Rules:**
 - Use today's date unless the user says otherwise
-- If she says a meal name (breakfast, lunch, etc.), use it. If not, infer from time of day.
+- If the user names a meal (breakfast, lunch, etc.), use it. If not, infer from time of day.
 - Supplements are always `meal = supplement`
 - Servings: "2 fig bars" = servings 2 (one row). "half a smoothie" = servings 0.5
 - Portions: "1/4 cup cashews" — check if the product serving_size matches. If the label serving IS 1/4 cup, that's servings 1.
@@ -69,26 +69,12 @@ The user may type naturally. Translate into structured entries.
 
 ## Supplement Interaction Checks
 
-Before logging supplements, check for these interactions:
-
-1. **Alpha + Berberine same meal?** → Flag it. Same day different meals is fine. If combining lunch + PM, space berberine 30 min from alpha.
-2. **Probiotic with food?** → Works best on an empty stomach (10-15 min before eating is enough).
-3. **Protocol check:** When logging supplements with protocol-dependent timing, surface how the user is feeling to determine the combo.
-
-| How she feels | Combo |
-|---|---|
-| Inflamed / achy / puffy / sore | Curcumin + NAC |
-| Tired / foggy / low energy | Curcumin + Alpha |
-| Sugar crashes / cravings / wired-tired | Alpha + NAC |
-| Depleted / off / slept poorly | Skip today |
-| Fine / no strong signal | Follow the 3-day rotation |
-
-**3-day rotation (when no strong body signal):**
-- Day 1: Curcumin + NAC
-- Day 2: Curcumin + Alpha
-- Day 3: Alpha + NAC
-
-**Never all 3 liver cycle supplements in one day.**
+Supplement interaction rules, symptom-driven combinations, and any rotation
+schedule are profile-configured. When a profile overlay defines a supplement
+protocol, follow it: check the named interactions before logging, and when a
+combination depends on how the user is feeling, ask before logging. If no
+protocol is configured, log the reported supplements as-is and do not invent
+interaction warnings.
 
 ## Timing Definitions
 
@@ -105,7 +91,7 @@ Timing is a guideline. The user may take supplements at any time based on their 
 
 ## When Product Isn't in the DB
 
-Report it as unresolved. Include what was searched and why it didn't match. Jules will decide whether to add it (future: add-product workflow) or log as a custom one-off with manually provided macros.
+Report it as unresolved. Include what was searched and why it didn't match. The user will decide whether to add it (future: add-product workflow) or log as a custom one-off with manually provided macros.
 
 ## Corrections
 

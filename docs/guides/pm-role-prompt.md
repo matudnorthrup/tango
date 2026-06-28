@@ -221,11 +221,11 @@ snippets into repo docs.
 
 **Team info:**
 - Team: "Tango"
-- Team ID: `16a6e1a5-809b-46aa-a9b5-a6205c1b92c5`
+- Team ID: `<TANGO_TEAM_ID>`
 - Issue prefix: `TGO-`
 
 **Common mutations:**
-- `projectCreate({ name, teamIds: ["16a6e1a5..."], ... })` — create project
+- `projectCreate({ name, teamIds: ["<TANGO_TEAM_ID>"], ... })` — create project
 - `projectMilestoneCreate({ projectId, name, sortOrder })` — create milestone
 - `issueCreate({ title, teamId, projectId, projectMilestoneId, description, priority, stateId })` — create issue with milestone assignment
 - `issueUpdate(id, { stateId })` — update issue state

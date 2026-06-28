@@ -17,6 +17,12 @@ export interface CurrentTurnDiscordContext {
   threadId?: string | null;
 }
 
+export interface CurrentTurnContextUsage {
+  fraction: number;
+  totalTokens?: number;
+  contextWindow?: number;
+}
+
 export interface CurrentTurnMetadataInput {
   timestamp?: string | number | Date | null;
   timestampSource?: string | null;
@@ -24,6 +30,8 @@ export interface CurrentTurnMetadataInput {
   now?: Date;
   env?: CurrentTurnTimeZoneEnv;
   discord?: CurrentTurnDiscordContext;
+  /** Context window occupancy as of the previous completed turn in this conversation. */
+  contextUsage?: CurrentTurnContextUsage;
 }
 
 function sanitizeMetadataValue(value: string): string {
@@ -144,6 +152,20 @@ export function buildCurrentTurnMetadataPrompt(
   const threadId = input.discord?.threadId?.trim();
   if (threadId) {
     lines.push(`- discord_thread_id: ${sanitizeMetadataValue(threadId)}`);
+  }
+
+  const contextFraction = input.contextUsage?.fraction;
+  if (typeof contextFraction === "number" && Number.isFinite(contextFraction)) {
+    const percent = Math.round(Math.max(0, Math.min(1, contextFraction)) * 100);
+    lines.push(`- context_window_used_percent: ${percent}`);
+    const totalTokens = input.contextUsage?.totalTokens;
+    const contextWindow = input.contextUsage?.contextWindow;
+    if (
+      typeof totalTokens === "number" && Number.isFinite(totalTokens) && totalTokens > 0
+      && typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
+    ) {
+      lines.push(`- context_window_tokens: ${totalTokens} / ${contextWindow}`);
+    }
   }
 
   return lines.join("\n");

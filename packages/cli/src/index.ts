@@ -408,6 +408,7 @@ program
       resolveTangoProfileCacheDir(profileOptions),
       resolveTangoProfileLogsDir(profileOptions),
       path.join(profilePromptsDir, "agents"),
+      path.join(profilePromptsDir, "shared"),
       path.join(profilePromptsDir, "skills"),
       path.join(profilePromptsDir, "tools"),
       path.join(profilePromptsDir, "workers"),

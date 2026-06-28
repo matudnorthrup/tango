@@ -2,7 +2,7 @@
   "id": "food.chipotle.cart-roundtrip",
   "title": "Chipotle favorite to bag and back (browser long-horizon, cap-sensitive)",
   "category": "shopping",
-  "source": "Tango jobs manual test checklist: 'Chipotle ordering' (needs bake-off; tool-iteration cap incident raised MAX_TOOL_ITERS 25\u219240); Devin 2026-06-09: may use the skill tomorrow for a trip \u2014 golden-path validation first. Round-trip (add then remove) keeps the cart clean and probes the chain-tail truncation failure found on research.sync.notion-obsidian",
+  "source": "Tango jobs manual test checklist: 'Chipotle ordering' (needs bake-off; tool-iteration cap incident raised MAX_TOOL_ITERS 25\u219240); the user 2026-06-09: may use the skill tomorrow for a trip \u2014 golden-path validation first. Round-trip (add then remove) keeps the cart clean and probes the chain-tail truncation failure found on research.sync.notion-obsidian",
   "ownerAgent": "foxtrot-ollama",
   "worker": "foxtrot",
   "taskShape": "browser_long_horizon",

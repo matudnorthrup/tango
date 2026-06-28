@@ -1,24 +1,19 @@
+# Reimbursement config — GENERIC starter defaults.
+#
+# Real installations override/extend this via the profile overlay at
+# ~/.tango/profiles/<profile>/config/reimbursement-config.yaml (deep-merged:
+# profile categories/vendors override repo entries by key and add new ones).
+# Keep personal merchant names, amounts, and program memos OUT of the repo.
 default_system: "Ramp"
 categories:
-  exec_buy_back_time:
-    memo: "Exec Buy Back Time"
-    vendors: [walmart_tip, venmo_services, maid_in_newport, factor]
-  offsite_reimbursements:
-    memo: "offsite reimbursement"
+  reimbursable_expenses:
+    memo: "Reimbursable expense"
+    vendors: [walmart_tip, venmo_services]
 vendors:
   walmart_tip:
     receipt_dir: Walmart
     reimbursable_item: "Driver tip"
-    default_category: exec_buy_back_time
+    default_category: reimbursable_expenses
   venmo_services:
     receipt_dir: Venmo
-    default_category: exec_buy_back_time
-  maid_in_newport:
-    merchant_name: "Maid in Newport"
-    reimbursable_item: "House cleaning"
-    recurring: true
-    typical_amount: 350
-    default_category: exec_buy_back_time
-  factor:
-    merchant_name: Factor
-    default_category: exec_buy_back_time
+    default_category: reimbursable_expenses

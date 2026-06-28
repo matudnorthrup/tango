@@ -3,7 +3,7 @@
  *
  * Binds a conversation to a project arc's state file:
  *  - the DB "head" (project_state, in core storage) is the source of truth for
- *    recall — status, a short Quick Read, and a pointer to the Obsidian body;
+ *    recall — status, a short Quick Read, and a pointer to the markdown body;
  *  - the per-turn whisper carries the pointer (read-before / update-after);
  *  - cold-start / rotation reseed re-loads the head so the agent knows where the
  *    project stands after its provider session is gone.
@@ -12,10 +12,15 @@
  * — the one key shared by the whisper, reseed, and post-turn paths. Mapping a
  * Tango `project:{id}` onto this key is a future refinement.
  */
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { TangoStorage } from "@tango/core";
+import { resolveTangoProfileDir, type TangoStorage } from "@tango/core";
+import {
+  parseStateBodyPointer,
+  readStateBody as readProviderStateBody,
+  type StateBodyPointer,
+  type StateBodyReadRoots,
+} from "./state-body-provider.js";
 
 type StorageReader = Pick<TangoStorage, "getProjectState" | "listActiveContextItems">;
 type StorageWriter = Pick<TangoStorage, "getProjectState" | "upsertProjectState">;
@@ -24,7 +29,7 @@ export interface StateFilePointer {
   path: string;
   project: string;
   status: string;
-  /** Live Quick Read snapshot from the body (when a vault root is supplied). */
+  /** Live Quick Read snapshot from the provider-backed body when available. */
   snapshot?: string;
 }
 
@@ -45,6 +50,11 @@ export function conversationKeyFor(channelId: string, threadId?: string): string
 /** Obsidian vault root (mirrors personal-agent-tools.resolveObsidianVaultRoot). */
 export function resolveStateVaultRoot(): string {
   return path.join(os.homedir(), "Documents", "main");
+}
+
+/** Active Tango profile root for profile-backed state bodies. */
+export function resolveStateProfileRoot(): string {
+  return resolveTangoProfileDir();
 }
 
 /**
@@ -84,9 +94,19 @@ function extractBullets(content: string, heading: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-function readStateBody(vaultRoot: string, relativePath: string): string | undefined {
+function parseLinkedStateBodyPointer(input: string | null | undefined): StateBodyPointer | undefined {
+  const raw = input?.trim();
+  if (!raw) return undefined;
   try {
-    return fs.readFileSync(path.join(vaultRoot, relativePath), "utf8");
+    return parseStateBodyPointer(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function readLinkedStateBody(pointer: StateBodyPointer, roots: StateBodyReadRoots): string | undefined {
+  try {
+    return readProviderStateBody(pointer, roots);
   } catch {
     return undefined;
   }
@@ -94,36 +114,34 @@ function readStateBody(vaultRoot: string, relativePath: string): string | undefi
 
 /**
  * Pointer for the per-turn whisper. Undefined unless this conversation has a
- * project_state head with a linked Obsidian body.
+ * project_state head with a linked state body.
  */
 export function buildStateFilePointer(
   storage: StorageReader,
   conversationKey: string,
-  options: { vaultRoot?: string } = {},
+  options: StateBodyReadRoots = {},
 ): StateFilePointer | undefined {
   const head = storage.getProjectState(conversationKey);
-  if (!head || !head.obsidianPath?.trim()) {
+  const bodyPointer = parseLinkedStateBodyPointer(head?.obsidianPath);
+  if (!head || !bodyPointer) {
     return undefined;
   }
-  const notePath = head.obsidianPath.trim();
   let status = head.status;
   let snapshot: string | undefined;
 
-  // When a vault root is supplied, read a LIVE snapshot from the body so the
-  // per-turn whisper reflects mid-session edits on resumed turns (the agent
-  // should trust this over what it read on an earlier turn).
-  if (options.vaultRoot) {
-    const body = readStateBody(options.vaultRoot, notePath);
-    if (body) {
-      status = extractFrontmatterStatus(body) ?? status;
-      const quickRead = extractSection(body, "Quick Read");
-      if (quickRead) {
-        snapshot = quickRead.length > 400 ? `${quickRead.slice(0, 400)}…` : quickRead;
-      }
+  // Read a LIVE snapshot from the body so the per-turn whisper reflects
+  // mid-session edits on resumed turns (the agent should trust this over what
+  // it read on an earlier turn).
+  const body = readLinkedStateBody(bodyPointer, options);
+  if (body) {
+    status = extractFrontmatterStatus(body) ?? status;
+    const quickRead = extractSection(body, "Quick Read");
+    if (quickRead) {
+      snapshot = quickRead.length > 400 ? `${quickRead.slice(0, 400)}…` : quickRead;
     }
   }
 
-  return { path: notePath, project: head.title, status, ...(snapshot ? { snapshot } : {}) };
+  return { path: bodyPointer.displayPath, project: head.title, status, ...(snapshot ? { snapshot } : {}) };
 }
 
 /**
@@ -134,30 +152,30 @@ export function buildStateFilePointer(
 export function renderProjectStateBlock(
   storage: StorageReader,
   conversationKey: string,
-  options: { vaultRoot?: string } = {},
+  options: StateBodyReadRoots = {},
 ): string | undefined {
   const head = storage.getProjectState(conversationKey);
   if (!head) {
     return undefined;
   }
+  const bodyPointer = parseLinkedStateBodyPointer(head.obsidianPath);
 
-  // When a vault root is supplied (production reseed), read the canonical
-  // Obsidian body live so reseed reflects the current narrative. Tests omit
-  // vaultRoot to stay hermetic and fall back to the DB head + working set.
-  const body = options.vaultRoot && head.obsidianPath?.trim()
-    ? readStateBody(options.vaultRoot, head.obsidianPath.trim())
-    : undefined;
+  // Read the canonical markdown body live so reseed reflects the current
+  // narrative. Tests omit provider roots to stay hermetic and fall back to the
+  // DB head + working set.
+  const body = bodyPointer ? readLinkedStateBody(bodyPointer, options) : undefined;
+  const status = (body ? extractFrontmatterStatus(body) : undefined) ?? head.status;
 
-  const lines: string[] = [`Project: ${head.title} (status: ${head.status})`];
+  const lines: string[] = [`Project: ${head.title} (status: ${status})`];
 
   const quickRead = (body ? extractSection(body, "Quick Read") : undefined) ?? head.quickRead?.trim();
   if (quickRead) {
     lines.push(`Quick read: ${quickRead}`);
   }
 
-  if (head.obsidianPath?.trim()) {
+  if (bodyPointer) {
     lines.push(
-      `State file: ${head.obsidianPath.trim()} — read it before responding; update it after changes.`,
+      `State file: ${bodyPointer.displayPath} — read it before responding; update it after changes.`,
     );
   }
 

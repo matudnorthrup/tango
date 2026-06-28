@@ -248,6 +248,41 @@ async function waitForChildClose(
 
 const SYSTEM_PROMPT_WARN_BYTES = 512 * 1024; // warn if prompt exceeds 512KB
 
+function resolveTangoRepoRoot(): string {
+  const configured = process.env.TANGO_REPO_DIR?.trim();
+  if (configured) {
+    return path.resolve(configured);
+  }
+  return process.cwd();
+}
+
+function buildProfileStateHookCommand(): string {
+  const nodeBin = JSON.stringify(process.execPath);
+  const hookScript = JSON.stringify(path.join(
+    resolveTangoRepoRoot(),
+    "scripts/claude/profile-state-pretooluse-hook.mjs",
+  ));
+  return `${nodeBin} ${hookScript}`;
+}
+
+function buildClaudeSettingsPayload(): Record<string, unknown> {
+  return {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Write|Edit|MultiEdit",
+          hooks: [
+            {
+              type: "command",
+              command: buildProfileStateHookCommand(),
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 export class ClaudeCodeAdapter implements AgentRuntime {
   public readonly id = randomUUID();
   public readonly type = "claude-code" as const;
@@ -260,6 +295,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   private sessionId?: string;
   private sessionCommand?: string;
   private mcpConfigPath?: string;
+  private settingsPath?: string;
   private abortRequested = false;
 
   constructor(commandOrOptions: string | ClaudeCodeAdapterOptions = "claude") {
@@ -450,7 +486,9 @@ export class ClaudeCodeAdapter implements AgentRuntime {
     }
 
     await removeFileIfPresent(this.mcpConfigPath);
+    await removeFileIfPresent(this.settingsPath);
     this.mcpConfigPath = undefined;
+    this.settingsPath = undefined;
     this.sessionId = undefined;
     this.sessionCommand = undefined;
     this.stateValue = "closed";
@@ -514,7 +552,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
   }
 
   private buildArgs(resumeForCommand: boolean): string[] {
-    if (!this.config || !this.mcpConfigPath) {
+    if (!this.config || !this.mcpConfigPath || !this.settingsPath) {
       throw new Error("ClaudeCodeAdapter is missing required runtime files.");
     }
 
@@ -537,6 +575,8 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       systemPrompt,
       "--mcp-config",
       this.mcpConfigPath,
+      "--settings",
+      this.settingsPath,
     ];
 
     const { model, reasoningEffort, maxTokens } = this.config.runtimePreferences;
@@ -566,6 +606,15 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       await fs.promises.writeFile(
         this.mcpConfigPath,
         JSON.stringify({ mcpServers: normalizeMcpServers(this.config.mcpServers) }),
+        "utf8",
+      );
+    }
+
+    if (!this.settingsPath) {
+      this.settingsPath = path.join(os.tmpdir(), `tango-claude-settings-${randomUUID()}.json`);
+      await fs.promises.writeFile(
+        this.settingsPath,
+        JSON.stringify(buildClaudeSettingsPayload()),
         "utf8",
       );
     }

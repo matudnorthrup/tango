@@ -128,7 +128,7 @@ discord:
 - `browser` -- receipt lookups on retailer websites (Amazon, Walmart, Costco)
 - `obsidian` -- receipt files, finance rules docs, domain job logs
 - `onepassword` -- retailer login credentials for receipt cataloging
-- `google` (email only) -- receipt email lookups (Venmo confirmations, Maid in Newport invoices, Factor receipts)
+- `google` (email only) -- receipt email lookups (peer-payment confirmations, service-vendor invoices, meal-kit receipts)
 - `memory` -- Atlas Memory (own namespace)
 - `agent-docs` -- self-update capability
 
@@ -204,7 +204,7 @@ The `lunch_money` tool wraps the Lunch Money API.
 
 ## Categorization Rules
 
-- Read categorization rules from `~/Documents/main/References/Finance/Lunch Money Rules.md`
+- Read categorization rules from `References/Finance/Lunch Money Rules.md`
 - Apply rules to transactions, handle splits, flag ambiguous vendors for review
 - Rate limit: wait 0.3s between Lunch Money API calls
 
@@ -351,7 +351,7 @@ Assign `100000000000001013` as Ledger's smoke test channel (following the patter
 **No cross-agent call needed.** The daily brief aggregator (`daily-brief.yaml`) reads finance job logs via direct filesystem I/O:
 
 ```
-~/Documents/main/Records/Jobs/Finance/YYYY-MM.md
+Records/Jobs/Finance/YYYY-MM.md
 ```
 
 This file is written by Ledger's scheduled jobs (via `obsidian_log.domain: Finance`). Watson's daily brief reads it as a plain file -- no MCP call, no inter-agent dependency.
@@ -428,4 +428,4 @@ The schedules are the critical path. If a schedule fails under Ledger, revert th
 
 1. **Voice:** Does `am_echo` work well for a finance agent, or should we audition other Kokoro voices? Can be decided during implementation.
 2. **Ramp server:** Ramp is only used during receipt cataloging for reimbursement tracking. If reimbursement submission moves to Ledger entirely, Watson never needs Ramp. Confirmed: remove from Watson.
-3. **Google email on Ledger:** The receipt cataloger uses `gog_email` to search for Venmo/Maid in Newport/Factor receipt emails. This is a narrow use case -- only receipt confirmation lookups. Included in Ledger's config with `gog_email` only (no calendar/docs).
+3. **Google email on Ledger:** The receipt cataloger uses `gog_email` to search for peer-payment/service-vendor/meal-kit receipt emails. This is a narrow use case -- only receipt confirmation lookups. Included in Ledger's config with `gog_email` only (no calendar/docs).

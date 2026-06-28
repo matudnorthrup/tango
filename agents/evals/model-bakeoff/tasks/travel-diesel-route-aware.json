@@ -2,7 +2,7 @@
   "id": "travel.diesel.route-aware",
   "title": "Route-aware diesel stop planning (bounded composite, multi-tool)",
   "category": "travel",
-  "source": "Tango jobs manual test checklist: 'Diesel station search' (travel.diesel_lookup, untested end-to-end); Devin 2026-06-09: diesel is tricky because it composes current location, route reading, and price lookup",
+  "source": "Tango jobs manual test checklist: 'Diesel station search' (travel.diesel_lookup, untested end-to-end); the user 2026-06-09: diesel is tricky because it composes current location, route reading, and price lookup",
   "ownerAgent": "sierra-ollama",
   "worker": "sierra-ollama",
   "taskShape": "tool_grounded_bounded",
@@ -27,7 +27,7 @@
     }
   ],
   "system": "You are Sierra, a careful travel-planning assistant. Use tools when a factual route, drive-time, fuel-price, or detour claim depends on real data. Never invent station names or prices. Label tool-backed facts separately from synthesis.",
-  "prompt": "I'm driving my diesel truck from Yachats, Oregon to Boise, Idaho tomorrow. Find me good diesel options near Boise for when I arrive — best price with minimal detour — and tell me whether it's worth fueling somewhere along the way instead. Use real current prices, not guesses, and give me the top picks with addresses.",
+  "prompt": "I'm driving my diesel truck from Florence, Oregon to Boise, Idaho tomorrow. Find me good diesel options near Boise for when I arrive — best price with minimal detour — and tell me whether it's worth fueling somewhere along the way instead. Use real current prices, not guesses, and give me the top picks with addresses.",
   "successCriteria": [
     "Calls find_diesel with the trip destination and grounds every station/price claim in its output.",
     "Reports real station names, addresses, and current prices from the tool — nothing invented.",

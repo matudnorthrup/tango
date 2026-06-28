@@ -63,7 +63,7 @@ execution:
          might respond (tone, key points to address)
        - **Link:** permalink (construct from channel + ts if needed)
 
-    8. Write results to ~/Documents/main/Records/Jobs/Slack/Mentions/YYYY-MM.md
+    8. Write results to Records/Jobs/Slack/Mentions/YYYY-MM.md
        using direct filesystem I/O (NOT obsidian-cli).
        - Determine today's date and time in America/Los_Angeles timezone
        - Create the Mentions/ directory if it does not exist

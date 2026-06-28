@@ -98,4 +98,20 @@ describe("buildCurrentTurnMetadataPrompt", () => {
     expect(prompt).toContain("- timestamp_source: runtime-generated");
     expect(prompt).not.toContain("with newline");
   });
+
+  it("includes context window usage from the previous completed turn when provided", () => {
+    const prompt = buildCurrentTurnMetadataPrompt({
+      timestamp: "2026-05-31T04:08:18.000Z",
+      timestampSource: "discord-sent",
+      config: { timeZone: "UTC" },
+      contextUsage: {
+        fraction: 0.53,
+        totalTokens: 106_000,
+        contextWindow: 200_000,
+      },
+    });
+
+    expect(prompt).toContain("- context_window_used_percent: 53");
+    expect(prompt).toContain("- context_window_tokens: 106000 / 200000");
+  });
 });

@@ -9,6 +9,13 @@ const DEFAULT_VAULT_ROOT = path.join(os.homedir(), "Documents", "main");
 
 const DAILY_NOTE_SECTIONS: Array<{ heading: string; body: string }> = [
   { heading: "Today's Priorities", body: "- [ ]" },
+  {
+    heading: "Current Task Rotation",
+    body: [
+      "<!-- Optional top-level task checkboxes. First unchecked item is the orientation nudge current task. -->",
+      "- [ ]",
+    ].join("\n"),
+  },
   { heading: "Stretch (if capacity)", body: "- [ ]" },
   {
     heading: "Routines",
@@ -62,6 +69,10 @@ const DEFAULT_DAILY_TEMPLATE = [
   "---",
   "",
   "## Today's Priorities",
+  "- [ ]",
+  "",
+  "## Current Task Rotation",
+  "<!-- Optional top-level task checkboxes. First unchecked item is the orientation nudge current task. -->",
   "- [ ]",
   "",
   "## Stretch (if capacity)",

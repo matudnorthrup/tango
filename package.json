@@ -20,6 +20,7 @@
     "test:voice-app": "npm run build -w @tango/core && npm run build -w @tango/voice && npm run test -w @tango/tango-voice",
     "test:voice-inbox-live": "node --import tsx ./apps/tango-voice/src/testing/live-inbox-watermark-smoke.ts",
     "test:discord-watermark-live": "node --import tsx ./apps/tango-voice/src/testing/live-discord-watermark-event-smoke.ts",
+    "test:orientation-nudge-live": "node --import tsx ./apps/tango-voice/src/testing/live-orientation-nudge-smoke.ts",
     "test:deterministic-wellness-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts",
     "test:deterministic-research-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent sierra --session sierra-live-deterministic --thread-name codex-sierra-live-deterministic --suite phase4-research",
     "test:deterministic-sierra-product-selection-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent sierra --session sierra-live-deterministic --thread-name codex-sierra-live-deterministic --suite phase4-research --case research-product-selection",
@@ -28,6 +29,7 @@
     "test:deterministic-research-expansion-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent sierra --session sierra-live-deterministic --thread-name codex-sierra-live-deterministic --suite phase4-research-expansion",
     "test:deterministic-sierra-print-preview-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent sierra --session sierra-live-deterministic --thread-name codex-sierra-live-deterministic --suite phase4-research-expansion --case research-print-preview",
     "test:deterministic-sierra-video-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent sierra --session sierra-live-deterministic --thread-name codex-sierra-live-deterministic --suite phase4-research-expansion --case research-video-read",
+    "test:deterministic-sierra-local-business-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent sierra --session sierra-live-deterministic --thread-name codex-sierra-live-deterministic --suite phase4-research-expansion --case research-local-business-shortlist",
     "test:deterministic-foxtrot-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent foxtrot --session foxtrot-live-deterministic --thread-name codex-foxtrot-live-deterministic --suite phase4-foxtrot",
     "test:deterministic-watson-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent watson --session watson-live-deterministic --thread-name codex-watson-live-deterministic --suite phase4-watson",
     "test:deterministic-watson-expansion-live": "node --import tsx ./apps/tango-voice/src/testing/live-deterministic-wellness-smoke.ts --agent watson --session watson-live-deterministic --thread-name codex-watson-live-deterministic --suite phase4-watson-expansion",
@@ -51,6 +53,7 @@
     "diag:deterministic-regressions": "node --import tsx ./scripts/harvest-deterministic-regressions.ts",
     "eval:validate": "node ./scripts/validate-model-eval-fixtures.mjs",
     "eval:test": "node --test \"scripts/lib/bakeoff/*.test.mjs\"",
+    "startup:test": "node --test scripts/startup-runner.test.mjs",
     "eval:bakeoff": "node ./scripts/model-bakeoff.mjs",
     "diag:nutrition-catalog": "node --import tsx ./scripts/audit-nutrition-catalog.ts",
     "diag:walmart-reimbursements": "node --import tsx ./scripts/audit-walmart-reimbursements.ts",
@@ -107,6 +110,7 @@
   "dependencies": {
     "@mapbox/polyline": "^1.2.1",
     "better-sqlite3": "^12.9.0",
-    "geolib": "^3.3.4"
+    "geolib": "^3.3.4",
+    "js-yaml": "^4.2.0"
   }
 }

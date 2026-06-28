@@ -569,8 +569,11 @@ export function parseClaudePrintJson(stdout: string): ProviderResponse {
         if (usage) {
           const occupancy =
             numField(usage.input_tokens)
+            + numField(usage.inputTokens)
             + numField(usage.cache_read_input_tokens)
-            + numField(usage.cache_creation_input_tokens);
+            + numField(usage.cacheReadInputTokens)
+            + numField(usage.cache_creation_input_tokens)
+            + numField(usage.cacheCreationInputTokens);
           if (occupancy > peakOccupancyTokens) peakOccupancyTokens = occupancy;
         }
       }

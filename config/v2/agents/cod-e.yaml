@@ -1,7 +1,7 @@
 id: cod-e
 display_name: Cod-E
 type: quick
-avatar_url: https://cdn.discordapp.com/avatars/1509328974667452466/279bd478294f6d865816f8b0bd170cbc.webp
+avatar_url: https://example.com/tango/avatars/cod-e.png
 
 system_prompt_file: agents/assistants/cod-e/soul.md
 
@@ -45,13 +45,13 @@ memory:
   scheduled_reflection: disabled
 
 discord:
-  default_channel_id: "1509320762287456457"
+  default_channel_id: "100000000000000016"
   typing_token_env: CODE_DISCORD_TOKEN
 
 access:
   mode: allowlist
   allowlist_channel_ids:
-    - "1509320762287456457"
+    - "100000000000000016"
 
 provider:
   default: claude-oauth

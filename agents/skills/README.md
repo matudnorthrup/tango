@@ -23,9 +23,12 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `evening-checkin.md` | `evening_checkin` | Malibu / nutrition | Pre-dinner calorie budget (TDEE + FatSecret intake) |
 | `health-baselines.md` | `health_baselines` | Malibu / Watson health summaries | Baseline comparisons for health summaries |
 | `lds-companion-workflows.md` | `lds_companion_workflows` | Porter / LDS companion | LDS study, Gospel Library marking/linking, talks, lessons, and calling support |
+| `local-business-research.md` | `local_business_research` | Sierra / local research | Restaurants, local businesses, activities, classes, venues, events, and contact/detail verification |
 | `obsidian-note-conventions.md` | `obsidian_note_conventions` | Watson / notes | Vault note structure and task conventions |
+| `orientation-nudge-system.md` | `orientation_nudge_system` | Watson / planning | Runtime orientation nudges, task rotation contract, focus/vacation behavior |
 | `printing-profile-selection.md` | `printing_profile_selection` | Sierra / fabrication | Print/material selection and reporting rules |
 | `receipt-logging.md` | `receipt_logging` | Foxtrot / finance | General-purpose Obsidian receipt file creation |
+| `session-save.md` | `session_save` | All agents | Three-layer save routing (thread file, daily log, Atlas); `/tango save` checklist |
 | `sinking-fund-reconciliation.md` | `sinking_fund_reconciliation` | Foxtrot / finance | Lunch Money and Obsidian workflow for SB-backed expense reconciliation |
 | `recipe-format.md` | `recipe_format` | Malibu / recipes | Recipe markdown structure and write rules |
 | `remote-claude-sessions.md` | `remote_claude_sessions` | Watson / dev sessions | Spawn phone-controllable Claude Code sessions (confirmation rail, verbatim prompts) |

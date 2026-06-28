@@ -9,6 +9,13 @@ import {
   refreshProjectHeadOnTurn,
   renderProjectStateBlock,
 } from "../src/project-state.js";
+import {
+  formatStateBodyPointer,
+  normalizeProfileStateBodyPath,
+  parseStateBodyPointer,
+  readStateBody,
+  resolveProfileStateBodyPath,
+} from "../src/state-body-provider.js";
 import { createAtlasColdStartContextBuilder } from "../src/v2-runtime.js";
 
 const tempDirs: string[] = [];
@@ -134,6 +141,47 @@ describe("project-state integration", () => {
     storage.close();
   });
 
+  it("reads a profile-backed state body for pointer snapshots and reseed blocks", () => {
+    const storage = createStorage();
+    const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-"));
+    tempDirs.push(profileRoot);
+    fs.mkdirSync(path.join(profileRoot, "threads"), { recursive: true });
+    fs.writeFileSync(
+      path.join(profileRoot, "threads", "launch.md"),
+      [
+        "---", "status: waiting", "---", "",
+        "## Quick Read", "Profile body is now canonical for this launch.", "",
+        "## Open Items", "- Confirm profile-backed read path", "- Keep Obsidian legacy paths working", "",
+      ].join("\n"),
+    );
+
+    const key = "thread:profile-launch";
+    storage.upsertProjectState({
+      projectId: key,
+      title: "Profile Launch",
+      status: "active",
+      quickRead: "stale head text",
+      obsidianPath: "profile:threads/launch.md",
+    });
+
+    const pointer = buildStateFilePointer(storage, key, { profileRoot });
+    expect(pointer).toEqual({
+      path: "profile:threads/launch.md",
+      project: "Profile Launch",
+      status: "waiting",
+      snapshot: "Profile body is now canonical for this launch.",
+    });
+
+    const block = renderProjectStateBlock(storage, key, { profileRoot })!;
+    expect(block).toContain("Project: Profile Launch (status: waiting)");
+    expect(block).toContain("Quick read: Profile body is now canonical");
+    expect(block).not.toContain("stale head text");
+    expect(block).toContain("State file: profile:threads/launch.md");
+    expect(block).toContain("- Confirm profile-backed read path");
+    expect(block).toContain("- Keep Obsidian legacy paths working");
+    storage.close();
+  });
+
   it("builds a live pointer snapshot (status + Quick Read) from the body when a vault root is given", () => {
     const storage = createStorage();
     const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tango-vault-"));
@@ -178,5 +226,48 @@ describe("project-state integration", () => {
     const empty = await builder("thread:unbound", "sierra");
     expect(empty.recentMessages).toBe("");
     storage.close();
+  });
+});
+
+describe("state body provider", () => {
+  it("treats plain paths as legacy Obsidian and profile URIs as profile bodies", () => {
+    const legacy = parseStateBodyPointer("Projects/Launch.md");
+    expect(legacy.provider).toBe("obsidian");
+    expect(legacy.path).toBe("Projects/Launch.md");
+    expect(formatStateBodyPointer(legacy)).toBe("Projects/Launch.md");
+
+    const profile = parseStateBodyPointer("threads/Launch.md", { provider: "profile" });
+    expect(profile.provider).toBe("profile");
+    expect(profile.path).toBe("threads/Launch.md");
+    expect(formatStateBodyPointer(profile)).toBe("profile:threads/Launch.md");
+
+    expect(parseStateBodyPointer("profile:collab/handoff.md")).toMatchObject({
+      provider: "profile",
+      path: "collab/handoff.md",
+      displayPath: "profile:collab/handoff.md",
+    });
+  });
+
+  it("rejects unsafe profile state body paths", () => {
+    expect(() => normalizeProfileStateBodyPath("../threads/launch.md")).toThrow(/traverse/i);
+    expect(() => normalizeProfileStateBodyPath("threads/../launch.md")).toThrow(/traverse/i);
+    expect(() => normalizeProfileStateBodyPath("/tmp/launch.md")).toThrow(/relative/i);
+    expect(() => normalizeProfileStateBodyPath("private/launch.md")).toThrow(/start with/i);
+    expect(() => normalizeProfileStateBodyPath("threads/launch.txt")).toThrow(/markdown/i);
+    expect(() => parseStateBodyPointer("profile:/tmp/launch.md")).toThrow(/relative/i);
+  });
+
+  it("rejects profile body symlink escapes", () => {
+    const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-"));
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-outside-"));
+    tempDirs.push(profileRoot, outsideRoot);
+
+    fs.mkdirSync(path.join(profileRoot, "threads"), { recursive: true });
+    const outsideFile = path.join(outsideRoot, "escaped.md");
+    fs.writeFileSync(outsideFile, "## Quick Read\noutside\n");
+    fs.symlinkSync(outsideFile, path.join(profileRoot, "threads", "escaped.md"));
+
+    expect(() => resolveProfileStateBodyPath("threads/escaped.md", { profileRoot })).toThrow(/escapes/i);
+    expect(() => readStateBody("profile:threads/escaped.md", { profileRoot })).toThrow(/escapes/i);
   });
 });

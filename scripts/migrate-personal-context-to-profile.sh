@@ -134,4 +134,39 @@ if [[ "$conflicts" -gt 0 ]]; then
   exit 1
 fi
 
+# ── Companion migrations: config values + prompt docs ────────────────────────
+# These move the rest of an installation's personal data (real channel/account
+# ids, vendors, persona/skill/tool specifics) into the profile overlay so the
+# repo can ship genericized defaults. Both are write-only to the profile.
+DRY_FLAG=()
+[[ "$DRY_RUN" -eq 1 ]] && DRY_FLAG=(--dry-run)
+
+if command -v node >/dev/null 2>&1; then
+  if [[ -f "$ROOT/scripts/migrate-personal-config-to-profile.mjs" ]]; then
+    echo ""
+    echo "── config values → profile ──"
+    node "$ROOT/scripts/migrate-personal-config-to-profile.mjs" "${DRY_FLAG[@]}" || true
+  fi
+  if [[ -f "$ROOT/scripts/migrate-personal-prompts-to-profile.mjs" ]]; then
+    echo ""
+    echo "── prompt docs → profile ──"
+    node "$ROOT/scripts/migrate-personal-prompts-to-profile.mjs" "${DRY_FLAG[@]}" || true
+  fi
+else
+  echo "note: node not found — run the config/prompt migrations manually:"
+  echo "  node scripts/migrate-personal-config-to-profile.mjs"
+  echo "  node scripts/migrate-personal-prompts-to-profile.mjs"
+fi
+
+# ── Audit: confirm the repo working tree is clean of structural personal data ─
+if [[ -f "$ROOT/scripts/privacy-scan.sh" ]]; then
+  echo ""
+  echo "── audit (privacy-scan) ──"
+  bash "$ROOT/scripts/privacy-scan.sh" || {
+    echo "privacy-scan reported findings — review above; genericize any remaining"
+    echo "repo-tracked personal data (placeholders in repo, real values in the profile)."
+  }
+fi
+
+echo ""
 echo "done."

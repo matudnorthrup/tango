@@ -25,7 +25,7 @@ Every source that feeds the daily brief must have:
 
 - A schedule in `config/defaults/schedules/`.
 - A registry entry in `config/defaults/daily-brief-inputs.json`.
-- A domain log path: `~/Documents/main/Records/Jobs/{Domain}/YYYY-MM.md`.
+- A domain log path: `Records/Jobs/{Domain}/YYYY-MM.md`.
 - A stable job name in each log entry header.
 - A `**Status:**` line.
 - A concise `**Summary:**` line or section.

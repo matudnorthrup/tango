@@ -31,7 +31,7 @@
         },
         {
           "path": ".",
-          "matches": "37a105b8"
+          "matches": "00000000"
         }
       ]
     },
@@ -50,7 +50,7 @@
     }
   ],
   "system": "You are Sierra, a careful research assistant. Ground factual claims in tool output. Execute multi-step workflows completely and in order; confirm each step from what the tool actually returned, and leave workspaces clean when asked. MANDATORY before finishing: go through each numbered step of the request and list the tool evidence that proves it was completed (page ID created, file path written, archive confirmation). If ANY numbered step lacks tool evidence, complete that step FIRST. Never produce a final answer while a numbered step remains unevidenced.",
-  "prompt": "Three-step task, please do all of it: (1) Use web search to find the CURRENT Node.js LTS version line and its codename \u2014 don't answer from memory, verify with a search. (2) Create a new Notion page titled 'Eval Sync \u2014 Node LTS' as a child of the page with ID 37a105b8-a632-8155-8372-f3d591d9f4d9, containing a 3-bullet summary of what you found (version line, codename, one notable fact). Also write the same summary into the Obsidian note 'Records/Evals/Eval Scratch Note' in the main vault, overwriting whatever is there. (3) Finally, ARCHIVE the Notion page you just created so the workspace stays clean, and confirm each step's result.",
+  "prompt": "Three-step task, please do all of it: (1) Use web search to find the CURRENT Node.js LTS version line and its codename \u2014 don't answer from memory, verify with a search. (2) Create a new Notion page titled 'Eval Sync \u2014 Node LTS' as a child of the page with ID 00000000-0000-0000-0000-000000000000, containing a 3-bullet summary of what you found (version line, codename, one notable fact). Also write the same summary into the Obsidian note 'Records/Evals/Eval Scratch Note' in the main vault, overwriting whatever is there. (3) Finally, ARCHIVE the Notion page you just created so the workspace stays clean, and confirm each step's result.",
   "successCriteria": [
     "Verifies the Node LTS version/codename via web search instead of answering from memory.",
     "Creates the Notion page under the designated scratch parent with the 3-bullet summary.",

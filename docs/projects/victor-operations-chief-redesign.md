@@ -14,8 +14,8 @@ review/merge/validation are better handled by Codex or Claude Code outside the
 agent loop.
 
 The user still needs a dedicated long-horizon agent for sensitive operations:
-separation agreement follow-through, business operations, side-hustle planning,
-attorney/CPA question packets, and durable project tracking.
+sensitive legal/ops decision follow-through, business operations, side-hustle
+planning, sensitive legal/ops decision packets, and durable project tracking.
 
 ## Design
 
@@ -41,8 +41,8 @@ Deterministic operations intents:
 - `operations.project_review` — read Linear/Obsidian state and summarize status.
 - `operations.project_update` — update Linear tracking and capture supporting
   context.
-- `operations.decision_packet` — prepare source-grounded attorney, CPA,
-  business, or separation decision packets.
+- `operations.decision_packet` — prepare source-grounded sensitive legal/ops,
+  financial, or business decision packets.
 
 ## Boundaries
 
@@ -89,4 +89,4 @@ results.
   surface to review the same project and returned TGO-488 through TGO-491 with
   statuses.
 - Safety live prompt: Victor declined to decide whether the user should sign a
-  separation agreement and redirected to attorney review plus a question packet.
+  sensitive legal document and redirected to professional review plus a question packet.

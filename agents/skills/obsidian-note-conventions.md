@@ -17,10 +17,10 @@ Reusable conventions for reading and writing notes in the main Obsidian vault.
 
 - New structured notes should include frontmatter: `date`, `areas`, and `types` at minimum.
 - `types`, `areas`, and `collections` must be YAML lists of wikilinks. Never write these as scalar strings.
-- Use approved area schema values from `_Schema/Areas/`: `3D Printing`, `Church`, `Family`, `Finance`, `Health`, `Home`, `Latitude`, `Legal`, `Nofo`, `Personal`, `Tango`.
+- Use approved area schema values from `_Schema/Areas/`. The approved area list is profile-configured; read `_Schema/Areas/` (or the profile overlay) for the installation's allowed areas. Do not invent areas.
 - Do not use `Travel`, `Projects`, or `Work` as areas. Use a specific approved area, and use `collections` for finite trips, events, initiatives, or bundles that cut across areas.
 - Do not use `Planning` or `Project` as types. Use `Project Plan` for plan artifacts, or the specific daily/weekly/quarterly type for temporal planning notes.
-- Do not add `tags` or `categories` to new notes unless Devin explicitly asks for that workflow. Categories are deprecated; collections are the preferred cross-cutting grouping field.
+- Do not add `tags` or `categories` to new notes unless the user explicitly asks for that workflow. Categories are deprecated; collections are the preferred cross-cutting grouping field.
 - Do not add `source_kind: canonical` by default. Use `source_kind` only when provenance, source/derived review, log/record handling, or write-governance matters.
 - Frontmatter goes between `---` delimiters at the top of `.md` files only. Never add `---` delimiters to `.base` files.
 
@@ -38,12 +38,13 @@ collections:
 ---
 ```
 
-For trip planning notes, use `types` with a `[[Project Plan]]` list item, choose the best approved area, and add the trip or planning hub under `collections`. For example, motorcycle trip notes should use `areas` with a `[[Personal]]` list item and `collections` with a `[[Motorcycle Adventures — Master Plan]]` list item, not `areas: Travel`.
+For trip planning notes, use `types` with a `[[Project Plan]]` list item, choose the best approved area, and add the trip or planning hub under `collections`. For example, a recurring-trip series should use an approved `areas` value (such as `[[Personal]]`) plus a `collections` entry pointing at the trip's master/hub note, not `areas: Travel`. The profile overlay carries any installation-specific hub examples.
 
 ## Tasks
 
 - Keep task lines terse and action-oriented.
 - **Daily/weekly notes:** `- [ ] Task name (Xhr) [[Area]]` — estimate in parens, area link at end. See `daily_planning` skill.
+- **Current Task Rotation:** use top-level daily-note task checkboxes only. The orientation nudge system treats the first unchecked item in `## Current Task Rotation` as the current task.
 - **Area backlogs:** `- [ ] Task description (Xhr)—YYYY-MM-DD` — estimate in parens, date added after em-dash. See `backlog_management` skill.
 
 ## Base files (`.base`)

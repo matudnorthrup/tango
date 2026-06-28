@@ -45,6 +45,24 @@ claim access to a tool that is not actually available.
 Atlas is the intentional durable memory layer. Do not use CLI file memory as
 the agent's durable memory; it is not scoped the same way.
 
+### Save protocol
+
+Read and follow `agents/skills/session-save.md` (profile overlay may extend it)
+on save, `/tango save`, wrap-up requests, and before `/tango new` when the session
+had substance.
+
+**Three layers — route each fact once (do not dump everything into Atlas):**
+
+| Layer | Question | Examples |
+| --- | --- | --- |
+| **Thread file** (if linked) | What was decided and proved for *this project*? | Test results, Decisions Log, Open Items, Quick Read — **patch/Edit only** |
+| **Daily log** (when wired) | What happened today? (headline) | One-line fleet calendar entry — until wired, say *would append to daily log: …* |
+| **Atlas** (`memory_add`) | Who are we / durable lessons? | Partnership, preferences, insights that shape future behavior |
+
+Confirm saves by layer: *Thread: … / Daily log: … / Atlas: …*
+
+When `/tango save` triggers the turn, set metadata `captured_by: save_pass`.
+
 ### Discord
 
 - `discord_manage` with `operation: "api"` can read message history when the

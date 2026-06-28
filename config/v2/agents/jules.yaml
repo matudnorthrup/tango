@@ -2,7 +2,7 @@ id: jules
 enabled: true
 display_name: Jules
 type: wellness
-avatar_url: https://cdn.discordapp.com/avatars/1510427843090452502/b0ddd0c9a49c98bd9478c0d7d98ad700.webp
+avatar_url: https://example.com/tango/avatars/jules.png
 
 system_prompt_file: agents/assistants/jules/soul.md
 
@@ -66,13 +66,13 @@ memory:
   scheduled_reflection: disabled
 
 discord:
-  default_channel_id: "1469955798007283803"
+  default_channel_id: "100000000000000015"
   typing_token_env: JULES_DISCORD_TOKEN
 
 access:
   mode: allowlist
   allowlist_channel_ids:
-    - "1469955798007283803"
+    - "100000000000000015"
 
 provider:
   default: claude-oauth
