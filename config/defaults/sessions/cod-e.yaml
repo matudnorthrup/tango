@@ -3,6 +3,7 @@ type: persistent
 agent: cod-e
 channels:
   - discord:100000000000000016
+orchestrator_continuity: stateless
 memory:
   max_context_tokens: 12000
   zones:
