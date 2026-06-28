@@ -34,7 +34,13 @@ Workflow guidance for travel, navigation, and road trip tasks.
 
 ## Vehicle
 
-This workflow assumes the user's primary road-trip vehicle is a diesel truck. Even if they say "gas" casually, interpret it as diesel unless they specify otherwise. Tank ~26 gallons. Big tires (35"+) reduce fuel economy ~10-15% from factory specs. Mountain/headwind driving: use low end of MPG range. Always maintain 50+ mile cushion beyond the next fuel stop. When the user reports "miles to empty" from the dash, use THAT for range calculations.
+Vehicle specifics — fuel type, tank capacity, tire/economy adjustments, and fuel
+preferences — are profile-configured. Read the profile-configured vehicle profile
+and apply it: use the configured fuel type even when the user says "gas"
+casually, derate economy per the configured tire/load notes, and use the low end
+of the MPG range for mountain/headwind driving. Always maintain a 50+ mile
+cushion beyond the next fuel stop. When the user reports "miles to empty" from
+the dash, use THAT for range calculations.
 
 ## Real-time navigation rules
 
@@ -45,7 +51,7 @@ This workflow assumes the user's primary road-trip vehicle is a diesel truck. Ev
 - State the user's approximate location and local time so they can verify.
 - Confirm businesses are ahead and check hours for current local time. Don't suggest backtracking unless asked.
 
-**Rest stops:** In rural Nevada/Utah, formal rest areas are rare. Search for day-use areas, BLM recreation sites, boat launches (always have restrooms + parking). Filter for restrooms explicitly mentioned.
+**Rest stops:** In remote rural areas, formal rest areas are rare. Search for day-use areas, public-land recreation sites, boat launches (always have restrooms + parking). Filter for restrooms explicitly mentioned.
 
 **Voice responses while driving:** Concise (1-3 points), no markdown, natural language, round numbers ("about 85 miles", "roughly an hour and a half").
 
@@ -53,29 +59,25 @@ This workflow assumes the user's primary road-trip vehicle is a diesel truck. Ev
 
 1. Gather: origin, destination, departure date, driving preferences, lodging preferences, errands
 2. Route comparison: generate 2-4 options with `driving_route`, document distance/time/fuel availability/passes
-3. Fuel gap analysis: identify legs > 150 miles between diesel stations (critical for rural NV/UT/OR)
+3. Fuel gap analysis: identify legs > 150 miles between stations carrying the configured fuel type (critical in remote rural regions)
 4. Build itinerary: departure times, fuel stops with prices, meal stops, overnight lodging
 5. Create or update an Obsidian trip doc using the `obsidian` tool and the `obsidian_note_conventions` frontmatter standard
-6. Validate: all distances via `driving_route`, fuel range covers every leg with 50+ mile cushion
+6. Validate: all distances via `driving_route`, fuel range covers every leg with 50+ mile cushion (against the configured tank capacity and fuel type)
 
 Trip planning notes should use YAML-list wikilink frontmatter. Use `types` with a `[[Project Plan]]` list item, choose the best approved `areas` value, and use `collections` for the finite trip or trip hub. Do not create a `Travel/` folder and do not use `areas: Travel`; travel is a collection concept, not an approved area.
 
-**Lodging:** Check loyalty programs (Marriott Bonvoy, Hilton Honors, Best Western Rewards). Direct hotel sites beat OTAs for loyalty rates. Non-smoking, mobile check-in preferred.
+**Lodging:** Check the user's configured hotel loyalty programs first; direct hotel sites beat OTAs for loyalty rates. Apply the user's configured lodging preferences (e.g. non-smoking, mobile check-in). The specific loyalty programs and preferences are profile-configured.
 
-**Time zones (Western US):**
-- Pacific: CA, OR, WA, NV
-- Mountain: UT, AZ (no DST), CO, MT, ID, WY, NM
-- NV/UT border = Pacific → Mountain (lose 1 hour heading east)
-- OR/ID border = Pacific → Mountain
+**Time zones:** Determine the time zone from coordinates and account for DST and zone boundaries crossed along the route. (Region-specific zone-boundary notes are profile-configured.)
 
-**Seasonal:** Check chain requirements for mountain passes Oct-Apr. Caltrans, NDOT, UDOT for road conditions.
+**Seasonal:** Check chain/traction requirements for mountain passes in winter months and the relevant state/regional DOT sources for road conditions.
 
 ## Lessons learned
 
-- California rural diesel can vary $1.50/gal within 2 miles — always search specific stations
-- Not all Costco locations carry diesel — verify before recommending
+- Rural fuel prices can vary $1+/gal within 2 miles — always search specific stations
+- Not all warehouse-club (e.g. Costco) locations carry every fuel grade — verify before recommending
 - Rural fuel prices vary wildly. A station 2 miles away can be much cheaper
-- Nevada gas isn't automatically cheaper than California — depends on the station
+- A neighboring state's fuel isn't automatically cheaper — depends on the station
 - Frequent stops are welcome on long drives — don't optimize purely for speed
 - Overnight stops that preserve bedtime are better than pushing late to reduce total days
 - Build 15-30 min buffer per stop into timing estimates — stops always take longer than planned

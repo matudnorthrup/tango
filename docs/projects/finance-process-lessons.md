@@ -7,22 +7,22 @@ Captured from the April 2026 full financial review session.
 - SB draws come in as a single transfer. They must be split into child transactions using the Lunch Money API via `parent_id` — one child per expense category being offset.
 - Only create child transactions tied to REAL money transfers. Never create synthetic/fake offset transactions to zero out budgets. That hides real money and sets a dangerous precedent.
 - If supplemental draws are needed (e.g., a purchase was missed in the original draw estimate), make the actual bank transfer first, then create children when the transfer lands in Lunch Money.
-- Ally transfers typically sync overnight or next business day — don't expect same-day visibility.
+- Bank transfers typically sync overnight or next business day — don't expect same-day visibility.
 - The monthly reconciliation log lives at `Records/Finance/Sinking Fund Reconciliation Log.md`.
 - The full mechanism (API payload format, rules, process steps) is documented in `References/Finance/Sinking Fund Budget System.md`.
 
 ## Pending as of April 27
 
-- Two supplemental transfers in flight: $24.99 from House SB and $19.18 from Recreation SB.
-- When they land in Lunch Money, create child transactions: House SB child covers Home Improvement (ball pump), Recreation SB child splits into Amazon Prime and Subway under Family Spending.
-- After that, April is fully zeroed out.
+- Two supplemental sinking-fund transfers in flight (amounts redacted).
+- When they land in Lunch Money, create child transactions that map each draw to the expense categories it offsets (amounts/merchants redacted).
+- After that, the month is fully zeroed out.
 
 ## Receipt Notes and Evidence
 
 - Create Obsidian receipt notes for: Amazon, Walmart, Costco, and any reimbursable transactions.
 - Evidence PDFs go in `Records/Finance/Receipts/Evidence/`.
 - Reimbursable notes need frontmatter: `reimbursable: true`, `ramp_submitted` (date or null), `ramp_report_id`.
-- The Obsidian Base view for reimbursement QA/display lives at `Records/Finance/Receipts/Latitude Reimbursements.base`.
+- The Obsidian Base view for reimbursement QA/display lives at `Records/Finance/Receipts/<Employer> Reimbursements.base`.
 - For agent decisions, `receipt_registry` plus live Ramp reconciliation is authoritative. Do not infer pending/submitted status from the Base view, old review notes, or note search.
 - Always use the actual PDF invoice when available — not screenshots.
 - For Venmo, use the official Venmo confirmation email rendered to PDF.

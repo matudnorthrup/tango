@@ -110,7 +110,7 @@ DB is the index + fast-recall cache.**
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Arc scope | **Tango `project:{id}`** | A project spans threads/topics and outlives any one thread; matches existing project routing and the real Master-Plan→trip portfolio shape. Threads/topics attach to a project. |
+| Arc scope | **Tango `project:{id}`** | A project spans threads/topics and outlives any one thread; matches existing project routing and the real master-plan→sub-project portfolio shape. Threads/topics attach to a project. |
 | State-file substrate | **Hybrid: DB head + Obsidian body** | DB head is source of truth for *recall* (status, open items, pointer); Obsidian body is the human-collaborative narrative. Robust to concurrent agents and off-vault-machine operation. |
 | Slice-1 proving ground | **A bounded planning project** | A low-stakes project with a real evolving arc and an existing markdown doc; a bad write costs little while the new plumbing is shaken out. |
 | Governance anchor (Slice 2) | **A sensitive-operations project**, staged after the spine | Sensitive documents make source-protection + versioning non-negotiable, so they drive the governance design. No private content enters the repo spec, Linear, or agent context beyond what is operationally necessary. |
@@ -129,13 +129,13 @@ granular working set: open items, decisions, entities — keyed by `project_id`)
 `project_state` (proposed):
 - `project_id` (PK), `title`, `status` (active|planning|waiting|deferred|evergreen|reference|closed)
 - `quick_read` (short current-state summary)
-- `obsidian_path` (pointer to the markdown body), `template_id`
+- `obsidian_path` (legacy column name; stores the state body pointer), `template_id`
 - `prev_session_id` (session chaining for deep recall), `lead_agent_id`
 - `created_at`, `updated_at`, `last_saved_at`
 
-### 5.2 Obsidian body — canonical narrative (collaborative tier)
-The human+AI markdown doc. **Extends the existing vault frontmatter** rather than
-inventing a new schema. Today's trip docs already carry:
+### 5.2 Markdown body — canonical narrative (collaborative tier)
+The human+AI markdown doc. **Extends the existing state-file frontmatter**
+rather than inventing a new schema. Existing project docs already carry:
 `date`, `types: [[Project Plan]]`, `areas`, `collections`, `source_kind`.
 
 Add a minimal state-managed header:
@@ -157,22 +157,32 @@ linked body, exactly:
 Everything else in the body is free narrative. A body missing these anchors still
 works — the reseed falls back to the head's stored `quick_read`.
 
+**Body providers (as built, Slice 1b).** The pointer is provider-neutral even
+while the DB column keeps its legacy name:
+- plain `Projects/Foo.md` remains an Obsidian/vault-relative body pointer;
+- `profile:threads/foo.md` points at the active Tango profile;
+- profile bodies are limited to markdown files under `threads/`, `collab/`,
+  `specs/`, or `reference/`, with traversal, absolute paths, and symlink escapes
+  rejected.
+
 ### 5.3 Sync model (as built, Slice 1)
 - **Head** (`project_state`) is keyed by the runtime `conversationKey`
   (`thread:{id}` / `channel:{id}`). Mapping a Tango `project:{id}` onto this key
   is a tracked refinement (§11).
-- **Whisper** (every turn) reads only the head → a cheap pointer (path, title,
-  status). No file I/O on the hot path.
+- **Whisper** (every turn) reads the head and, when a provider root is available,
+  a short live body snapshot (status + Quick Read) → a pointer plus current
+  summary.
 - **Reseed** (cold-start / rotation) reads the head *and* the linked body live,
   so a rotated session re-orients on the current narrative (body overrides the
   head's cached `quick_read`; missing file → head fallback).
 - **Per-turn save bookkeeping** stamps the head's `prev_session_id` + `updated_at`
   (session chaining), no-op unless a head exists.
 - **Linking** a conversation to a body: `scripts/link-project-state.ts`
-  (`--key thread:ID --path note.md ...`). Auto-link on first agent write and a
-  `/tango project link` command are tracked refinements.
+  (`--key thread:ID --path note.md ...` for legacy Obsidian, or
+  `--provider profile --path threads/foo.md`). Auto-link on first agent write
+  and a `/tango project link` command are tracked refinements.
 - The body's frontmatter and the head cross-reference (`project_id` ↔
-  `obsidian_path`).
+  state body pointer).
 
 ### 5.4 Source-vs-working protection (L0)
 Key off the existing `source_kind` frontmatter. Proposed policy:
@@ -197,7 +207,7 @@ The single channel that already survives resume is `current_turn_metadata`
 - Implementation: add `SendOptions.turnBriefingPrompt` (sibling field). Append it
   in `ClaudeCodeAdapter.buildPrompt`. It is preserved on resume because the strip
   logic only removes `context`.
-- v1 contents: state-file pointer (`obsidian_path` + project + status);
+- v1 contents: state-file pointer (body pointer + project + status);
   "read before responding, update after"; "search first"; context %; threshold
   and delta signals when boundaries are crossed.
 - Visibility: **silent to the user by default** (like Sage's whisper). A subset is
@@ -265,19 +275,19 @@ widens. "Done" requires live testing end-to-end (not unit tests alone).
 ### Slice 1 — The spine (one project arc, end-to-end)
 - **Scope:** `project_state` head + body contract (extend frontmatter) ↔
   `active_context_items` working set ↔ whisper pointer ↔ rich reseed reads it ↔
-  save updates it. Anchor: the motorcycle-trip doc.
-- **Acceptance (live, Devin's vault):** start a trip-planning thread → make
+  save updates it. Anchor: a bounded trip-planning doc.
+- **Acceptance (live, the user's vault):** start a trip-planning thread → make
   decisions → force a rotation → the agent resumes knowing the trip's current
   state, open decisions, and where the doc lives, and updates the doc on save.
 
-### Slice 2 — Governance, anchored on the Victor legal-matter project
+### Slice 2 — Governance, anchored on a sensitive legal/ops project
 - **Scope:** source-vs-working protection (`source_kind`); versioning of working
-  docs; write-time schema validation; a legal-matter template + state file.
+  docs; write-time schema validation; a sensitive-matter template + state file.
   Repeatable-process templates (e.g. onboarding) generalize from here.
-- **Privacy:** validated on Devin's private vault; the spec and Linear reference
-  the matter abstractly; no legal content enters repo/Linear or agent context
+- **Privacy:** validated on the user's private vault; the spec and Linear reference
+  the matter abstractly; no sensitive content enters repo/Linear or agent context
   beyond what is operationally necessary.
-- **Acceptance (live, Devin's vault):** a write to a `source_kind: canonical`
+- **Acceptance (live, the user's vault):** a write to a `source_kind: canonical`
   filing is refused with a clear reason; a working draft is revised with
   retrievable version history; a schema-violating write is rejected with a fix
   hint; Victor answers "what's outstanding / latest draft" after a rotation.
@@ -330,3 +340,24 @@ more triggers — rather than building layer-by-layer.
   its own validation). A Discovery issue captures this review + the §11 questions.
 - **Per-slice issues:** carry the §10 acceptance criteria as the validation gate;
   live-test evidence attached before Done.
+
+---
+
+## 13. Operator profile decisions (2026-06-27)
+
+These live in **`~/.tango/profiles/<profile>/`** (not repo). Profile-local
+handoffs and installation-specific notes stay outside tracked files.
+
+| Topic | Location |
+| --- | --- |
+| Fleet save (Atlas + thread + daily log) | Repo template `agents/skills/session-save.md`; operator overlay in profile |
+| Fast breakage checks | Profile-local handoff notes |
+| Cod-E canary thread shape | Profile-local handoff notes |
+
+**Updates to findings above:**
+
+- **`/tango save`** exists on Discord v2 (`session-ops.ts`); fleet policy in profile skill.
+- **Fleet daily log (new):** `profile/memory/YYYY-MM-DD.md` — complements Obsidian `Planning/Daily/` and Atlas; channel-stamped append, all agents.
+- **`memory_add` provenance:** TangoRouter injects `TANGO_CONVERSATION_KEY`, `TANGO_DISCORD_CHANNEL_ID`, `TANGO_DISCORD_THREAD_ID` into atlas-memory MCP env (`discord-memory-provenance.ts`).
+- **Profile thread write guard (Phase 1b, 2026-06-27):** `profile-state-write-guard.ts` blocks full-file `write` on existing `profile/threads/**/*.md` (create-on-missing allowed), rejects empty content and missing frozen anchors on governed files; Claude Code `Write|Edit` guarded via PreToolUse hook (`scripts/claude/profile-state-pretooluse-hook.mjs`) wired in `ClaudeCodeAdapter`.
+- **Validation:** deterministic health script (30–60m) for breakages; Marion weekly for learnings only.

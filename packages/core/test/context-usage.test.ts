@@ -56,4 +56,40 @@ describe("context-usage", () => {
     expect(shouldResetContextPressureAlert({ fraction: 0.64 })).toBe(true);
     expect(shouldResetContextPressureAlert({ fraction: 0.68 })).toBe(false);
   });
+
+  it("derives occupancy from raw assistant stream events when normalized fields are missing", () => {
+    const usage = extractResponderContextUsage({
+      raw: {
+        events: [
+          {
+            type: "assistant",
+            message: {
+              content: [{ type: "text", text: "done" }],
+              usage: {
+                inputTokens: 12,
+                cacheReadInputTokens: 90_000,
+                cacheCreationInputTokens: 1_000,
+                outputTokens: 20,
+              },
+            },
+          },
+          {
+            type: "result",
+            modelUsage: {
+              "claude-opus-4-8": {
+                inputTokens: 12,
+                outputTokens: 20,
+                cacheReadInputTokens: 90_000,
+                cacheCreationInputTokens: 1_000,
+                contextWindow: 200_000,
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(usage?.totalTokens).toBe(91_012);
+    expect(usage?.fraction).toBeCloseTo(91_012 / 200_000, 6);
+  });
 });

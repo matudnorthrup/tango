@@ -20,11 +20,12 @@ See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) f
 | `gog-docs-update-tab.md` | `gog_docs_update_tab` | Watson / docs | |
 | `obsidian.md` | `obsidian` | Watson / notes | `obsidian-note-conventions.md` |
 | `health-morning.md` | `health_morning` | Watson / health brief | `health-baselines.md` |
+| `orientation-nudge.md` | `orientation_nudge` | Watson / planning state | |
 | `lunch-money.md` | `lunch_money` | Foxtrot / finance | |
 | `exa.md` | `exa_search`, `exa_answer` | Sierra / research | |
 | `printing.md` | `printer_command`, `openscad_render`, `prusa_slice` | Sierra / fabrication | `printing-profile-selection.md` |
 | `paper-printing.md` | `paper_print` | Sierra / travel documents | `travel-document-printing.md` |
-| `travel.md` | `location_read`, `driving_route`, `walking_route`, `find_diesel` | Sierra / travel; Charlie / narration (`location_read` only) | `travel-routing.md` |
+| `travel.md` | `location_read`, `local_business_search`, `driving_route`, `walking_route`, `find_diesel` | Sierra / travel and local research; Charlie / narration (`location_read` only) | `travel-routing.md`, `local-business-research.md` |
 | `walmart.md` | `walmart` | Foxtrot / shopping | |
 | `browser.md` | `browser` | Watson / Sierra / Foxtrot browser flows | |
 | `agent-docs.md` | `agent_docs` | Agent self-update | |

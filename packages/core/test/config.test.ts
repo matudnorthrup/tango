@@ -61,6 +61,13 @@ function createTempConfigDir(): string {
   return dir;
 }
 
+function isolateProfileHome(): void {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-profile-home-"));
+  tempDirs.push(homeDir);
+  process.env.TANGO_HOME = homeDir;
+  process.env.TANGO_PROFILE = "default";
+}
+
 describe("resolveConfigDir", () => {
   it("prefers repo defaults when config/defaults is present", () => {
     const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-config-defaults-"));
@@ -547,11 +554,11 @@ describe("loadScheduleConfigs", () => {
     for (const schedule of [morningPlanning, manualTest]) {
       expect(schedule, "schedule exists").toBeDefined();
       const task = schedule?.execution.task ?? "";
-      expect(task).toContain("~/Documents/main/References/Email Triage Rules.md");
+      expect(task).toContain("References/Email Triage Rules.md");
       expect(task).toContain("filter every email-sourced item");
       expect(task).toContain("Today's Priorities");
       expect(task).toContain("Stretch (if capacity)");
-      expect(task).toContain("tech@latitude.io");
+      expect(task).toContain("alerts@example.com");
     }
 
     expect(manualTest?.enabled).toBe(false);
@@ -570,7 +577,7 @@ describe("loadScheduleConfigs", () => {
     for (const schedule of [production, manualTest]) {
       expect(schedule, "schedule exists").toBeDefined();
       const task = schedule?.execution.task ?? "";
-      expect(task).toContain("~/Documents/main/References/Email Triage Rules.md");
+      expect(task).toContain("References/Email Triage Rules.md");
       expect(task).toContain("Apply the");
       expect(task).toContain("triage rules");
       expect(task).toContain("Ignore");
@@ -851,6 +858,7 @@ describe("loadWorkerConfigs", () => {
   });
 
   it("assembles worker soul prompts from soul, shared files, and knowledge", () => {
+    isolateProfileHome();
     const dir = createTempConfigDir();
     const workerPromptDir = path.join(dir, "agents", "workers", "recipe-librarian");
     fs.mkdirSync(workerPromptDir, { recursive: true });

@@ -122,13 +122,13 @@ describe("browser-manager launch config", () => {
       cells: [
         "",
         "",
-        "WalmartPaid · Devin Northrup's account x-6242",
+        "WalmartPaid · Example User's account x-0000",
         "$27.19 USD",
         "Apr 10, 2026",
         "Apr 16, 2026",
         "None",
         "",
-        "Exec Buy Back Time",
+        "Reimbursable expense",
         "—",
         "",
         "—",
@@ -140,11 +140,11 @@ describe("browser-manager launch config", () => {
     expect(paid).toMatchObject({
       status: "Paid",
       merchant: "Walmart",
-      entity: "Devin Northrup's account x-6242",
+      entity: "Example User's account x-0000",
       amount: 27.19,
       transactionDate: "2026-04-10",
       submittedDate: "2026-04-16",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
     });
 
     const pending = parseRampHistoryRecordFromRow({
@@ -152,13 +152,13 @@ describe("browser-manager launch config", () => {
       cells: [
         "",
         "",
-        "Maid in NewportAwaiting reviewer",
+        "Home Service CoAwaiting reviewer",
         "$350.00 USD",
         "May 1, 2026",
         "May 25, 2026",
         "None",
         "",
-        "Exec Buy Back Time",
+        "Reimbursable expense",
         "—",
         "",
         "—",
@@ -170,11 +170,11 @@ describe("browser-manager launch config", () => {
     expect(pending).toMatchObject({
       rampReportId: "52a796e6-3f32-4aa7-9b4b-953d06ca3a28",
       status: "Awaiting reviewer",
-      merchant: "Maid in Newport",
+      merchant: "Home Service Co",
       amount: 350,
       transactionDate: "2026-05-01",
       submittedDate: "2026-05-25",
-      memo: "Exec Buy Back Time",
+      memo: "Reimbursable expense",
     });
   });
 
@@ -182,7 +182,7 @@ describe("browser-manager launch config", () => {
     expect(rampMerchantTextMatchesInput("Walmart", "walmart")).toBe(true);
     expect(rampMerchantTextMatchesInput("Walmart", "Walmart - delivery tip")).toBe(true);
     expect(rampMerchantTextMatchesInput("Venmo", "Venmo reimbursement")).toBe(true);
-    expect(rampMerchantTextMatchesInput("Maid in Newport", "Walmart")).toBe(false);
+    expect(rampMerchantTextMatchesInput("Home Service Co", "Walmart")).toBe(false);
     expect(rampMerchantTextMatchesInput(undefined, "Walmart")).toBe(false);
   });
 

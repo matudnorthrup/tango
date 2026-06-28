@@ -144,7 +144,7 @@ describe("reimbursement-automation helpers", () => {
 
   it("detects submitted Ramp reimbursement detail pages", () => {
     const submittedBody = [
-      "$350.00 at Maid in Newport",
+      "$350.00 at Home Service Co",
       "Memo",
       "executive buyback time",
       "Approve reimbursement",
@@ -153,7 +153,7 @@ describe("reimbursement-automation helpers", () => {
       "Auto-verified · Submitted on 04/07/2026 by Devin",
     ].join("\n");
     const draftBody = [
-      "$600.00 at Kip Everitt",
+      "$600.00 at Jane Doe",
       "Memo (required)",
       "Saved",
       "Submit",
@@ -164,7 +164,7 @@ describe("reimbursement-automation helpers", () => {
     expect(
       rampReimbursementLooksSubmitted([
         "Edit pending reimbursement",
-        "Maid in Newport",
+        "Home Service Co",
         "Save changes",
       ].join("\n")),
     ).toBe(true);
@@ -202,22 +202,22 @@ describe("reimbursement-automation helpers", () => {
       "id\tabc123",
       "from\tVenmo <venmo@venmo.com>",
       "to\tpersonal@example.test",
-      "subject\tYou paid Kip Everitt $600.00",
+      "subject\tYou paid Jane Doe $600.00",
       "date\tSat, 4 Apr 2026 17:20:29 +0000",
       "",
-      "<!DOCTYPE html><html><body><h1>You paid Kip Everitt</h1><p>$600.00</p><p>Date</p><p>Apr 04, 2026</p></body></html>",
+      "<!DOCTYPE html><html><body><h1>You paid Jane Doe</h1><p>$600.00</p><p>Date</p><p>Apr 04, 2026</p></body></html>",
     ].join("\n");
 
     const parsed = parseGogEmailFullOutput(raw);
-    expect(parsed.headers["subject"]).toBe("You paid Kip Everitt $600.00");
+    expect(parsed.headers["subject"]).toBe("You paid Jane Doe $600.00");
     expect(parsed.bodyFormat).toBe("html");
     expect(parsed.body).toContain("$600.00");
 
     const rendered = buildEmailEvidenceHtml(parsed);
-    expect(rendered).toContain("You paid Kip Everitt $600.00");
+    expect(rendered).toContain("You paid Jane Doe $600.00");
     expect(rendered).toContain("Venmo receipt");
     expect(rendered).toContain("Recipient");
-    expect(rendered).toContain("Kip Everitt");
+    expect(rendered).toContain("Jane Doe");
     expect(rendered).toContain("Venmo &lt;venmo@venmo.com&gt;");
     expect(rendered).toContain("$600.00");
   });

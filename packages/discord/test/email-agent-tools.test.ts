@@ -161,7 +161,7 @@ describe("parseGogThreadJson", () => {
             payload: {
               mimeType: "text/plain",
               headers: [
-                { name: "From", value: "Stephanie Bridges <steph@eventhive.biz>" },
+                { name: "From", value: "Sam Rivera <stephanie@example.test>" },
                 { name: "To", value: "Ops Lead <piper.ops@example.test>" },
                 { name: "Subject", value: "Happy Friday!" },
                 { name: "Date", value: "Fri, 29 May 2026 15:26:18 -0500" },
@@ -175,7 +175,7 @@ describe("parseGogThreadJson", () => {
 
     const messages = parseGogThreadJson(raw);
     expect(messages).toHaveLength(1);
-    expect(messages[0]?.from).toContain("Stephanie Bridges");
+    expect(messages[0]?.from).toContain("Sam Rivera");
     expect(messages[0]?.subject).toBe("Happy Friday!");
     expect(messages[0]?.date).toBe("Fri, 29 May 2026 15:26:18 -0500");
     expect(messages[0]?.body).toContain("Happy Friday!");
@@ -189,8 +189,8 @@ describe("parseGogThreadJson", () => {
     });
 
     expect(brief.subject).toBe("Happy Friday!");
-    expect(brief.latest.from).toContain("Stephanie Bridges");
-    expect(brief.participants).toContain("Stephanie Bridges <steph@eventhive.biz>");
+    expect(brief.latest.from).toContain("Sam Rivera");
+    expect(brief.participants).toContain("Sam Rivera <stephanie@example.test>");
   });
 });
 

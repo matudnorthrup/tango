@@ -80,7 +80,7 @@ interface CleanupPlan {
   };
 }
 
-const DEFAULT_VAULT_PATH = "~/Documents/main";
+const DEFAULT_VAULT_PATH = process.env.TANGO_OBSIDIAN_VAULT ?? "";
 const DEFAULT_OUTPUT_DIR = "data/reports";
 
 async function main(): Promise<void> {
@@ -548,7 +548,7 @@ Usage:
   node --import tsx ./scripts/vault-cleanup-plan.ts [options]
 
 Options:
-  --vault-path <path>       Obsidian vault path (default: ~/Documents/main)
+  --vault-path <path>       Obsidian vault path (default: $TANGO_OBSIDIAN_VAULT)
   --summary-json <path>     Vault audit JSON summary path
   --output-json <path>      Cleanup plan JSON path
   --output-path <path>      Cleanup plan Markdown path

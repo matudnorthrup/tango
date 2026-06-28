@@ -25,7 +25,7 @@ Reusable guidance for choosing print settings and reporting the pipeline clearly
 - The MK4 firmware validates G-code with `M862.x` blocks. G-code missing these blocks will be rejected with "G-code isn't compatible" at the printer.
 - PrusaSlicer 2.9.4 CLI has a known bug where `--printer-profile` doesn't resolve MK4 vendor bundle inheritance — see `agents/tools/printing.md` for the fix.
 - Always verify sliced G-code contains `M862` lines before uploading.
-- Use the pre-resolved profile at `~/Documents/3d-printing/opengrid/mk4is_profile.ini` for MK4IS prints.
+- Use the pre-resolved profile at `~/3d-printing/opengrid/mk4is_profile.ini` for MK4IS prints.
 
 ## Infill by use case
 

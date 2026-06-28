@@ -95,7 +95,7 @@ interface CleanupPlanSummary {
   };
 }
 
-const DEFAULT_VAULT_PATH = "~/Documents/main";
+const DEFAULT_VAULT_PATH = process.env.TANGO_OBSIDIAN_VAULT ?? "";
 const DEFAULT_DB_PATH = "~/.tango/profiles/default/data/tango.sqlite";
 const DEFAULT_OUTPUT_DIR = "data/reports";
 const DEFAULT_STATE_PATH = "data/state/vault-daily-check.json";
@@ -616,7 +616,7 @@ Usage:
   node --import tsx ./scripts/vault-daily-check.ts [options]
 
 Options:
-  --vault-path <path>      Obsidian vault path (default: ~/Documents/main)
+  --vault-path <path>      Obsidian vault path (default: $TANGO_OBSIDIAN_VAULT)
   --db-path <path>         Tango SQLite path (default: active Tango profile DB)
   --report-path <path>     Markdown audit report path
   --summary-json <path>    JSON audit summary path

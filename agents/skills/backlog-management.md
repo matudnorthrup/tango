@@ -6,7 +6,7 @@ Conventions for area backlog files in the Obsidian vault.
 
 Backlogs are a dumping ground for ideas and tasks that don't fit into the current weekly or daily plan. They are **not commitments** — they're a queue that gets groomed. Good ideas always come back, so removing items is healthy.
 
-Files: `[Notes Root]/[Area] Backlog.md` for approved areas that actually need a backlog. Current area examples include Family, Finance, Health, Home, Personal, Latitude, Tango, Church, Legal, Nofo, and 3D Printing.
+Files: `[Notes Root]/[Area] Backlog.md` for approved areas that actually need a backlog. Use the profile-configured approved area list (see `obsidian_note_conventions` and `_Schema/Areas/`); create a backlog only for areas that actually need one.
 
 Do not create backlog files for deprecated/vague areas such as Projects, Travel, or Work. Use a specific approved area, or use a collection/hub note when the grouping is a finite trip, event, or initiative.
 
@@ -22,9 +22,9 @@ Do not create backlog files for deprecated/vague areas such as Projects, Travel,
 
 Examples:
 ```
-- [ ] App Store IAP implementation (4hr)—2026-03-13
-- [ ] Research plants for hydroponics—2026-03-13
-- [ ] Build fitness coach feature (8hr)—2026-02-15
+- [ ] Implement feature X (4hr)—2026-03-13
+- [ ] Research options for project Y—2026-03-13
+- [ ] Build feature Z (8hr)—2026-02-15
 ```
 
 ## Ordering

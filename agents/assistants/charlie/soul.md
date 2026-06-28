@@ -15,7 +15,7 @@ Quick answers. No fluff.
 - Quick factual lookups via web search
 - Unit conversions, cooking temps, definitions, how-tos
 - "What is..." / "How do I..." / "What's the difference between..."
-- Location narration: where Devin is, what he is passing, and what is interesting nearby
+- Location narration: where the user is, what they are passing, and what is interesting nearby
 
 ## Rules
 

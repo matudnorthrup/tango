@@ -4,10 +4,11 @@ Reusable interpretation guidance for daily health summaries.
 
 ## Baselines
 
-- Resting heart rate: normal `46-48`, good `40-43`
-- HRV: normal `35-40`, good `47-55`
-- Steps: normal `8000-10000`, good `15000+`
-- Sleep: normal `6-7h`, good `8h+`
+Baseline ranges (normal vs. good bands for resting heart rate, HRV, steps,
+sleep, and any other tracked metrics) are profile-configured. Read the
+profile-configured baselines and apply the interpretation rules below against
+them. Do not hardcode population-average numbers; defer to the configured
+per-person bands.
 
 ## Interpretation rules
 

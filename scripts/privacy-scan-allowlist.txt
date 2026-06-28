@@ -4,9 +4,11 @@
 # scripts/privacy-scan.sh can never be allowlisted.
 # Every entry needs a comment explaining why it is legitimate.
 
-# Retro documenting the May 2026 private-data incident; it names the
-# categories of data that were removed, which is the point of the document.
+# Retros documenting the private-data incidents; they name the categories of
+# data that were removed (and the scanner gaps that missed them), which is the
+# point of the documents — no live values, only pattern descriptions.
 docs/retros/private-data-in-repo-2026-05.md
+docs/retros/personal-data-split-2026-06.md
 
 # Juliet is a mental-health support agent; her public files legitimately list
 # crisis resources and hotlines whose names can overlap denylisted topics.
@@ -35,6 +37,16 @@ packages/discord/src/op-secret.ts
 packages/discord/test/onepassword-agent-tools.test.ts
 docs/specs/ollama-provider-parallel-instance.md
 
+# Legacy Obsidian-vault fallback constant + comments. The vault root resolves
+# from TANGO_OBSIDIAN_VAULT / the profile first; this hardcoded path is only a
+# backward-compat fallback for pre-profile installs (env-overridable).
+packages/core/src/obsidian-indexer.ts
+packages/discord/src/personal-agent-tools.ts
+
+# Historical eval fixture: a recorded runtime error string mentions a local
+# fallback script path. It is captured past output, not a live config value.
+packages/discord/test/fixtures/malibu-recent-regressions.json
+
 # Agent operating guide documents the Linear credential MECHANISM (env var
 # names + .env read snippet) for agents; contains no secret values.
 docs/guides/agent-operating-model.md
@@ -45,40 +57,9 @@ scripts/privacy-scan.sh
 # Synthetic Slack permalink timestamps (example.slack.com fixtures).
 packages/discord/test/slack-tools.test.ts
 
-# LEGACY: real Discord channel/avatar snowflake ids still tracked in config
-# defaults. Migrating these to the profile layer requires per-agent profile
-# overrides plus live validation — tracked as PM follow-up. Do NOT add new
-# config files here; new configs must use placeholder ids
-# (1 followed by zeros, e.g. 100000000000000003).
-config/defaults/sessions/charlie-ollama.yaml
-config/defaults/sessions/cod-e.yaml
-config/defaults/sessions/foxtrot-ollama.yaml
-config/defaults/sessions/wellness.yaml
-config/defaults/sessions/juliet-ollama.yaml
-config/defaults/sessions/malibu-ollama.yaml
-config/defaults/sessions/ollama-test.yaml
-config/defaults/sessions/porter-ollama.yaml
-config/defaults/sessions/sierra-ollama.yaml
-config/defaults/sessions/victor-ollama.yaml
-config/defaults/sessions/watson-ollama.yaml
-config/v2/agents/charlie-ollama.yaml
-config/v2/agents/cod-e.yaml
-config/v2/agents/foxtrot-ollama.yaml
-config/v2/agents/wellness.yaml
-config/v2/agents/juliet-ollama.yaml
-config/v2/agents/malibu-ollama.yaml
-config/v2/agents/ollama-test.yaml
-config/v2/agents/porter-ollama.yaml
-config/v2/agents/sierra-ollama.yaml
-config/v2/agents/victor-ollama.yaml
-config/v2/agents/watson-ollama.yaml
-
-# Added 2026-06-10: smoke_test_channel_id fields (real -test channel ids)
-# landed on main via the eval/validation work merged into this branch; same
-# legacy class as above — migrate with the per-agent follow-up, do not copy
-# the pattern into new files.
-config/v2/agents/sierra.yaml
-config/v2/agents/watson.yaml
-# Validation harness script with a default -test channel id flag; same
-# follow-up migrates it to a required flag or profile-sourced default.
-scripts/validate-thread-continuity.ts
+# NOTE: A former "LEGACY: real Discord channel/avatar snowflake ids" block was
+# removed once those config defaults were genericized to placeholders and the
+# real ids moved to the profile overlay (see
+# scripts/migrate-personal-config-to-profile.mjs and docs/guides/profile-model.md).
+# New config files MUST use placeholder ids (1 followed by zeros, e.g.
+# 100000000000000003); never re-add real ids to the repo or this allowlist.

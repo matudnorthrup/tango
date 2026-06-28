@@ -165,4 +165,17 @@ describe("governance seed", () => {
     expect(checker.hasPermission("worker:research-assistant", "walmart", "write")).toBe(false);
     expect(checker.hasPermission("worker:sierra-ollama", "walmart", "write")).toBe(false);
   });
+
+  it("seeds local business search for Sierra research workers", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const { GOVERNANCE_DDL, GOVERNANCE_SEED } = await import("../src/governance-schema.js");
+    const db = new DatabaseSync(":memory:");
+    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED);
+
+    const checker = new GovernanceChecker(db as unknown as DatabaseSync);
+    expect(checker.getToolAccessType("local_business_search")).toBe("read");
+    expect(checker.hasPermission("worker:research-assistant", "local_business_search", "read")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "local_business_search", "read")).toBe(true);
+    expect(checker.hasPermission("worker:sierra-ollama", "local_business_search", "write")).toBe(false);
+  });
 });

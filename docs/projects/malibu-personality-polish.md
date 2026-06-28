@@ -183,7 +183,7 @@ Low-moderate. Prompt changes are easily tunable per-file. The code change adds l
 ## Live Test Results
 
 **Test: "how's my weight looking this week?"**
-Response: "Week started a little spicy — you hit 177.4 on Monday — but you've been sliding back down since, sitting at 174.1 this morning. Weekly average lands around 175.2, which is actually running about a pound above your recent trend, so the wave hasn't fully turned yet. Keep the nutrition tight through the weekend and you'll likely see that average come back in line."
+Response (numbers redacted): "Week started a little spicy — you hit [weight] on Monday — but you've been sliding back down since, sitting at [weight] this morning. Weekly average lands around [weight], which is actually running about a pound above your recent trend, so the wave hasn't fully turned yet. Keep the nutrition tight through the weekend and you'll likely see that average come back in line."
 
 Confirmed: Phase 3 synthesis running (log: `[turn-executor] synthesizing completed worker result with a fresh tool-free prompt`). No structured fields, full personality, accurate numbers.
 

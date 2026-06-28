@@ -2,4 +2,4 @@ id: malibu-ollama
 type: persistent
 agent: malibu-ollama
 channels:
-  - "discord:1513207688086028469"
+  - "discord:100000000000000002"
