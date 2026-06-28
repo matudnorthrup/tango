@@ -48,6 +48,23 @@ function cloneRuntimeConfig(config: AgentRuntimeConfig): AgentRuntimeConfig {
     agentId: config.agentId,
     systemPrompt: config.systemPrompt,
     mcpServers: config.mcpServers.map((server) => cloneServerConfig(server)),
+    ...(config.availableMcpServers
+      ? { availableMcpServers: config.availableMcpServers.map((server) => cloneServerConfig(server)) }
+      : {}),
+    ...(config.mcpMountSelection
+      ? {
+          mcpMountSelection: {
+            ...config.mcpMountSelection,
+            defaultServerNames: [...config.mcpMountSelection.defaultServerNames],
+            availableServerNames: [...config.mcpMountSelection.availableServerNames],
+            mountedServerNames: [...config.mcpMountSelection.mountedServerNames],
+            activatedServerNames: [...config.mcpMountSelection.activatedServerNames],
+            triggerReasons: Object.fromEntries(
+              Object.entries(config.mcpMountSelection.triggerReasons).map(([name, reasons]) => [name, [...reasons]]),
+            ),
+          },
+        }
+      : {}),
     runtimePreferences: {
       ...config.runtimePreferences,
     },
