@@ -537,11 +537,30 @@ export function loadLayeredV2AgentConfigs(configDir?: string): Map<string, V2Age
     }
   }
 
-  return new Map(
-    [...rawConfigs.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([id, rawConfig]) => [id, parseV2AgentConfig(rawConfig)]),
-  );
+  const configs = new Map<string, V2AgentConfig>();
+  for (const [id, rawConfig] of [...rawConfigs.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const parsed = rawV2AgentConfigSchema.safeParse(rawConfig);
+    if (!parsed.success && Object.keys(rawConfig).every((key) => key === "id" || isProfileOnlyV2AgentField(key))) {
+      continue;
+    }
+    configs.set(id, parseV2AgentConfig(rawConfig));
+  }
+
+  return configs;
+}
+
+function isProfileOnlyV2AgentField(key: string): boolean {
+  return key === "access"
+    || key === "avatar_url"
+    || key === "current_turn_metadata"
+    || key === "discord"
+    || key === "enabled"
+    || key === "memory"
+    || key === "orchestration"
+    || key === "provider"
+    || key === "runtime"
+    || key === "tools"
+    || key === "voice";
 }
 
 export function isV2RuntimeEnabled(config: V2AgentConfig): boolean {
