@@ -89,4 +89,58 @@ describe("selectMcpServersForTurn", () => {
     ]);
     expect(result.selection.triggerReasons.attachments).toContain("images-present");
   });
+
+  it("promotes fleet-log when save pass context is present", () => {
+    const config: AgentRuntimeConfig = {
+      ...createConfig(),
+      availableMcpServers: [
+        ...(createConfig().availableMcpServers ?? []),
+        {
+          name: "fleet-log",
+          command: "node",
+          args: ["mcp-proxy.js", "fleet-log"],
+        },
+      ],
+    };
+
+    const result = selectMcpServersForTurn(config, {
+      message: "go",
+      sendOptions: {
+        context: [
+          "Save pass (requested via /tango save):",
+          "Daily log: call daily_log_append with 1–3 outcome bullets for fleet peers.",
+        ].join("\n"),
+      },
+    });
+
+    expect(result.config.mcpServers.map((server) => server.name)).toEqual([
+      "memory",
+      "fleet-log",
+    ]);
+    expect(result.selection.triggerReasons["fleet-log"]).toContain("turn-keyword");
+  });
+
+  it("promotes wellness-db when the turn asks about supplements", () => {
+    const config: AgentRuntimeConfig = {
+      ...createConfig(),
+      availableMcpServers: [
+        ...(createConfig().availableMcpServers ?? []),
+        {
+          name: "wellness-db",
+          command: "node",
+          args: ["mcp-proxy.js", "wellness-db"],
+        },
+      ],
+    };
+
+    const result = selectMcpServersForTurn(config, {
+      message: "Can you check the supplement list in the wellness database?",
+    });
+
+    expect(result.config.mcpServers.map((server) => server.name)).toEqual([
+      "memory",
+      "wellness-db",
+    ]);
+    expect(result.selection.triggerReasons["wellness-db"]).toContain("turn-keyword");
+  });
 });

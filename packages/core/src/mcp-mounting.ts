@@ -91,6 +91,12 @@ const SERVER_KEYWORD_PATTERNS: Record<string, RegExp[]> = {
   "wellness-db": [
     /\b(wellness db|wellness database|product|supplement|recipe|meal log|delete product|delete supplement)\b/iu,
   ],
+  "fleet-log": [
+    /\bsave pass\b/iu,
+    /\bdaily_log_append\b/iu,
+    /\bdaily log append\b/iu,
+    /\btango save\b/iu,
+  ],
   walmart: [
     /\b(walmart|cart|checkout|order)\b/iu,
   ],

@@ -168,6 +168,8 @@ describe("TangoRouter", () => {
             {
               ...bravoConfig.mcpServers[0]!,
               env: {
+                TANGO_AGENT_ID: "bravo",
+                TANGO_CAPTURED_BY: "agent_save",
                 TANGO_CONVERSATION_KEY: "channel:channel-1",
                 TANGO_DISCORD_CHANNEL_ID: "channel-1",
               },
@@ -283,6 +285,8 @@ describe("TangoRouter", () => {
           {
             ...createAgentConfig("alpha").mcpServers[0]!,
             env: {
+              TANGO_AGENT_ID: "alpha",
+              TANGO_CAPTURED_BY: "agent_save",
               TANGO_CONVERSATION_KEY: "voice:session-42:alpha",
               TANGO_DISCORD_CHANNEL_ID: "channel-1",
             },

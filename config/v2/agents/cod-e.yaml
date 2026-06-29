@@ -31,6 +31,10 @@ mcp_servers:
     env:
       ALLOWED_TOOL_IDS: "daily_log_append"
 
+mcp:
+  default_servers:
+    - memory
+
 current_turn_metadata:
   timezone: America/Denver
   time_format: 12h
