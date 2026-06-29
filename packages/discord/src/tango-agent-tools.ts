@@ -42,6 +42,10 @@ export interface TangoToolPaths {
   profileToolsDir?: string;
   /** Override the profile root for state body docs (tests). */
   profileStateRoot?: string;
+  /** Caller agent id (tests); defaults to WORKER_ID / TANGO_AGENT_ID. */
+  callerAgentId?: string | null;
+  /** Cross-agent read allowlist (tests); defaults to AGENT_DOCS_CROSS_READ_ALLOWLIST env. */
+  crossReadAllowlist?: Set<string> | "*";
 }
 
 const SHARED_DOC_NAMES = new Set(["RULES.md", "USER.md", "AGENTS.md"]);
@@ -322,6 +326,106 @@ function readDocOverlay(overlayPath: string | null): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Cross-agent access control
+// ---------------------------------------------------------------------------
+
+interface AgentDocsAccessOptions {
+  callerAgentId: string | null;
+  crossReadAllowlist: Set<string> | "*";
+}
+
+function resolveCallerAgentId(overrides?: TangoToolPaths): string | null {
+  if (overrides && "callerAgentId" in overrides) {
+    const id = overrides.callerAgentId?.trim();
+    return id || null;
+  }
+  return process.env.TANGO_AGENT_ID?.trim() || process.env.WORKER_ID?.trim() || null;
+}
+
+function parseCrossReadAllowlist(raw?: string): Set<string> | "*" {
+  const value = raw ?? process.env.AGENT_DOCS_CROSS_READ_ALLOWLIST?.trim() ?? "";
+  if (!value || value === "self") return new Set();
+  if (value === "*") return "*";
+  return new Set(
+    value.split(",").map((entry) => entry.trim()).filter(Boolean),
+  );
+}
+
+function accessOptionsFrom(overrides?: TangoToolPaths): AgentDocsAccessOptions {
+  return {
+    callerAgentId: resolveCallerAgentId(overrides),
+    crossReadAllowlist: overrides?.crossReadAllowlist ?? parseCrossReadAllowlist(),
+  };
+}
+
+/** Agent id owning an assistants|workers|system tree path, or null for shared/repo docs. */
+export function parseAgentTreeOwnerId(relPath: string): string | null {
+  const normalized = normalizeRelativePath(relPath);
+  const [prefix, ownerId] = normalized.split("/");
+  if (!prefix || !ownerId || !AGENT_TREE_PREFIXES.has(prefix)) return null;
+  return ownerId;
+}
+
+function isAgentTreeParentListing(relPath: string): boolean {
+  const normalized = normalizeRelativePath(relPath).replace(/\/+$/u, "");
+  return AGENT_TREE_PREFIXES.has(normalized);
+}
+
+function checkAgentTreeAccess(
+  mode: "read" | "write",
+  targetAgentId: string,
+  options: AgentDocsAccessOptions,
+): { allowed: true } | { allowed: false; error: string } {
+  const caller = options.callerAgentId;
+  if (!caller) return { allowed: true };
+  if (targetAgentId === caller) return { allowed: true };
+
+  if (mode === "write") {
+    return {
+      allowed: false,
+      error:
+        `Cross-agent write blocked — ${caller} cannot modify docs for agent "${targetAgentId}". `
+        + "Update your own agent tree or shared/tool/skill docs instead.",
+    };
+  }
+
+  const { crossReadAllowlist } = options;
+  if (crossReadAllowlist === "*" || crossReadAllowlist.has(targetAgentId)) {
+    return { allowed: true };
+  }
+
+  return {
+    allowed: false,
+    error:
+      `Cross-agent read blocked — ${caller} cannot read docs for agent "${targetAgentId}". `
+      + "Set AGENT_DOCS_CROSS_READ_ALLOWLIST on the agent-docs MCP server "
+      + "(comma-separated agent ids, or * to allow all).",
+  };
+}
+
+function guardAgentTreeAccess(
+  mode: "read" | "write",
+  relPathOrAgentId: string,
+  options: AgentDocsAccessOptions,
+  viaAgentParam = false,
+): { allowed: true } | { allowed: false; error: string } {
+  const targetAgentId = viaAgentParam
+    ? relPathOrAgentId.trim() || null
+    : parseAgentTreeOwnerId(relPathOrAgentId);
+  if (!targetAgentId) return { allowed: true };
+  return checkAgentTreeAccess(mode, targetAgentId, options);
+}
+
+function filterAccessibleAgentDirs(
+  dirs: string[],
+  parentRelPath: string,
+  options: AgentDocsAccessOptions,
+): string[] {
+  if (!isAgentTreeParentListing(parentRelPath)) return dirs;
+  return dirs.filter((dir) => checkAgentTreeAccess("read", dir, options).allowed);
+}
+
+// ---------------------------------------------------------------------------
 // Agent docs tool
 // ---------------------------------------------------------------------------
 
@@ -337,6 +441,10 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         "future sessions get it right.",
         "",
         "Profile layer (operator installs): profile wins over repo for shared/ and assistants|workers|system/.",
+        "",
+        "Cross-agent access: by default an agent can only read/list/write its own assistants|workers|system tree.",
+        "Shared docs, tools/, and skills/ remain readable. Operators grant cross-agent reads via",
+        "AGENT_DOCS_CROSS_READ_ALLOWLIST on the agent-docs MCP server (comma-separated ids, or *).",
         "",
         "Operations:",
         "  list — List files in a directory",
@@ -416,6 +524,7 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
       handler: async (input) => {
         const operation = String(input.operation);
         const agentsDir = paths.agentsDir;
+        const access = accessOptionsFrom(overrides);
 
         if (operation.startsWith("state_")) {
           return handleStateDocsOperation(operation, input, paths.profileStateRoot);
@@ -424,6 +533,15 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
         if (operation === "list") {
           const relPath = input.path ? String(input.path) : "";
           const agentId = input.agent ? String(input.agent) : "";
+
+          if (agentId) {
+            const guard = guardAgentTreeAccess("read", agentId, access, true);
+            if (!guard.allowed) return { error: guard.error };
+          }
+          if (relPath) {
+            const guard = guardAgentTreeAccess("read", relPath, access);
+            if (!guard.allowed) return { error: guard.error };
+          }
 
           let resolved: string | null = null;
           if (relPath) {
@@ -447,13 +565,16 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
 
           const entries = fs.readdirSync(resolved);
           const mdFiles = entries.filter((e) => e.endsWith(".md"));
-          const dirs = entries.filter((e) => {
+          let dirs = entries.filter((e) => {
             try {
               return fs.statSync(path.join(resolved!, e)).isDirectory();
             } catch {
               return false;
             }
           });
+          if (relPath) {
+            dirs = filterAccessibleAgentDirs(dirs, relPath, access);
+          }
 
           // Surface profile-overlay-only skill/tool docs alongside repo files.
           const listedDir = path.basename(resolved);
@@ -480,6 +601,9 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
 
         if (operation === "read") {
           const relPath = String(input.path ?? "");
+          const readGuard = guardAgentTreeAccess("read", relPath, access);
+          if (!readGuard.allowed) return { error: readGuard.error };
+
           const resolvedDoc = resolveDocPath(paths, relPath, "read");
           if (!resolvedDoc) {
             return { error: "Invalid path — must be a .md file within agents/" };
@@ -515,6 +639,9 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
 
         if (operation === "write") {
           const relPath = String(input.path ?? "");
+          const writeGuard = guardAgentTreeAccess("write", relPath, access);
+          if (!writeGuard.allowed) return { error: writeGuard.error };
+
           const content = String(input.content ?? "");
           const resolvedDoc = resolveDocPath(paths, relPath, "write");
           if (!resolvedDoc) {
@@ -540,6 +667,9 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
 
         if (operation === "patch") {
           const relPath = String(input.path ?? "");
+          const patchGuard = guardAgentTreeAccess("write", relPath, access);
+          if (!patchGuard.allowed) return { error: patchGuard.error };
+
           const oldText = String(input.old ?? "");
           const newText = String(input.new ?? "");
           const resolvedDoc = resolveDocPath(paths, relPath, "read");

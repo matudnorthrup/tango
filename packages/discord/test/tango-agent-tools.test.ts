@@ -78,7 +78,10 @@ describe("agent_docs tool", () => {
     fs.mkdirSync(workerDir, { recursive: true });
     fs.writeFileSync(path.join(workerDir, "soul.md"), "research assistant soul");
 
-    const tool = createTangoTools({ agentsDir }).find((entry) => entry.name === "agent_docs");
+    const tool = createTangoTools({
+      agentsDir,
+      callerAgentId: "research-assistant",
+    }).find((entry) => entry.name === "agent_docs");
     const result = await tool?.handler({
       operation: "list",
       agent: "research-assistant",
@@ -87,6 +90,91 @@ describe("agent_docs tool", () => {
     expect(result).toMatchObject({
       files: ["soul.md"],
     });
+  });
+
+  it("blocks cross-agent reads by default when caller identity is set", async () => {
+    const agentsDir = createAgentsDir();
+    const codEDir = path.join(agentsDir, "assistants", "cod-e");
+    fs.mkdirSync(codEDir, { recursive: true });
+    fs.writeFileSync(path.join(codEDir, "knowledge.md"), "cod-e secrets");
+
+    const tool = createTangoTools({
+      agentsDir,
+      profileAgentsDir: path.join(agentsDir),
+      callerAgentId: "jules",
+    }).find((entry) => entry.name === "agent_docs");
+
+    const blocked = await tool?.handler({
+      operation: "read",
+      path: "assistants/cod-e/knowledge.md",
+    });
+    expect(blocked).toMatchObject({ error: expect.stringMatching(/Cross-agent read blocked/i) });
+  });
+
+  it("allows cross-agent reads when allowlisted on the MCP server", async () => {
+    const agentsDir = createAgentsDir();
+    const codEDir = path.join(agentsDir, "assistants", "cod-e");
+    fs.mkdirSync(codEDir, { recursive: true });
+    fs.writeFileSync(path.join(codEDir, "knowledge.md"), "cod-e knowledge");
+
+    const tool = createTangoTools({
+      agentsDir,
+      profileAgentsDir: path.join(agentsDir),
+      callerAgentId: "jules",
+      crossReadAllowlist: new Set(["cod-e"]),
+    }).find((entry) => entry.name === "agent_docs");
+
+    const result = await tool?.handler({
+      operation: "read",
+      path: "assistants/cod-e/knowledge.md",
+    });
+    expect(result).toMatchObject({ content: "cod-e knowledge" });
+  });
+
+  it("blocks cross-agent writes even when cross-read is allowlisted", async () => {
+    const agentsDir = createAgentsDir();
+    const codEDir = path.join(agentsDir, "assistants", "cod-e");
+    fs.mkdirSync(codEDir, { recursive: true });
+    fs.writeFileSync(path.join(codEDir, "knowledge.md"), "original");
+
+    const tool = createTangoTools({
+      agentsDir,
+      profileAgentsDir: path.join(agentsDir),
+      callerAgentId: "jules",
+      crossReadAllowlist: new Set(["cod-e"]),
+    }).find((entry) => entry.name === "agent_docs");
+
+    const result = await tool?.handler({
+      operation: "write",
+      path: "assistants/cod-e/knowledge.md",
+      content: "jules overwrite",
+    });
+    expect(result).toMatchObject({ error: expect.stringMatching(/Cross-agent write blocked/i) });
+    expect(fs.readFileSync(path.join(codEDir, "knowledge.md"), "utf8")).toBe("original");
+  });
+
+  it("filters cross-agent directories when listing assistants/", async () => {
+    const agentsDir = createAgentsDir();
+    for (const id of ["cod-e", "jules"]) {
+      const dir = path.join(agentsDir, "assistants", id);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "soul.md"), `${id} soul`);
+    }
+
+    const tool = createTangoTools({
+      agentsDir,
+      profileAgentsDir: path.join(agentsDir),
+      callerAgentId: "jules",
+    }).find((entry) => entry.name === "agent_docs");
+
+    const result = await tool?.handler({
+      operation: "list",
+      path: "assistants",
+    });
+    expect(result).toMatchObject({
+      directories: ["jules"],
+    });
+    expect(result?.directories).not.toContain("cod-e");
   });
 
   it("reads shared USER.md from profile when profile override exists", async () => {

@@ -26,6 +26,10 @@ The `agent_docs` tool uses profile-first resolution for `shared/` and
 `assistants|workers|system/` paths when configured. Repo copies are templates
 only.
 
+Cross-agent reads of another agent's persona tree are blocked unless the
+operator sets `AGENT_DOCS_CROSS_READ_ALLOWLIST` on that agent's agent-docs MCP
+server. See `agents/tools/agent-docs.md`.
+
 That overlay surface can include:
 
 - `prompts/shared/` for operator-specific shared rules and user context
