@@ -125,7 +125,9 @@ export class TangoRouter {
       ...(params.discordTurn?.trigger ? { trigger: params.discordTurn.trigger } : {}),
       ...(params.discordTurn?.timeZone ? { timeZone: params.discordTurn.timeZone } : {}),
     };
-    writeDiscordTurnProvenanceSnapshot(buildDiscordTurnProvenanceEnv(turnProvenance));
+    writeDiscordTurnProvenanceSnapshot(buildDiscordTurnProvenanceEnv(turnProvenance), {
+      conversationKey: turnProvenance.conversationKey,
+    });
     const baseAgentConfig = augmentRuntimeConfigWithDiscordProvenance(
       this.resolveAgentConfig(params.agentId),
       turnProvenance,

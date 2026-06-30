@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveTangoCurrentTurnProvenancePath } from "./runtime-paths.js";
+import {
+  resolveTangoCurrentTurnProvenancePath,
+  resolveTangoTurnProvenancePath,
+} from "./runtime-paths.js";
 
 export const DISCORD_TURN_PROVENANCE_ENV_KEYS = [
   "TANGO_CONVERSATION_KEY",
@@ -41,12 +44,22 @@ export function pickDiscordTurnProvenanceEnv(
   return picked;
 }
 
+function resolveTurnProvenanceSnapshotPath(env: NodeJS.ProcessEnv): string {
+  const explicit = env.TANGO_TURN_PROVENANCE_FILE?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const conversationKey = env.TANGO_CONVERSATION_KEY?.trim();
+  if (conversationKey) {
+    return resolveTangoTurnProvenancePath(conversationKey);
+  }
+  return resolveTangoCurrentTurnProvenancePath();
+}
+
 export function resolveDiscordTurnProvenanceEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
-  const filePath =
-    env.TANGO_TURN_PROVENANCE_FILE?.trim()
-    ?? resolveTangoCurrentTurnProvenancePath();
+  const filePath = resolveTurnProvenanceSnapshotPath(env);
   let fromFile: Record<string, string> = {};
   try {
     if (fs.existsSync(filePath)) {
@@ -66,9 +79,15 @@ export function resolveDiscordTurnProvenanceEnv(
 
 export function writeDiscordTurnProvenanceSnapshot(
   provenance: Record<string, string>,
-  options: { filePath?: string } = {},
+  options: { filePath?: string; conversationKey?: string } = {},
 ): string {
-  const filePath = options.filePath?.trim() || resolveTangoCurrentTurnProvenancePath();
+  const conversationKey =
+    options.conversationKey?.trim() ?? provenance.TANGO_CONVERSATION_KEY?.trim();
+  const filePath =
+    options.filePath?.trim()
+    ?? (conversationKey
+      ? resolveTangoTurnProvenancePath(conversationKey)
+      : resolveTangoCurrentTurnProvenancePath());
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const payload = pickDiscordTurnProvenanceEnv(provenance as NodeJS.ProcessEnv);
   fs.writeFileSync(filePath, `${JSON.stringify(payload)}\n`, "utf8");

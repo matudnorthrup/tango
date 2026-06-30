@@ -73,7 +73,9 @@ describe("discord memory provenance runtime config", () => {
       TANGO_CONVERSATION_KEY: "thread:thread-9",
       TANGO_AGENT_ID: "cod-e",
       TANGO_CAPTURED_BY: "save_pass",
-      TANGO_TURN_PROVENANCE_FILE: expect.stringMatching(/current-turn-provenance\.json$/),
+      TANGO_TURN_PROVENANCE_FILE: expect.stringMatching(
+        /turn-provenance\/thread-thread-9\.json$/,
+      ),
     });
     expect(augmented.mcpServers[0]?.env).not.toHaveProperty("TANGO_TURN_PROVENANCE_FILE");
   });

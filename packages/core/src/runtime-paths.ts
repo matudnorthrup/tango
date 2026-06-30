@@ -202,7 +202,34 @@ export function resolveTangoProfileRuntimeDir(
   return path.join(resolveTangoProfileDir(options), "runtime");
 }
 
-/** Sidecar file mcp-proxy reads per HTTP request (stdio child env is frozen at spawn). */
+/** Safe filename segment for a Discord conversation_key (e.g. thread:123 → thread-123). */
+export function encodeConversationKeyForProvenanceFilename(conversationKey: string): string {
+  const trimmed = conversationKey.trim();
+  if (!trimmed) {
+    throw new Error("conversationKey is required for provenance path");
+  }
+  const encoded = trimmed.replace(/[^A-Za-z0-9._-]+/gu, "-");
+  if (!encoded) {
+    throw new Error(`conversationKey produced empty provenance filename: ${conversationKey}`);
+  }
+  return encoded;
+}
+
+/**
+ * Per-conversation provenance snapshot for mcp-proxy (stdio env is frozen at spawn).
+ * One file per conversation_key so concurrent agent turns cannot clobber each other.
+ */
+export function resolveTangoTurnProvenancePath(
+  conversationKey: string,
+  options: TangoProfilePathOptions = {},
+): string {
+  const encoded = encodeConversationKeyForProvenanceFilename(conversationKey);
+  return path.join(resolveTangoProfileRuntimeDir(options), "turn-provenance", `${encoded}.json`);
+}
+
+/**
+ * @deprecated Use resolveTangoTurnProvenancePath(conversationKey). Global file caused T-B-010 race.
+ */
 export function resolveTangoCurrentTurnProvenancePath(
   options: TangoProfilePathOptions = {},
 ): string {
