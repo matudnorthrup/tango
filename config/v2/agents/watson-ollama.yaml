@@ -130,6 +130,7 @@ tools:
   allowlist:
     - WebSearch
     - WebFetch
+    - mcp__collaboration__collaborate_with_agent
 
 deterministic_routing:
   enabled: false

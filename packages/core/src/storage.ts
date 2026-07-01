@@ -284,6 +284,102 @@ export interface SubAgentRunInsertInput {
   metadata?: Record<string, unknown> | null;
 }
 
+export type AgentCollaborationStatus =
+  | "proposed"
+  | "running"
+  | "waiting_on_user"
+  | "completed"
+  | "failed"
+  | "canceled"
+  | "denied"
+  | "expired";
+export type AgentCollaborationVisibilityMode = "summary" | "digest" | "thread" | "transcript" | "silent";
+export type AgentCollaborationInitiatorKind = "user" | "agent" | "schedule" | "system";
+export type AgentCollaborationTurnType = "request" | "clarification" | "result" | "status" | "escalation" | "error";
+
+export interface AgentCollaborationSessionRecord {
+  id: string;
+  parentCollaborationId: string | null;
+  requesterAgentId: string;
+  targetAgentId: string;
+  initiatorKind: AgentCollaborationInitiatorKind;
+  initiatorRef: string | null;
+  purpose: string;
+  objective: string;
+  normalizedObjective: string;
+  contextSummary: string | null;
+  deliverableContract: Record<string, unknown>;
+  constraints: string[];
+  status: AgentCollaborationStatus;
+  visibilityMode: AgentCollaborationVisibilityMode;
+  userSurface: Record<string, unknown> | null;
+  budget: Record<string, unknown>;
+  policyDecision: Record<string, unknown> | null;
+  resultSummary: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string | null;
+}
+
+export interface AgentCollaborationSessionInsertInput {
+  id?: string;
+  parentCollaborationId?: string | null;
+  requesterAgentId: string;
+  targetAgentId: string;
+  initiatorKind: AgentCollaborationInitiatorKind;
+  initiatorRef?: string | null;
+  purpose: string;
+  objective: string;
+  normalizedObjective: string;
+  contextSummary?: string | null;
+  deliverableContract?: Record<string, unknown>;
+  constraints?: string[];
+  status: AgentCollaborationStatus;
+  visibilityMode: AgentCollaborationVisibilityMode;
+  userSurface?: Record<string, unknown> | null;
+  budget?: Record<string, unknown>;
+  policyDecision?: Record<string, unknown> | null;
+  resultSummary?: string | null;
+  error?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface AgentCollaborationSessionUpdateInput {
+  status?: AgentCollaborationStatus;
+  policyDecision?: Record<string, unknown> | null;
+  resultSummary?: string | null;
+  error?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface AgentCollaborationTurnRecord {
+  id: string;
+  collaborationId: string;
+  turnIndex: number;
+  senderAgentId: string;
+  recipientAgentId: string;
+  turnType: AgentCollaborationTurnType;
+  content: string;
+  structured: Record<string, unknown> | null;
+  modelRunId: number | null;
+  visibleMessageRef: string | null;
+  createdAt: string;
+}
+
+export interface AgentCollaborationTurnInsertInput {
+  id?: string;
+  collaborationId: string;
+  turnIndex: number;
+  senderAgentId: string;
+  recipientAgentId: string;
+  turnType: AgentCollaborationTurnType;
+  content: string;
+  structured?: Record<string, unknown> | null;
+  modelRunId?: number | null;
+  visibleMessageRef?: string | null;
+}
+
 export interface ActiveTaskRecord {
   id: string;
   sessionId: string;
@@ -2441,6 +2537,78 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'local_business_search');
     `,
   },
+  {
+    version: 60,
+    sql: `
+      CREATE TABLE IF NOT EXISTS agent_collaboration_sessions (
+        id TEXT PRIMARY KEY,
+        parent_collaboration_id TEXT,
+        requester_agent_id TEXT NOT NULL,
+        target_agent_id TEXT NOT NULL,
+        initiator_kind TEXT NOT NULL CHECK(initiator_kind IN ('user', 'agent', 'schedule', 'system')),
+        initiator_ref TEXT,
+        purpose TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        normalized_objective TEXT NOT NULL,
+        context_summary TEXT,
+        deliverable_contract_json TEXT NOT NULL DEFAULT '{}',
+        constraints_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL CHECK(status IN ('proposed', 'running', 'waiting_on_user', 'completed', 'failed', 'canceled', 'denied', 'expired')),
+        visibility_mode TEXT NOT NULL CHECK(visibility_mode IN ('summary', 'digest', 'thread', 'transcript', 'silent')),
+        user_surface_json TEXT,
+        budget_json TEXT NOT NULL DEFAULT '{}',
+        policy_decision_json TEXT,
+        result_summary TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT,
+        FOREIGN KEY (parent_collaboration_id) REFERENCES agent_collaboration_sessions(id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_collab_request_lookup
+        ON agent_collaboration_sessions(requester_agent_id, target_agent_id, purpose, normalized_objective, created_at);
+      CREATE INDEX IF NOT EXISTS idx_agent_collab_status_expires
+        ON agent_collaboration_sessions(status, expires_at);
+
+      CREATE TABLE IF NOT EXISTS agent_collaboration_turns (
+        id TEXT PRIMARY KEY,
+        collaboration_id TEXT NOT NULL,
+        turn_index INTEGER NOT NULL,
+        sender_agent_id TEXT NOT NULL,
+        recipient_agent_id TEXT NOT NULL,
+        turn_type TEXT NOT NULL CHECK(turn_type IN ('request', 'clarification', 'result', 'status', 'escalation', 'error')),
+        content TEXT NOT NULL,
+        structured_json TEXT,
+        model_run_id INTEGER,
+        visible_message_ref TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (collaboration_id) REFERENCES agent_collaboration_sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY (model_run_id) REFERENCES model_runs(id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_collab_turns_session
+        ON agent_collaboration_turns(collaboration_id, turn_index);
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('collaborate_with_agent', 'tango', 'Agent Collaboration', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'user:owner', 'collaborate_with_agent', 'write', 'bounded agent-to-agent collaboration'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'user:owner')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'collaborate_with_agent');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'agent:watson', 'collaborate_with_agent', 'write', 'Watson bounded specialist collaboration'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'collaborate_with_agent');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'agent:victor', 'collaborate_with_agent', 'write', 'Victor bounded specialist collaboration'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:victor')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'collaborate_with_agent');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
@@ -4397,6 +4565,291 @@ export class TangoStorage {
       );
 
     return id;
+  }
+
+  insertAgentCollaborationSession(input: AgentCollaborationSessionInsertInput): string {
+    const id = input.id?.trim() || randomUUID();
+    this.db
+      .prepare(
+        `
+          INSERT INTO agent_collaboration_sessions (
+            id,
+            parent_collaboration_id,
+            requester_agent_id,
+            target_agent_id,
+            initiator_kind,
+            initiator_ref,
+            purpose,
+            objective,
+            normalized_objective,
+            context_summary,
+            deliverable_contract_json,
+            constraints_json,
+            status,
+            visibility_mode,
+            user_surface_json,
+            budget_json,
+            policy_decision_json,
+            result_summary,
+            error,
+            expires_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        id,
+        input.parentCollaborationId ?? null,
+        input.requesterAgentId,
+        input.targetAgentId,
+        input.initiatorKind,
+        input.initiatorRef ?? null,
+        input.purpose,
+        input.objective,
+        input.normalizedObjective,
+        input.contextSummary ?? null,
+        JSON.stringify(input.deliverableContract ?? {}),
+        JSON.stringify(input.constraints ?? []),
+        input.status,
+        input.visibilityMode,
+        toJsonOrNull(input.userSurface),
+        JSON.stringify(input.budget ?? {}),
+        toJsonOrNull(input.policyDecision),
+        input.resultSummary ?? null,
+        input.error ?? null,
+        input.expiresAt ?? null,
+      );
+
+    return id;
+  }
+
+  updateAgentCollaborationSession(id: string, input: AgentCollaborationSessionUpdateInput): boolean {
+    const existing = this.getAgentCollaborationSession(id);
+    if (!existing) {
+      return false;
+    }
+
+    const policyDecision =
+      input.policyDecision === undefined ? existing.policyDecision : input.policyDecision;
+    this.db
+      .prepare(
+        `
+          UPDATE agent_collaboration_sessions
+          SET
+            status = ?,
+            policy_decision_json = ?,
+            result_summary = ?,
+            error = ?,
+            expires_at = ?,
+            updated_at = datetime('now')
+          WHERE id = ?
+        `,
+      )
+      .run(
+        input.status ?? existing.status,
+        toJsonOrNull(policyDecision),
+        input.resultSummary === undefined ? existing.resultSummary : input.resultSummary,
+        input.error === undefined ? existing.error : input.error,
+        input.expiresAt === undefined ? existing.expiresAt : input.expiresAt,
+        id,
+      );
+
+    return true;
+  }
+
+  getAgentCollaborationSession(id: string): AgentCollaborationSessionRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            parent_collaboration_id AS parentCollaborationId,
+            requester_agent_id AS requesterAgentId,
+            target_agent_id AS targetAgentId,
+            initiator_kind AS initiatorKind,
+            initiator_ref AS initiatorRef,
+            purpose,
+            objective,
+            normalized_objective AS normalizedObjective,
+            context_summary AS contextSummary,
+            deliverable_contract_json AS deliverableContractJson,
+            constraints_json AS constraintsJson,
+            status,
+            visibility_mode AS visibilityMode,
+            user_surface_json AS userSurfaceJson,
+            budget_json AS budgetJson,
+            policy_decision_json AS policyDecisionJson,
+            result_summary AS resultSummary,
+            error,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            expires_at AS expiresAt
+          FROM agent_collaboration_sessions
+          WHERE id = ?
+        `,
+      )
+      .get(id) as AgentCollaborationSessionRow | undefined;
+
+    return row ? mapAgentCollaborationSessionRow(row) : null;
+  }
+
+  findRecentAgentCollaborationSession(input: {
+    requesterAgentId: string;
+    targetAgentId: string;
+    purpose: string;
+    normalizedObjective: string;
+    sinceUtc: string;
+  }): AgentCollaborationSessionRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            parent_collaboration_id AS parentCollaborationId,
+            requester_agent_id AS requesterAgentId,
+            target_agent_id AS targetAgentId,
+            initiator_kind AS initiatorKind,
+            initiator_ref AS initiatorRef,
+            purpose,
+            objective,
+            normalized_objective AS normalizedObjective,
+            context_summary AS contextSummary,
+            deliverable_contract_json AS deliverableContractJson,
+            constraints_json AS constraintsJson,
+            status,
+            visibility_mode AS visibilityMode,
+            user_surface_json AS userSurfaceJson,
+            budget_json AS budgetJson,
+            policy_decision_json AS policyDecisionJson,
+            result_summary AS resultSummary,
+            error,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            expires_at AS expiresAt
+          FROM agent_collaboration_sessions
+          WHERE requester_agent_id = ?
+            AND target_agent_id = ?
+            AND purpose = ?
+            AND normalized_objective = ?
+            AND created_at >= ?
+          ORDER BY created_at DESC
+          LIMIT 1
+        `,
+      )
+      .get(
+        input.requesterAgentId,
+        input.targetAgentId,
+        input.purpose,
+        input.normalizedObjective,
+        toSqliteDateTime(new Date(input.sinceUtc)),
+      ) as AgentCollaborationSessionRow | undefined;
+
+    return row ? mapAgentCollaborationSessionRow(row) : null;
+  }
+
+  findActiveInboundAgentCollaborationSession(input: {
+    targetAgentId: string;
+    nowUtc: string;
+  }): AgentCollaborationSessionRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            parent_collaboration_id AS parentCollaborationId,
+            requester_agent_id AS requesterAgentId,
+            target_agent_id AS targetAgentId,
+            initiator_kind AS initiatorKind,
+            initiator_ref AS initiatorRef,
+            purpose,
+            objective,
+            normalized_objective AS normalizedObjective,
+            context_summary AS contextSummary,
+            deliverable_contract_json AS deliverableContractJson,
+            constraints_json AS constraintsJson,
+            status,
+            visibility_mode AS visibilityMode,
+            user_surface_json AS userSurfaceJson,
+            budget_json AS budgetJson,
+            policy_decision_json AS policyDecisionJson,
+            result_summary AS resultSummary,
+            error,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            expires_at AS expiresAt
+          FROM agent_collaboration_sessions
+          WHERE target_agent_id = ?
+            AND status IN ('running', 'waiting_on_user')
+            AND (expires_at IS NULL OR datetime(expires_at) >= datetime(?))
+          ORDER BY created_at DESC
+          LIMIT 1
+        `,
+      )
+      .get(input.targetAgentId, toSqliteDateTime(new Date(input.nowUtc))) as AgentCollaborationSessionRow | undefined;
+
+    return row ? mapAgentCollaborationSessionRow(row) : null;
+  }
+
+  insertAgentCollaborationTurn(input: AgentCollaborationTurnInsertInput): string {
+    const id = input.id?.trim() || randomUUID();
+    this.db
+      .prepare(
+        `
+          INSERT INTO agent_collaboration_turns (
+            id,
+            collaboration_id,
+            turn_index,
+            sender_agent_id,
+            recipient_agent_id,
+            turn_type,
+            content,
+            structured_json,
+            model_run_id,
+            visible_message_ref
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        id,
+        input.collaborationId,
+        input.turnIndex,
+        input.senderAgentId,
+        input.recipientAgentId,
+        input.turnType,
+        input.content,
+        toJsonOrNull(input.structured),
+        input.modelRunId ?? null,
+        input.visibleMessageRef ?? null,
+      );
+
+    return id;
+  }
+
+  listAgentCollaborationTurns(collaborationId: string): AgentCollaborationTurnRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            collaboration_id AS collaborationId,
+            turn_index AS turnIndex,
+            sender_agent_id AS senderAgentId,
+            recipient_agent_id AS recipientAgentId,
+            turn_type AS turnType,
+            content,
+            structured_json AS structuredJson,
+            model_run_id AS modelRunId,
+            visible_message_ref AS visibleMessageRef,
+            created_at AS createdAt
+          FROM agent_collaboration_turns
+          WHERE collaboration_id = ?
+          ORDER BY turn_index ASC, created_at ASC
+        `,
+      )
+      .all(collaborationId) as AgentCollaborationTurnRow[];
+
+    return rows.map(mapAgentCollaborationTurnRow);
   }
 
   upsertActiveTask(input: ActiveTaskUpsertInput): string {
@@ -6890,6 +7343,75 @@ function parseJsonArray(input: string | null): string[] {
     return [];
   }
   return parsed.filter((value): value is string => typeof value === "string");
+}
+
+type AgentCollaborationSessionRow =
+  Omit<
+    AgentCollaborationSessionRecord,
+    "deliverableContract" | "constraints" | "userSurface" | "budget" | "policyDecision"
+  > & {
+    deliverableContractJson: string | null;
+    constraintsJson: string | null;
+    userSurfaceJson: string | null;
+    budgetJson: string | null;
+    policyDecisionJson: string | null;
+  };
+
+type AgentCollaborationTurnRow =
+  Omit<AgentCollaborationTurnRecord, "structured"> & {
+    structuredJson: string | null;
+  };
+
+function parseJsonObject(input: string | null): Record<string, unknown> | null {
+  const parsed = parseJsonValue(input);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null;
+}
+
+function mapAgentCollaborationSessionRow(
+  row: AgentCollaborationSessionRow,
+): AgentCollaborationSessionRecord {
+  return {
+    id: row.id,
+    parentCollaborationId: row.parentCollaborationId,
+    requesterAgentId: row.requesterAgentId,
+    targetAgentId: row.targetAgentId,
+    initiatorKind: row.initiatorKind,
+    initiatorRef: row.initiatorRef,
+    purpose: row.purpose,
+    objective: row.objective,
+    normalizedObjective: row.normalizedObjective,
+    contextSummary: row.contextSummary,
+    deliverableContract: parseJsonObject(row.deliverableContractJson) ?? {},
+    constraints: parseJsonArray(row.constraintsJson),
+    status: row.status,
+    visibilityMode: row.visibilityMode,
+    userSurface: parseJsonObject(row.userSurfaceJson),
+    budget: parseJsonObject(row.budgetJson) ?? {},
+    policyDecision: parseJsonObject(row.policyDecisionJson),
+    resultSummary: row.resultSummary,
+    error: row.error,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    expiresAt: row.expiresAt,
+  };
+}
+
+function mapAgentCollaborationTurnRow(row: AgentCollaborationTurnRow): AgentCollaborationTurnRecord {
+  return {
+    id: row.id,
+    collaborationId: row.collaborationId,
+    turnIndex: row.turnIndex,
+    senderAgentId: row.senderAgentId,
+    recipientAgentId: row.recipientAgentId,
+    turnType: row.turnType,
+    content: row.content,
+    structured: parseJsonObject(row.structuredJson),
+    modelRunId: row.modelRunId,
+    visibleMessageRef: row.visibleMessageRef,
+    createdAt: row.createdAt,
+  };
 }
 
 function toActiveContextItemRecord(row: ActiveContextItemRow): ActiveContextItemRecord {

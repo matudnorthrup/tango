@@ -61,6 +61,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "orientation"]
     env:
       ALLOWED_TOOL_IDS: "orientation_nudge"
+  - name: collaboration
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "collaboration"]
+    env:
+      ALLOWED_TOOL_IDS: "collaborate_with_agent"
   - name: latitude
     command: mcp-remote
     args: ["https://mcp.example.invalid/oauth/mcp"]
@@ -96,6 +101,23 @@ memory:
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
+responsibilities:
+  - id: personal_coordination
+    description: Coordinate bounded personal-assistant work with specialist agents when their configured responsibilities fit the user's goal.
+    objectives:
+      - Preserve the user's goal and constraints when asking specialists for help.
+      - Use specialist agents for bounded read or draft support, not as a way around confirmation requirements.
+    autonomy:
+      default: supervised
+      writes_require_confirmation: true
+      purchase_or_payment: never
+    collaboration:
+      can_request:
+        - agent: sierra
+          purposes: ["source-check", "vendor-comparison"]
+        - agent: foxtrot
+          purposes: ["receipt-status-check", "finance-summary"]
+
 # Voice configuration
 voice:
   call_signs:
@@ -127,6 +149,7 @@ tools:
   allowlist:
     - WebSearch
     - WebFetch
+    - mcp__collaboration__collaborate_with_agent
 
 deterministic_routing:
   enabled: true

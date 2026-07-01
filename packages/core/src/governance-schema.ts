@@ -330,6 +330,7 @@ export const GOVERNANCE_SEED = `
     ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read'),
     ('spawn_claude_session', 'tango', 'Spawn Claude Code Session', 'write'),
     ('list_claude_sessions', 'tango', 'List Claude Code Sessions', 'read'),
+    ('collaborate_with_agent', 'tango', 'Agent Collaboration', 'write'),
     ('discord_send_image', 'tango', 'Discord Image Send', 'write');
 
   -- Default groups
@@ -585,5 +586,8 @@ export const GOVERNANCE_SEED = `
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('user:owner', 'memory_search', 'read', 'universal memory retrieval'),
     ('user:owner', 'memory_add', 'write', 'universal memory storage'),
-    ('user:owner', 'memory_reflect', 'write', 'universal memory reflection');
+    ('user:owner', 'memory_reflect', 'write', 'universal memory reflection'),
+    ('user:owner', 'collaborate_with_agent', 'write', 'bounded agent-to-agent collaboration'),
+    ('agent:watson', 'collaborate_with_agent', 'write', 'Watson bounded specialist collaboration'),
+    ('agent:victor', 'collaborate_with_agent', 'write', 'Victor bounded specialist collaboration');
 `;

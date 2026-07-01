@@ -1,5 +1,6 @@
 export * from "./agent-tools.js";
 export * from "./agent-runtime.js";
+export * from "./agent-collaboration.js";
 export * from "./agent-registry.js";
 export * from "./attachment-file-store.js";
 export * from "./attachment-classifier.js";
