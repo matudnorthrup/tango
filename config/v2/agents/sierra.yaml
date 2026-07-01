@@ -108,6 +108,34 @@ memory:
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
+responsibilities:
+  - id: research_support
+    description: Provide bounded research, source checking, and comparison support for other agents.
+    objectives:
+      - Return source-grounded findings with concise evidence.
+      - Avoid writes or purchases when fulfilling collaboration requests unless a separate configured responsibility allows them.
+    autonomy:
+      default: supervised
+      writes_require_confirmation: true
+      purchase_or_payment: never
+    collaboration:
+      can_fulfill:
+        - purpose: source-check
+          max_turns: 1
+          max_duration_seconds: 180
+          max_tool_calls: 6
+          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
+        - purpose: vendor-comparison
+          max_turns: 1
+          max_duration_seconds: 240
+          max_tool_calls: 8
+          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
+        - purpose: local-business-research
+          max_turns: 1
+          max_duration_seconds: 240
+          max_tool_calls: 8
+          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
+
 # Voice configuration
 voice:
   call_signs:

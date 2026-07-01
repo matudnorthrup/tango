@@ -162,6 +162,36 @@ describe("loadV2AgentConfig", () => {
     });
   });
 
+  it("loads generic responsibility and collaboration policy config", () => {
+    const victor = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "victor.yaml"));
+    const sierra = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "sierra.yaml"));
+
+    expect(victor.responsibilities?.[0]).toMatchObject({
+      id: "operations_coordination",
+      autonomy: {
+        default: "supervised",
+        writesRequireConfirmation: true,
+        purchaseOrPayment: "never",
+      },
+      collaboration: {
+        canRequest: [
+          {
+            agent: "sierra",
+            purposes: ["source-check", "vendor-comparison", "local-business-research"],
+          },
+        ],
+      },
+    });
+
+    expect(sierra.responsibilities?.[0]?.collaboration?.canFulfill?.[0]).toMatchObject({
+      purpose: "source-check",
+      maxTurns: 1,
+      maxDurationSeconds: 180,
+      maxToolCalls: 6,
+      visibilityModes: ["summary", "digest", "thread", "transcript", "silent"],
+    });
+  });
+
   it("keeps base agents and their Ollama clones on shared memory scopes", () => {
     const configs = loadAllV2AgentConfigs(path.join(repoRoot, "config", "v2", "agents"));
     const pairs = [

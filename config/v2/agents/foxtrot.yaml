@@ -90,6 +90,29 @@ memory:
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
+responsibilities:
+  - id: finance_support
+    description: Provide bounded finance, receipt, and reimbursement status support for other agents.
+    objectives:
+      - Verify finance status from configured source-of-record tools.
+      - Preserve confirmation requirements for writes, submissions, purchases, and payments.
+    autonomy:
+      default: supervised
+      writes_require_confirmation: true
+      purchase_or_payment: never
+    collaboration:
+      can_fulfill:
+        - purpose: receipt-status-check
+          max_turns: 1
+          max_duration_seconds: 180
+          max_tool_calls: 6
+          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
+        - purpose: finance-summary
+          max_turns: 1
+          max_duration_seconds: 180
+          max_tool_calls: 6
+          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
+
 voice:
   call_signs:
     - "Zulu Foxtrot"

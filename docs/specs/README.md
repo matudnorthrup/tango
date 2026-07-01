@@ -7,6 +7,8 @@ Primary product/design specs live here so they are versioned with code.
   boundaries, memory behavior, and privacy model.
 - `voice-state-machine-v2-design.md` is the forward-looking voice state
   machine redesign spec.
+- `agent-collaboration.md` is the design spec for bounded, observable
+  agent-to-agent collaboration across named Tango agents.
 - `ollama-provider-parallel-instance.md` is the design spec for a first-class
   `ollama` model provider and a parallel Ollama-backed Tango instance for live
   evaluation alongside production.
