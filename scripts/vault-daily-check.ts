@@ -105,7 +105,27 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const now = new Date();
   const stamp = getZonedTimestamp(now);
-  const vaultPath = path.resolve(expandHome(options.vaultPath));
+
+  // Fail fast when no vault path is configured. Without this guard an empty
+  // path (TANGO_OBSIDIAN_VAULT unset and no --vault-path) silently resolves to
+  // process.cwd(), causing the audit and the Records/Jobs/Vault/*.md job log to
+  // be written into the current working directory (e.g. a repo worktree)
+  // instead of the Obsidian vault.
+  const configuredVaultPath = options.vaultPath.trim();
+  if (!configuredVaultPath) {
+    throw new Error(
+      "No Obsidian vault path configured: set TANGO_OBSIDIAN_VAULT or pass " +
+        "--vault-path. Refusing to run so the audit/job log is never written " +
+        "to the current working directory.",
+    );
+  }
+  const vaultPath = path.resolve(expandHome(configuredVaultPath));
+  if (!fs.existsSync(vaultPath) || !fs.statSync(vaultPath).isDirectory()) {
+    throw new Error(
+      `Configured Obsidian vault path does not exist or is not a directory: ${vaultPath}. ` +
+        "Check TANGO_OBSIDIAN_VAULT / --vault-path.",
+    );
+  }
   const dbPath = path.resolve(expandHome(options.dbPath ?? DEFAULT_DB_PATH));
   const reportPath = path.resolve(options.reportPath);
   const summaryJsonPath = path.resolve(options.summaryJsonPath);
