@@ -2,11 +2,16 @@ import {
   appendFleetDailyLogBlock,
   formatFleetDailyLogCalendarDate,
   formatFleetDailyLogTimestamp,
+  patchFleetDailyLog,
+  resolveDiscordTurnProvenanceEnv,
   type FleetDailyLogCapturedBy,
   type AgentTool,
 } from "@tango/core";
 import type { DiscordCapturedBy } from "./discord-memory-provenance.js";
 import { readDiscordTurnProvenanceFromContext } from "./discord-turn-provenance-context.js";
+
+/** Gate 2 scope (T-B-010): supervised corrections — Cod-E canary only until fleet review. */
+export const DAILY_LOG_PATCH_ALLOWED_AGENT_IDS = new Set(["cod-e"]);
 
 export interface DailyLogToolEnv {
   conversationKey?: string;
@@ -23,15 +28,19 @@ export function readDailyLogToolEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): DailyLogToolEnv {
   const fromContext = readDiscordTurnProvenanceFromContext();
+  const resolved = {
+    ...resolveDiscordTurnProvenanceEnv(env),
+    ...fromContext,
+  };
   return {
-    conversationKey: fromContext.TANGO_CONVERSATION_KEY ?? env.TANGO_CONVERSATION_KEY?.trim(),
-    channelId: fromContext.TANGO_DISCORD_CHANNEL_ID ?? env.TANGO_DISCORD_CHANNEL_ID?.trim(),
-    threadId: fromContext.TANGO_DISCORD_THREAD_ID ?? env.TANGO_DISCORD_THREAD_ID?.trim(),
-    agentId: fromContext.TANGO_AGENT_ID ?? (env.TANGO_AGENT_ID?.trim() || env.WORKER_ID?.trim()),
-    capturedBy: (fromContext.TANGO_CAPTURED_BY ?? env.TANGO_CAPTURED_BY?.trim()) as DiscordCapturedBy | undefined,
-    requestedByUserId: fromContext.TANGO_REQUESTED_BY_USER_ID ?? env.TANGO_REQUESTED_BY_USER_ID?.trim(),
-    trigger: fromContext.TANGO_SAVE_TRIGGER ?? env.TANGO_SAVE_TRIGGER?.trim(),
-    timeZone: fromContext.TANGO_TURN_TIMEZONE ?? env.TANGO_TURN_TIMEZONE?.trim(),
+    conversationKey: resolved.TANGO_CONVERSATION_KEY,
+    channelId: resolved.TANGO_DISCORD_CHANNEL_ID,
+    threadId: resolved.TANGO_DISCORD_THREAD_ID,
+    agentId: resolved.TANGO_AGENT_ID ?? (env.TANGO_AGENT_ID?.trim() || env.WORKER_ID?.trim()),
+    capturedBy: resolved.TANGO_CAPTURED_BY as DiscordCapturedBy | undefined,
+    requestedByUserId: resolved.TANGO_REQUESTED_BY_USER_ID,
+    trigger: resolved.TANGO_SAVE_TRIGGER,
+    timeZone: resolved.TANGO_TURN_TIMEZONE,
   };
 }
 
@@ -53,11 +62,19 @@ function normalizeBulletsInput(value: unknown): string[] {
     .filter((item) => item.length > 0);
 }
 
+function normalizeCapturedBy(value: DiscordCapturedBy | undefined): FleetDailyLogCapturedBy {
+  return value === "save_pass" ? "save_pass" : "agent_save";
+}
+
+function isDailyLogPatchAllowed(agentId: string | undefined): boolean {
+  const normalized = agentId?.trim().toLowerCase();
+  return normalized !== undefined && DAILY_LOG_PATCH_ALLOWED_AGENT_IDS.has(normalized);
+}
+
 export function createDailyLogTools(
   envOverride?: DailyLogToolEnv,
 ): AgentTool[] {
-  return [
-    {
+  const appendTool: AgentTool = {
       name: "daily_log_append",
       description: [
         "Append a stamped block to today's fleet daily log (~/.tango/profiles/<profile>/memory/YYYY-MM-DD.md).",
@@ -134,10 +151,79 @@ export function createDailyLogTools(
           };
         }
       },
-    },
-  ];
-}
+  };
 
-function normalizeCapturedBy(value: DiscordCapturedBy | undefined): FleetDailyLogCapturedBy {
-  return value === "save_pass" ? "save_pass" : "agent_save";
+  const patchTool: AgentTool = {
+    name: "daily_log_patch",
+    description: [
+      "Apply a supervised search-and-replace correction to an existing fleet daily log file.",
+      "Use for attribution fixes or correction blocks — not routine saves (use daily_log_append).",
+      "Cod-E only for now; append-only guard stays the default for other agents.",
+      "",
+      "Fields:",
+      "  date (required) — YYYY-MM-DD log file to edit",
+      "  old_string (required) — exact text to replace",
+      "  new_string (required) — replacement text (may be empty to delete a span)",
+      "  replace_all (optional) — replace every occurrence (default: first only)",
+    ].join("\n"),
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: {
+          type: "string",
+          description: "Calendar date of the daily log file (YYYY-MM-DD)",
+        },
+        old_string: {
+          type: "string",
+          description: "Exact text to replace in the daily log",
+        },
+        new_string: {
+          type: "string",
+          description: "Replacement text",
+        },
+        replace_all: {
+          type: "boolean",
+          description: "Replace all occurrences (default false)",
+        },
+      },
+      required: ["date", "old_string", "new_string"],
+    },
+    handler: async (input) => {
+      const env = envOverride ?? readDailyLogToolEnv();
+      const agentId = env.agentId?.trim();
+      if (!isDailyLogPatchAllowed(agentId)) {
+        return {
+          error:
+            "daily_log_patch is restricted to Cod-E during the canary phase. "
+            + "Use daily_log_append and append a correction block instead.",
+        };
+      }
+
+      const date = typeof input.date === "string" ? input.date.trim() : "";
+      const oldString = typeof input.old_string === "string" ? input.old_string : "";
+      const newString = typeof input.new_string === "string" ? input.new_string : "";
+      const replaceAll = input.replace_all === true;
+
+      try {
+        const result = await patchFleetDailyLog({
+          date,
+          oldString,
+          newString,
+          replaceAll,
+        });
+        return {
+          path: result.path,
+          date: result.date,
+          replacements: result.replacements,
+          agent_id: agentId,
+        };
+      } catch (error) {
+        return {
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  };
+
+  return [appendTool, patchTool];
 }

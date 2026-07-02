@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { applyEditPatch } from "./profile-state-write-guard.js";
 import { resolveTangoProfileDir, type TangoProfilePathOptions } from "./runtime-paths.js";
 
 export type FleetDailyLogCapturedBy = "save_pass" | "agent_save";
@@ -38,6 +39,20 @@ export interface AppendFleetDailyLogResult {
   path: string;
   block: string;
   createdFile: boolean;
+}
+
+export interface PatchFleetDailyLogOptions extends TangoProfilePathOptions {
+  profileRoot?: string;
+  date: string;
+  oldString: string;
+  newString: string;
+  replaceAll?: boolean;
+}
+
+export interface PatchFleetDailyLogResult {
+  date: string;
+  path: string;
+  replacements: number;
 }
 
 const DEFAULT_TIME_ZONE = "America/Denver";
@@ -152,6 +167,55 @@ export async function appendFleetDailyLogBlock(
     block,
     createdFile: ensured.created,
   };
+}
+
+const DAILY_LOG_DATE_PATTERN = /^[\d]{4}-[\d]{2}-[\d]{2}$/u;
+
+export function assertFleetDailyLogDate(date: string): void {
+  if (!DAILY_LOG_DATE_PATTERN.test(date.trim())) {
+    throw new Error("daily_log_patch date must be YYYY-MM-DD");
+  }
+}
+
+export async function patchFleetDailyLog(
+  options: PatchFleetDailyLogOptions,
+): Promise<PatchFleetDailyLogResult> {
+  const profileRoot = options.profileRoot ?? resolveTangoProfileDir(options);
+  const date = options.date.trim();
+  assertFleetDailyLogDate(date);
+
+  const oldString = options.oldString;
+  const newString = options.newString;
+  if (oldString.length === 0) {
+    throw new Error("daily_log_patch requires non-empty old_string");
+  }
+
+  const logPath = resolveFleetDailyLogPath(profileRoot, date);
+  if (!fs.existsSync(logPath)) {
+    throw new Error(`Fleet daily log not found for ${date}`);
+  }
+
+  return withAppendLock(logPath, async () => {
+    const existing = fs.readFileSync(logPath, "utf8");
+    const patched = applyEditPatch(existing, oldString, newString, options.replaceAll === true);
+    if (patched === null) {
+      throw new Error("daily_log_patch old_string not found in daily log");
+    }
+    if (patched.trim().length === 0) {
+      throw new Error("daily_log_patch would empty the daily log file");
+    }
+
+    const replacements = options.replaceAll === true
+      ? existing.split(oldString).length - 1
+      : existing.includes(oldString) ? 1 : 0;
+
+    fs.writeFileSync(logPath, patched, "utf8");
+    return {
+      date,
+      path: logPath,
+      replacements,
+    };
+  });
 }
 
 async function withAppendLock<T>(filePath: string, fn: () => Promise<T> | T): Promise<T> {

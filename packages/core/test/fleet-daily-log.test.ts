@@ -7,6 +7,7 @@ import {
   ensureFleetDailyLog,
   formatFleetDailyLogBlock,
   normalizeFleetDailyLogBullets,
+  patchFleetDailyLog,
 } from "../src/fleet-daily-log.js";
 
 const tempDirs: string[] = [];
@@ -95,5 +96,44 @@ describe("fleet-daily-log", () => {
 
   it("normalizes bullet prefixes", () => {
     expect(normalizeFleetDailyLogBullets(["* item", "- other"])).toEqual(["item", "other"]);
+  });
+
+  it("patches an existing daily log file surgically", async () => {
+    const profileRoot = makeProfileRoot();
+    const logPath = path.join(profileRoot, "memory", "2026-06-29.md");
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(
+      logPath,
+      "# 2026-06-29\n\n## cod-e · wrong stamp\n- ghost bullet\n",
+      "utf8",
+    );
+
+    const result = await patchFleetDailyLog({
+      profileRoot,
+      date: "2026-06-29",
+      oldString: "wrong stamp",
+      newString: "corrected stamp",
+    });
+
+    expect(result.replacements).toBe(1);
+    expect(fs.readFileSync(logPath, "utf8")).toContain("corrected stamp");
+    expect(fs.readFileSync(logPath, "utf8")).not.toContain("wrong stamp");
+  });
+
+  it("rejects patch that would empty the daily log", async () => {
+    const profileRoot = makeProfileRoot();
+    const logPath = path.join(profileRoot, "memory", "2026-06-29.md");
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    const content = "# 2026-06-29\n";
+    fs.writeFileSync(logPath, content, "utf8");
+
+    await expect(
+      patchFleetDailyLog({
+        profileRoot,
+        date: "2026-06-29",
+        oldString: content,
+        newString: "",
+      }),
+    ).rejects.toThrow(/empty/i);
   });
 });

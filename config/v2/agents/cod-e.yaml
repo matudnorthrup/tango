@@ -29,7 +29,7 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "fleet-log"]
     env:
-      ALLOWED_TOOL_IDS: "daily_log_append"
+      ALLOWED_TOOL_IDS: "daily_log_append,daily_log_patch"
 
 mcp:
   default_servers:

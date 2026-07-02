@@ -2620,6 +2620,18 @@ const MIGRATIONS: Migration[] = [
       WHERE EXISTS (SELECT 1 FROM governance_tools WHERE id = 'daily_log_append');
     `,
   },
+  {
+    version: 62,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('daily_log_patch', 'shared', 'Fleet Daily Log Patch', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:cod-e', 'daily_log_patch', 'write', 'T-B-010 supervised daily log corrections (canary)'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:cod-e')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'daily_log_patch');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

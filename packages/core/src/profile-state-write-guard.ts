@@ -91,11 +91,15 @@ export function validateProfileMemoryDailyLogMutation(input: ProfileStateGuardIn
   }
 
   if (existing !== undefined) {
+    const patchHint = input.operation === "patch"
+      ? " Cod-E may use daily_log_patch for supervised corrections."
+      : "";
     return {
       allowed: false,
       reason:
         "Refusing write/patch on an existing fleet daily log file. "
-        + "Use daily_log_append — the platform stamps metadata from the current Discord turn.",
+        + "Use daily_log_append — the platform stamps metadata from the current Discord turn."
+        + patchHint,
     };
   }
 

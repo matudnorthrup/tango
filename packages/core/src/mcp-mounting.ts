@@ -94,7 +94,9 @@ const SERVER_KEYWORD_PATTERNS: Record<string, RegExp[]> = {
   "fleet-log": [
     /\bsave pass\b/iu,
     /\bdaily_log_append\b/iu,
+    /\bdaily_log_patch\b/iu,
     /\bdaily log append\b/iu,
+    /\bdaily log patch\b/iu,
     /\btango save\b/iu,
   ],
   walmart: [

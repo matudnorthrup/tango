@@ -273,6 +273,7 @@ export const GOVERNANCE_SEED = `
     ('memory_add', 'shared', 'Memory Add', 'write'),
     ('memory_reflect', 'shared', 'Memory Reflect', 'write'),
     ('daily_log_append', 'shared', 'Fleet Daily Log Append', 'write'),
+    ('daily_log_patch', 'shared', 'Fleet Daily Log Patch', 'write'),
     ('attachment_search', 'attachments', 'Attachment Search', 'read'),
     ('attachment_read', 'attachments', 'Attachment Read', 'read'),
     ('attachment_status', 'attachments', 'Attachment Status', 'read'),
@@ -592,4 +593,9 @@ export const GOVERNANCE_SEED = `
     ('user:owner', 'collaborate_with_agent', 'write', 'bounded agent-to-agent collaboration'),
     ('agent:watson', 'collaborate_with_agent', 'write', 'Watson bounded specialist collaboration'),
     ('agent:victor', 'collaborate_with_agent', 'write', 'Victor bounded specialist collaboration');
+
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+  SELECT 'worker:cod-e', 'daily_log_patch', 'write', 'T-B-010 supervised daily log corrections (canary)'
+  WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:cod-e')
+    AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'daily_log_patch');
 `;
