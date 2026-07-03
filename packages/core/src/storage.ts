@@ -380,6 +380,199 @@ export interface AgentCollaborationTurnInsertInput {
   visibleMessageRef?: string | null;
 }
 
+export type SubAgentJobStatus =
+  | "queued"
+  | "running"
+  | "waiting_on_user"
+  | "blocked"
+  | "completed"
+  | "failed"
+  | "canceling"
+  | "canceled"
+  | "expired";
+export type SubAgentJobInitiatorKind = "user" | "agent" | "schedule" | "system";
+export type SubAgentJobVisibilityMode = "summary" | "digest" | "thread" | "transcript" | "silent";
+export type SubAgentChildKind = "worker" | "named_agent" | "collaborator" | "external_session";
+export type SubAgentChildStatus =
+  | "queued"
+  | "running"
+  | "waiting_on_user"
+  | "blocked"
+  | "completed"
+  | "failed"
+  | "canceling"
+  | "canceled"
+  | "expired";
+export type SubAgentJobEventSeverity = "debug" | "info" | "warning" | "error";
+
+export interface SubAgentJobRecord {
+  id: string;
+  parentJobId: string | null;
+  coordinatorAgentId: string;
+  initiatorKind: SubAgentJobInitiatorKind;
+  initiatorRef: string | null;
+  userSurface: Record<string, unknown>;
+  objective: string;
+  normalizedObjective: string;
+  status: SubAgentJobStatus;
+  priority: number;
+  visibilityMode: SubAgentJobVisibilityMode;
+  notificationPolicy: Record<string, unknown>;
+  budget: Record<string, unknown>;
+  policyDecision: Record<string, unknown> | null;
+  resultSummary: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string | null;
+}
+
+export interface SubAgentJobInsertInput {
+  id?: string;
+  parentJobId?: string | null;
+  coordinatorAgentId: string;
+  initiatorKind: SubAgentJobInitiatorKind;
+  initiatorRef?: string | null;
+  userSurface?: Record<string, unknown>;
+  objective: string;
+  normalizedObjective: string;
+  status: SubAgentJobStatus;
+  priority?: number;
+  visibilityMode?: SubAgentJobVisibilityMode;
+  notificationPolicy?: Record<string, unknown>;
+  budget?: Record<string, unknown>;
+  policyDecision?: Record<string, unknown> | null;
+  resultSummary?: string | null;
+  error?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface SubAgentJobUpdateInput {
+  status?: SubAgentJobStatus;
+  policyDecision?: Record<string, unknown> | null;
+  resultSummary?: string | null;
+  error?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface SubAgentChildRunRecord {
+  id: string;
+  jobId: string;
+  kind: SubAgentChildKind;
+  agentId: string | null;
+  workerId: string | null;
+  providerName: string | null;
+  model: string | null;
+  conversationKey: string | null;
+  task: string;
+  dependsOn: string[];
+  toolIds: string[];
+  status: SubAgentChildStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  heartbeatAt: string | null;
+  durationMs: number | null;
+  costEstimateUsd: number | null;
+  resultSummary: string | null;
+  error: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubAgentChildRunInsertInput {
+  id?: string;
+  jobId: string;
+  kind: SubAgentChildKind;
+  agentId?: string | null;
+  workerId?: string | null;
+  providerName?: string | null;
+  model?: string | null;
+  conversationKey?: string | null;
+  task: string;
+  dependsOn?: string[];
+  toolIds?: string[];
+  status?: SubAgentChildStatus;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  heartbeatAt?: string | null;
+  durationMs?: number | null;
+  costEstimateUsd?: number | null;
+  resultSummary?: string | null;
+  error?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface SubAgentChildRunUpdateInput {
+  status?: SubAgentChildStatus;
+  providerName?: string | null;
+  model?: string | null;
+  conversationKey?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  heartbeatAt?: string | null;
+  durationMs?: number | null;
+  costEstimateUsd?: number | null;
+  resultSummary?: string | null;
+  error?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface SubAgentJobEventRecord {
+  id: string;
+  jobId: string;
+  childRunId: string | null;
+  eventType: string;
+  severity: SubAgentJobEventSeverity;
+  title: string | null;
+  body: string | null;
+  structured: Record<string, unknown> | null;
+  visibleMessageRef: string | null;
+  createdAt: string;
+}
+
+export interface SubAgentJobEventInsertInput {
+  id?: string;
+  jobId: string;
+  childRunId?: string | null;
+  eventType: string;
+  severity?: SubAgentJobEventSeverity;
+  title?: string | null;
+  body?: string | null;
+  structured?: Record<string, unknown> | null;
+  visibleMessageRef?: string | null;
+}
+
+export interface SubAgentArtifactRecord {
+  id: string;
+  jobId: string;
+  childRunId: string | null;
+  artifactType: string;
+  title: string | null;
+  uri: string;
+  summary: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface SubAgentArtifactInsertInput {
+  id?: string;
+  jobId: string;
+  childRunId?: string | null;
+  artifactType: string;
+  title?: string | null;
+  uri: string;
+  summary?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ListSubAgentJobsOptions {
+  coordinatorAgentId?: string;
+  status?: SubAgentJobStatus | "active" | "terminal";
+  userSurfaceKind?: string;
+  limit?: number;
+}
+
 export interface ActiveTaskRecord {
   id: string;
   sessionId: string;
@@ -2609,6 +2802,149 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'collaborate_with_agent');
     `,
   },
+  {
+    version: 61,
+    sql: `
+      CREATE TABLE IF NOT EXISTS sub_agent_jobs (
+        id TEXT PRIMARY KEY,
+        parent_job_id TEXT,
+        coordinator_agent_id TEXT NOT NULL,
+        initiator_kind TEXT NOT NULL CHECK(initiator_kind IN ('user', 'agent', 'schedule', 'system')),
+        initiator_ref TEXT,
+        user_surface_json TEXT NOT NULL DEFAULT '{}',
+        objective TEXT NOT NULL,
+        normalized_objective TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'waiting_on_user', 'blocked', 'completed', 'failed', 'canceling', 'canceled', 'expired')),
+        priority INTEGER NOT NULL DEFAULT 0,
+        visibility_mode TEXT NOT NULL DEFAULT 'summary' CHECK(visibility_mode IN ('summary', 'digest', 'thread', 'transcript', 'silent')),
+        notification_policy_json TEXT NOT NULL DEFAULT '{}',
+        budget_json TEXT NOT NULL DEFAULT '{}',
+        policy_decision_json TEXT,
+        result_summary TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT,
+        FOREIGN KEY (parent_job_id) REFERENCES sub_agent_jobs(id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sub_agent_jobs_status_updated
+        ON sub_agent_jobs(status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_sub_agent_jobs_coordinator_updated
+        ON sub_agent_jobs(coordinator_agent_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_sub_agent_jobs_expires
+        ON sub_agent_jobs(expires_at, status);
+
+      CREATE TABLE IF NOT EXISTS sub_agent_child_runs (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('worker', 'named_agent', 'collaborator', 'external_session')),
+        agent_id TEXT,
+        worker_id TEXT,
+        provider_name TEXT,
+        model TEXT,
+        conversation_key TEXT,
+        task TEXT NOT NULL,
+        depends_on_json TEXT NOT NULL DEFAULT '[]',
+        tool_ids_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'waiting_on_user', 'blocked', 'completed', 'failed', 'canceling', 'canceled', 'expired')),
+        started_at TEXT,
+        finished_at TEXT,
+        heartbeat_at TEXT,
+        duration_ms INTEGER,
+        cost_estimate_usd REAL,
+        result_summary TEXT,
+        error TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (job_id) REFERENCES sub_agent_jobs(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sub_agent_child_runs_job_status
+        ON sub_agent_child_runs(job_id, status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_sub_agent_child_runs_heartbeat
+        ON sub_agent_child_runs(status, heartbeat_at);
+
+      CREATE TABLE IF NOT EXISTS sub_agent_job_events (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        child_run_id TEXT,
+        event_type TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'info' CHECK(severity IN ('debug', 'info', 'warning', 'error')),
+        title TEXT,
+        body TEXT,
+        structured_json TEXT,
+        visible_message_ref TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (job_id) REFERENCES sub_agent_jobs(id) ON DELETE CASCADE,
+        FOREIGN KEY (child_run_id) REFERENCES sub_agent_child_runs(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sub_agent_job_events_job_created
+        ON sub_agent_job_events(job_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_sub_agent_job_events_type_created
+        ON sub_agent_job_events(event_type, created_at);
+
+      CREATE TABLE IF NOT EXISTS sub_agent_artifacts (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        child_run_id TEXT,
+        artifact_type TEXT NOT NULL,
+        title TEXT,
+        uri TEXT NOT NULL,
+        summary TEXT,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (job_id) REFERENCES sub_agent_jobs(id) ON DELETE CASCADE,
+        FOREIGN KEY (child_run_id) REFERENCES sub_agent_child_runs(id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sub_agent_artifacts_job_created
+        ON sub_agent_artifacts(job_id, created_at);
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('start_sub_agent_job', 'tango', 'Start Sub-Agent Job', 'write'),
+        ('get_sub_agent_job', 'tango', 'Get Sub-Agent Job', 'read'),
+        ('list_sub_agent_jobs', 'tango', 'List Sub-Agent Jobs', 'read'),
+        ('cancel_sub_agent_job', 'tango', 'Cancel Sub-Agent Job', 'write'),
+        ('send_sub_agent_job_update', 'tango', 'Record Sub-Agent Job Update', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT p.id, t.id, t.access_type, 'durable sub-agent job coordination'
+      FROM principals p
+      JOIN governance_tools t ON t.id IN (
+        'start_sub_agent_job',
+        'get_sub_agent_job',
+        'list_sub_agent_jobs',
+        'cancel_sub_agent_job',
+        'send_sub_agent_job_update'
+      )
+      WHERE p.id IN (
+        'user:owner',
+        'agent:watson',
+        'agent:watson-ollama',
+        'agent:victor',
+        'agent:victor-ollama',
+        'agent:sierra',
+        'agent:sierra-ollama',
+        'agent:malibu',
+        'agent:malibu-ollama',
+        'agent:foxtrot',
+        'agent:foxtrot-ollama',
+        'worker:watson-ollama',
+        'worker:sierra-ollama',
+        'worker:foxtrot',
+        'worker:foxtrot-ollama',
+        'worker:personal-assistant',
+        'worker:research-assistant',
+        'worker:dev-assistant',
+        'worker:operations-assistant',
+        'worker:workout-recorder',
+        'worker:health-analyst'
+      );
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
@@ -2630,6 +2966,9 @@ export class TangoStorage {
     }
     if (this.getUserVersion() >= 31) {
       this.expireActiveContextItems();
+    }
+    if (this.getUserVersion() >= 61) {
+      this.expireStaleSubAgentJobs();
     }
   }
 
@@ -4850,6 +5189,471 @@ export class TangoStorage {
       .all(collaborationId) as AgentCollaborationTurnRow[];
 
     return rows.map(mapAgentCollaborationTurnRow);
+  }
+
+  insertSubAgentJob(input: SubAgentJobInsertInput): string {
+    const id = input.id?.trim() || randomUUID();
+    this.db
+      .prepare(
+        `
+          INSERT INTO sub_agent_jobs (
+            id,
+            parent_job_id,
+            coordinator_agent_id,
+            initiator_kind,
+            initiator_ref,
+            user_surface_json,
+            objective,
+            normalized_objective,
+            status,
+            priority,
+            visibility_mode,
+            notification_policy_json,
+            budget_json,
+            policy_decision_json,
+            result_summary,
+            error,
+            expires_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        id,
+        input.parentJobId ?? null,
+        input.coordinatorAgentId,
+        input.initiatorKind,
+        input.initiatorRef ?? null,
+        JSON.stringify(input.userSurface ?? {}),
+        input.objective,
+        input.normalizedObjective,
+        input.status,
+        input.priority ?? 0,
+        input.visibilityMode ?? "summary",
+        JSON.stringify(input.notificationPolicy ?? {}),
+        JSON.stringify(input.budget ?? {}),
+        toJsonOrNull(input.policyDecision),
+        input.resultSummary ?? null,
+        input.error ?? null,
+        input.expiresAt ?? null,
+      );
+
+    return id;
+  }
+
+  updateSubAgentJob(id: string, input: SubAgentJobUpdateInput): boolean {
+    const existing = this.getSubAgentJob(id);
+    if (!existing) {
+      return false;
+    }
+
+    const policyDecision =
+      input.policyDecision === undefined ? existing.policyDecision : input.policyDecision;
+    this.db
+      .prepare(
+        `
+          UPDATE sub_agent_jobs
+          SET
+            status = ?,
+            policy_decision_json = ?,
+            result_summary = ?,
+            error = ?,
+            expires_at = ?,
+            updated_at = datetime('now')
+          WHERE id = ?
+        `,
+      )
+      .run(
+        input.status ?? existing.status,
+        toJsonOrNull(policyDecision),
+        input.resultSummary === undefined ? existing.resultSummary : input.resultSummary,
+        input.error === undefined ? existing.error : input.error,
+        input.expiresAt === undefined ? existing.expiresAt : input.expiresAt,
+        id,
+      );
+
+    return true;
+  }
+
+  getSubAgentJob(id: string): SubAgentJobRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            parent_job_id AS parentJobId,
+            coordinator_agent_id AS coordinatorAgentId,
+            initiator_kind AS initiatorKind,
+            initiator_ref AS initiatorRef,
+            user_surface_json AS userSurfaceJson,
+            objective,
+            normalized_objective AS normalizedObjective,
+            status,
+            priority,
+            visibility_mode AS visibilityMode,
+            notification_policy_json AS notificationPolicyJson,
+            budget_json AS budgetJson,
+            policy_decision_json AS policyDecisionJson,
+            result_summary AS resultSummary,
+            error,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            expires_at AS expiresAt
+          FROM sub_agent_jobs
+          WHERE id = ?
+        `,
+      )
+      .get(id) as SubAgentJobRow | undefined;
+
+    return row ? mapSubAgentJobRow(row) : null;
+  }
+
+  listSubAgentJobs(options: ListSubAgentJobsOptions = {}): SubAgentJobRecord[] {
+    const resolvedLimit = Number.isFinite(options.limit) ? Math.max(Math.trunc(options.limit ?? 50), 1) : 50;
+    const status = options.status ?? null;
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            parent_job_id AS parentJobId,
+            coordinator_agent_id AS coordinatorAgentId,
+            initiator_kind AS initiatorKind,
+            initiator_ref AS initiatorRef,
+            user_surface_json AS userSurfaceJson,
+            objective,
+            normalized_objective AS normalizedObjective,
+            status,
+            priority,
+            visibility_mode AS visibilityMode,
+            notification_policy_json AS notificationPolicyJson,
+            budget_json AS budgetJson,
+            policy_decision_json AS policyDecisionJson,
+            result_summary AS resultSummary,
+            error,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            expires_at AS expiresAt
+          FROM sub_agent_jobs
+          WHERE (? IS NULL OR coordinator_agent_id = ?)
+            AND (
+              ? IS NULL
+              OR (? = 'active' AND status IN ('queued', 'running', 'waiting_on_user', 'blocked', 'canceling'))
+              OR (? = 'terminal' AND status IN ('completed', 'failed', 'canceled', 'expired'))
+              OR status = ?
+            )
+          ORDER BY updated_at DESC, created_at DESC
+          LIMIT ?
+        `,
+      )
+      .all(
+        options.coordinatorAgentId ?? null,
+        options.coordinatorAgentId ?? null,
+        status,
+        status,
+        status,
+        status,
+        resolvedLimit,
+      ) as SubAgentJobRow[];
+
+    const mapped = rows.map(mapSubAgentJobRow);
+    if (!options.userSurfaceKind) {
+      return mapped;
+    }
+    return mapped.filter((job) => job.userSurface.kind === options.userSurfaceKind);
+  }
+
+  insertSubAgentChildRun(input: SubAgentChildRunInsertInput): string {
+    const id = input.id?.trim() || randomUUID();
+    this.db
+      .prepare(
+        `
+          INSERT INTO sub_agent_child_runs (
+            id,
+            job_id,
+            kind,
+            agent_id,
+            worker_id,
+            provider_name,
+            model,
+            conversation_key,
+            task,
+            depends_on_json,
+            tool_ids_json,
+            status,
+            started_at,
+            finished_at,
+            heartbeat_at,
+            duration_ms,
+            cost_estimate_usd,
+            result_summary,
+            error,
+            metadata_json
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        id,
+        input.jobId,
+        input.kind,
+        input.agentId ?? null,
+        input.workerId ?? null,
+        input.providerName ?? null,
+        input.model ?? null,
+        input.conversationKey ?? null,
+        input.task,
+        JSON.stringify(input.dependsOn ?? []),
+        JSON.stringify(input.toolIds ?? []),
+        input.status ?? "queued",
+        input.startedAt ?? null,
+        input.finishedAt ?? null,
+        input.heartbeatAt ?? null,
+        input.durationMs ?? null,
+        input.costEstimateUsd ?? null,
+        input.resultSummary ?? null,
+        input.error ?? null,
+        toJsonOrNull(input.metadata),
+      );
+
+    return id;
+  }
+
+  updateSubAgentChildRun(id: string, input: SubAgentChildRunUpdateInput): boolean {
+    const existing = this.getSubAgentChildRun(id);
+    if (!existing) {
+      return false;
+    }
+
+    const metadata = input.metadata === undefined ? existing.metadata : input.metadata;
+    this.db
+      .prepare(
+        `
+          UPDATE sub_agent_child_runs
+          SET
+            status = ?,
+            provider_name = ?,
+            model = ?,
+            conversation_key = ?,
+            started_at = ?,
+            finished_at = ?,
+            heartbeat_at = ?,
+            duration_ms = ?,
+            cost_estimate_usd = ?,
+            result_summary = ?,
+            error = ?,
+            metadata_json = ?,
+            updated_at = datetime('now')
+          WHERE id = ?
+        `,
+      )
+      .run(
+        input.status ?? existing.status,
+        input.providerName === undefined ? existing.providerName : input.providerName,
+        input.model === undefined ? existing.model : input.model,
+        input.conversationKey === undefined ? existing.conversationKey : input.conversationKey,
+        input.startedAt === undefined ? existing.startedAt : input.startedAt,
+        input.finishedAt === undefined ? existing.finishedAt : input.finishedAt,
+        input.heartbeatAt === undefined ? existing.heartbeatAt : input.heartbeatAt,
+        input.durationMs === undefined ? existing.durationMs : input.durationMs,
+        input.costEstimateUsd === undefined ? existing.costEstimateUsd : input.costEstimateUsd,
+        input.resultSummary === undefined ? existing.resultSummary : input.resultSummary,
+        input.error === undefined ? existing.error : input.error,
+        toJsonOrNull(metadata),
+        id,
+      );
+
+    return true;
+  }
+
+  getSubAgentChildRun(id: string): SubAgentChildRunRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            job_id AS jobId,
+            kind,
+            agent_id AS agentId,
+            worker_id AS workerId,
+            provider_name AS providerName,
+            model,
+            conversation_key AS conversationKey,
+            task,
+            depends_on_json AS dependsOnJson,
+            tool_ids_json AS toolIdsJson,
+            status,
+            started_at AS startedAt,
+            finished_at AS finishedAt,
+            heartbeat_at AS heartbeatAt,
+            duration_ms AS durationMs,
+            cost_estimate_usd AS costEstimateUsd,
+            result_summary AS resultSummary,
+            error,
+            metadata_json AS metadataJson,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM sub_agent_child_runs
+          WHERE id = ?
+        `,
+      )
+      .get(id) as SubAgentChildRunRow | undefined;
+
+    return row ? mapSubAgentChildRunRow(row) : null;
+  }
+
+  listSubAgentChildRuns(jobId: string): SubAgentChildRunRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            job_id AS jobId,
+            kind,
+            agent_id AS agentId,
+            worker_id AS workerId,
+            provider_name AS providerName,
+            model,
+            conversation_key AS conversationKey,
+            task,
+            depends_on_json AS dependsOnJson,
+            tool_ids_json AS toolIdsJson,
+            status,
+            started_at AS startedAt,
+            finished_at AS finishedAt,
+            heartbeat_at AS heartbeatAt,
+            duration_ms AS durationMs,
+            cost_estimate_usd AS costEstimateUsd,
+            result_summary AS resultSummary,
+            error,
+            metadata_json AS metadataJson,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM sub_agent_child_runs
+          WHERE job_id = ?
+          ORDER BY created_at ASC, id ASC
+        `,
+      )
+      .all(jobId) as SubAgentChildRunRow[];
+
+    return rows.map(mapSubAgentChildRunRow);
+  }
+
+  insertSubAgentJobEvent(input: SubAgentJobEventInsertInput): string {
+    const id = input.id?.trim() || randomUUID();
+    this.db
+      .prepare(
+        `
+          INSERT INTO sub_agent_job_events (
+            id,
+            job_id,
+            child_run_id,
+            event_type,
+            severity,
+            title,
+            body,
+            structured_json,
+            visible_message_ref
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        id,
+        input.jobId,
+        input.childRunId ?? null,
+        input.eventType,
+        input.severity ?? "info",
+        input.title ?? null,
+        input.body ?? null,
+        toJsonOrNull(input.structured),
+        input.visibleMessageRef ?? null,
+      );
+
+    return id;
+  }
+
+  listSubAgentJobEvents(jobId: string, limit = 100): SubAgentJobEventRecord[] {
+    const resolvedLimit = Number.isFinite(limit) ? Math.max(Math.trunc(limit), 1) : 100;
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            job_id AS jobId,
+            child_run_id AS childRunId,
+            event_type AS eventType,
+            severity,
+            title,
+            body,
+            structured_json AS structuredJson,
+            visible_message_ref AS visibleMessageRef,
+            created_at AS createdAt
+          FROM sub_agent_job_events
+          WHERE job_id = ?
+          ORDER BY created_at ASC, id ASC
+          LIMIT ?
+        `,
+      )
+      .all(jobId, resolvedLimit) as SubAgentJobEventRow[];
+
+    return rows.map(mapSubAgentJobEventRow);
+  }
+
+  insertSubAgentArtifact(input: SubAgentArtifactInsertInput): string {
+    const id = input.id?.trim() || randomUUID();
+    this.db
+      .prepare(
+        `
+          INSERT INTO sub_agent_artifacts (
+            id,
+            job_id,
+            child_run_id,
+            artifact_type,
+            title,
+            uri,
+            summary,
+            metadata_json
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        id,
+        input.jobId,
+        input.childRunId ?? null,
+        input.artifactType,
+        input.title ?? null,
+        input.uri,
+        input.summary ?? null,
+        toJsonOrNull(input.metadata),
+      );
+
+    return id;
+  }
+
+  listSubAgentArtifacts(jobId: string): SubAgentArtifactRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            job_id AS jobId,
+            child_run_id AS childRunId,
+            artifact_type AS artifactType,
+            title,
+            uri,
+            summary,
+            metadata_json AS metadataJson,
+            created_at AS createdAt
+          FROM sub_agent_artifacts
+          WHERE job_id = ?
+          ORDER BY created_at ASC, id ASC
+        `,
+      )
+      .all(jobId) as SubAgentArtifactRow[];
+
+    return rows.map(mapSubAgentArtifactRow);
   }
 
   upsertActiveTask(input: ActiveTaskUpsertInput): string {
@@ -7261,6 +8065,45 @@ export class TangoStorage {
     return toSafeNumber(row?.count ?? 0);
   }
 
+  expireStaleSubAgentJobs(now: Date = new Date()): number {
+    const nowSql = toSqliteDateTime(now);
+    const childResult = this.db
+      .prepare(
+        `
+          UPDATE sub_agent_child_runs
+          SET
+            status = 'expired',
+            finished_at = COALESCE(finished_at, ?),
+            updated_at = datetime('now')
+          WHERE status IN ('queued', 'running', 'waiting_on_user', 'blocked', 'canceling')
+            AND job_id IN (
+              SELECT id FROM sub_agent_jobs
+              WHERE status IN ('queued', 'running', 'waiting_on_user', 'blocked', 'canceling')
+                AND expires_at IS NOT NULL
+                AND expires_at <= ?
+            )
+        `,
+      )
+      .run(nowSql, nowSql);
+
+    const jobResult = this.db
+      .prepare(
+        `
+          UPDATE sub_agent_jobs
+          SET
+            status = 'expired',
+            error = COALESCE(error, 'expired'),
+            updated_at = datetime('now')
+          WHERE status IN ('queued', 'running', 'waiting_on_user', 'blocked', 'canceling')
+            AND expires_at IS NOT NULL
+            AND expires_at <= ?
+        `,
+      )
+      .run(nowSql);
+
+    return toSafeNumber(childResult.changes) + toSafeNumber(jobResult.changes);
+  }
+
   private getUserVersion(): number {
     const row = this.db.prepare("PRAGMA user_version;").get() as { user_version?: number } | undefined;
     return row?.user_version ?? 0;
@@ -7362,11 +8205,119 @@ type AgentCollaborationTurnRow =
     structuredJson: string | null;
   };
 
+type SubAgentJobRow =
+  Omit<
+    SubAgentJobRecord,
+    "userSurface" | "notificationPolicy" | "budget" | "policyDecision"
+  > & {
+    userSurfaceJson: string | null;
+    notificationPolicyJson: string | null;
+    budgetJson: string | null;
+    policyDecisionJson: string | null;
+  };
+
+type SubAgentChildRunRow =
+  Omit<SubAgentChildRunRecord, "dependsOn" | "toolIds" | "metadata"> & {
+    dependsOnJson: string | null;
+    toolIdsJson: string | null;
+    metadataJson: string | null;
+  };
+
+type SubAgentJobEventRow =
+  Omit<SubAgentJobEventRecord, "structured"> & {
+    structuredJson: string | null;
+  };
+
+type SubAgentArtifactRow =
+  Omit<SubAgentArtifactRecord, "metadata"> & {
+    metadataJson: string | null;
+  };
+
 function parseJsonObject(input: string | null): Record<string, unknown> | null {
   const parsed = parseJsonValue(input);
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
     ? parsed as Record<string, unknown>
     : null;
+}
+
+function mapSubAgentJobRow(row: SubAgentJobRow): SubAgentJobRecord {
+  return {
+    id: row.id,
+    parentJobId: row.parentJobId,
+    coordinatorAgentId: row.coordinatorAgentId,
+    initiatorKind: row.initiatorKind,
+    initiatorRef: row.initiatorRef,
+    userSurface: parseJsonObject(row.userSurfaceJson) ?? {},
+    objective: row.objective,
+    normalizedObjective: row.normalizedObjective,
+    status: row.status,
+    priority: row.priority,
+    visibilityMode: row.visibilityMode,
+    notificationPolicy: parseJsonObject(row.notificationPolicyJson) ?? {},
+    budget: parseJsonObject(row.budgetJson) ?? {},
+    policyDecision: parseJsonObject(row.policyDecisionJson),
+    resultSummary: row.resultSummary,
+    error: row.error,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    expiresAt: row.expiresAt,
+  };
+}
+
+function mapSubAgentChildRunRow(row: SubAgentChildRunRow): SubAgentChildRunRecord {
+  return {
+    id: row.id,
+    jobId: row.jobId,
+    kind: row.kind,
+    agentId: row.agentId,
+    workerId: row.workerId,
+    providerName: row.providerName,
+    model: row.model,
+    conversationKey: row.conversationKey,
+    task: row.task,
+    dependsOn: parseJsonArray(row.dependsOnJson),
+    toolIds: parseJsonArray(row.toolIdsJson),
+    status: row.status,
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt,
+    heartbeatAt: row.heartbeatAt,
+    durationMs: row.durationMs,
+    costEstimateUsd: row.costEstimateUsd,
+    resultSummary: row.resultSummary,
+    error: row.error,
+    metadata: parseJsonObject(row.metadataJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapSubAgentJobEventRow(row: SubAgentJobEventRow): SubAgentJobEventRecord {
+  return {
+    id: row.id,
+    jobId: row.jobId,
+    childRunId: row.childRunId,
+    eventType: row.eventType,
+    severity: row.severity,
+    title: row.title,
+    body: row.body,
+    structured: parseJsonObject(row.structuredJson),
+    visibleMessageRef: row.visibleMessageRef,
+    createdAt: row.createdAt,
+  };
+}
+
+function mapSubAgentArtifactRow(row: SubAgentArtifactRow): SubAgentArtifactRecord {
+  return {
+    id: row.id,
+    jobId: row.jobId,
+    childRunId: row.childRunId,
+    artifactType: row.artifactType,
+    title: row.title,
+    uri: row.uri,
+    summary: row.summary,
+    metadata: parseJsonObject(row.metadataJson),
+    createdAt: row.createdAt,
+  };
 }
 
 function mapAgentCollaborationSessionRow(

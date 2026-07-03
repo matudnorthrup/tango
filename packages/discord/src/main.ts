@@ -16,7 +16,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fork, execFileSync, execSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { request as httpRequest, createServer as createHttpServer } from "node:http";
+import {
+  request as httpRequest,
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import {
   AgentRegistry,
   AttachmentJobWorker,
@@ -118,6 +123,15 @@ import {
   findRepoLayerPersonalPromptFindings,
   type PromptLayerAuditFinding,
   AgentCollaborationService,
+  SubAgentJobService,
+  createAgentCollaborationChildExecutor,
+  createRuntimeChildExecutor,
+  evaluateSubAgentJobNotification,
+  type SubAgentChildExecution,
+  type SubAgentChildExecutionResult,
+  type StartSubAgentJobInput,
+  type ListSubAgentJobsOptions,
+  type SubTaskSpec,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
@@ -156,6 +170,7 @@ import {
   generateWithFailover
 } from "./provider-failover.js";
 import { applySessionProviderCommand, mergeProviderOrder } from "./session-provider-command.js";
+import { buildWorkerProviderTools } from "./worker-provider-tools.js";
 import { applyThreadSessionRoute } from "./thread-route.js";
 import {
   HttpVoiceBridge,
@@ -816,6 +831,358 @@ const providers = createBuiltInProviderRegistry({
 // Reuse the single OllamaProvider instance built above so the legacy registry
 // and the v2 runtime share one provider (and one cached 1Password key lookup).
 providers.set("ollama", ollamaProvider);
+
+function normalizeSubAgentProviderNames(providerName: string | null | undefined): string[] {
+  const configured = providerName?.trim()
+    ? [providerName.trim()]
+    : (process.env.TANGO_SUB_AGENT_DEFAULT_PROVIDERS ?? "claude-oauth,claude-oauth-secondary,codex")
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+
+  return [...new Set(configured.map((item) => {
+    if (item === "claude") return "claude-oauth";
+    if (item === "claude-secondary") return "claude-oauth-secondary";
+    if (item === "openai") return "codex";
+    return item;
+  }))];
+}
+
+function normalizeSubAgentReasoningEffort(value: unknown): ProviderReasoningEffort | undefined {
+  if (value === "low" || value === "medium" || value === "high" || value === "max" || value === "xhigh") {
+    return value;
+  }
+  return undefined;
+}
+
+function resolveSubAgentPersistentMcpPort(): number | undefined {
+  const parsed = Number.parseInt(process.env.TANGO_PERSISTENT_MCP_PORT ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function buildSubAgentWorkerSystemPrompt(task: SubTaskSpec): string {
+  return [
+    "You are a background sub-agent executing one focused child run for a Tango coordinator.",
+    "Complete the task directly with the tools made available for this run.",
+    "Return a concise result with evidence, caveats, and any blocker. Do not message the user.",
+    `Available tools: ${task.tools.length > 0 ? task.tools.join(", ") : "none"}`,
+  ].join("\n");
+}
+
+async function executeSubAgentJobWorkerChild(
+  input: SubAgentChildExecution,
+): Promise<SubAgentChildExecutionResult> {
+  const { job, child } = input;
+  const providerChain = resolveProviderChain(normalizeSubAgentProviderNames(child.providerName));
+  const task: SubTaskSpec = {
+    id: child.id,
+    task: child.task,
+    tools: child.toolIds,
+    ...(child.providerName ? { provider: child.providerName } : {}),
+    ...(child.model ? { model: child.model } : {}),
+    reasoning_effort: normalizeSubAgentReasoningEffort(child.metadata?.reasoningEffort),
+  };
+  const mcpServerScript =
+    process.env.TANGO_MCP_SERVER_SCRIPT?.trim()
+    || "packages/discord/dist/mcp-wellness-server.js";
+  const mcpServerName = process.env.TANGO_MCP_SERVER_NAME?.trim() || "wellness";
+  const startedAt = Date.now();
+  const result = await generateWithFailover(
+    providerChain,
+    {
+      prompt: child.task,
+      systemPrompt: buildSubAgentWorkerSystemPrompt(task),
+      tools: buildWorkerProviderTools({
+        workerId: job.coordinatorAgentId,
+        mcpServerScript,
+        mcpServerName,
+        persistentMcpPort: resolveSubAgentPersistentMcpPort(),
+        toolIds: child.toolIds,
+      }),
+      ...(child.model ? { model: child.model } : {}),
+      reasoningEffort: task.reasoning_effort ?? "low",
+    },
+    providerRetryLimit,
+  );
+  const response = result.retryResult.response;
+
+  return {
+    status: "completed",
+    providerName: result.providerName,
+    model: response.metadata?.model ?? child.model ?? null,
+    resultSummary: response.text.trim(),
+    costEstimateUsd: response.metadata?.totalCostUsd,
+    metadata: {
+      durationMs: Date.now() - startedAt,
+      usedFailover: result.usedFailover,
+      toolsUsed: response.toolCalls?.map((toolCall) => toolCall.name) ?? [],
+      failures: result.failures,
+    },
+  };
+}
+
+const subAgentJobService = new SubAgentJobService({
+  storage,
+  executors: {
+    worker: executeSubAgentJobWorkerChild,
+    namedAgent: createRuntimeChildExecutor({
+      invoke: async (input) => {
+        const routeResult = await collaborationRouter.routeMessage({
+          message: input.message,
+          channelId: "sub-agent-job",
+          conversationKey: input.conversationKey,
+          agentId: input.agentId,
+          sendOptions: {
+            timeout: input.timeoutMs,
+          },
+        });
+        return routeResult.response;
+      },
+    }),
+    collaborator: createAgentCollaborationChildExecutor(agentCollaborationService),
+  },
+});
+
+function isInternalBridgeAuthorized(req: IncomingMessage): boolean {
+  const bridgeToken = process.env.TANGO_COLLABORATION_BRIDGE_TOKEN?.trim();
+  return !bridgeToken || req.headers["x-tango-collaboration-token"] === bridgeToken;
+}
+
+function writeBridgeJson(res: ServerResponse, statusCode: number, payload: unknown): void {
+  res.writeHead(statusCode, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(payload));
+}
+
+function readBridgeJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk: Buffer) => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      try {
+        const parsed = JSON.parse(body || "{}") as unknown;
+        resolve(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+async function handleSubAgentJobBridge(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  if (!url.pathname.startsWith("/sub-agent-jobs")) {
+    return false;
+  }
+
+  if (!isInternalBridgeAuthorized(req)) {
+    writeBridgeJson(res, 401, { error: "unauthorized" });
+    return true;
+  }
+
+  try {
+    if (url.pathname === "/sub-agent-jobs/start" && req.method === "POST") {
+      const input = await readBridgeJsonBody(req);
+      const result = await subAgentJobService.startJob(input as unknown as StartSubAgentJobInput);
+      writeBridgeJson(res, 200, result);
+      return true;
+    }
+
+    if (url.pathname === "/sub-agent-jobs" && req.method === "GET") {
+      const status = url.searchParams.get("status") as ListSubAgentJobsOptions["status"] | null;
+      const jobs = subAgentJobService.listJobs({
+        coordinatorAgentId: url.searchParams.get("coordinator_agent_id") ?? undefined,
+        status: status ?? undefined,
+        limit: url.searchParams.get("limit") ? Number.parseInt(url.searchParams.get("limit")!, 10) : undefined,
+      });
+      writeBridgeJson(res, 200, { jobs });
+      return true;
+    }
+
+    const match = url.pathname.match(/^\/sub-agent-jobs\/([^/]+)(?:\/(cancel|update))?$/u);
+    if (!match) {
+      writeBridgeJson(res, 404, { error: "unknown sub-agent job bridge path" });
+      return true;
+    }
+
+    const jobId = decodeURIComponent(match[1]!);
+    const action = match[2];
+    if (!action && req.method === "GET") {
+      writeBridgeJson(res, 200, subAgentJobService.getJobSnapshot(jobId));
+      return true;
+    }
+    if (action === "cancel" && req.method === "POST") {
+      writeBridgeJson(res, 200, subAgentJobService.cancelJob(jobId));
+      return true;
+    }
+    if (action === "update" && req.method === "POST") {
+      const input = await readBridgeJsonBody(req);
+      const result = subAgentJobService.recordCoordinatorUpdate(jobId, {
+        message: typeof input.message === "string" ? input.message : "",
+        visibleMessageRef: typeof input.visible_message_ref === "string" ? input.visible_message_ref : null,
+        discordMessageId: typeof input.discord_message_id === "string" ? input.discord_message_id : null,
+        metadata: input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)
+          ? input.metadata as Record<string, unknown>
+          : null,
+      });
+      writeBridgeJson(res, 200, result);
+      return true;
+    }
+
+    writeBridgeJson(res, 405, { error: "method not allowed" });
+    return true;
+  } catch (error) {
+    writeBridgeJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return true;
+  }
+}
+
+const subAgentJobMonitorStartedAt = new Date();
+const subAgentJobNotificationsInFlight = new Set<string>();
+const ACTIVE_SUB_AGENT_JOB_STATUSES = new Set(["queued", "running", "waiting_on_user", "blocked", "canceling"]);
+
+function resolveSubAgentJobMonitorIntervalMs(): number {
+  const parsed = Number.parseInt(process.env.TANGO_SUB_AGENT_JOB_MONITOR_INTERVAL_MS ?? "", 10);
+  if (Number.isFinite(parsed) && parsed >= 5_000) {
+    return parsed;
+  }
+  return 15_000;
+}
+
+function buildCoordinatorJobUpdatePrompt(input: {
+  digest: string;
+  reason: string;
+}): string {
+  return [
+    "A background sub-agent job has a meaningful update.",
+    "You are the coordinator agent. Write the user-facing Discord update for the original thread.",
+    "Do not dump raw transcripts. Be concise and include the practical status, blocker, or result.",
+    "",
+    `Notification reason: ${input.reason}`,
+    "",
+    input.digest,
+    "",
+    "Return only the message to send to the user.",
+  ].join("\n");
+}
+
+async function synthesizeSubAgentJobUpdate(input: {
+  coordinatorAgentId: string;
+  jobId: string;
+  reason: string;
+  digest: string;
+}): Promise<string> {
+  try {
+    const routeResult = await collaborationRouter.routeMessage({
+      message: buildCoordinatorJobUpdatePrompt({
+        digest: input.digest,
+        reason: input.reason,
+      }),
+      channelId: "sub-agent-job-monitor",
+      conversationKey: `subagent-job-update:${input.jobId}:${input.reason}:${input.coordinatorAgentId}`,
+      agentId: input.coordinatorAgentId,
+      sendOptions: {
+        timeout: 120_000,
+      },
+    });
+    const text = routeResult.response.text.trim();
+    if (text) {
+      return text;
+    }
+  } catch (error) {
+    console.warn(
+      `[sub-agent-jobs] coordinator update synthesis failed job=${input.jobId}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  return [
+    "Background job update:",
+    input.digest,
+  ].join("\n");
+}
+
+async function deliverSubAgentJobNotification(jobId: string): Promise<void> {
+  if (subAgentJobNotificationsInFlight.has(jobId)) {
+    return;
+  }
+  subAgentJobNotificationsInFlight.add(jobId);
+  try {
+    const snapshot = subAgentJobService.getJobSnapshot(jobId);
+    const updatedAtMs = Date.parse(snapshot.job.updatedAt);
+    if (
+      !ACTIVE_SUB_AGENT_JOB_STATUSES.has(snapshot.job.status)
+      && Number.isFinite(updatedAtMs)
+      && updatedAtMs < subAgentJobMonitorStartedAt.getTime()
+    ) {
+      return;
+    }
+    const digest = evaluateSubAgentJobNotification(snapshot, new Date());
+    if (!digest.shouldNotify || !digest.reason) {
+      return;
+    }
+
+    const targetChannelId =
+      typeof snapshot.job.userSurface.thread_id === "string"
+        ? snapshot.job.userSurface.thread_id
+        : typeof snapshot.job.userSurface.channel_id === "string"
+          ? snapshot.job.userSurface.channel_id
+          : null;
+    if (!targetChannelId || !client.isReady()) {
+      return;
+    }
+
+    const channel = await client.channels.fetch(targetChannelId).catch(() => null);
+    if (!channel || !channel.isTextBased()) {
+      return;
+    }
+
+    const message = await synthesizeSubAgentJobUpdate({
+      coordinatorAgentId: snapshot.job.coordinatorAgentId,
+      jobId,
+      reason: digest.reason,
+      digest: digest.digest,
+    });
+    const speaker = agentRegistry.get(snapshot.job.coordinatorAgentId) ?? systemAgent ?? null;
+    const delivery = await sendPresentedReply(channel as Message["channel"], message, speaker);
+    subAgentJobService.recordCoordinatorUpdate(jobId, {
+      message,
+      discordMessageId: delivery.lastMessageId ?? null,
+      visibleMessageRef: delivery.lastMessageId ? `discord:${targetChannelId}:${delivery.lastMessageId}` : null,
+      metadata: {
+        reason: digest.reason,
+        severity: digest.severity,
+        delivery,
+      },
+    });
+  } catch (error) {
+    console.warn(
+      `[sub-agent-jobs] notification delivery failed job=${jobId}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    subAgentJobNotificationsInFlight.delete(jobId);
+  }
+}
+
+async function runSubAgentJobNotificationSweep(): Promise<void> {
+  if (!client.isReady()) {
+    return;
+  }
+  const jobs = subAgentJobService.listJobs({ limit: 50 });
+  await Promise.all(
+    jobs
+      .filter((job) =>
+        ACTIVE_SUB_AGENT_JOB_STATUSES.has(job.status)
+        || Date.parse(job.updatedAt) >= subAgentJobMonitorStartedAt.getTime(),
+      )
+      .map((job) => deliverSubAgentJobNotification(job.id)),
+  );
+}
 const attachmentWorker = new AttachmentJobWorker(
   attachmentStore,
   `discord-${process.pid}`,
@@ -2025,6 +2392,11 @@ startPersistentMcpServer().then((port) => {
     // stays available for dev testing.
     if (shouldRunSchedulerTickLoop(process.env)) {
       scheduler.start();
+      const subAgentJobMonitorInterval = setInterval(() => {
+        void runSubAgentJobNotificationSweep();
+      }, resolveSubAgentJobMonitorIntervalMs());
+      subAgentJobMonitorInterval.unref?.();
+      void runSubAgentJobNotificationSweep();
     } else {
       console.log(
         "[scheduler] slot mode active (TANGO_SLOT set) — automatic tick loop disabled; " +
@@ -2035,9 +2407,12 @@ startPersistentMcpServer().then((port) => {
     // Lightweight HTTP trigger endpoint for scheduler jobs
     // Usage: curl http://localhost:9200/trigger/slack-summary
     const triggerServer = createHttpServer(async (req, res) => {
+      if (await handleSubAgentJobBridge(req, res)) {
+        return;
+      }
+
       if (req.url === "/collaboration/request" && req.method === "POST") {
-        const bridgeToken = process.env.TANGO_COLLABORATION_BRIDGE_TOKEN?.trim();
-        if (bridgeToken && req.headers["x-tango-collaboration-token"] !== bridgeToken) {
+        if (!isInternalBridgeAuthorized(req)) {
           res.writeHead(401, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "unauthorized" }));
           return;

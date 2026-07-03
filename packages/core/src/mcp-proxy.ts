@@ -10,27 +10,72 @@
  * Startup time: <100ms (only node:* builtins, zero external deps).
  *
  * Env vars:
- *   MCP_SERVER_PORT — Port of the persistent HTTP MCP server (default: 9100)
- *   WORKER_ID       — Worker identity for governance filtering
- *   TANGO_DB_PATH   — Passed through but unused (governance is on the server)
+ *   MCP_PROXY_URL / MCP_SERVER_PORT — Persistent HTTP MCP endpoint
+ *   WORKER_ID / TANGO_WORKER_ID     — Worker identity for governance filtering
+ *   ALLOWED_TOOL_IDS / MCP_PROXY_ALLOWED_TOOLS / TANGO_ALLOWED_TOOL_IDS
+ *   READ_ONLY_STEP / MCP_PROXY_READ_ONLY / TANGO_READ_ONLY_STEP
  */
 
 import { createInterface } from "node:readline";
 import { request as httpRequest } from "node:http";
 import { writeFileSync } from "node:fs";
 
-const PORT = parseInt(process.env.MCP_SERVER_PORT || "9100", 10);
-const WORKER_ID = process.env.WORKER_ID || "";
-const READ_ONLY_STEP = process.env.READ_ONLY_STEP === "1";
-const ALLOWED_TOOL_IDS = process.env.ALLOWED_TOOL_IDS;
-const KEEPALIVE_FILE = process.env.MCP_KEEPALIVE_FILE || "";
+const EMPTY_ALLOWED_TOOL_IDS = "__none__";
 
 const debug = (...args: unknown[]) => {
   process.stderr.write(`[mcp-proxy] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")}\n`);
 };
 
+function normalizeAllowedToolIds(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return EMPTY_ALLOWED_TOOL_IDS;
+  }
+  if (normalized.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(normalized) as unknown;
+      if (Array.isArray(parsed)) {
+        const items = parsed
+          .map((item) => typeof item === "string" ? item.trim() : "")
+          .filter((item) => item.length > 0);
+        return items.length > 0 ? items.join(",") : EMPTY_ALLOWED_TOOL_IDS;
+      }
+    } catch {
+      return EMPTY_ALLOWED_TOOL_IDS;
+    }
+  }
+  return normalized;
+}
+
+function resolveProxyUrl(): URL {
+  const raw = process.env.MCP_PROXY_URL?.trim();
+  if (raw) {
+    try {
+      return new URL(raw);
+    } catch {
+      debug(`Invalid MCP_PROXY_URL '${raw}', falling back to MCP_SERVER_PORT`);
+    }
+  }
+  const port = parseInt(process.env.MCP_SERVER_PORT || "9100", 10);
+  return new URL(`http://127.0.0.1:${port}/mcp`);
+}
+
+const PROXY_URL = resolveProxyUrl();
+const WORKER_ID = process.env.WORKER_ID || process.env.TANGO_WORKER_ID || "";
+const READ_ONLY_STEP =
+  process.env.READ_ONLY_STEP === "1" ||
+  process.env.MCP_PROXY_READ_ONLY === "1" ||
+  process.env.TANGO_READ_ONLY_STEP === "1";
+const ALLOWED_TOOL_IDS = normalizeAllowedToolIds(
+  process.env.ALLOWED_TOOL_IDS ?? process.env.MCP_PROXY_ALLOWED_TOOLS ?? process.env.TANGO_ALLOWED_TOOL_IDS,
+);
+const KEEPALIVE_FILE = process.env.MCP_KEEPALIVE_FILE || "";
+
 debug(
-  `Starting proxy → http://127.0.0.1:${PORT}/mcp (` +
+  `Starting proxy → ${PROXY_URL.toString()} (` +
   `worker=${WORKER_ID || "none"} readOnly=${READ_ONLY_STEP ? "yes" : "no"} ` +
   `allowedTools=${ALLOWED_TOOL_IDS ?? "all"})`,
 );
@@ -43,9 +88,9 @@ function postToServer(body: string): Promise<string | null> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
       {
-        hostname: "127.0.0.1",
-        port: PORT,
-        path: "/mcp",
+        hostname: PROXY_URL.hostname,
+        port: PROXY_URL.port ? parseInt(PROXY_URL.port, 10) : 80,
+        path: `${PROXY_URL.pathname}${PROXY_URL.search}`,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -141,7 +186,7 @@ rl.on("line", (line) => {
             id: msg.id,
             error: {
               code: -32000,
-              message: `MCP proxy: server unreachable at port ${PORT}: ${err.message}`,
+              message: `MCP proxy: server unreachable at ${PROXY_URL.toString()}: ${err.message}`,
             },
           });
           process.stdout.write(errorResponse + "\n");

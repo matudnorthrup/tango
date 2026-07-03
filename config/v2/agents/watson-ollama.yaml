@@ -61,6 +61,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "orientation"]
     env:
       ALLOWED_TOOL_IDS: "orientation_nudge"
+  - name: sub-agent-jobs
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "sub-agent-jobs"]
+    env:
+      ALLOWED_TOOL_IDS: "start_sub_agent_job,get_sub_agent_job,list_sub_agent_jobs,cancel_sub_agent_job,send_sub_agent_job_update"
   - name: latitude
     command: mcp-remote
     args: ["https://mcp.example.invalid/oauth/mcp"]
@@ -131,6 +136,11 @@ tools:
     - WebSearch
     - WebFetch
     - mcp__collaboration__collaborate_with_agent
+    - mcp__sub-agent-jobs__start_sub_agent_job
+    - mcp__sub-agent-jobs__get_sub_agent_job
+    - mcp__sub-agent-jobs__list_sub_agent_jobs
+    - mcp__sub-agent-jobs__cancel_sub_agent_job
+    - mcp__sub-agent-jobs__send_sub_agent_job_update
 
 deterministic_routing:
   enabled: false

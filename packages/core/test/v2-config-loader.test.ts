@@ -192,6 +192,25 @@ describe("loadV2AgentConfig", () => {
     });
   });
 
+  it("exposes durable sub-agent job tools to Watson coordinators", () => {
+    const watson = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "watson.yaml"));
+
+    expect(watson.mcpServers.find((server) => server.name === "sub-agent-jobs")).toMatchObject({
+      command: "node",
+      args: ["packages/core/dist/mcp-proxy.js", "sub-agent-jobs"],
+      env: {
+        ALLOWED_TOOL_IDS: "start_sub_agent_job,get_sub_agent_job,list_sub_agent_jobs,cancel_sub_agent_job,send_sub_agent_job_update",
+      },
+    });
+    expect(watson.tools.allowlist).toEqual(expect.arrayContaining([
+      "mcp__sub-agent-jobs__start_sub_agent_job",
+      "mcp__sub-agent-jobs__get_sub_agent_job",
+      "mcp__sub-agent-jobs__list_sub_agent_jobs",
+      "mcp__sub-agent-jobs__cancel_sub_agent_job",
+      "mcp__sub-agent-jobs__send_sub_agent_job_update",
+    ]));
+  });
+
   it("keeps base agents and their Ollama clones on shared memory scopes", () => {
     const configs = loadAllV2AgentConfigs(path.join(repoRoot, "config", "v2", "agents"));
     const pairs = [

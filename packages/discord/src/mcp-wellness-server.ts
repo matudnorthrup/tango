@@ -55,6 +55,14 @@ import { createNotionTools } from "./notion-agent-tools.js";
 import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { createOrientationNudgeTools, orientationNudgeToolLooksReadOnly } from "./orientation-nudge.js";
 import { createCollaborationTools } from "./collaboration-agent-tools.js";
+import {
+  CANCEL_SUB_AGENT_JOB_TOOL_NAME,
+  GET_SUB_AGENT_JOB_TOOL_NAME,
+  LIST_SUB_AGENT_JOBS_TOOL_NAME,
+  SEND_SUB_AGENT_JOB_UPDATE_TOOL_NAME,
+  START_SUB_AGENT_JOB_TOOL_NAME,
+  createSubAgentJobTools,
+} from "./sub-agent-job-tools.js";
 import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
@@ -73,6 +81,13 @@ const debug = (...args: unknown[]) => {
 };
 
 const EMPTY_ALLOWED_TOOL_IDS = "__none__";
+const SUB_AGENT_JOB_TOOL_NAMES = new Set([
+  START_SUB_AGENT_JOB_TOOL_NAME,
+  GET_SUB_AGENT_JOB_TOOL_NAME,
+  LIST_SUB_AGENT_JOBS_TOOL_NAME,
+  CANCEL_SUB_AGENT_JOB_TOOL_NAME,
+  SEND_SUB_AGENT_JOB_UPDATE_TOOL_NAME,
+]);
 
 let memoryScopeByWorkerId: Map<string, V2MemoryScope> | null = null;
 
@@ -178,6 +193,7 @@ const allTools: AgentTool[] = [
   ...createClaudeSessionTools(),
   ...createOrientationNudgeTools(),
   ...createCollaborationTools(),
+  ...createSubAgentJobTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -302,6 +318,21 @@ function parseAllowedToolIds(value: string | undefined): Set<string> | null {
   const normalized = value.trim();
   if (normalized.length === 0 || normalized === EMPTY_ALLOWED_TOOL_IDS) {
     return new Set<string>();
+  }
+
+  if (normalized.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(normalized) as unknown;
+      if (Array.isArray(parsed)) {
+        return new Set(
+          parsed
+            .map((toolId) => typeof toolId === "string" ? toolId.trim() : "")
+            .filter((toolId) => toolId.length > 0),
+        );
+      }
+    } catch {
+      return new Set<string>();
+    }
   }
 
   return new Set(
@@ -495,10 +526,21 @@ async function executeToolCall(
     const scopedArgs = workerScope
       ? applyMemoryScopeToToolArgs(name, args, workerScope.workerId, workerScope.memoryScope)
       : args;
-    const effectiveArgs =
-      name === "collaborate_with_agent" && workerScope
-        ? { ...scopedArgs, _requester_agent_id: workerScope.workerId }
-        : scopedArgs;
+    let effectiveArgs = scopedArgs;
+    if (name === "collaborate_with_agent" && workerScope) {
+      effectiveArgs = { ...scopedArgs, _requester_agent_id: workerScope.workerId };
+    }
+    if (SUB_AGENT_JOB_TOOL_NAMES.has(name) && workerScope) {
+      const permittedTools = governance && principalId
+        ? governance.getPermittedTools(principalId)
+        : undefined;
+      effectiveArgs = {
+        ...scopedArgs,
+        _coordinator_agent_id: workerScope.workerId,
+        _coordinator_principal_id: principalId,
+        ...(permittedTools ? { _coordinator_capability_tool_ids: permittedTools } : {}),
+      };
+    }
     const result = await handler(effectiveArgs);
     const text = JSON.stringify(result);
     debug(`tools/call: ${name} completed in ${Date.now() - startMs}ms (${text.length} chars)`);
@@ -699,16 +741,16 @@ if (isHttpMode) {
   // STDIO MODE — Original behavior, spawned per worker invocation
   // ==========================================================================
 
-  const workerId = process.env.WORKER_ID;
-  const principalId = workerId ? `worker:${workerId}` : null;
-  const readOnlyStep = process.env.READ_ONLY_STEP === "1";
-  const allowedToolIds = parseAllowedToolIds(process.env.ALLOWED_TOOL_IDS);
+  const resolvedWorkerId = process.env.WORKER_ID ?? process.env.TANGO_WORKER_ID;
+  const principalId = resolvedWorkerId ? `worker:${resolvedWorkerId}` : null;
+  const readOnlyStep = process.env.READ_ONLY_STEP === "1" || process.env.TANGO_READ_ONLY_STEP === "1";
+  const allowedToolIds = parseAllowedToolIds(process.env.ALLOWED_TOOL_IDS ?? process.env.TANGO_ALLOWED_TOOL_IDS);
   const governance = createGovernance();
   const visibleTools = getToolsForWorker(governance, principalId, allowedToolIds);
 
   if (principalId) {
     debug(
-      `Governance: worker=${workerId}, readOnly=${readOnlyStep ? "yes" : "no"}, ` +
+      `Governance: worker=${resolvedWorkerId}, readOnly=${readOnlyStep ? "yes" : "no"}, ` +
       `allowedTools=${allowedToolIds ? [...allowedToolIds].join(",") || "(none)" : "all"}, ` +
       `${visibleTools.length}/${allTools.length} tools permitted: ${visibleTools.map((t) => t.name).join(", ")}`,
     );
