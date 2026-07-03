@@ -99,6 +99,22 @@ export function shouldInitializeSlotMode(
   return isSlotModeActive(env) && allowlist === null;
 }
 
+/**
+ * Whether this bot instance should run the automatic scheduler tick loop.
+ *
+ * Only the canonical production bot schedules jobs. Slot / worktree-dev
+ * instances (TANGO_SLOT set) must NOT auto-run schedules: they would
+ * double-execute jobs and fire real external side effects (email, Lunch Money,
+ * receipts, Discord posts) alongside production. Set TANGO_SCHEDULER_IN_SLOT=true
+ * to force ticks on in a slot for deliberate testing.
+ */
+export function shouldRunSchedulerTickLoop(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (!isSlotModeActive(env)) return true;
+  return (env.TANGO_SCHEDULER_IN_SLOT ?? "").trim() === "true";
+}
+
 export function buildThreadName(slot: string, now = new Date()): string {
   const year = now.getUTCFullYear();
   const month = String(now.getUTCMonth() + 1).padStart(2, "0");
