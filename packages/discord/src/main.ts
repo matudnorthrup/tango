@@ -229,6 +229,7 @@ import {
   isSlotModeActive,
   resetBotNickname,
   shouldInitializeSlotMode,
+  shouldRunSchedulerTickLoop,
 } from "./slot-mode.js";
 import {
   buildSavePassEphemeralReply,
@@ -2016,7 +2017,20 @@ startPersistentMcpServer().then((port) => {
       alert: sendAlert,
       systemLog: sendSystemLog,
     });
-    scheduler.start();
+    // Only the canonical production bot runs the automatic scheduler tick loop.
+    // Slot / worktree-dev instances (TANGO_SLOT set) skip it so they never
+    // double-run scheduled jobs or fire real external side effects (email,
+    // Lunch Money, receipts, Discord posts) alongside production. The scheduler
+    // object is still constructed, so the manual GET /trigger/<id> endpoint
+    // stays available for dev testing.
+    if (shouldRunSchedulerTickLoop(process.env)) {
+      scheduler.start();
+    } else {
+      console.log(
+        "[scheduler] slot mode active (TANGO_SLOT set) — automatic tick loop disabled; " +
+          "use GET /trigger/<id> to run a job manually, or set TANGO_SCHEDULER_IN_SLOT=true to enable ticks",
+      );
+    }
 
     // Lightweight HTTP trigger endpoint for scheduler jobs
     // Usage: curl http://localhost:9200/trigger/slack-summary
