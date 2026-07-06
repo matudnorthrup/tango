@@ -36,7 +36,7 @@ describe('PipelineStateMachine', () => {
   describe('TRANSCRIBING → PROCESSING', () => {
     it('transitions to PROCESSING on transcript ready', () => {
       sm.transition({ type: 'UTTERANCE_RECEIVED' });
-      const effects = sm.transition({ type: 'TRANSCRIPT_READY', transcript: 'hello' });
+      const effects = sm.transition({ type: 'TRANSCRIPT_READY' });
       expect(sm.getStateType()).toBe('PROCESSING');
       expect(effects).toEqual([]);
     });
@@ -711,7 +711,7 @@ describe('PipelineStateMachine', () => {
   describe('invalid transition warnings', () => {
     it('warns when TRANSCRIPT_READY arrives in non-TRANSCRIBING state', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      sm.transition({ type: 'TRANSCRIPT_READY', transcript: 'hello' });
+      sm.transition({ type: 'TRANSCRIPT_READY' });
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('TRANSCRIPT_READY arrived in non-TRANSCRIBING state'),
       );
@@ -722,7 +722,7 @@ describe('PipelineStateMachine', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       sm.transition({ type: 'UTTERANCE_RECEIVED' });
       expect(sm.getStateType()).toBe('TRANSCRIBING');
-      sm.transition({ type: 'TRANSCRIPT_READY', transcript: 'hello' });
+      sm.transition({ type: 'TRANSCRIPT_READY' });
       expect(warnSpy).not.toHaveBeenCalled();
       warnSpy.mockRestore();
     });

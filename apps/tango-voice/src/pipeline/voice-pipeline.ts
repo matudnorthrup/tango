@@ -27,6 +27,7 @@ import { parseVoiceCommand, matchesWakeWord, mentionsWakeName, extractFromWakeWo
 import { getVoiceSettings, setSilenceDuration, setSpeechThreshold, setGatedMode, setEndpointingMode, setIndicateTimeoutMs, resolveNoiseLevel, getNoisePresetNames, type EndpointingMode, type IndicateCloseType } from '../services/voice-settings.js';
 import { getDefaultVoiceTargetDirectory, getPreferredSystemWakeName, type ResolvedVoiceAddress, type VoiceTargetDirectory } from '../services/voice-targets.js';
 import { PipelineStateMachine, type TransitionEffect, type PipelineEvent } from './pipeline-state.js';
+import { getInteractionContractById } from './interaction-contract.js';
 import { checkPipelineInvariants, type InvariantContext } from './pipeline-invariants.js';
 import { createTransientContext, resetTransientContext, type TransientContext } from './transient-context.js';
 import { createHealthCounters, type HealthCounters, type HealthSnapshot } from '../services/health-snapshot.js';
@@ -1792,6 +1793,11 @@ export class VoicePipeline {
 
   private resetStallWatchdog(): void {
     this.lastTransitionAt = Date.now();
+    this.armStallWatchdogTimer();
+  }
+
+  /** Re-arm the stall timer without counting it as pipeline activity. */
+  private armStallWatchdogTimer(): void {
     if (this.stallWatchdogTimer) {
       clearTimeout(this.stallWatchdogTimer);
     }
@@ -1814,6 +1820,32 @@ export class VoicePipeline {
     // regardless of state (voice commands speak while in PROCESSING).
     if (this.player.isPlaying() || this.player.isWaiting()) {
       this.resetStallWatchdog();
+      return;
+    }
+
+    // A pending state-machine timeout means the state is supervised, not
+    // stuck — the awaiting contract resolves it on its own clock.
+    if (this.stateMachine.hasActiveTimers()) {
+      this.armStallWatchdogTimer();
+      return;
+    }
+
+    // INBOX_FLOW is user-paced browsing whose interaction contract allows a
+    // longer idle window than the stall threshold. Let it idle up to the
+    // contract limit, then expire it as a cancelled flow, not a fault.
+    if (stateType === 'INBOX_FLOW') {
+      const idleMs = Date.now() - this.lastTransitionAt;
+      const limitMs = getInteractionContractById('inbox-flow').defaultTimeoutMs;
+      if (idleMs < limitMs) {
+        this.armStallWatchdogTimer();
+        return;
+      }
+      console.log(`Inbox flow expired after ${idleMs}ms idle — cancelling`);
+      const returnChannel = this.stateMachine.getInboxFlowState()?.returnChannel ?? null;
+      this.ctx.inboxConversationAgentId = null;
+      this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
+      void this.player.playEarcon('cancelled');
+      void this.restoreChannel(returnChannel);
       return;
     }
 
@@ -2102,12 +2134,6 @@ export class VoicePipeline {
           break;
         case 'stop-playback':
           this.player.stopPlayback('state-machine-effect');
-          break;
-        case 'start-waiting-loop':
-          this.startWaitingLoop();
-          break;
-        case 'stop-waiting-loop':
-          this.stopWaitingLoop();
           break;
       }
     }
@@ -2531,7 +2557,7 @@ export class VoicePipeline {
         return;
       }
 
-      this.transitionAndResetWatchdog({ type: 'TRANSCRIPT_READY', transcript });
+      this.transitionAndResetWatchdog({ type: 'TRANSCRIPT_READY' });
 
       // Step 1.5: Check for awaiting responses (bypass LLM)
       // These are valid interactions that don't need a wake word
@@ -3275,25 +3301,50 @@ export class VoicePipeline {
         this.transitionAndResetWatchdog({ type: 'PROCESSING_COMPLETE' });
       }
 
+      // UTTERANCE_RECEIVED pauses awaiting timers while capture/STT runs. If
+      // this utterance ended as noise (empty transcript, echo, STT failure),
+      // no handler resolved or re-entered the awaiting state, so resume its
+      // timeout contract instead of leaving recovery to the stall watchdog.
+      if (this.stateMachine.isAwaitingState() && !this.stateMachine.hasActiveTimers()) {
+        console.log('Resuming awaiting-state timeout after non-actionable utterance');
+        this.transitionAndResetWatchdog({ type: 'REFRESH_AWAITING_TIMEOUT' });
+      }
+
       // Run invariant checks
       const violations = checkPipelineInvariants(this.getInvariantContext());
       this.counters.invariantViolations += violations.length;
 
       // Re-process buffered utterance if any
-      const buffered = this.stateMachine.getBufferedUtterance();
-      if (buffered) {
-        console.log('Re-processing buffered utterance');
-        // Use setImmediate to avoid deep recursion
-        setImmediate(() => {
-          this.handleUtterance(
-            buffered.userId,
-            buffered.wavBuffer,
-            buffered.durationMs,
-            buffered.graceAtCapture ?? { gate: false, prompt: false },
-          );
-        });
-      }
+      this.scheduleBufferedUtteranceReplay();
     }
+  }
+
+  /** Guards against double-scheduling replays from concurrent completion paths. */
+  private bufferedReplayScheduled = false;
+
+  /**
+   * Drain one buffered utterance through handleUtterance. Buffering happens
+   * when speech arrives during PROCESSING/SPEAKING; every path that returns
+   * the pipeline to an input-ready state must drain the buffer — including
+   * SPEAKING entered outside handleUtterance (wait-response delivery,
+   * auto-read), where no handleUtterance finally block runs afterward.
+   */
+  private scheduleBufferedUtteranceReplay(): void {
+    if (this.bufferedReplayScheduled) return;
+    const buffered = this.stateMachine.getBufferedUtterance();
+    if (!buffered) return;
+    this.bufferedReplayScheduled = true;
+    console.log('Re-processing buffered utterance');
+    // setImmediate avoids deep recursion through handleUtterance.
+    setImmediate(() => {
+      this.bufferedReplayScheduled = false;
+      void this.handleUtterance(
+        buffered.userId,
+        buffered.wavBuffer,
+        buffered.durationMs,
+        buffered.graceAtCapture ?? { gate: false, prompt: false },
+      );
+    });
   }
 
   private handleRejectedAudio(userId: string, durationMs: number): void {
@@ -4545,6 +4596,9 @@ Use channel names (the part before the colon). Do not explain.`,
           this.transitionAndResetWatchdog({ type: 'SPEAKING_COMPLETE' });
           await this.playReadyEarcon();
           this.allowFollowupPromptGrace(VoicePipeline.FOLLOWUP_PROMPT_GRACE_MS);
+          // Speech that interrupted this playback was buffered; replay it now
+          // that the pipeline is input-ready again.
+          this.scheduleBufferedUtteranceReplay();
         } else {
           // Pipeline got busy (often due to an overlapping command like "silent").
           // Retry delivery once we return to idle instead of dropping it.
@@ -4559,6 +4613,7 @@ Use channel names (the part before the colon). Do not explain.`,
         if (stateType === 'SPEAKING' || stateType === 'PROCESSING' || stateType === 'TRANSCRIBING') {
           this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
         }
+        this.scheduleBufferedUtteranceReplay();
       }
     })();
   }
@@ -5732,6 +5787,7 @@ Use channel names (the part before the colon). Do not explain.`,
           // Last resort: fall back to idle notify
           this.transitionAndResetWatchdog({ type: 'RETURN_TO_IDLE' });
         }
+        this.scheduleBufferedUtteranceReplay();
       }
     })();
 
@@ -7471,6 +7527,7 @@ Use channel names (the part before the colon). Do not explain.`,
       this.transitionAndResetWatchdog({ type: 'SPEAKING_COMPLETE' });
       await this.playReadyEarcon();
       this.allowFollowupPromptGrace(VoicePipeline.FOLLOWUP_PROMPT_GRACE_MS);
+      this.scheduleBufferedUtteranceReplay();
 
       // Advance Discord watermark so this response doesn't reappear in the inbox.
       const inboxRef = this.inboxClient;
