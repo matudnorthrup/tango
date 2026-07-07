@@ -18,12 +18,12 @@
     "test:slice6:live": "RUN_LIVE_PIPELINE_TESTS=1 vitest run test/slice6-pipeline.test.ts",
     "test:flows": "vitest run test/interaction-flow-harness.test.ts",
     "test:intents": "vitest run test/intent-robustness-matrix.test.ts",
-    "flows:report": "npm run build --silent && node dist/testing/flow-report.js",
-    "flows:stress": "npm run build --silent && node dist/testing/stress-flow-report.js",
-    "flows:stress:inbox": "npm run build --silent && node dist/testing/stress-inbox-report.js",
+    "flows:report": "tsx src/testing/flow-report.ts",
+    "flows:stress": "tsx src/testing/stress-flow-report.ts",
+    "flows:stress:inbox": "tsx src/testing/stress-inbox-report.ts",
     "flows:stress:all": "npm run flows:stress && npm run flows:stress:inbox",
-    "e2e:voice-loop": "npm run build --silent && node dist/testing/e2e-voice-loop-report.js",
-    "e2e:voice-loop:v2": "npm run build --silent && node dist/testing/live-v2-voice-report.js"
+    "e2e:voice-loop": "tsx src/testing/e2e-voice-loop-report.ts",
+    "e2e:voice-loop:v2": "tsx src/testing/live-v2-voice-report.ts"
   },
   "keywords": [],
   "author": "",
