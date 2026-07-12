@@ -2613,7 +2613,9 @@ const MIGRATIONS: Migration[] = [
     // route_ahead_search: along-route POI search (rest areas, stops, services
     // ahead of the driver). Added after Sierra confidently recommended rest
     // areas behind the driver by inferring direction from mile-marker lists.
-    version: 61,
+    // 62, not 61: the sub-agent-jobs branch claimed 61 and it already ran
+    // against the production DB before merging.
+    version: 62,
     sql: `
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
       VALUES ('route_ahead_search', 'research', 'Along-Route POI Search', 'read');
