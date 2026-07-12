@@ -579,3 +579,162 @@ describe("file ops tools", () => {
     }
   });
 });
+
+describe("route_ahead_search", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Flexible-polyline encoder (inverse of the production decoder) so tests can
+  // fabricate arbitrary route shapes.
+  const FLEX_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const encodeUnsignedFlex = (value: number): string => {
+    let out = "";
+    while (value > 0x1f) {
+      out += FLEX_TABLE[(value & 0x1f) | 0x20];
+      value = Math.floor(value / 32);
+    }
+    return out + FLEX_TABLE[value];
+  };
+  const encodeSignedFlex = (value: number): string =>
+    encodeUnsignedFlex(value < 0 ? -value * 2 - 1 : value * 2);
+  const encodeFlexPolyline = (coords: Array<[number, number]>): string => {
+    let out = encodeUnsignedFlex(1) + encodeUnsignedFlex(5);
+    let prevLat = 0;
+    let prevLon = 0;
+    for (const [lat, lon] of coords) {
+      const latQ = Math.round(lat * 1e5);
+      const lonQ = Math.round(lon * 1e5);
+      out += encodeSignedFlex(latQ - prevLat) + encodeSignedFlex(lonQ - prevLon);
+      prevLat = latQ;
+      prevLon = lonQ;
+    }
+    return out;
+  };
+
+  // Westbound I-84-style route at constant latitude: origin near Burley, ID
+  // heading toward Oregon. 1° of longitude at 42.6°N ≈ 51 miles.
+  const routeCoords: Array<[number, number]> = [];
+  for (let i = 0; i <= 40; i++) {
+    routeCoords.push([42.6, -113.65 - i * 0.05]);
+  }
+
+  const mockTravelFetch = () => vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    const host = new URL(url).hostname;
+    if (host === "router.hereapi.com") {
+      return new Response(JSON.stringify({
+        routes: [{
+          sections: [{
+            summary: { length: 165_000, duration: 9000, baseDuration: 8800 },
+            polyline: encodeFlexPolyline(routeCoords),
+            spans: [],
+          }],
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (host === "discover.search.hereapi.com") {
+      // Every corridor anchor returns the same two POIs: one on the route
+      // ahead, one on the same highway BEHIND the driver (east of origin).
+      return new Response(JSON.stringify({
+        items: [
+          {
+            id: "poi-ahead",
+            title: "Bliss Rest Area",
+            resultType: "place",
+            position: { lat: 42.6, lng: -115.15 },
+            address: { label: "I-84 Westbound, Bliss, ID" },
+            categories: [{ name: "Rest Area", primary: true }],
+          },
+          {
+            id: "poi-behind",
+            title: "Cotterel Rest Area",
+            resultType: "place",
+            position: { lat: 42.6, lng: -113.32 },
+            address: { label: "I-84, Declo, ID" },
+            categories: [{ name: "Rest Area", primary: true }],
+          },
+        ],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  });
+
+  it("returns only POIs ahead along the route, ordered by milesAhead, and drops same-highway POIs behind the driver", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    process.env.HERE_API_KEY = "test-here-key";
+    try {
+      mockTravelFetch();
+      const tools = createTravelTools();
+      const routeAhead = tools.find((tool) => tool.name === "route_ahead_search");
+      expect(routeAhead).toBeDefined();
+
+      const result = await routeAhead!.handler({
+        query: "rest area",
+        origin: "42.6,-113.65",
+        destination: "42.6,-115.65",
+      }) as Record<string, unknown>;
+
+      expect(result.error).toBeUndefined();
+      const results = result.results as Array<Record<string, unknown>>;
+      expect(result.resultCount).toBe(1);
+      expect(results[0]).toMatchObject({ name: "Bliss Rest Area" });
+      // ~1.5° of longitude ahead ≈ 76 route miles at 42.6°N.
+      expect(results[0]!.milesAhead as number).toBeGreaterThan(70);
+      expect(results[0]!.milesAhead as number).toBeLessThan(83);
+      expect(results[0]!.detourMiles as number).toBeLessThan(1);
+      expect(typeof results[0]!.etaMinutes).toBe("number");
+      // The behind-the-driver POI projects onto the route start with a large
+      // off-route distance and must not appear.
+      expect(results.some((item) => item.name === "Cotterel Rest Area")).toBe(false);
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
+  });
+
+  it("reports zero results with an explicit no-fabrication warning when nothing is within the ahead window", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    process.env.HERE_API_KEY = "test-here-key";
+    try {
+      mockTravelFetch();
+      const tools = createTravelTools();
+      const routeAhead = tools.find((tool) => tool.name === "route_ahead_search");
+
+      const result = await routeAhead!.handler({
+        query: "rest area",
+        origin: "42.6,-113.65",
+        destination: "42.6,-115.65",
+        max_ahead_miles: 50,
+      }) as Record<string, unknown>;
+
+      expect(result.resultCount).toBe(0);
+      const warnings = result.warnings as string[];
+      expect(warnings.some((warning) => warning.includes("do NOT fill the gap"))).toBe(true);
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
+  });
+
+  it("refuses to run without a destination or without a HERE key", async () => {
+    const previousKey = process.env.HERE_API_KEY;
+    delete process.env.HERE_API_KEY;
+    try {
+      const tools = createTravelTools();
+      const routeAhead = tools.find((tool) => tool.name === "route_ahead_search");
+
+      const missingDestination = await routeAhead!.handler({ query: "rest area" }) as Record<string, unknown>;
+      expect(String(missingDestination.error)).toContain("destination");
+
+      const missingKey = await routeAhead!.handler({
+        query: "rest area",
+        destination: "Yachats, OR",
+      }) as Record<string, unknown>;
+      expect(String(missingKey.error)).toContain("HERE_API_KEY");
+    } finally {
+      if (previousKey === undefined) delete process.env.HERE_API_KEY;
+      else process.env.HERE_API_KEY = previousKey;
+    }
+  });
+});

@@ -9,6 +9,7 @@ const OPEN_WORLD_TOOLS = new Set<string>([
   "walmart",
   "local_business_search",
   "driving_route",
+  "route_ahead_search",
   "find_diesel",
   "walking_route",
   "spawn_sub_agents",

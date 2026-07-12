@@ -2609,6 +2609,31 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'collaborate_with_agent');
     `,
   },
+  {
+    // route_ahead_search: along-route POI search (rest areas, stops, services
+    // ahead of the driver). Added after Sierra confidently recommended rest
+    // areas behind the driver by inferring direction from mile-marker lists.
+    version: 61,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
+      VALUES ('route_ahead_search', 'research', 'Along-Route POI Search', 'read');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:research-assistant', 'route_ahead_search', 'read', 'along-route POI search: rest areas, stops, and services ahead of the driver'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'route_ahead_search');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:sierra-ollama', 'route_ahead_search', 'read', 'Sierra Ollama along-route POI search: rest areas, stops, and services ahead of the driver'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'route_ahead_search');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:research-coordinator', 'route_ahead_search', 'read', 'along-route POI search for source-grounded travel research'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-coordinator')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'route_ahead_search');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

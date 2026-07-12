@@ -285,6 +285,7 @@ export const GOVERNANCE_SEED = `
     ('location_read', 'research', 'GPS Location', 'read'),
     ('local_business_search', 'research', 'Local Business Search', 'read'),
     ('driving_route', 'research', 'Driving Route Planner', 'read'),
+    ('route_ahead_search', 'research', 'Along-Route POI Search', 'read'),
     ('walking_route', 'research', 'Walking Route Planner', 'read'),
     ('find_diesel', 'research', 'Diesel Finder', 'read'),
     ('walmart', 'shopping', 'Walmart Shopping', 'write'),
@@ -396,6 +397,7 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'location_read', 'read', 'travel navigation'),
     ('worker:research-assistant', 'local_business_search', 'read', 'local business, restaurant, venue, class, and event candidate discovery'),
     ('worker:research-assistant', 'driving_route', 'read', 'travel route planning and drive-time verification'),
+    ('worker:research-assistant', 'route_ahead_search', 'read', 'along-route POI search: rest areas, stops, and services ahead of the driver'),
     ('worker:research-assistant', 'walking_route', 'read', 'travel walking route planning and walk-time verification'),
     ('worker:research-assistant', 'find_diesel', 'read', 'travel navigation'),
     ('worker:research-assistant', 'browser', 'write', 'web automation for research and source review'),
@@ -412,6 +414,7 @@ export const GOVERNANCE_SEED = `
     ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'local_business_search', 'read', 'Sierra Ollama local business and activity candidate discovery'),
     ('worker:sierra-ollama', 'driving_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
+    ('worker:sierra-ollama', 'route_ahead_search', 'read', 'Sierra Ollama along-route POI search: rest areas, stops, and services ahead of the driver'),
     ('worker:sierra-ollama', 'walking_route', 'read', 'Sierra Ollama walking route planning and walk-time verification'),
     ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for research and source review');
