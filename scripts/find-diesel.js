@@ -89,7 +89,7 @@ function resolveProfileLocationFile() {
 const LOCATION_FILE = resolveProfileLocationFile();
 const CORRIDOR_WIDTH = 5000; // meters from route centerline
 const NEAR_RADIUS = 16000; // meters around a near-mode center
-const TOP_N = 5;
+const TOP_N = 8;
 const HERE_FUEL_TYPE_DIESEL = '1';
 const HERE_FUEL_TYPE_NAMES = { 1: 'diesel', 2: 'regular', 3: 'midgrade', 4: 'premium' };
 const GASBUDDY_FUEL_PRODUCT_NAMES = {
@@ -273,6 +273,58 @@ function distanceFromRoute(stationLat, stationLon, routeCoords) {
     if (d < minDist) minDist = d;
   }
   return minDist;
+}
+
+// Downsampled route with cumulative along-route distance, so stations can be
+// projected to "miles ahead" instead of leaving the model to estimate
+// distances from mile markers (the failure class behind TGO-796).
+function buildRouteIndex(routeCoords) {
+  const step = Math.max(1, Math.floor(routeCoords.length / 1500));
+  const points = [];
+  let cumulativeM = 0;
+  let prev = null;
+  for (let i = 0; i < routeCoords.length; i += step) {
+    const c = routeCoords[i];
+    if (prev) {
+      cumulativeM += geolib.getDistance(
+        { latitude: prev[0], longitude: prev[1] },
+        { latitude: c[0], longitude: c[1] },
+      );
+    }
+    points.push({ lat: c[0], lon: c[1], alongM: cumulativeM });
+    prev = c;
+  }
+  return points;
+}
+
+function projectOntoRoute(stationLat, stationLon, routeIndex) {
+  let best = { detourM: Infinity, alongM: 0 };
+  const point = { latitude: stationLat, longitude: stationLon };
+  for (const p of routeIndex) {
+    const d = geolib.getDistance(point, { latitude: p.lat, longitude: p.lon });
+    if (d < best.detourM) best = { detourM: d, alongM: p.alongM };
+  }
+  return best;
+}
+
+// Cross-source dedupe: entries within 150 m are the same site. Keep the one
+// with the fresher posted price; surface the other's price when it disagrees
+// so stale crowd data and stale feed data cross-check each other.
+function mergeStations(stations) {
+  const kept = [];
+  const sorted = [...stations].sort((a, b) => String(b.priceUpdatedAt || '').localeCompare(String(a.priceUpdatedAt || '')));
+  for (const s of sorted) {
+    const dup = kept.find(k => geolib.getDistance(
+      { latitude: k.lat, longitude: k.lon },
+      { latitude: s.lat, longitude: s.lon },
+    ) < 150);
+    if (!dup) { kept.push(s); continue; }
+    if (dup.source !== s.source && Math.abs(dup.dieselPrice - s.dieselPrice) >= 0.05) {
+      dup.otherSourcePrice = s.dieselPrice;
+      dup.otherSource = s.source;
+    }
+  }
+  return kept;
 }
 
 function scoreStation(price, detourMeters) {
@@ -505,7 +557,74 @@ async function searchNearGasBuddy(center, radiusM) {
 
 // ── HERE Fuel Prices v3 ───────────────────────────────────────────────────────
 
+// Inverse of decodeFlexPolyline, for corridor queries.
+function encodeFlexPolyline(coords) {
+  const TABLE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const encodeUnsigned = (value) => {
+    let out = '';
+    while (value > 0x1f) {
+      out += TABLE[(value & 0x1f) | 0x20];
+      value = Math.floor(value / 32);
+    }
+    return out + TABLE[value];
+  };
+  const encodeSigned = (value) => encodeUnsigned(value < 0 ? -value * 2 - 1 : value * 2);
+  let out = encodeUnsigned(1) + encodeUnsigned(5);
+  let prevLat = 0;
+  let prevLon = 0;
+  for (const [lat, lon] of coords) {
+    const latQ = Math.round(lat * 1e5);
+    const lonQ = Math.round(lon * 1e5);
+    out += encodeSigned(latQ - prevLat) + encodeSigned(lonQ - prevLon);
+    prevLat = latQ;
+    prevLon = lonQ;
+  }
+  return out;
+}
+
+async function queryHereFuelCorridor(routeCoords, apiKey, width) {
+  // One corridor query covers the ENTIRE route. The old per-waypoint circle
+  // scheme (50-mile spacing, 5 km radius) left ~94% of the route unsearched
+  // and missed the cheapest cluster on a real trip (Biggs Junction, TGO-796
+  // follow-up). Downsample so the encoded polyline stays URL-safe.
+  const totalM = routeCoords.reduce((sum, c, i) => (
+    i === 0 ? 0 : sum + geolib.getDistance(
+      { latitude: routeCoords[i - 1][0], longitude: routeCoords[i - 1][1] },
+      { latitude: c[0], longitude: c[1] },
+    )
+  ), 0);
+  const intervalM = Math.max(2000, Math.round(totalM / 250));
+  const downsampled = sampleWaypoints(routeCoords, intervalM / 1609.34);
+  const polyline = encodeURIComponent(encodeFlexPolyline(downsampled));
+
+  const allStations = [];
+  const seen = new Set();
+  let offset = 0;
+  for (let page = 0; page < 12; page++) {
+    const url = `https://fuel.hereapi.com/v3/stations?in=corridor:${polyline};r=${width}` +
+      `&limit=100&fuelType=${HERE_FUEL_TYPE_DIESEL}${offset ? `&offset=${offset}` : ''}&apiKey=${apiKey}`;
+    const res = await fetchWithRetry(url);
+    if (!res.ok) throw new Error(`HERE corridor HTTP ${res.status}`);
+    const data = await res.json();
+    for (const s of (data.stations || [])) {
+      if (seen.has(s.id)) continue;
+      seen.add(s.id); allStations.push(s);
+    }
+    if (pretty) process.stderr.write(`  ✓ Corridor page ${page + 1}: ${allStations.length}/${data.total ?? '?'} stations\n`);
+    if (data.nextOffset == null || (data.stations || []).length === 0) break;
+    offset = data.nextOffset;
+  }
+  return allStations;
+}
+
 async function queryHereFuelAlongRoute(routeCoords, apiKey, width) {
+  try {
+    return await queryHereFuelCorridor(routeCoords, apiKey, width);
+  } catch (err) {
+    if (pretty) process.stderr.write(`  ⚠ Corridor query failed (${err.message}); falling back to waypoint circles\n`);
+  }
+  // Legacy fallback: circles around sparse waypoints. Coverage is gappy —
+  // corridor mode above is the real path.
   const waypoints = sampleWaypoints(routeCoords, WAYPOINT_INTERVAL_MILES);
   const seen = new Set();
   const allStations = [];
@@ -708,38 +827,60 @@ async function main() {
   const routeMiles = (route.distanceM / 1609.34).toFixed(1);
   const routeHours = (route.durationS / 3600).toFixed(1);
 
-  const { stations, source, tried } = await searchWithFallback(sourceOrder(apiKey), async (src) => {
-    if (src === 'gasbuddy') {
-      const found = await queryGasBuddyAlongRoute(route.coords);
-      return found.map(s => {
-        const detourM = distanceFromRoute(s.lat, s.lon, route.coords);
-        return { ...s, detourM, score: scoreStation(s.dieselPrice, detourM) };
-      });
-    }
-    const found = await queryHereFuelAlongRoute(route.coords, apiKey, corridorWidth);
-    return found.map(s => {
-      const lat = s.position?.lat; const lon = s.position?.lng;
-      if (!lat || !lon) return null;
-      const diesel = getDieselPrice(s);
-      const price = diesel?.price;
-      if (!price || price <= 0) return null;
-      const detourM = distanceFromRoute(lat, lon, route.coords);
-      return {
-        name: s.name || s.brand || 'Unknown',
-        address: s.address?.label || '',
-        lat,
-        lon,
-        dieselPrice: price,
-        priceUpdatedAt: diesel.modified,
-        fuelType: diesel.fuelType,
-        fuelTypeName: diesel.fuelTypeName,
-        unit: diesel.unit,
-        currency: diesel.currency,
-        detourM,
-        score: scoreStation(price, detourM),
-      };
-    }).filter(Boolean);
+  const routeIndex = buildRouteIndex(route.coords);
+  const mapGasBuddy = (found) => found.map(s => {
+    const projected = projectOntoRoute(s.lat, s.lon, routeIndex);
+    return { ...s, source: 'gasbuddy', detourM: projected.detourM, alongM: projected.alongM, score: scoreStation(s.dieselPrice, projected.detourM) };
   });
+  const mapHere = (found) => found.map(s => {
+    const lat = s.position?.lat; const lon = s.position?.lng;
+    if (!lat || !lon) return null;
+    const diesel = getDieselPrice(s);
+    const price = diesel?.price;
+    if (!price || price <= 0) return null;
+    const projected = projectOntoRoute(lat, lon, routeIndex);
+    return {
+      name: s.name || s.brand || 'Unknown',
+      address: s.address?.label || '',
+      lat,
+      lon,
+      dieselPrice: price,
+      priceUpdatedAt: diesel.modified,
+      fuelType: diesel.fuelType,
+      fuelTypeName: diesel.fuelTypeName,
+      unit: diesel.unit,
+      currency: diesel.currency,
+      source: 'here',
+      detourM: projected.detourM,
+      alongM: projected.alongM,
+      score: scoreStation(price, projected.detourM),
+    };
+  }).filter(Boolean);
+
+  // Query EVERY available source concurrently and merge. Each source has real
+  // coverage holes (HERE misses many independents; GasBuddy misses some
+  // branded stations); the old first-non-empty-wins fallback hid the richer
+  // source whenever the first returned anything at all.
+  const order = sourceOrder(apiKey);
+  const attempts = await Promise.allSettled(order.map(async (src) => (
+    src === 'gasbuddy'
+      ? mapGasBuddy(await queryGasBuddyAlongRoute(route.coords))
+      : mapHere(await queryHereFuelAlongRoute(route.coords, apiKey, corridorWidth))
+  )));
+  const tried = order;
+  const sourcesUsed = [];
+  const sourceErrors = [];
+  let stations = [];
+  attempts.forEach((attempt, i) => {
+    if (attempt.status === 'fulfilled' && attempt.value.length > 0) {
+      sourcesUsed.push(order[i]);
+      stations.push(...attempt.value);
+    } else if (attempt.status === 'rejected') {
+      sourceErrors.push(`${order[i]}: ${attempt.reason?.message || attempt.reason}`);
+    }
+  });
+  stations = mergeStations(stations);
+  const source = sourcesUsed.join('+') || null;
 
   if (pretty) process.stderr.write(`🔍 Found ${stations.length} diesel stations\n`);
   const scored = stations
@@ -754,6 +895,12 @@ async function main() {
       ...(s.currency ? { currency: s.currency } : {}),
       detourMiles: Math.round(s.detourM / 1609.34 * 10) / 10,
       detourMeters: Math.round(s.detourM),
+      milesAhead: Math.round(s.alongM / 1609.34 * 10) / 10,
+      ...(route.durationS > 0 && route.distanceM > 0
+        ? { etaMinutes: Math.round(route.durationS * (s.alongM / route.distanceM) / 60) }
+        : {}),
+      priceSource: s.source,
+      ...(s.otherSourcePrice ? { otherSourcePrice: s.otherSourcePrice, otherSource: s.otherSource } : {}),
       score: Math.round(s.score * 1000) / 1000,
       lat: s.lat,
       lon: s.lon,
@@ -765,13 +912,15 @@ async function main() {
   const output = {
     route: { from: { lat: pos.lat, lon: pos.lon }, to: { lat: dest.lat, lon: dest.lon, label: dest.label }, miles: parseFloat(routeMiles), hours: parseFloat(routeHours), router: route.router },
     source,
+    sources: sourcesUsed,
     sourcesTried: tried,
+    ...(sourceErrors.length ? { sourceErrors } : {}),
     stations: scored,
   };
   if (pretty) {
     console.log(`\n🛣️  Route: ${routeMiles} miles, ~${routeHours} hours\n`);
     if (!scored.length) { console.log('No diesel stations with pricing found along this route.'); }
-    else scored.forEach((s, i) => { console.log(`${i + 1}. ${s.name}\n   💰 $${s.dieselPrice.toFixed(3)}/gal  |  🔀 ${s.detourMiles} mi off route\n   📍 ${s.address}\n   🗺️  ${s.googleMapsLink}\n`); });
+    else scored.forEach((s, i) => { console.log(`${i + 1}. ${s.name}\n   💰 $${s.dieselPrice.toFixed(3)}/gal  |  ➡️  ${s.milesAhead} mi ahead${s.etaMinutes != null ? ` (~${s.etaMinutes} min)` : ''}  |  🔀 ${s.detourMiles} mi off route\n   📍 ${s.address}\n   🗺️  ${s.googleMapsLink}\n`); });
   } else {
     console.log(JSON.stringify(output));
   }

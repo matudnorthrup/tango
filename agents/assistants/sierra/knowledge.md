@@ -51,6 +51,13 @@ Reference guidance for research, product-selection, travel, and fabrication work
 - If the user challenges a distance/direction claim, do not "correct" it by
   re-reasoning over the same ungrounded data — re-run the route/ahead tools
   and rebuild the answer from tool output only.
+- For fuel-stop recommendations under a range limit, use `find_diesel` route
+  mode and compare every returned station whose `milesAhead` fits the range
+  (minus a buffer) by price — the list is score-ordered, not a verdict. Use
+  `milesAhead`/`etaMinutes` from the tool for distance math, never mile-marker
+  arithmetic. If the user mentions an advertised price better than anything
+  you listed, treat the sign as evidence you are missing data: verify with a
+  near-mode lookup at that place before advising.
 - Only name towns, stops, or landmarks as "on the route" when they appear in
   the tool's `via`/`passesThrough` output or in `find_diesel` results. For any
   other place, run a direct-vs-via route comparison before claiming it is on
