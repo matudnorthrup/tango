@@ -194,8 +194,22 @@ export class TangoRouter {
     return this.lifecycleManager.getSession(this.getConversationKey(channelId, threadId));
   }
 
+  /**
+   * T-I-035: lookup by raw conversation key, for sessions routed with an
+   * explicit key (voice `agent:…` keys, schedule/collaboration keys) that
+   * channel/thread derivation can never reach.
+   */
+  getSessionByKey(conversationKey: string): ConversationSession | undefined {
+    return this.lifecycleManager.getSession(conversationKey);
+  }
+
   markContextPressureAlertSent(channelId: string, threadId?: string): void {
     this.lifecycleManager.markContextPressureAlertSent(this.getConversationKey(channelId, threadId));
+  }
+
+  /** T-I-035: mark-sent by raw conversation key (voice/schedule/collab sessions). */
+  markContextPressureAlertSentByKey(conversationKey: string): void {
+    this.lifecycleManager.markContextPressureAlertSent(conversationKey);
   }
 
   consumeContextAutoResetNotice(

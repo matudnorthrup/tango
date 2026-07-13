@@ -2226,3 +2226,139 @@ describe("TangoStorage", () => {
     storage.close();
   });
 });
+
+// T-I-035: context-usage snapshots — persisted at the lifecycle write point so
+// /tango context and the voice whisper survive RAM wipes.
+describe("context usage snapshots (T-I-035)", () => {
+  it("the snapshot migration creates the table and lands as the live user_version", () => {
+    const { storage, dir } = createStorage();
+    storage.close();
+
+    const db = new DatabaseSync(path.join(dir, "tango.sqlite"));
+    try {
+      const version = db.prepare("PRAGMA user_version;").get() as { user_version: number };
+      expect(version.user_version).toBe(67);
+      const table = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'context_usage_snapshots'")
+        .get() as { name?: string } | undefined;
+      expect(table?.name).toBe("context_usage_snapshots");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("upserts keep only the latest reading per conversation+agent", () => {
+    const { storage } = createStorage();
+
+    storage.upsertContextUsageSnapshot({
+      conversationKey: "thread:123",
+      agentId: "alpha",
+      fraction: 0.28,
+      usedTokens: 56_000,
+      contextWindow: 200_000,
+      recordedAt: "2026-07-12T10:00:00.000Z",
+    });
+    storage.upsertContextUsageSnapshot({
+      conversationKey: "thread:123",
+      agentId: "alpha",
+      fraction: 0.31,
+      usedTokens: 62_000,
+      contextWindow: 200_000,
+      recordedAt: "2026-07-12T10:05:00.000Z",
+    });
+
+    const row = storage.getContextUsageSnapshot("thread:123", "alpha");
+    expect(row).toMatchObject({
+      conversationKey: "thread:123",
+      agentId: "alpha",
+      usedTokens: 62_000,
+      contextWindow: 200_000,
+      recordedAt: "2026-07-12T10:05:00.000Z",
+    });
+    expect(row!.fraction).toBeCloseTo(0.31, 4);
+  });
+
+  it("defaults recorded_at when the writer omits it", () => {
+    const { storage } = createStorage();
+
+    storage.upsertContextUsageSnapshot({
+      conversationKey: "channel:456",
+      agentId: "beta",
+      fraction: 0.46,
+      usedTokens: 92_000,
+      contextWindow: 200_000,
+    });
+
+    const row = storage.getContextUsageSnapshot("channel:456", "beta");
+    expect(row?.recordedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+
+  it("queries across key shapes: exact typed keys plus LIKE voice patterns, agent-filtered, freshest first", () => {
+    const { storage } = createStorage();
+    const post = "1385000000000000000";
+
+    // typed session for this thread
+    storage.upsertContextUsageSnapshot({
+      conversationKey: `thread:${post}`,
+      agentId: "alpha",
+      fraction: 0.28,
+      usedTokens: 56_000,
+      contextWindow: 200_000,
+      recordedAt: "2026-07-12T10:00:00.000Z",
+    });
+    // voice session in the same post (voice key embeds the channel id)
+    storage.upsertContextUsageSnapshot({
+      conversationKey: `agent:alpha:discord:channel:${post}:alpha`,
+      agentId: "alpha",
+      fraction: 0.62,
+      usedTokens: 124_000,
+      contextWindow: 200_000,
+      recordedAt: "2026-07-12T10:04:00.000Z",
+    });
+    // same post, DIFFERENT agent — must be filtered out
+    storage.upsertContextUsageSnapshot({
+      conversationKey: `agent:beta:discord:channel:${post}:beta`,
+      agentId: "beta",
+      fraction: 0.9,
+      usedTokens: 180_000,
+      contextWindow: 200_000,
+      recordedAt: "2026-07-12T10:04:30.000Z",
+    });
+    // unrelated post — must not match
+    storage.upsertContextUsageSnapshot({
+      conversationKey: "thread:999",
+      agentId: "alpha",
+      fraction: 0.11,
+      usedTokens: 22_000,
+      contextWindow: 200_000,
+      recordedAt: "2026-07-12T10:03:00.000Z",
+    });
+
+    const rows = storage.queryContextUsageSnapshots({
+      agentId: "alpha",
+      exactKeys: [`thread:${post}`],
+      likePatterns: [`%discord:channel:${post}%`],
+    });
+
+    expect(rows.map((row) => row.conversationKey)).toEqual([
+      `agent:alpha:discord:channel:${post}:alpha`,
+      `thread:${post}`,
+    ]);
+  });
+
+  it("returns empty for empty patterns instead of matching everything", () => {
+    const { storage } = createStorage();
+    storage.upsertContextUsageSnapshot({
+      conversationKey: "thread:123",
+      agentId: "alpha",
+      fraction: 0.28,
+      usedTokens: 56_000,
+      contextWindow: 200_000,
+    });
+
+    expect(storage.queryContextUsageSnapshots({ agentId: "alpha" })).toEqual([]);
+    expect(
+      storage.queryContextUsageSnapshots({ agentId: "alpha", exactKeys: ["  "], likePatterns: [""] }),
+    ).toEqual([]);
+  });
+});
