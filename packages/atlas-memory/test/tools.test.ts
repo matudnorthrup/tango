@@ -305,6 +305,73 @@ describe("atlas-memory tools", () => {
     db.close();
   });
 
+  it("omits wellness snippets from non-wellness scheduled reflections", async () => {
+    const { dbPath } = createTempDb();
+    const { db, tools } = createTestTools({ dbPath });
+    const memoryReflect = getTool(tools, "memory_reflect");
+
+    contextInsertConversationMemory(db, {
+      id: "m-work-1",
+      content: "User confirmed setup of a Code session named voice hardening.",
+      agent_id: "watson",
+      metadata: { session_id: "session-work" },
+    });
+    contextInsertConversationMemory(db, {
+      id: "m-work-2",
+      content: "Task completion rule: a checkmark means nudged; only done labels mean finished.",
+      agent_id: "watson",
+      metadata: { session_id: "session-work" },
+    });
+    contextInsertConversationMemory(db, {
+      id: "m-food-1",
+      content: "Food intake for today: protein yogurt bowl and protein powder.",
+      agent_id: "watson",
+      metadata: { session_id: "session-work" },
+    });
+    contextInsertConversationMemory(db, {
+      id: "m-food-2",
+      content: "Worked on yogurt at 10:30.",
+      agent_id: "watson",
+      metadata: { session_id: "session-work" },
+    });
+
+    const result = await memoryReflect.handler({
+      session_id: "session-work",
+      agent_id: "watson",
+    }) as { memories_created: number; reflections: string[] };
+
+    expect(result.memories_created).toBe(1);
+    expect(result.reflections[0]).toContain("voice hardening");
+    expect(result.reflections[0]).toContain("checkmark means nudged");
+    expect(result.reflections[0]).not.toContain("yogurt");
+    expect(result.reflections[0]).not.toContain("Food intake");
+
+    db.close();
+  });
+
+  it("keeps wellness snippets in wellness-agent reflections", async () => {
+    const { dbPath } = createTempDb();
+    const { db, tools } = createTestTools({ dbPath });
+    const memoryReflect = getTool(tools, "memory_reflect");
+
+    contextInsertConversationMemory(db, {
+      id: "m-malibu-1",
+      content: "Food intake for today: protein yogurt bowl and protein powder.",
+      agent_id: "malibu",
+      metadata: { session_id: "session-wellness" },
+    });
+
+    const result = await memoryReflect.handler({
+      session_id: "session-wellness",
+      agent_id: "malibu",
+    }) as { memories_created: number; reflections: string[] };
+
+    expect(result.memories_created).toBe(1);
+    expect(result.reflections[0]).toContain("protein yogurt bowl");
+
+    db.close();
+  });
+
   it("stores optional session metadata through memory_add", async () => {
     const { dbPath } = createTempDb();
     const { db, tools } = createTestTools({ dbPath });

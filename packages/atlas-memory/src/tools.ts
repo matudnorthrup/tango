@@ -50,6 +50,9 @@ const MEMORY_SOURCES = new Set<MemorySource>([
   "obsidian",
 ]);
 const PINNED_FACT_SCOPES = new Set<PinnedFactScope>(["global", "agent", "session"]);
+const WELLNESS_AGENT_IDS = new Set(["malibu", "malibu-ollama"]);
+const WELLNESS_MEMORY_PATTERN =
+  /\b(food intake|fatsecret|nutrition|meal|breakfast|lunch|dinner|snacks?|yogurt|protein powder|protein bowl|calories?|workout|exercise|fitness)\b/iu;
 
 export function createAtlasMemoryTools(
   context: AtlasMemoryToolContext,
@@ -206,6 +209,7 @@ export function createAtlasMemoryTools(
           include_archived: false,
         })
           .filter((memory) => memory.source !== "reflection")
+          .filter((memory) => shouldIncludeInReflection(agentId, memory))
           .sort((left, right) => compareDates(right.createdAt, left.createdAt))
           .slice(0, 10);
 
@@ -230,6 +234,7 @@ export function createAtlasMemoryTools(
           generated_by: "memory_reflect",
           session_id: sessionId,
           source_memory_ids: sourceMemories.map((memory) => memory.id),
+          reflection_filter: "v2_non_wellness_excludes_wellness_noise",
         };
 
         context.db.prepare(`
@@ -670,6 +675,13 @@ function mapMemoryRow(row: MemoryRow): MemoryRecord {
     archivedAt: row.archived_at,
     metadata: parseJsonObject(row.metadata),
   };
+}
+
+function shouldIncludeInReflection(agentId: string, memory: MemoryRecord): boolean {
+  if (WELLNESS_AGENT_IDS.has(agentId)) {
+    return true;
+  }
+  return !WELLNESS_MEMORY_PATTERN.test(memory.content);
 }
 
 function buildMemoryAdminFilter(input: unknown): MemoryAdminFilter {
