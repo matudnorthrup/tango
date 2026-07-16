@@ -206,6 +206,50 @@ describe("OllamaProvider tool loop", () => {
     expect(res.metadata?.usage?.outputTokens).toBe(28);
   });
 
+  it("retries a rate-limited model call without re-running completed tools", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    let requestCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      (async (_url: string, init?: RequestInit) => {
+        bodies.push(JSON.parse(init?.body as string));
+        requestCount++;
+        if (requestCount === 1) {
+          return new Response(
+            JSON.stringify(
+              buildPayload({
+                toolCalls: [{ id: "call_0", name: "log_weight", arguments: '{"lbs":182}' }],
+                finishReason: "tool_calls",
+              }),
+            ),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (requestCount === 2) {
+          return new Response('{"error":"too many concurrent requests"}', { status: 429 });
+        }
+        return new Response(JSON.stringify(buildPayload({ content: "Logged 182 lbs.", finishReason: "stop" })), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch,
+    );
+    const toolClient = createFakeToolClient({ onCall: () => '{"logged":182}' });
+    const provider = new OllamaProvider({ apiKey: "k", toolClient, retryDelayMs: 0 });
+
+    const response = await provider.generate({ prompt: "log my weight", tools: enabledTools });
+
+    expect(response.text).toBe("Logged 182 lbs.");
+    expect(bodies).toHaveLength(3);
+    expect(toolClient.calls).toEqual([{ name: "log_weight", args: { lbs: 182 } }]);
+    const retriedMessages = bodies[2]?.messages as Array<Record<string, unknown>>;
+    expect(retriedMessages.find((message) => message.role === "tool")).toEqual({
+      role: "tool",
+      tool_call_id: "call_0",
+      content: '{"logged":182}',
+    });
+  });
+
   it("(b') runs tools and continues the loop when finish_reason is \"stop\" but tool_calls are present", async () => {
     // Some models emit finish_reason:"stop" while STILL attaching tool_calls.
     // Gating on tool_calls presence (not finish_reason) means the tool must run

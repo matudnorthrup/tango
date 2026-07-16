@@ -51,7 +51,7 @@ const DEFAULT_MODELS = [
   "deepseek-v4-flash",
   "minimax-m2.5",
   "kimi-k2.6",
-  "glm-5",
+  "glm-5.2",
 ];
 
 // Judge + claude:* spawns must not depend on the interactive CLI login (it

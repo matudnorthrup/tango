@@ -40,7 +40,7 @@ runtime:
   # Victor is judgment-heavy PM/CoS work. Bake-off (2026-06-08): GLM-5 produced
   # the strongest project-status reads with real judgment; deepseek-v4-pro
   # over-explores (39 calls on a slack digest) and is slow on multi-tool turns.
-  model: glm-5
+  model: glm-5.2
   reasoning_effort: max
   idle_timeout_hours: 24
   context_reset_threshold: 0.80

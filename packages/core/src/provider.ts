@@ -130,6 +130,13 @@ export interface OllamaProviderOptions {
   defaultReasoningEffort?: ProviderReasoningEffort;
   timeoutMs?: number;
   /**
+   * Number of retry attempts for a rate-limited chat-completions request. Defaults
+   * to TANGO_PROVIDER_RETRY_LIMIT (or one retry when unset).
+   */
+  retryLimit?: number;
+  /** Base delay, in milliseconds, for rate-limit retries. Primarily testable. */
+  retryDelayMs?: number;
+  /**
    * Optional HTTP MCP tool client (Phase 2). When present AND the request enables
    * tools, `generate()` runs a bounded agentic tool loop against the persistent
    * MCP server. When absent, `generate()` is the Phase 0 single-shot text path.
@@ -139,6 +146,36 @@ export interface OllamaProviderOptions {
 
 export const DEFAULT_OLLAMA_BASE_URL = "https://ollama.com/v1";
 export const DEFAULT_OLLAMA_MODEL = "deepseek-v4-pro:cloud";
+const DEFAULT_OLLAMA_RETRY_LIMIT = 1;
+const DEFAULT_OLLAMA_RETRY_DELAY_MS = 1_500;
+const MAX_OLLAMA_RETRY_DELAY_MS = 5_000;
+
+function resolveOllamaRetryLimit(configuredLimit: number | undefined): number {
+  const configured = configuredLimit ?? Number.parseInt(process.env.TANGO_PROVIDER_RETRY_LIMIT ?? "", 10);
+  if (!Number.isFinite(configured)) return DEFAULT_OLLAMA_RETRY_LIMIT;
+  return Math.max(0, Math.min(Math.trunc(configured), 3));
+}
+
+function resolveOllamaRetryDelayMs(
+  retryAfter: string | null,
+  attempt: number,
+  configuredBaseDelayMs: number | undefined,
+): number {
+  const retryAfterSeconds = retryAfter === null ? Number.NaN : Number.parseFloat(retryAfter);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return Math.min(Math.round(retryAfterSeconds * 1_000), MAX_OLLAMA_RETRY_DELAY_MS);
+  }
+
+  const baseDelayMs = configuredBaseDelayMs ?? DEFAULT_OLLAMA_RETRY_DELAY_MS;
+  const normalizedBaseDelayMs = Number.isFinite(baseDelayMs)
+    ? Math.max(0, Math.min(Math.round(baseDelayMs), MAX_OLLAMA_RETRY_DELAY_MS))
+    : DEFAULT_OLLAMA_RETRY_DELAY_MS;
+  return Math.min(normalizedBaseDelayMs * 2 ** attempt, MAX_OLLAMA_RETRY_DELAY_MS);
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
 /**
  * Conservative effective context window for the Ollama backend (DeepSeek's true
  * window is ~1M tokens). Stamped onto each Ollama RuntimeResponse as
@@ -1274,31 +1311,40 @@ export class OllamaProvider implements ChatProvider {
     const baseUrl = (this.options.baseUrl ?? DEFAULT_OLLAMA_BASE_URL).replace(/\/+$/u, "");
     const url = `${baseUrl}/chat/completions`;
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
+    const retryLimit = resolveOllamaRetryLimit(this.options.retryLimit);
 
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Ollama request failed: ${message}`);
-    }
+    for (let attempt = 0; ; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Ollama request failed: ${message}`);
+      }
 
-    const rawText = await res.text();
-    if (!res.ok) {
+      const rawText = await res.text();
+      if (res.ok) {
+        try {
+          return JSON.parse(rawText);
+        } catch {
+          throw new Error("Ollama returned invalid JSON");
+        }
+      }
+
+      if (res.status === 429 && attempt < retryLimit) {
+        await sleep(resolveOllamaRetryDelayMs(res.headers.get("retry-after"), attempt, this.options.retryDelayMs));
+        continue;
+      }
+
       throw new Error(`Ollama request failed: status=${res.status} body=${rawText.slice(0, 500)}`);
-    }
-    try {
-      return JSON.parse(rawText);
-    } catch {
-      throw new Error("Ollama returned invalid JSON");
     }
   }
 

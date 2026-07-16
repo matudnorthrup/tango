@@ -117,14 +117,14 @@ So the default split:
 | Task shape | Use | Examples |
 | --- | --- | --- |
 | Bounded, tool-driven, latency-sensitive | **fast agentic** — MiniMax M2.5, `deepseek-v4-flash` | browse/shop, calendar, scripture marking, scheduled jobs |
-| Ambiguous, judgment, "what matters and why" | **thinking** — GLM-5 / `deepseek-v4-pro` (peers) | chief-of-staff prioritization, morning briefing, finance-review reasoning |
+| Ambiguous, judgment, "what matters and why" | **thinking** — GLM-5.2 / `deepseek-v4-pro` | chief-of-staff prioritization, morning briefing, finance-review reasoning |
 
 ### Judgment-model bake-off (2026-06-08)
 
 A head-to-head on judgment tasks (emotional advice; open-ended, constraint-laden
 trip planning) settled which "thinking" model to route judgment to:
 
-- **GLM-5 and `deepseek-v4-pro` are peers** — both produced deep, well-structured,
+- **GLM-5 and `deepseek-v4-pro` were peers** — both produced deep, well-structured,
   specific answers at comparable latency (~30s advice, ~70–75s planning). GLM-5
   leaned slightly more interpretive/"surprising"; `deepseek-v4-pro` was slightly
   better at grounding hard constraints (e.g. explicit fuel-range math). Either is
@@ -134,8 +134,9 @@ trip planning) settled which "thinking" model to route judgment to:
 
 Consequence: the earlier "`deepseek-v4-pro` is best for Juliet/Porter" finding was
 about the *alternatives that failed* (MiniMax deflected / made 0 tool calls; Flash
-500'd) — **not** GLM-5 losing. GLM-5 is the per-task judgment target; an agent
-already on `deepseek-v4-pro` loses nothing by staying (see "don't downgrade").
+500'd) — **not** GLM-5 losing. GLM-5 was retired by Ollama on 2026-07-15; GLM-5.2
+is the current judgment target, pending its normal Tango bakeoff. An agent already
+on `deepseek-v4-pro` loses nothing by staying (see "don't downgrade").
 
 ## Per-task auto-routing (the runtime safety net)
 
@@ -144,7 +145,7 @@ every Ollama turn, `ollama-runtime-adapter.ts` runs a cheap `ministral-3:3b`
 classifier (~0.9s, example-driven prompt, fully stable on the 16-task gold set)
 that labels the turn **JUDGMENT / DATA / OTHER**, then:
 
-- **JUDGMENT** → upgrade to GLM-5 *if* the agent's model isn't already strong at
+- **JUDGMENT** → upgrade to GLM-5.2 *if* the agent's model isn't already strong at
   judgment (`STRONG_JUDGMENT_MODELS`).
 - **DATA** (analyzing the user's own records) → upgrade to `deepseek-v4-pro` *if*
   the agent's model isn't already strong at data (`STRONG_DATA_MODELS`).
@@ -166,7 +167,7 @@ persona handles an occasional "help me think through X" on a thinking model.
 - Per-agent model is just `runtime.model` (Ollama path reads it on the v2/scheduler
   runtime). Flipping a persona is a one-line YAML change + bot restart.
 - Model ids work **bare** (no `:cloud`) via the OpenAI-compat `/v1` endpoint
-  (e.g. `glm-5`, `minimax-m2.5`). `kimi-k2-thinking` errors "prompt too long" on
+  (e.g. `glm-5.2`, `minimax-m2.5`). `kimi-k2-thinking` errors "prompt too long" on
   that endpoint — use `kimi-k2.6`.
 - A capable model can also fail *fast* flows it would ace given more turns: the
   real constraint for long/auth-in-turn flows is architectural (stateless single
