@@ -5,7 +5,6 @@ import {
   initializeSlotMode,
   isSlotModeActive,
   shouldInitializeSlotMode,
-  shouldRunSchedulerTickLoop,
 } from "../src/slot-mode.js";
 
 function createThread(id: string, url = `https://discord.test/${id}`) {
@@ -39,26 +38,6 @@ describe("slot mode env gating", () => {
     expect(shouldInitializeSlotMode({}, null)).toBe(false);
     expect(shouldInitializeSlotMode({ TANGO_SLOT: "1" }, null)).toBe(true);
     expect(shouldInitializeSlotMode({ TANGO_SLOT: "1" }, new Set(["999"]))).toBe(false);
-  });
-});
-
-describe("shouldRunSchedulerTickLoop", () => {
-  it("runs the tick loop for the production bot (no slot)", () => {
-    expect(shouldRunSchedulerTickLoop({})).toBe(true);
-    expect(shouldRunSchedulerTickLoop({ TANGO_SLOT: "" })).toBe(true);
-  });
-
-  it("disables the tick loop for slot / worktree-dev bots", () => {
-    expect(shouldRunSchedulerTickLoop({ TANGO_SLOT: "1" })).toBe(false);
-  });
-
-  it("allows forcing the tick loop in a slot via TANGO_SCHEDULER_IN_SLOT", () => {
-    expect(
-      shouldRunSchedulerTickLoop({ TANGO_SLOT: "1", TANGO_SCHEDULER_IN_SLOT: "true" }),
-    ).toBe(true);
-    expect(
-      shouldRunSchedulerTickLoop({ TANGO_SLOT: "1", TANGO_SCHEDULER_IN_SLOT: "false" }),
-    ).toBe(false);
   });
 });
 

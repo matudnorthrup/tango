@@ -213,46 +213,6 @@ describe("buildV2RuntimeConfigs", () => {
     });
   });
 
-  it("splits default and available MCP servers from v2 mount policy", () => {
-    const configs = new Map<string, V2AgentConfig>([
-      [
-        "watson",
-        createV2Config(
-          "watson",
-          { provider: "claude-code-v2" },
-          {},
-          {
-            mcpServers: [
-              {
-                name: "memory",
-                command: "node",
-                args: ["packages/atlas-memory/dist/index.js"],
-              },
-              {
-                name: "attachments",
-                command: "node",
-                args: ["packages/core/dist/mcp-proxy.js", "attachments"],
-              },
-            ],
-            mcp: {
-              defaultServers: ["memory"],
-              availableServers: ["attachments"],
-            },
-          },
-        ),
-      ],
-    ]);
-
-    const runtimeConfig = buildV2RuntimeConfigs(configs, { repoRoot }).get("watson");
-
-    expect(runtimeConfig?.mcpServers.map((server) => server.name)).toEqual(["memory"]);
-    expect(runtimeConfig?.availableMcpServers?.map((server) => server.name)).toEqual(["attachments"]);
-    expect(runtimeConfig?.availableMcpServers?.[0]?.env).toMatchObject({
-      WORKER_ID: "watson",
-      TANGO_MEMORY_CANONICAL_AGENT_ID: "watson",
-    });
-  });
-
   it("loads per-agent profile prompt overlays into the system prompt (profile parity)", () => {
     const homeBackup = process.env.TANGO_HOME;
     const profileBackup = process.env.TANGO_PROFILE;

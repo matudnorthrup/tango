@@ -964,37 +964,37 @@ export function createRecipeTools(overrides?: WellnessToolPaths): AgentTool[] {
 }
 
 // ---------------------------------------------------------------------------
-// Wellness bounded wellness file tool
+// Jules bounded wellness file tool
 // ---------------------------------------------------------------------------
 
-const WELLNESS_FILES_READ_LIMIT = 50_000;
-const WELLNESS_FILES_READONLY_SUBDIRS = ["healing-library"];
+const JULES_FILES_READ_LIMIT = 50_000;
+const JULES_FILES_READONLY_SUBDIRS = ["healing-library"];
 
-export interface WellnessFilesToolOptions {
+export interface JulesFilesToolOptions {
   rootDir?: string;
 }
 
-export function resolveWellnessWellnessFilesRoot(
+export function resolveJulesWellnessFilesRoot(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const home = os.homedir();
-  const configured = env.WELLNESS_FILES_ROOT?.trim()
+  const configured = env.JULES_WELLNESS_FILES_ROOT?.trim()
     || path.join(resolveTangoProfileDir(), "wellness");
   return path.resolve(configured.replace(/^~/, home));
 }
 
-export function isWellnessWellnessPathAllowed(resolvedPath: string, rootDir: string): boolean {
+export function isJulesWellnessPathAllowed(resolvedPath: string, rootDir: string): boolean {
   const root = path.resolve(rootDir);
   const resolved = path.resolve(resolvedPath);
   const relative = path.relative(root, resolved);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-export function isWellnessWellnessPathReadOnly(resolvedPath: string, rootDir: string): boolean {
+export function isJulesWellnessPathReadOnly(resolvedPath: string, rootDir: string): boolean {
   const root = path.resolve(rootDir);
   const resolved = path.resolve(resolvedPath);
 
-  for (const subdir of WELLNESS_FILES_READONLY_SUBDIRS) {
+  for (const subdir of JULES_FILES_READONLY_SUBDIRS) {
     const readonlyRoot = path.join(root, subdir);
     if (resolved === readonlyRoot || resolved.startsWith(`${readonlyRoot}${path.sep}`)) {
       return true;
@@ -1009,7 +1009,7 @@ export function isWellnessWellnessPathReadOnly(resolvedPath: string, rootDir: st
   return relative.split(path.sep).includes("source");
 }
 
-function resolveWellnessFilesInputPath(filePath: string, rootDir: string): string {
+function resolveJulesFilesInputPath(filePath: string, rootDir: string): string {
   const home = os.homedir();
   const normalized = filePath.trim().replace(/^~/, home);
   if (path.isAbsolute(normalized)) {
@@ -1018,15 +1018,15 @@ function resolveWellnessFilesInputPath(filePath: string, rootDir: string): strin
   return path.resolve(rootDir, normalized);
 }
 
-export function createWellnessFilesTools(options?: WellnessFilesToolOptions): AgentTool[] {
-  const rootDir = path.resolve(options?.rootDir ?? resolveWellnessWellnessFilesRoot());
+export function createJulesFilesTools(options?: JulesFilesToolOptions): AgentTool[] {
+  const rootDir = path.resolve(options?.rootDir ?? resolveJulesWellnessFilesRoot());
   const rootLabel = rootDir.replace(os.homedir(), "~");
 
   return [
     {
-      name: "wellness_files",
+      name: "jules_files",
       description: [
-        "Bounded file operations for Wellness's wellness workspace.",
+        "Bounded file operations for Jules's wellness workspace.",
         "",
         `Allowed root: ${rootLabel}`,
         "Read-only areas: healing-library/ and any path containing /source/",
@@ -1085,16 +1085,16 @@ export function createWellnessFilesTools(options?: WellnessFilesToolOptions): Ag
       handler: async (input) => {
         const action = String(input.action);
         const filePath = String(input.path);
-        const resolved = resolveWellnessFilesInputPath(filePath, rootDir);
+        const resolved = resolveJulesFilesInputPath(filePath, rootDir);
 
-        if (!isWellnessWellnessPathAllowed(resolved, rootDir)) {
+        if (!isJulesWellnessPathAllowed(resolved, rootDir)) {
           return {
             error: `Access denied: ${filePath}. Allowed root: ${rootLabel}`,
           };
         }
 
         const requiresWritable = action === "write" || action === "append" || action === "move" || action === "copy";
-        if (requiresWritable && isWellnessWellnessPathReadOnly(resolved, rootDir)) {
+        if (requiresWritable && isJulesWellnessPathReadOnly(resolved, rootDir)) {
           return {
             error: `Read-only area: ${filePath}. healing-library/ and /source/ paths cannot be modified.`,
           };
@@ -1115,8 +1115,8 @@ export function createWellnessFilesTools(options?: WellnessFilesToolOptions): Ag
               type: entry.isDirectory() ? "directory" as const : "file" as const,
               size: entry.isFile() ? fs.statSync(path.join(resolved, entry.name)).size : undefined,
               readOnly: entry.isDirectory()
-                ? isWellnessWellnessPathReadOnly(path.join(resolved, entry.name), rootDir)
-                : isWellnessWellnessPathReadOnly(path.join(resolved, entry.name), rootDir),
+                ? isJulesWellnessPathReadOnly(path.join(resolved, entry.name), rootDir)
+                : isJulesWellnessPathReadOnly(path.join(resolved, entry.name), rootDir),
             }));
 
             if (input.pattern) {
@@ -1136,9 +1136,9 @@ export function createWellnessFilesTools(options?: WellnessFilesToolOptions): Ag
               return { error: `File not found: ${filePath}` };
             }
             const content = fs.readFileSync(resolved, "utf8");
-            if (content.length > WELLNESS_FILES_READ_LIMIT) {
+            if (content.length > JULES_FILES_READ_LIMIT) {
               return {
-                content: content.slice(0, WELLNESS_FILES_READ_LIMIT),
+                content: content.slice(0, JULES_FILES_READ_LIMIT),
                 truncated: true,
                 totalLength: content.length,
               };
@@ -1152,14 +1152,14 @@ export function createWellnessFilesTools(options?: WellnessFilesToolOptions): Ag
               return { error: `${action} requires 'destination'` };
             }
             const destPath = String(input.destination);
-            const destResolved = resolveWellnessFilesInputPath(destPath, rootDir);
+            const destResolved = resolveJulesFilesInputPath(destPath, rootDir);
 
-            if (!isWellnessWellnessPathAllowed(destResolved, rootDir)) {
+            if (!isJulesWellnessPathAllowed(destResolved, rootDir)) {
               return {
                 error: `Access denied for destination: ${destPath}. Allowed root: ${rootLabel}`,
               };
             }
-            if (isWellnessWellnessPathReadOnly(destResolved, rootDir)) {
+            if (isJulesWellnessPathReadOnly(destResolved, rootDir)) {
               return {
                 error: `Read-only area: ${destPath}. healing-library/ and /source/ paths cannot be modified.`,
               };
@@ -1219,6 +1219,6 @@ export function createAllWellnessTools(overrides?: WellnessToolPaths): AgentTool
     ...createHealthTools(overrides),
     ...createWorkoutTools(overrides),
     ...createRecipeTools(overrides),
-    ...createWellnessFilesTools(),
+    ...createJulesFilesTools(),
   ];
 }

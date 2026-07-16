@@ -8,20 +8,20 @@ import {
 
 describe("context-visibility", () => {
   it("builds an in-thread pressure alert with save guidance", () => {
-    const message = buildContextPressureInThreadAlert("wellness", {
+    const message = buildContextPressureInThreadAlert("jules", {
       fraction: 0.73,
       totalTokens: 146_000,
       contextWindow: 200_000,
     });
 
-    expect(message).toContain("Context 73% — wellness");
+    expect(message).toContain("Context 73% — jules");
     expect(message).toContain("/tango save");
     expect(message).toContain("rotates at 80%");
     expect(message).toContain("/tango new");
   });
 
   it("builds an in-thread rotation alert at 80%", () => {
-    const message = buildContextRotationInThreadAlert("wellness");
+    const message = buildContextRotationInThreadAlert("jules");
 
     expect(message).toContain("Session rotated at 80%");
     expect(message).toContain("rotation, not a save pass");
@@ -30,7 +30,7 @@ describe("context-visibility", () => {
 
   it("builds an ephemeral slash reply with idle-timeout notes", () => {
     const message = buildContextSlashReply({
-      agentId: "wellness",
+      agentId: "jules",
       conversationKey: "thread:123",
       usage: {
         fraction: 0.42,

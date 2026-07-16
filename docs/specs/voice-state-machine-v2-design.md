@@ -1,23 +1,9 @@
 # Voice State Machine — V2 Design
 
-> **Status: RETIRED (July 2026) — never implemented past Phase 2.**
->
-> Phases 1–2 landed as code (`V2PipelineStateMachine`, `InterruptLayer`, a V2
-> test harness), but Phases 3–8 never ran and `VoicePipeline` never consumed
-> any of it. Meanwhile the live V1 pipeline evolved past this spec's core
-> assumptions: grace windows were kept and extended (this spec planned to
-> eliminate them), route confirmation became a first-class awaiting state
-> (this spec removed it), and the indicate fragmentation and stuck-capture
-> bugs that motivated the rewrite were fixed in place (grace-seeded capture
-> with origin tracking, capture timeouts, TGO-751). The unused V2 artifacts
-> were deleted from the codebase during the July 2026 state-machine audit.
->
-> This document is kept as a design reference only. For the current system,
-> see [`../architecture/voice-pipeline-state-machine.md`](../architecture/voice-pipeline-state-machine.md).
-
-This document describes a target architecture for the Tango voice pipeline. It
-was a forward-looking design spec meant to guide a rewrite, not a description
-of the current system.
+This document describes the target architecture for the Tango voice pipeline. It
+is a forward-looking design spec meant to guide the rewrite, not a description
+of the current system. For the current system, see
+[`../architecture/voice-pipeline-state-machine.md`](../architecture/voice-pipeline-state-machine.md).
 
 ---
 

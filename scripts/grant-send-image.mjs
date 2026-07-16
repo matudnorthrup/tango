@@ -35,11 +35,11 @@ const PRINCIPALS = [
   "worker:operations-assistant", // victor
   "worker:foxtrot",              // foxtrot
   "worker:workout-recorder",     // malibu
-  "worker:nutrition-logger",     // wellness
-  "worker:recipe-librarian",     // wellness
-  "worker:health-analyst",       // wellness
-  "worker:activity-tracker",     // wellness
-  "worker:note-librarian",       // wellness (shared)
+  "worker:nutrition-logger",     // jules
+  "worker:recipe-librarian",     // jules
+  "worker:health-analyst",       // jules
+  "worker:activity-tracker",     // jules
+  "worker:note-librarian",       // jules (shared)
   // Live-managed Ollama clone principals (tools come ONLY from these grants)
   "worker:charlie-ollama",
   "worker:foxtrot-ollama",

@@ -28,7 +28,6 @@ See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) f
 | `travel.md` | `location_read`, `local_business_search`, `driving_route`, `walking_route`, `find_diesel` | Sierra / travel and local research; Charlie / narration (`location_read` only) | `travel-routing.md`, `local-business-research.md` |
 | `walmart.md` | `walmart` | Foxtrot / shopping | |
 | `browser.md` | `browser` | Watson / Sierra / Foxtrot browser flows | |
-| `agent-collaboration.md` | `collaborate_with_agent` | cross-agent bounded collaboration | |
 | `agent-docs.md` | `agent_docs` | Agent self-update | |
 | `latitude-remote.md` | `latitude_run` | Watson / work systems | |
 | `linear.md` | `linear` | Victor / project tracking | |

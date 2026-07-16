@@ -223,18 +223,18 @@ export const GOVERNANCE_SEED = `
     ('agent:dispatch', 'agent', 'user:owner', 'Tango'),
     ('agent:victor', 'agent', 'user:owner', 'Victor'),
     ('agent:porter', 'agent', 'user:owner', 'Porter'),
-    ('agent:wellness', 'agent', 'user:owner', 'Wellness'),
+    ('agent:jules', 'agent', 'user:owner', 'Jules'),
     ('agent:foxtrot', 'agent', 'user:owner', 'Foxtrot'),
     ('agent:foxtrot-ollama', 'agent', 'user:owner', 'Foxtrot (Ollama)'),
     ('agent:sierra-ollama', 'agent', 'user:owner', 'Sierra (Ollama)'),
     ('agent:kilo', 'agent', 'user:owner', 'Kilo');
 
   INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-    ('worker:nutrition-logger', 'worker', 'agent:wellness', 'Nutrition Logger'),
-    ('worker:health-analyst', 'worker', 'agent:wellness', 'Health Analyst'),
+    ('worker:nutrition-logger', 'worker', 'agent:jules', 'Nutrition Logger'),
+    ('worker:health-analyst', 'worker', 'agent:jules', 'Health Analyst'),
     ('worker:workout-recorder', 'worker', 'agent:malibu', 'Workout Recorder'),
-    ('worker:recipe-librarian', 'worker', 'agent:wellness', 'Recipe Librarian'),
-    ('worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker'),
+    ('worker:recipe-librarian', 'worker', 'agent:jules', 'Recipe Librarian'),
+    ('worker:activity-tracker', 'worker', 'agent:jules', 'Activity Tracker'),
     ('worker:personal-assistant', 'worker', 'agent:watson', 'Personal Assistant'),
     ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
     ('worker:charlie', 'worker', 'agent:charlie', 'Charlie Runtime'),
@@ -285,14 +285,13 @@ export const GOVERNANCE_SEED = `
     ('location_read', 'research', 'GPS Location', 'read'),
     ('local_business_search', 'research', 'Local Business Search', 'read'),
     ('driving_route', 'research', 'Driving Route Planner', 'read'),
-    ('route_ahead_search', 'research', 'Along-Route POI Search', 'read'),
     ('walking_route', 'research', 'Walking Route Planner', 'read'),
     ('find_diesel', 'research', 'Diesel Finder', 'read'),
     ('walmart', 'shopping', 'Walmart Shopping', 'write'),
     ('browser', 'shared', 'Browser Automation', 'write'),
     ('slack', 'shared', 'Slack Workspace Read', 'read'),
     ('file_ops', 'research', 'File Operations', 'write'),
-    ('wellness_files', 'wellness', 'Wellness Wellness Files', 'write'),
+    ('jules_files', 'wellness', 'Jules Wellness Files', 'write'),
     ('wellnessdb_search_product', 'wellness-db', 'Wellness DB Product Search', 'read'),
     ('wellnessdb_search_supplement', 'wellness-db', 'Wellness DB Supplement Search', 'read'),
     ('wellnessdb_search_recipe', 'wellness-db', 'Wellness DB Recipe Search', 'read'),
@@ -331,7 +330,6 @@ export const GOVERNANCE_SEED = `
     ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read'),
     ('spawn_claude_session', 'tango', 'Spawn Claude Code Session', 'write'),
     ('list_claude_sessions', 'tango', 'List Claude Code Sessions', 'read'),
-    ('collaborate_with_agent', 'tango', 'Agent Collaboration', 'write'),
     ('discord_send_image', 'tango', 'Discord Image Send', 'write');
 
   -- Default groups
@@ -397,7 +395,6 @@ export const GOVERNANCE_SEED = `
     ('worker:research-assistant', 'location_read', 'read', 'travel navigation'),
     ('worker:research-assistant', 'local_business_search', 'read', 'local business, restaurant, venue, class, and event candidate discovery'),
     ('worker:research-assistant', 'driving_route', 'read', 'travel route planning and drive-time verification'),
-    ('worker:research-assistant', 'route_ahead_search', 'read', 'along-route POI search: rest areas, stops, and services ahead of the driver'),
     ('worker:research-assistant', 'walking_route', 'read', 'travel walking route planning and walk-time verification'),
     ('worker:research-assistant', 'find_diesel', 'read', 'travel navigation'),
     ('worker:research-assistant', 'browser', 'write', 'web automation for research and source review'),
@@ -414,7 +411,6 @@ export const GOVERNANCE_SEED = `
     ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'local_business_search', 'read', 'Sierra Ollama local business and activity candidate discovery'),
     ('worker:sierra-ollama', 'driving_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'),
-    ('worker:sierra-ollama', 'route_ahead_search', 'read', 'Sierra Ollama along-route POI search: rest areas, stops, and services ahead of the driver'),
     ('worker:sierra-ollama', 'walking_route', 'read', 'Sierra Ollama walking route planning and walk-time verification'),
     ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
     ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for research and source review');
@@ -475,17 +471,17 @@ export const GOVERNANCE_SEED = `
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:kilo', 'kilo_ledger', 'write', 'Kilo bucket ledger operations');
 
-  -- Wellness wellness workers — browser + exa for macro/recipe/health lookups at worker cost
+  -- Jules wellness workers — browser + exa for macro/recipe/health lookups at worker cost
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-    ('worker:nutrition-logger', 'exa_search', 'read', 'Wellness worker macro and restaurant lookup'),
-    ('worker:nutrition-logger', 'exa_answer', 'read', 'Wellness worker macro and restaurant lookup'),
-    ('worker:nutrition-logger', 'browser', 'write', 'Wellness worker macro and restaurant lookup'),
-    ('worker:recipe-librarian', 'exa_search', 'read', 'Wellness worker recipe research'),
-    ('worker:recipe-librarian', 'exa_answer', 'read', 'Wellness worker recipe research'),
-    ('worker:recipe-librarian', 'browser', 'write', 'Wellness worker recipe research'),
-    ('worker:health-analyst', 'exa_search', 'read', 'Wellness worker health research'),
-    ('worker:health-analyst', 'exa_answer', 'read', 'Wellness worker health research'),
-    ('worker:health-analyst', 'browser', 'write', 'Wellness worker health research');
+    ('worker:nutrition-logger', 'exa_search', 'read', 'Jules worker macro and restaurant lookup'),
+    ('worker:nutrition-logger', 'exa_answer', 'read', 'Jules worker macro and restaurant lookup'),
+    ('worker:nutrition-logger', 'browser', 'write', 'Jules worker macro and restaurant lookup'),
+    ('worker:recipe-librarian', 'exa_search', 'read', 'Jules worker recipe research'),
+    ('worker:recipe-librarian', 'exa_answer', 'read', 'Jules worker recipe research'),
+    ('worker:recipe-librarian', 'browser', 'write', 'Jules worker recipe research'),
+    ('worker:health-analyst', 'exa_search', 'read', 'Jules worker health research'),
+    ('worker:health-analyst', 'exa_answer', 'read', 'Jules worker health research'),
+    ('worker:health-analyst', 'browser', 'write', 'Jules worker health research');
 
   -- 1Password access — Watson (personal assistant) needs credentials for service logins and API keys
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
@@ -498,29 +494,29 @@ export const GOVERNANCE_SEED = `
   -- note-librarian — shared file-backed Obsidian access
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:note-librarian', 'obsidian', 'write', 'shared Obsidian note access'),
-    ('worker:note-librarian', 'wellness_files', 'write', 'bounded wellness workspace file access'),
-    ('worker:nutrition-logger', 'wellnessdb_search_product', 'read', 'Wellness wellness.db lookup'),
-    ('worker:nutrition-logger', 'wellnessdb_search_supplement', 'read', 'Wellness wellness.db lookup'),
-    ('worker:nutrition-logger', 'wellnessdb_day_summary', 'read', 'Wellness wellness.db day summary'),
-    ('worker:nutrition-logger', 'wellnessdb_recent_meals', 'read', 'Wellness wellness.db recent meals'),
-    ('worker:nutrition-logger', 'wellnessdb_active_supplements', 'read', 'Wellness wellness.db active supplements'),
-    ('worker:nutrition-logger', 'wellnessdb_active_products', 'read', 'Wellness wellness.db active products'),
-    ('worker:nutrition-logger', 'wellnessdb_log_meal', 'write', 'Wellness wellness.db meal logging'),
-    ('worker:nutrition-logger', 'wellnessdb_log_supplement', 'write', 'Wellness wellness.db supplement logging'),
-    ('worker:nutrition-logger', 'wellnessdb_add_product', 'write', 'Wellness wellness.db product creation'),
-    ('worker:nutrition-logger', 'wellnessdb_add_day_note', 'write', 'Wellness wellness.db day notes'),
-    ('worker:nutrition-logger', 'wellnessdb_delete_meal_entry', 'write', 'Wellness wellness.db meal corrections'),
-    ('worker:recipe-librarian', 'wellnessdb_search_recipe', 'read', 'Wellness wellness.db recipe lookup'),
-    ('worker:recipe-librarian', 'wellnessdb_get_recipe_detail', 'read', 'Wellness wellness.db recipe detail'),
-    ('worker:recipe-librarian', 'wellnessdb_active_products', 'read', 'Wellness wellness.db active products'),
-    ('worker:recipe-librarian', 'wellnessdb_add_recipe', 'write', 'Wellness wellness.db recipe creation'),
-    ('worker:recipe-librarian', 'wellnessdb_update_recipe', 'write', 'Wellness wellness.db recipe updates'),
-    ('worker:health-analyst', 'wellnessdb_day_summary', 'read', 'Wellness wellness.db day summary'),
-    ('worker:health-analyst', 'wellnessdb_day_range', 'read', 'Wellness wellness.db trend analysis'),
-    ('worker:activity-tracker', 'wellnessdb_log_weight', 'write', 'Wellness wellness.db weight logging'),
-    ('worker:activity-tracker', 'wellnessdb_log_activity', 'write', 'Wellness wellness.db activity logging'),
-    ('worker:activity-tracker', 'wellnessdb_log_hydration', 'write', 'Wellness wellness.db hydration logging'),
-    ('agent:wellness', 'wellnessdb_log_presence', 'write', 'Wellness direct presence check logging'),
+    ('worker:note-librarian', 'jules_files', 'write', 'bounded wellness workspace file access'),
+    ('worker:nutrition-logger', 'wellnessdb_search_product', 'read', 'Jules wellness.db lookup'),
+    ('worker:nutrition-logger', 'wellnessdb_search_supplement', 'read', 'Jules wellness.db lookup'),
+    ('worker:nutrition-logger', 'wellnessdb_day_summary', 'read', 'Jules wellness.db day summary'),
+    ('worker:nutrition-logger', 'wellnessdb_recent_meals', 'read', 'Jules wellness.db recent meals'),
+    ('worker:nutrition-logger', 'wellnessdb_active_supplements', 'read', 'Jules wellness.db active supplements'),
+    ('worker:nutrition-logger', 'wellnessdb_active_products', 'read', 'Jules wellness.db active products'),
+    ('worker:nutrition-logger', 'wellnessdb_log_meal', 'write', 'Jules wellness.db meal logging'),
+    ('worker:nutrition-logger', 'wellnessdb_log_supplement', 'write', 'Jules wellness.db supplement logging'),
+    ('worker:nutrition-logger', 'wellnessdb_add_product', 'write', 'Jules wellness.db product creation'),
+    ('worker:nutrition-logger', 'wellnessdb_add_day_note', 'write', 'Jules wellness.db day notes'),
+    ('worker:nutrition-logger', 'wellnessdb_delete_meal_entry', 'write', 'Jules wellness.db meal corrections'),
+    ('worker:recipe-librarian', 'wellnessdb_search_recipe', 'read', 'Jules wellness.db recipe lookup'),
+    ('worker:recipe-librarian', 'wellnessdb_get_recipe_detail', 'read', 'Jules wellness.db recipe detail'),
+    ('worker:recipe-librarian', 'wellnessdb_active_products', 'read', 'Jules wellness.db active products'),
+    ('worker:recipe-librarian', 'wellnessdb_add_recipe', 'write', 'Jules wellness.db recipe creation'),
+    ('worker:recipe-librarian', 'wellnessdb_update_recipe', 'write', 'Jules wellness.db recipe updates'),
+    ('worker:health-analyst', 'wellnessdb_day_summary', 'read', 'Jules wellness.db day summary'),
+    ('worker:health-analyst', 'wellnessdb_day_range', 'read', 'Jules wellness.db trend analysis'),
+    ('worker:activity-tracker', 'wellnessdb_log_weight', 'write', 'Jules wellness.db weight logging'),
+    ('worker:activity-tracker', 'wellnessdb_log_activity', 'write', 'Jules wellness.db activity logging'),
+    ('worker:activity-tracker', 'wellnessdb_log_hydration', 'write', 'Jules wellness.db hydration logging'),
+    ('agent:jules', 'wellnessdb_log_presence', 'write', 'Jules direct presence check logging'),
     ('worker:note-librarian', 'memory_search', 'read', 'memory lookup while resolving notes'),
     ('worker:note-librarian', 'memory_add', 'write', 'memory capture for durable note context'),
     ('worker:note-librarian', 'memory_reflect', 'write', 'memory reflection for durable note context');
@@ -589,8 +585,5 @@ export const GOVERNANCE_SEED = `
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('user:owner', 'memory_search', 'read', 'universal memory retrieval'),
     ('user:owner', 'memory_add', 'write', 'universal memory storage'),
-    ('user:owner', 'memory_reflect', 'write', 'universal memory reflection'),
-    ('user:owner', 'collaborate_with_agent', 'write', 'bounded agent-to-agent collaboration'),
-    ('agent:watson', 'collaborate_with_agent', 'write', 'Watson bounded specialist collaboration'),
-    ('agent:victor', 'collaborate_with_agent', 'write', 'Victor bounded specialist collaboration');
+    ('user:owner', 'memory_reflect', 'write', 'universal memory reflection');
 `;

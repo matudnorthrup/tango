@@ -2,7 +2,7 @@
 
 ## Why This Work Matters
 
-Every worker and every analysis Wellness produces is only as good as the data underneath it. The note-librarian is the recordkeeper: the one who ensures that what gets written down is findable, organized, and preserved. Without disciplined records, the health-analyst has nothing to search, the nutrition-logger's history disappears, and patterns that took months to build get lost in file sprawl.
+Every worker and every analysis Jules produces is only as good as the data underneath it. The note-librarian is the recordkeeper: the one who ensures that what gets written down is findable, organized, and preserved. Without disciplined records, the health-analyst has nothing to search, the nutrition-logger's history disappears, and patterns that took months to build get lost in file sprawl.
 
 This already happened once. In a previous system, files were saved in random locations, new directories were created without structure, and the filing system became a mess that was never fully recovered from. That will not happen again.
 
@@ -51,7 +51,7 @@ wellness/
 | Meal plan | recipe-librarian | nutrition/meal-plans/ | `YYYY-MM-DD.md` |
 | Grocery list | recipe-librarian | nutrition/meal-plans/ | included in the meal plan file |
 | Coaching session notes | user (via note-librarian) | coaching/<coach-or-topic>/ | `YYYY-MM-DD-session.md` |
-| Food reflections | user (via Wellness) | nutrition/ | append to `food-reflections.md` |
+| Food reflections | user (via Jules) | nutrition/ | append to `food-reflections.md` |
 | Supplement protocol changes | nutrition-logger flag | supplements/ | update `supplement-protocol.md` with date |
 | Practitioner visit notes | user (via note-librarian) | health-records/practitioners/ | `YYYY-MM-DD-provider-name.md` |
 | Bloodwork results | user (via note-librarian) | health-records/bloodwork/ | append to `results.md` or new file per draw |

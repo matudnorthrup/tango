@@ -48,12 +48,6 @@ mcp_servers:
     env:
       ALLOWED_TOOL_IDS: "discord_send_image"
 
-mcp:
-  default_servers:
-    - memory
-    - wellness
-    - fatsecret
-
 # Runtime configuration
 runtime:
   mode: persistent

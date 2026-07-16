@@ -26,11 +26,6 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
     env:
       ALLOWED_TOOL_IDS: "obsidian"
-  - name: collaboration
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "collaboration"]
-    env:
-      ALLOWED_TOOL_IDS: "collaborate_with_agent"
   - name: send-image
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "send-image"]
@@ -57,21 +52,6 @@ memory:
   extraction_model: claude-haiku-4-5
   importance_threshold: 0.4
   scheduled_reflection: enabled
-
-responsibilities:
-  - id: operations_coordination
-    description: Coordinate operations work with specialist agents when a bounded specialist result would help complete the user's objective.
-    objectives:
-      - Keep implementation and project-management work grounded in the user's stated goal.
-      - Ask specialists for bounded evidence or status, then synthesize the result for the user.
-    autonomy:
-      default: supervised
-      writes_require_confirmation: true
-      purchase_or_payment: never
-    collaboration:
-      can_request:
-        - agent: sierra
-          purposes: ["source-check", "vendor-comparison", "local-business-research"]
 
 # Voice configuration
 voice:

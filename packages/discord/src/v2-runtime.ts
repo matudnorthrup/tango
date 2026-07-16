@@ -44,40 +44,6 @@ type ReasoningEffort = NonNullable<AgentRuntimeConfig["runtimePreferences"]["rea
 
 const DEFAULT_V2_RUNTIME_TIMEOUT_MS = 900_000;
 
-function splitMcpServersForMountPolicy(
-  config: V2AgentConfig,
-  servers: AgentRuntimeConfig["mcpServers"],
-): {
-  defaultServers: AgentRuntimeConfig["mcpServers"];
-  availableServers?: AgentRuntimeConfig["mcpServers"];
-} {
-  if (!config.mcp?.defaultServers && !config.mcp?.availableServers) {
-    return { defaultServers: servers };
-  }
-
-  const serversByName = new Map(servers.map((server) => [server.name, server]));
-  const defaultNames = new Set(config.mcp.defaultServers ?? []);
-  const availableNames = new Set(
-    config.mcp.availableServers
-      ?? servers
-        .map((server) => server.name)
-        .filter((name) => !defaultNames.has(name)),
-  );
-
-  const defaultServers = [...defaultNames]
-    .map((name) => serversByName.get(name))
-    .filter((server): server is AgentRuntimeConfig["mcpServers"][number] => Boolean(server));
-  const availableServers = [...availableNames]
-    .filter((name) => !defaultNames.has(name))
-    .map((name) => serversByName.get(name))
-    .filter((server): server is AgentRuntimeConfig["mcpServers"][number] => Boolean(server));
-
-  return {
-    defaultServers,
-    ...(availableServers.length > 0 ? { availableServers } : {}),
-  };
-}
-
 /**
  * True when an agent's turns are served by the Ollama runtime adapter rather
  * than the Claude Code CLI, derived from its (legacy) provider intent. This is
@@ -113,16 +79,6 @@ export function buildV2RuntimeConfigs(
     }
 
     const memoryScope = resolveV2MemoryScope(agentId, v2Config);
-    const mcpServers = v2Config.mcpServers.map((server) => ({
-      ...server,
-      env: {
-        ...(server.env ?? {}),
-        WORKER_ID: agentId,
-        TANGO_MEMORY_CANONICAL_AGENT_ID: memoryScope.canonicalAgentId,
-        TANGO_MEMORY_ALIAS_AGENT_IDS: memoryScope.aliasAgentIds.join(","),
-      },
-    }));
-    const mcpMounts = splitMcpServersForMountPolicy(v2Config, mcpServers);
     runtimeConfigs.set(agentId, {
       agentId,
       systemPrompt: assembleV2SystemPrompt(v2Config, {
@@ -134,8 +90,15 @@ export function buildV2RuntimeConfigs(
         // one profile location without being copied into repo defaults.
         overlayDirs: resolveTangoProfileAgentPromptDirs(agentId),
       }),
-      mcpServers: mcpMounts.defaultServers,
-      ...(mcpMounts.availableServers ? { availableMcpServers: mcpMounts.availableServers } : {}),
+      mcpServers: v2Config.mcpServers.map((server) => ({
+        ...server,
+        env: {
+          ...(server.env ?? {}),
+          WORKER_ID: agentId,
+          TANGO_MEMORY_CANONICAL_AGENT_ID: memoryScope.canonicalAgentId,
+          TANGO_MEMORY_ALIAS_AGENT_IDS: memoryScope.aliasAgentIds.join(","),
+        },
+      })),
       runtimePreferences: {
         model: v2Config.runtime.model,
         reasoningEffort: normalizeRuntimeReasoningEffort(v2Config.runtime.reasoningEffort),

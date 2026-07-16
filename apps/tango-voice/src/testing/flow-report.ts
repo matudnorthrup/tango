@@ -1,4 +1,5 @@
 import { InteractionFlowHarness, type HarnessEvent } from './interaction-flow-harness.js';
+import { runV2TransitionTable } from './v2-transition-table.js';
 
 type Scenario = {
   id: string;
@@ -96,11 +97,24 @@ function main(): void {
     }
   }
 
+  const v2Results = runV2TransitionTable();
+  for (const result of v2Results) {
+    if (result.ok) {
+      console.log(`PASS ${result.id}`);
+      continue;
+    }
+    failed++;
+    console.log(`FAIL ${result.id}`);
+    for (const err of result.errors) {
+      console.log(`  - ${err}`);
+    }
+  }
+
   if (failed > 0) {
     console.log(`\n${failed} scenario(s) failed.`);
     process.exitCode = 1;
   } else {
-    console.log(`\nAll ${scenarios.length} scenarios passed.`);
+    console.log(`\nAll ${scenarios.length + v2Results.length} scenarios passed.`);
   }
 }
 

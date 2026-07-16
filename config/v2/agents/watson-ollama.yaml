@@ -70,11 +70,6 @@ mcp_servers:
     env:
       ALLOWED_TOOL_IDS: "discord_send_image"
 
-mcp:
-  default_servers:
-    - memory
-    - google
-
 # Runtime configuration
 runtime:
   mode: persistent
@@ -130,7 +125,6 @@ tools:
   allowlist:
     - WebSearch
     - WebFetch
-    - mcp__collaboration__collaborate_with_agent
 
 deterministic_routing:
   enabled: false
