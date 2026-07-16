@@ -15,35 +15,6 @@ import type {
 export type V2RuntimeMode = "persistent" | "fresh";
 export type V2RuntimeProvider = "legacy" | "claude-code-v2";
 export type V2FeatureToggle = "enabled" | "disabled";
-export type V2CollaborationVisibilityMode = "summary" | "digest" | "thread" | "transcript" | "silent";
-
-export interface V2AgentResponsibilityConfig {
-  id: string;
-  description: string;
-  objectives?: string[];
-  allowedInitiators?: {
-    agents?: string[];
-    schedules?: string[];
-  };
-  autonomy?: {
-    default?: "manual" | "supervised" | "autonomous";
-    writesRequireConfirmation?: boolean;
-    purchaseOrPayment?: "never" | "confirm" | "allowed";
-  };
-  collaboration?: {
-    canRequest?: Array<{
-      agent: string;
-      purposes: string[];
-    }>;
-    canFulfill?: Array<{
-      purpose: string;
-      maxTurns?: number;
-      maxDurationSeconds?: number;
-      maxToolCalls?: number;
-      visibilityModes?: V2CollaborationVisibilityMode[];
-    }>;
-  };
-}
 
 export interface V2AgentConfig {
   id: string;
@@ -61,10 +32,6 @@ export interface V2AgentConfig {
     url?: string;
     headers?: Record<string, string>;
   }>;
-  mcp?: {
-    defaultServers?: string[];
-    availableServers?: string[];
-  };
   runtime: {
     mode: V2RuntimeMode;
     provider: V2RuntimeProvider;
@@ -143,7 +110,6 @@ export interface V2AgentConfig {
     allowlistChannelIds?: string[];
     allowlistUserIds?: string[];
   };
-  responsibilities?: V2AgentResponsibilityConfig[];
 }
 
 const providerReasoningEffortSchema = z.enum(["low", "medium", "high", "max", "xhigh"]);
@@ -154,36 +120,6 @@ const legacyProviderSchema = z.object({
   model: z.string().min(1).optional(),
   reasoning_effort: providerReasoningEffortSchema.optional(),
   fallback: z.array(z.string().min(1)).optional(),
-});
-
-const collaborationVisibilityModeSchema = z.enum(["summary", "digest", "thread", "transcript", "silent"]);
-
-const responsibilitySchema = z.object({
-  id: z.string().min(1),
-  description: z.string().min(1),
-  objectives: z.array(z.string().min(1)).optional(),
-  allowed_initiators: z.object({
-    agents: z.array(z.string().min(1)).optional(),
-    schedules: z.array(z.string().min(1)).optional(),
-  }).optional(),
-  autonomy: z.object({
-    default: z.enum(["manual", "supervised", "autonomous"]).optional(),
-    writes_require_confirmation: z.boolean().optional(),
-    purchase_or_payment: z.enum(["never", "confirm", "allowed"]).optional(),
-  }).optional(),
-  collaboration: z.object({
-    can_request: z.array(z.object({
-      agent: z.string().min(1),
-      purposes: z.array(z.string().min(1)).min(1),
-    })).optional(),
-    can_fulfill: z.array(z.object({
-      purpose: z.string().min(1),
-      max_turns: z.number().int().positive().optional(),
-      max_duration_seconds: z.number().int().positive().optional(),
-      max_tool_calls: z.number().int().positive().optional(),
-      visibility_modes: z.array(collaborationVisibilityModeSchema).optional(),
-    })).optional(),
-  }).optional(),
 });
 
 const rawV2AgentConfigSchema = z.object({
@@ -209,10 +145,6 @@ const rawV2AgentConfigSchema = z.object({
       }),
     ]),
   ).min(1),
-  mcp: z.object({
-    default_servers: z.array(z.string().min(1)).optional(),
-    available_servers: z.array(z.string().min(1)).optional(),
-  }).optional(),
   runtime: z.object({
     mode: z.enum(["persistent", "fresh"]),
     provider: z.enum(["legacy", "claude-code-v2"]),
@@ -279,7 +211,6 @@ const rawV2AgentConfigSchema = z.object({
     allowlist_channel_ids: z.array(z.string().min(1)).optional(),
     allowlist_user_ids: z.array(z.string().min(1)).optional(),
   }).optional(),
-  responsibilities: z.array(responsibilitySchema).optional(),
 });
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -320,19 +251,6 @@ function deepMergeValues(base: unknown, override: unknown): unknown {
 
 function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
   const parsed = rawV2AgentConfigSchema.parse(rawConfig);
-  const serverNames = new Set(parsed.mcp_servers.map((server) => server.name));
-  const validateMcpServerNames = (field: string, values: string[] | undefined): string[] | undefined => {
-    if (!values) {
-      return undefined;
-    }
-    const missing = values.filter((name) => !serverNames.has(name));
-    if (missing.length > 0) {
-      throw new Error(
-        `V2 agent '${parsed.id}' ${field} references unknown MCP server(s): ${missing.join(", ")}`,
-      );
-    }
-    return values;
-  };
 
   return {
     id: parsed.id,
@@ -350,12 +268,6 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
       ...("url" in server ? { url: server.url } : {}),
       ...("headers" in server ? { headers: server.headers } : {}),
     })),
-    mcp: parsed.mcp
-      ? {
-          defaultServers: validateMcpServerNames("mcp.default_servers", parsed.mcp.default_servers),
-          availableServers: validateMcpServerNames("mcp.available_servers", parsed.mcp.available_servers),
-        }
-      : undefined,
     runtime: {
       mode: parsed.runtime.mode,
       provider: parsed.runtime.provider,
@@ -466,39 +378,6 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
           allowlistUserIds: parsed.access.allowlist_user_ids,
         }
       : undefined,
-    responsibilities: parsed.responsibilities?.map((responsibility) => ({
-      id: responsibility.id,
-      description: responsibility.description,
-      objectives: responsibility.objectives,
-      allowedInitiators: responsibility.allowed_initiators
-        ? {
-            agents: responsibility.allowed_initiators.agents,
-            schedules: responsibility.allowed_initiators.schedules,
-          }
-        : undefined,
-      autonomy: responsibility.autonomy
-        ? {
-            default: responsibility.autonomy.default,
-            writesRequireConfirmation: responsibility.autonomy.writes_require_confirmation,
-            purchaseOrPayment: responsibility.autonomy.purchase_or_payment,
-          }
-        : undefined,
-      collaboration: responsibility.collaboration
-        ? {
-            canRequest: responsibility.collaboration.can_request?.map((entry) => ({
-              agent: entry.agent,
-              purposes: entry.purposes,
-            })),
-            canFulfill: responsibility.collaboration.can_fulfill?.map((entry) => ({
-              purpose: entry.purpose,
-              maxTurns: entry.max_turns,
-              maxDurationSeconds: entry.max_duration_seconds,
-              maxToolCalls: entry.max_tool_calls,
-              visibilityModes: entry.visibility_modes,
-            })),
-          }
-        : undefined,
-    })),
   };
 }
 
@@ -631,30 +510,11 @@ export function loadLayeredV2AgentConfigs(configDir?: string): Map<string, V2Age
     }
   }
 
-  const configs = new Map<string, V2AgentConfig>();
-  for (const [id, rawConfig] of [...rawConfigs.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    const parsed = rawV2AgentConfigSchema.safeParse(rawConfig);
-    if (!parsed.success && Object.keys(rawConfig).every((key) => key === "id" || isProfileOnlyV2AgentField(key))) {
-      continue;
-    }
-    configs.set(id, parseV2AgentConfig(rawConfig));
-  }
-
-  return configs;
-}
-
-function isProfileOnlyV2AgentField(key: string): boolean {
-  return key === "access"
-    || key === "avatar_url"
-    || key === "current_turn_metadata"
-    || key === "discord"
-    || key === "enabled"
-    || key === "memory"
-    || key === "orchestration"
-    || key === "provider"
-    || key === "runtime"
-    || key === "tools"
-    || key === "voice";
+  return new Map(
+    [...rawConfigs.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, rawConfig]) => [id, parseV2AgentConfig(rawConfig)]),
+  );
 }
 
 export function isV2RuntimeEnabled(config: V2AgentConfig): boolean {

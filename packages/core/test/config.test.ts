@@ -234,6 +234,7 @@ describe("loadAgentConfigs", () => {
     expect(loadAgentConfigs(defaultsDir).map((agent) => agent.id).sort()).toEqual([
       "cod-e",
       "dispatch",
+      "jules",
       "piper",
     ]);
 

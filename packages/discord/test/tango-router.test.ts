@@ -46,14 +46,10 @@ const mockState = vi.hoisted(() => {
   };
 });
 
-vi.mock("@tango/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@tango/core")>();
-  return {
-    ...actual,
-    RuntimePool: mockState.MockRuntimePool,
-    SessionLifecycleManager: mockState.MockSessionLifecycleManager,
-  };
-});
+vi.mock("@tango/core", () => ({
+  RuntimePool: mockState.MockRuntimePool,
+  SessionLifecycleManager: mockState.MockSessionLifecycleManager,
+}));
 
 import { TangoRouter } from "../src/tango-router.js";
 
@@ -72,24 +68,6 @@ function createAgentConfig(agentId: string): AgentRuntimeConfig {
       model: "claude-sonnet-4-6",
       timeout: 30_000,
     },
-  };
-}
-
-function createDynamicAgentConfig(agentId: string): AgentRuntimeConfig {
-  return {
-    ...createAgentConfig(agentId),
-    availableMcpServers: [
-      {
-        name: "attachments",
-        command: "node",
-        args: ["attachments.js"],
-      },
-      {
-        name: "send-image",
-        command: "node",
-        args: ["send-image.js"],
-      },
-    ],
   };
 }
 
@@ -144,43 +122,24 @@ describe("TangoRouter", () => {
     });
 
     expect(result).toEqual({
-      response: {
-        ...response,
-        metadata: {
-          ...response.metadata,
-          mcpTooling: {
-            defaultServerNames: ["memory"],
-            availableServerNames: [],
-            mountedServerNames: ["memory"],
-            activatedServerNames: [],
-            triggerReasons: {},
-          },
-        },
-      },
+      response,
       agentId: "bravo",
       conversationKey: "channel:channel-1",
     });
     expect(mockState.sendMessage).toHaveBeenCalledWith(
       "channel:channel-1",
-      expect.objectContaining({
+      {
         ...bravoConfig,
         mcpServers: [
-            {
-              ...bravoConfig.mcpServers[0]!,
-              env: {
-                TANGO_CONVERSATION_KEY: "channel:channel-1",
-                TANGO_DISCORD_CHANNEL_ID: "channel-1",
-              },
+          {
+            ...bravoConfig.mcpServers[0]!,
+            env: {
+              TANGO_CONVERSATION_KEY: "channel:channel-1",
+              TANGO_DISCORD_CHANNEL_ID: "channel-1",
             },
-          ],
-        mcpMountSelection: {
-          defaultServerNames: ["memory"],
-          availableServerNames: [],
-          mountedServerNames: ["memory"],
-          activatedServerNames: [],
-          triggerReasons: {},
-        },
-      }),
+          },
+        ],
+      },
       "hello",
       sendOptions,
     );
@@ -196,64 +155,6 @@ describe("TangoRouter", () => {
 
     expect(router.getConversationKey("channel-1")).toBe("channel:channel-1");
     expect(router.getConversationKey("channel-1", "thread-9")).toBe("thread:thread-9");
-  });
-
-  it("keeps available MCP servers unmounted for an ordinary turn", async () => {
-    const response = createResponse("Plain reply");
-    mockState.sendMessage.mockResolvedValue(response);
-
-    const router = new TangoRouter({
-      agentConfigs: new Map([
-        ["watson", createDynamicAgentConfig("watson")],
-      ]),
-    });
-
-    const result = await router.routeMessage({
-      message: "Morning Watson",
-      channelId: "channel-1",
-      agentId: "watson",
-    });
-
-    const sentConfig = mockState.sendMessage.mock.calls[0]?.[1] as AgentRuntimeConfig;
-    expect(sentConfig.mcpServers.map((server) => server.name)).toEqual(["memory"]);
-    expect(sentConfig.availableMcpServers?.map((server) => server.name)).toEqual([
-      "attachments",
-      "send-image",
-    ]);
-    expect(result.response.metadata?.mcpTooling).toMatchObject({
-      mountedServerNames: ["memory"],
-      activatedServerNames: [],
-    });
-  });
-
-  it("mounts available attachment tools when the turn needs files", async () => {
-    const response = createResponse("Attachment reply");
-    mockState.sendMessage.mockResolvedValue(response);
-
-    const router = new TangoRouter({
-      agentConfigs: new Map([
-        ["watson", createDynamicAgentConfig("watson")],
-      ]),
-    });
-
-    const result = await router.routeMessage({
-      message: "Can you read the PDF attachment?",
-      channelId: "channel-1",
-      agentId: "watson",
-    });
-
-    const sentConfig = mockState.sendMessage.mock.calls[0]?.[1] as AgentRuntimeConfig;
-    expect(sentConfig.mcpServers.map((server) => server.name)).toEqual([
-      "memory",
-      "attachments",
-    ]);
-    expect(result.response.metadata?.mcpTooling).toMatchObject({
-      mountedServerNames: ["memory", "attachments"],
-      activatedServerNames: ["attachments"],
-      triggerReasons: {
-        attachments: ["turn-keyword"],
-      },
-    });
   });
 
   it("uses an explicit conversation key override when provided", async () => {
@@ -277,7 +178,7 @@ describe("TangoRouter", () => {
     expect(result.conversationKey).toBe("voice:session-42:alpha");
     expect(mockState.sendMessage).toHaveBeenCalledWith(
       "voice:session-42:alpha",
-      expect.objectContaining({
+      {
         ...createAgentConfig("alpha"),
         mcpServers: [
           {
@@ -288,14 +189,7 @@ describe("TangoRouter", () => {
             },
           },
         ],
-        mcpMountSelection: {
-          defaultServerNames: ["memory"],
-          availableServerNames: [],
-          mountedServerNames: ["memory"],
-          activatedServerNames: [],
-          triggerReasons: {},
-        },
-      }),
+      },
       "hello",
       undefined,
     );
@@ -321,15 +215,7 @@ describe("TangoRouter", () => {
       agentId: "alpha",
     });
 
-    expect(result.response).toMatchObject({
-      text: response.text,
-      metadata: {
-        sessionId: "session-1",
-        mcpTooling: {
-          mountedServerNames: ["memory"],
-        },
-      },
-    });
+    expect(result.response).toBe(response);
     expect(onPostTurn).not.toHaveBeenCalled();
 
     await waitForImmediate();
@@ -338,7 +224,7 @@ describe("TangoRouter", () => {
       conversationKey: "thread:thread-1",
       agentId: "alpha",
       userMessage: "remember this",
-      response: result.response,
+      response,
       channelId: "channel-1",
       threadId: "thread-1",
     });

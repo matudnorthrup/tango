@@ -117,7 +117,7 @@ describe('Pipeline fault injection', () => {
 
       // Force into PROCESSING state
       (pipeline as any).stateMachine.transition({ type: 'UTTERANCE_RECEIVED' });
-      (pipeline as any).stateMachine.transition({ type: 'TRANSCRIPT_READY' });
+      (pipeline as any).stateMachine.transition({ type: 'TRANSCRIPT_READY', transcript: 'test' });
       expect((pipeline as any).stateMachine.getStateType()).toBe('PROCESSING');
 
       // Reset watchdog to start the 60s timer

@@ -1586,41 +1586,6 @@ export function createTravelTools(): AgentTool[] {
     return towns;
   };
 
-  const cumulativeMetersAlong = (coords: Array<[number, number]>): number[] => {
-    const cumulative: number[] = [0];
-    for (let i = 1; i < coords.length; i++) {
-      cumulative.push(cumulative[i - 1]! + haversineMeters(coords[i - 1]!, coords[i]!));
-    }
-    return cumulative;
-  };
-
-  const nearestPointOnRoute = (
-    coords: Array<[number, number]>,
-    cumulative: number[],
-    lat: number,
-    lon: number,
-  ): { alongMeters: number; offRouteMeters: number } => {
-    let alongMeters = 0;
-    let offRouteMeters = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < coords.length; i++) {
-      const d = haversineMeters(coords[i]!, [lat, lon]);
-      if (d < offRouteMeters) {
-        offRouteMeters = d;
-        alongMeters = cumulative[i]!;
-      }
-    }
-    return { alongMeters, offRouteMeters };
-  };
-
-  const initialBearingDeg = (a: [number, number], b: [number, number]): number => {
-    const toRad = (deg: number): number => (deg * Math.PI) / 180;
-    const dLon = toRad(b[1] - a[1]);
-    const y = Math.sin(dLon) * Math.cos(toRad(b[0]));
-    const x = Math.cos(toRad(a[0])) * Math.sin(toRad(b[0])) -
-      Math.sin(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.cos(dLon);
-    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-  };
-
   interface HereRouteData {
     distanceM: number;
     durationS: number;
@@ -1840,183 +1805,6 @@ export function createTravelTools(): AgentTool[] {
     }
   };
 
-  const readGpsTelemetry = (): { headingDeg: number | null; velocityKmh: number | null } => {
-    try {
-      const raw = fs.readFileSync(locationFile, "utf-8");
-      const data = JSON.parse(raw) as Record<string, unknown>;
-      return {
-        headingDeg: typeof data.heading === "number" ? data.heading : null,
-        velocityKmh: typeof data.velocity === "number" ? data.velocity : null,
-      };
-    } catch {
-      return { headingDeg: null, velocityKmh: null };
-    }
-  };
-
-  const handleRouteAheadSearch = async (input: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const query = String(input.query ?? "").trim();
-    if (!query) {
-      return { error: "route_ahead_search requires a non-empty query (e.g. 'rest area', 'Starbucks')." };
-    }
-    const destinationInput = String(input.destination ?? "").trim();
-    if (!destinationInput) {
-      return { error: "route_ahead_search requires a destination — the place the driver is heading toward. Without it, 'ahead' is undefined." };
-    }
-    if (!hereApiKey) {
-      return { error: "HERE_API_KEY not configured; route-ahead search is unavailable. Do NOT answer 'what is ahead on my route' from web mile-marker lists or memory — tell the user the tool is unavailable." };
-    }
-
-    try {
-      const origin = await resolvePlace(input.origin ?? "current location");
-      const destination = await resolvePlace(destinationInput);
-      const route = await routeViaHere([origin, destination], "driving");
-      if (route.coords.length < 2) {
-        return { error: "route polyline unavailable; cannot compute what is ahead." };
-      }
-      const cumulative = cumulativeMetersAlong(route.coords);
-      const routeMiles = route.distanceM / 1609.34;
-
-      const maxDetourMiles = (() => {
-        const parsed = typeof input.max_detour_miles === "number"
-          ? input.max_detour_miles
-          : Number.parseFloat(String(input.max_detour_miles ?? ""));
-        if (!Number.isFinite(parsed)) return 3;
-        return Math.max(0.5, Math.min(15, parsed));
-      })();
-      const maxAheadMiles = (() => {
-        const parsed = typeof input.max_ahead_miles === "number"
-          ? input.max_ahead_miles
-          : Number.parseFloat(String(input.max_ahead_miles ?? ""));
-        if (!Number.isFinite(parsed) || parsed <= 0) return null;
-        return parsed;
-      })();
-      const limit = normalizeLimit(input.limit);
-
-      // Sample search anchors along the corridor ahead. Radius overlaps the
-      // interval so POIs between anchors are not missed.
-      const intervalMiles = Math.min(30, Math.max(10, routeMiles / 20));
-      const anchors = samplePointsAlong(route.coords, intervalMiles * 1609.34)
-        .filter(([lat, lon], index) => {
-          if (maxAheadMiles === null || index === 0) return true;
-          const along = nearestPointOnRoute(route.coords, cumulative, lat, lon).alongMeters;
-          return along / 1609.34 <= maxAheadMiles + intervalMiles;
-        })
-        .slice(0, 30);
-      const radiusMeters = Math.round(intervalMiles * 1609.34 * 0.75);
-
-      const seenIds = new Set<string>();
-      const rawItems: HereSearchItem[] = [];
-      const anchorResults = await Promise.all(anchors.map(async ([lat, lon]) => {
-        try {
-          const params = new URLSearchParams({
-            q: query,
-            limit: "20",
-            lang: "en-US",
-            in: `circle:${lat.toFixed(5)},${lon.toFixed(5)};r=${radiusMeters}`,
-            apiKey: hereApiKey,
-          });
-          const response = await fetch(`https://discover.search.hereapi.com/v1/discover?${params.toString()}`);
-          if (!response.ok) return [];
-          const data = await response.json() as { items?: HereSearchItem[] };
-          return data.items ?? [];
-        } catch {
-          return [];
-        }
-      }));
-      for (const items of anchorResults) {
-        for (const item of items) {
-          const key = item.id ?? `${item.title}|${item.position?.lat}|${item.position?.lng}`;
-          if (seenIds.has(key)) continue;
-          seenIds.add(key);
-          rawItems.push(item);
-        }
-      }
-
-      const results = rawItems
-        .map((item) => {
-          const parsed = parseLocalBusinessItem(item);
-          const lat = item.position?.lat;
-          const lon = item.position?.lng;
-          if (!parsed || typeof lat !== "number" || typeof lon !== "number") return null;
-          const projected = nearestPointOnRoute(route.coords, cumulative, lat, lon);
-          const detourMiles = projected.offRouteMeters / 1609.34;
-          const milesAhead = projected.alongMeters / 1609.34;
-          if (detourMiles > maxDetourMiles) return null;
-          // Drop hits projected at the very start of the polyline: they are
-          // beside or behind the origin, not meaningfully ahead.
-          if (milesAhead < 0.5) return null;
-          if (maxAheadMiles !== null && milesAhead > maxAheadMiles) return null;
-          const etaMinutes = route.durationS > 0 && route.distanceM > 0
-            ? Math.round((route.durationS * (projected.alongMeters / route.distanceM)) / 60)
-            : null;
-          delete parsed.distanceMiles; // straight-line distance from a search anchor — misleading here
-          return {
-            ...parsed,
-            milesAhead: Number(milesAhead.toFixed(1)),
-            ...(etaMinutes !== null ? { etaMinutes } : {}),
-            detourMiles: Number(detourMiles.toFixed(2)),
-          };
-        })
-        .filter((item): item is NonNullable<typeof item> => item !== null)
-        .sort((a, b) => (a.milesAhead as number) - (b.milesAhead as number))
-        .slice(0, limit);
-
-      const warnings: string[] = [];
-      if (origin.source === "current_location" && typeof origin.ageSec === "number" && origin.ageSec > 3600) {
-        warnings.push(`GPS fix is ${Math.round(origin.ageSec / 60)} minutes old — the driver may no longer be at the route origin. Confirm position before relying on milesAhead values.`);
-      }
-      if (origin.source === "current_location") {
-        const telemetry = readGpsTelemetry();
-        const routeBearing = initialBearingDeg(route.coords[0]!, route.coords[Math.min(10, route.coords.length - 1)]!);
-        if (
-          telemetry.headingDeg !== null &&
-          (telemetry.velocityKmh ?? 0) > 30
-        ) {
-          const diff = Math.abs(((telemetry.headingDeg - routeBearing + 540) % 360) - 180);
-          if (diff > 120) {
-            warnings.push(`GPS heading (${Math.round(telemetry.headingDeg)}°) points away from the route's initial bearing (${Math.round(routeBearing)}°). The driver may be traveling in the opposite direction of the assumed destination — re-check the destination before answering.`);
-          }
-        }
-      }
-      if (results.length === 0) {
-        warnings.push(`No '${query}' results found on the route corridor${maxAheadMiles !== null ? ` within ${maxAheadMiles} miles ahead` : ""}. Tell the user none were found ahead — do NOT fill the gap from memory, web mile-marker lists, or general knowledge.`);
-      }
-
-      return {
-        source: "here-discover-along-route",
-        searchedAt: new Date().toISOString(),
-        query,
-        origin: {
-          input: origin.input,
-          displayName: origin.displayName,
-          lat: origin.lat,
-          lon: origin.lon,
-          source: origin.source,
-          ageSec: origin.ageSec,
-        },
-        destination: {
-          input: destination.input,
-          displayName: destination.displayName,
-          lat: destination.lat,
-          lon: destination.lon,
-          source: destination.source,
-        },
-        route: {
-          distanceMiles: Number(routeMiles.toFixed(1)),
-          durationHours: Number((route.durationS / 3600).toFixed(2)),
-        },
-        maxDetourMiles,
-        ...(maxAheadMiles !== null ? { maxAheadMiles } : {}),
-        resultCount: results.length,
-        results,
-        warnings,
-        grounding: "results are ordered by distance ahead along the route from origin toward destination; milesAhead and etaMinutes are along-route values. Anything not listed was not found on the corridor.",
-      };
-    } catch (err: unknown) {
-      return { error: err instanceof Error ? err.message : String(err) };
-    }
-  };
-
   return [
     {
       name: "location_read",
@@ -2057,7 +1845,6 @@ export function createTravelTools(): AgentTool[] {
         "Returns candidate names, addresses, positions, distance, categories, food types, phone numbers, websites, emails, opening-hour text, source id, and a Google Maps search URL.",
         "",
         "Grounding rules:",
-        "  This search is a CIRCLE around a point — it is direction-blind. For a driver asking what is AHEAD on their route (next rest area, next food stop), use route_ahead_search instead: circle results include places behind the driver.",
         "  This is a candidate-discovery tool, not final verification. Use official websites/social pages/browser/Exa to verify hours, event times, booking links, phone/WhatsApp numbers, and ratings before recommending or planning.",
         "  If returned contact/opening-hour fields conflict with official pages, treat the official page as stronger evidence and call out the conflict.",
       ].join("\n"),
@@ -2101,7 +1888,6 @@ export function createTravelTools(): AgentTool[] {
         "  Only name a town, stop, or landmark as 'on the route' if it appears in via/passesThrough here or in find_diesel output.",
         "  To claim any other place is on the way, run a comparison: direct route vs a route with that place as a waypoint, and report the added time.",
         "  durationHours already includes traffic — do not add your own traffic multipliers. Add time only for planned stops.",
-        "  For 'next rest area / next X ahead of me' questions, use route_ahead_search — this tool computes routes, not POIs ahead.",
       ].join("\n"),
       inputSchema: routeInputSchema,
       handler: async (input) => routeHandler("driving", input),
@@ -2134,53 +1920,13 @@ export function createTravelTools(): AgentTool[] {
     },
 
     {
-      name: "route_ahead_search",
-      description: [
-        "Find POIs AHEAD on the driver's route: rest areas, truck stops, restaurants, chargers, hotels — anything searchable, ordered by miles ahead along the route.",
-        "Routes from origin (default: current GPS) toward destination via HERE Router v8, then searches HERE Discover only along that forward corridor. Results are ahead-of-the-driver by construction and include milesAhead, etaMinutes, and detourMiles.",
-        "",
-        "USE THIS TOOL — not web searches, not memory — for every 'next rest area', 'is there an X in the next N miles', or 'X on my route ahead' question while the user is driving.",
-        "NEVER answer such questions from highway mile-marker lists (web or memory): mile-marker direction varies by state and inferring ahead/behind from marker numbers produces confidently-wrong answers. This tool exists because that failure happened.",
-        "",
-        "Parameters:",
-        "  query: What to find — 'rest area', 'truck stop', 'Starbucks', 'EV charging', etc. (required)",
-        "  destination: Where the driver is heading — place or lat,lon. Required: 'ahead' is undefined without it. Use the trip destination from context, or ask.",
-        "  origin: Start point; omit or 'current location' for live GPS.",
-        "  max_ahead_miles: Only return results within this many route-miles ahead (e.g. 50 for 'in the next 50 miles').",
-        "  max_detour_miles: Max distance off the route corridor; default 3 (rest areas/highway stops), raise to ~8 for in-town POIs near exits.",
-        "  limit: Result count; default 12, max 25.",
-        "",
-        "Returns resolved origin/destination, route distance/duration, and results sorted by milesAhead with name, address, position, milesAhead, etaMinutes (at route pace), detourMiles, categories, opening hours, googleMapsSearchUrl.",
-        "",
-        "Grounding rules:",
-        "  Report origin.displayName and destination.displayName; if either resolved wrong, say so instead of answering.",
-        "  Heed every entry in warnings — especially stale GPS and heading-mismatch warnings — before presenting results.",
-        "  If resultCount is 0, tell the user nothing was found ahead in the window. Do not substitute POIs from memory or web lists.",
-        "  etaMinutes assumes route-average pace; call it an estimate.",
-      ].join("\n"),
-      inputSchema: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "What to find ahead: 'rest area', 'truck stop', 'Starbucks', etc." },
-          destination: { type: "string", description: "Where the driver is heading — place name, address, or lat,lon." },
-          origin: { type: "string", description: "Start point; omit or 'current location' for live GPS." },
-          max_ahead_miles: { type: "number", description: "Only return results within this many route-miles ahead." },
-          max_detour_miles: { type: "number", description: "Max miles off the route corridor; default 3, max 15." },
-          limit: { type: "number", description: "Result count; default 12, max 25." },
-        },
-        required: ["query", "destination"],
-      },
-      handler: handleRouteAheadSearch,
-    },
-
-    {
       name: "find_diesel",
       description: [
         "Find fuel stations and prices — along a route, near a place, or near the current GPS location.",
-        "Route mode searches the ENTIRE route corridor via HERE Fuel Prices AND GasBuddy, merged and deduped (fresher posted price wins; otherSourcePrice flags disagreements). Near modes use HERE with GasBuddy fallback.",
+        "Uses HERE Fuel Prices API (primary) with automatic GasBuddy fallback when HERE returns nothing.",
         "",
         "Modes:",
-        "  Route (default): set destination — best-value diesel stations along the route from current GPS (or 'from'), scored by price × detour penalty. Each station includes milesAhead (along-route distance from the start) and etaMinutes.",
+        "  Route (default): set destination — best-value diesel stations along the route from current GPS (or 'from'), scored by price × detour penalty.",
         "  Near a place: set near=true + destination — all-grade fuel prices around a place or a specific station (e.g. 'Costco, Medford, OR'). POI names work: geocoding falls back to HERE Discover anchored at the current GPS position.",
         "  Near me: omit destination (or pass 'current location') — stations around the current OwnTracks GPS position.",
         "",
@@ -2191,12 +1937,10 @@ export function createTravelTools(): AgentTool[] {
         "  top: Number of results (default 5)",
         "  source: Force 'here' or 'gasbuddy' (default: auto with fallback)",
         "",
-        "Route mode returns diesel stations with: name, address, dieselPrice ($/gal), milesAhead, etaMinutes, detourMiles, priceSource, googleMapsLink.",
+        "Route mode returns diesel stations with: name, address, dieselPrice ($/gal), detourMiles, googleMapsLink.",
         "Near modes also return a prices object with regular/midgrade/premium/diesel grades when available.",
         "IMPORTANT: Route mode assumes a diesel vehicle. If the user says 'gas' casually, interpret it as diesel unless they say otherwise.",
-        "Always recommend stations AHEAD on the route, never behind. Use milesAhead for distance-to-station and range-buffer math — never estimate distances from highway mile markers.",
-        "When the user has limited range, compare ALL returned stations within range by dieselPrice before recommending — the list is score-ordered, not a single answer.",
-        "If the user reports seeing a better advertised price than anything listed, believe the sign: re-run in near mode at that place to verify, and check sourceErrors to see if a data source failed.",
+        "Always recommend stations AHEAD on the route, never behind.",
       ].join("\n"),
       inputSchema: {
         type: "object",

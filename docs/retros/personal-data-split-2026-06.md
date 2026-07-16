@@ -14,7 +14,7 @@ personal data still tracked across the repo even though the May guardrails (the
 privacy-scan gate, gitignored `USER.md`/`context/`) were in place:
 
 - **config/** — 19 real Discord channel/smoke-test snowflake ids (the `-ollama`
-  clones, `wellness`, `cod-e`, `ollama-test`, and two "sanitized" classic configs
+  clones, `jules`, `cod-e`, `ollama-test`, and two "sanitized" classic configs
   that still leaked `smoke_test_channel_id`), avatar URLs embedding real Discord
   user ids, an internal remote-MCP endpoint, and `~/Documents/main` vault paths /
   a work email / real Slack channel names across 40+ schedules.

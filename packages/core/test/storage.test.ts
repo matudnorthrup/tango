@@ -250,7 +250,7 @@ describe("TangoStorage", () => {
     db.close();
   });
 
-  it("seeds Wellness wellness worker browser access and parent assignment", () => {
+  it("seeds Jules wellness worker browser access and parent assignment", () => {
     const { storage, dir } = createStorage();
     storage.close();
 
@@ -267,7 +267,7 @@ describe("TangoStorage", () => {
       ).get(workerId) as { id: string; parent_id: string } | undefined;
       expect(principal).toEqual({
         id: workerId,
-        parent_id: "agent:wellness",
+        parent_id: "agent:jules",
       });
       expect(checker.hasPermission(workerId, "browser", "write")).toBe(true);
       expect(checker.hasPermission(workerId, "exa_search", "read")).toBe(true);
@@ -285,7 +285,7 @@ describe("TangoStorage", () => {
     db.close();
   });
 
-  it("migrates legacy governance databases that do not have user:owner before Wellness seeds", () => {
+  it("migrates legacy governance databases that do not have user:owner before Jules seeds", () => {
     const { storage, dir } = createStorage();
     storage.close();
 
@@ -303,7 +303,7 @@ describe("TangoStorage", () => {
       );
 
       DELETE FROM principals
-      WHERE id IN ('worker:activity-tracker', 'agent:wellness', 'user:owner');
+      WHERE id IN ('worker:activity-tracker', 'agent:jules', 'user:owner');
 
       PRAGMA user_version = 38;
       PRAGMA foreign_keys = ON;
@@ -317,25 +317,25 @@ describe("TangoStorage", () => {
     const owner = db.prepare(
       "SELECT id, type FROM principals WHERE id = 'user:owner'",
     ).get() as { id: string; type: string } | undefined;
-    const wellness = db.prepare(
-      "SELECT id, parent_id FROM principals WHERE id = 'agent:wellness'",
+    const jules = db.prepare(
+      "SELECT id, parent_id FROM principals WHERE id = 'agent:jules'",
     ).get() as { id: string; parent_id: string } | undefined;
     const activityTracker = db.prepare(
       "SELECT id, parent_id FROM principals WHERE id = 'worker:activity-tracker'",
     ).get() as { id: string; parent_id: string } | undefined;
     const presencePermission = db.prepare(
-      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'agent:wellness' AND tool_id = 'wellnessdb_log_presence'",
+      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'agent:jules' AND tool_id = 'wellnessdb_log_presence'",
     ).get() as { principal_id: string; tool_id: string; access_level: string } | undefined;
     const foreignKeyFailures = db.prepare("PRAGMA foreign_key_check;").all();
 
     expect(owner).toEqual({ id: "user:owner", type: "user" });
-    expect(wellness).toEqual({ id: "agent:wellness", parent_id: "user:owner" });
+    expect(jules).toEqual({ id: "agent:jules", parent_id: "user:owner" });
     expect(activityTracker).toEqual({
       id: "worker:activity-tracker",
-      parent_id: "agent:wellness",
+      parent_id: "agent:jules",
     });
     expect(presencePermission).toEqual({
-      principal_id: "agent:wellness",
+      principal_id: "agent:jules",
       tool_id: "wellnessdb_log_presence",
       access_level: "write",
     });

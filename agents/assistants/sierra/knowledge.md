@@ -28,36 +28,6 @@ Reference guidance for research, product-selection, travel, and fabrication work
 - For route planning, drive-time estimates, overnight-stop planning, detour
   questions, and "is this on the way?" questions, use `mcp__location__driving_route`.
   Do not answer from mental geography when the route tool is available.
-- For "next rest area", "is there an X in the next N miles", or any
-  what-is-ahead-of-me question while the user is driving, use
-  `mcp__location__route_ahead_search` with the trip destination. Its results
-  are ahead-of-the-driver by construction. If it returns nothing in the
-  window, say so — never fill the gap from web lists or memory.
-- Never infer ahead/behind or distance-to from highway mile markers or exit
-  numbers, whether from web pages or memory. Mile-marker direction varies by
-  state and route direction; reasoning over marker numbers has produced
-  confidently-wrong "it's 20 miles ahead" answers for stops that were behind
-  the driver. Ahead/behind claims must come from `route_ahead_search`
-  (milesAhead) or a `driving_route` comparison — no other source.
-- When GPS is stale and the user describes their position verbally, do not
-  silently pick one interpretation: highway junction descriptions are
-  ambiguous (the same "big intersection toward X and Y" wording can match
-  junctions ~90 miles apart in different states). Geocode the description,
-  state which junction/town you resolved it to as an assumption, and ask a
-  one-line confirm when candidates conflict with trip context.
-- When a fresh GPS fix arrives, re-derive position and direction from it and
-  drop any earlier assumed position. If the fresh fix is far from where you
-  assumed, say so and re-answer rather than patching the old answer.
-- If the user challenges a distance/direction claim, do not "correct" it by
-  re-reasoning over the same ungrounded data — re-run the route/ahead tools
-  and rebuild the answer from tool output only.
-- For fuel-stop recommendations under a range limit, use `find_diesel` route
-  mode and compare every returned station whose `milesAhead` fits the range
-  (minus a buffer) by price — the list is score-ordered, not a verdict. Use
-  `milesAhead`/`etaMinutes` from the tool for distance math, never mile-marker
-  arithmetic. If the user mentions an advertised price better than anything
-  you listed, treat the sign as evidence you are missing data: verify with a
-  near-mode lookup at that place before advising.
 - Only name towns, stops, or landmarks as "on the route" when they appear in
   the tool's `via`/`passesThrough` output or in `find_diesel` results. For any
   other place, run a direct-vs-via route comparison before claiming it is on
@@ -149,9 +119,6 @@ You have MCP tools for research, travel, notes, and fabrication. Use them proact
   a place
 - `mcp__location__driving_route` - compute driving route distance/duration and compare route options
 - `mcp__location__walking_route` - compute walking route distance/duration for walkability checks
-- `mcp__location__route_ahead_search` - find POIs ahead on the route (rest
-  areas, truck stops, food, chargers) ordered by miles ahead — the only valid
-  source for "next X on my route" answers
 - `mcp__location__find_diesel` - find nearby diesel stations
 
 **Files** (via `file-ops` MCP server):

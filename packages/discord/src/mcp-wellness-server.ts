@@ -31,7 +31,7 @@ import {
   createHealthTools,
   createWorkoutTools,
   createRecipeTools,
-  createWellnessFilesTools,
+  createJulesFilesTools,
 } from "./wellness-agent-tools.js";
 import { createAllPersonalTools } from "./personal-agent-tools.js";
 import { createAllResearchTools } from "./research-agent-tools.js";
@@ -54,7 +54,6 @@ import { createKiloLedgerTools, kiloLedgerToolLooksReadOnly } from "./kilo-ledge
 import { createNotionTools } from "./notion-agent-tools.js";
 import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { createOrientationNudgeTools, orientationNudgeToolLooksReadOnly } from "./orientation-nudge.js";
-import { createCollaborationTools } from "./collaboration-agent-tools.js";
 import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
@@ -156,7 +155,7 @@ const allTools: AgentTool[] = [
   ...createHealthTools(),
   ...createWorkoutTools(),
   ...createRecipeTools(),
-  ...createWellnessFilesTools(),
+  ...createJulesFilesTools(),
   ...createAllPersonalTools(),
   ...createAllResearchTools(),
   ...createBrowserTools(),
@@ -177,7 +176,6 @@ const allTools: AgentTool[] = [
   ...createNotionTools(),
   ...createClaudeSessionTools(),
   ...createOrientationNudgeTools(),
-  ...createCollaborationTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -365,7 +363,6 @@ function inferRequestedAccessLevel(
     case "discord_manage":
     case "spawn_claude_session":
     case "discord_send_image":
-    case "collaborate_with_agent":
       return "write";
     case "tango_file": {
       const operation = typeof args.operation === "string" ? args.operation.trim().toLowerCase() : "";
@@ -417,7 +414,7 @@ function inferRequestedAccessLevel(
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return action === "list" || action === "read" ? "read" : "write";
     }
-    case "wellness_files": {
+    case "jules_files": {
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return action === "list" || action === "read" ? "read" : "write";
     }
@@ -495,11 +492,7 @@ async function executeToolCall(
     const scopedArgs = workerScope
       ? applyMemoryScopeToToolArgs(name, args, workerScope.workerId, workerScope.memoryScope)
       : args;
-    const effectiveArgs =
-      name === "collaborate_with_agent" && workerScope
-        ? { ...scopedArgs, _requester_agent_id: workerScope.workerId }
-        : scopedArgs;
-    const result = await handler(effectiveArgs);
+    const result = await handler(scopedArgs);
     const text = JSON.stringify(result);
     debug(`tools/call: ${name} completed in ${Date.now() - startMs}ms (${text.length} chars)`);
     return {

@@ -117,7 +117,6 @@ import {
   type ProviderImageInput,
   findRepoLayerPersonalPromptFindings,
   type PromptLayerAuditFinding,
-  AgentCollaborationService,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
@@ -229,7 +228,6 @@ import {
   isSlotModeActive,
   resetBotNickname,
   shouldInitializeSlotMode,
-  shouldRunSchedulerTickLoop,
 } from "./slot-mode.js";
 import {
   buildSavePassEphemeralReply,
@@ -739,33 +737,6 @@ const tangoRouter = new TangoRouter({
     extractionSuppressedChannelIds: memoryInertChannelIds,
   }),
   ollamaProvider,
-});
-const collaborationRouter = new TangoRouter({
-  agentConfigs: buildV2RuntimeConfigs(v2Configs),
-  lifecycleConfig: v2LifecycleConfig,
-  buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient, {
-    projectStateProvider: (conversationKey) =>
-      renderProjectStateBlock(storage, conversationKey, { vaultRoot: resolveStateVaultRoot() }),
-    attachmentStore,
-    v2Configs,
-  }),
-  ollamaProvider,
-});
-const agentCollaborationService = new AgentCollaborationService({
-  storage,
-  v2Configs,
-  invokeTarget: async (input) => {
-    const routeResult = await collaborationRouter.routeMessage({
-      message: input.message,
-      channelId: "agent-collaboration",
-      conversationKey: input.conversationKey,
-      agentId: input.targetAgentId,
-      sendOptions: {
-        timeout: input.timeoutMs,
-      },
-    });
-    return routeResult.response;
-  },
 });
 let embeddingProvider: EmbeddingProvider | null | undefined;
 
@@ -2017,60 +1988,15 @@ startPersistentMcpServer().then((port) => {
       alert: sendAlert,
       systemLog: sendSystemLog,
     });
-    // Only the canonical production bot runs the automatic scheduler tick loop.
-    // Slot / worktree-dev instances (TANGO_SLOT set) skip it so they never
-    // double-run scheduled jobs or fire real external side effects (email,
-    // Lunch Money, receipts, Discord posts) alongside production. The scheduler
-    // object is still constructed, so the manual GET /trigger/<id> endpoint
-    // stays available for dev testing.
-    if (shouldRunSchedulerTickLoop(process.env)) {
-      scheduler.start();
-    } else {
-      console.log(
-        "[scheduler] slot mode active (TANGO_SLOT set) — automatic tick loop disabled; " +
-          "use GET /trigger/<id> to run a job manually, or set TANGO_SCHEDULER_IN_SLOT=true to enable ticks",
-      );
-    }
+    scheduler.start();
 
     // Lightweight HTTP trigger endpoint for scheduler jobs
     // Usage: curl http://localhost:9200/trigger/slack-summary
     const triggerServer = createHttpServer(async (req, res) => {
-      if (req.url === "/collaboration/request" && req.method === "POST") {
-        const bridgeToken = process.env.TANGO_COLLABORATION_BRIDGE_TOKEN?.trim();
-        if (bridgeToken && req.headers["x-tango-collaboration-token"] !== bridgeToken) {
-          res.writeHead(401, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "unauthorized" }));
-          return;
-        }
-
-        let body = "";
-        req.on("data", (chunk: Buffer) => {
-          body += chunk.toString();
-        });
-        req.on("end", () => {
-          void (async () => {
-            try {
-              const input = JSON.parse(body || "{}") as Record<string, unknown>;
-              const result = await agentCollaborationService.collaborate(input);
-              res.writeHead(result.status === "denied" ? 403 : 200, { "Content-Type": "application/json" });
-              res.end(JSON.stringify(result));
-            } catch (err) {
-              res.writeHead(400, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
-            }
-          })();
-        });
-        req.on("error", (err) => {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
-        });
-        return;
-      }
-
       const match = req.url?.match(/^\/trigger\/([a-z0-9_-]+)$/);
       if (!match || req.method !== "GET") {
         res.writeHead(404, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Use GET /trigger/<schedule-id> or POST /collaboration/request" }));
+        res.end(JSON.stringify({ error: "Use GET /trigger/<schedule-id>" }));
         return;
       }
       const scheduleId = match[1]!;
@@ -2093,7 +2019,6 @@ startPersistentMcpServer().then((port) => {
     });
     triggerServer.listen(9200, "127.0.0.1", () => {
       console.error("[scheduler] trigger endpoint listening on http://127.0.0.1:9200/trigger/<id>");
-      console.error("[collaboration] bridge endpoint listening on http://127.0.0.1:9200/collaboration/request");
     });
   }
 }).catch((err) => {

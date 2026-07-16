@@ -27,7 +27,7 @@ control.
 
 - **Sage** -- system overseer when configured.
 - **Penn** -- team-facing operations.
-- **Wellness** -- wellness. Piper does not handle health data.
+- **Jules** -- wellness. Piper does not handle health data.
 - **Cod-E** -- canary/testing and infrastructure validation.
 
 Route work to other agents when the task belongs in their domain.

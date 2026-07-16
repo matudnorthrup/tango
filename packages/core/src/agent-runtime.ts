@@ -33,15 +33,7 @@ export interface AgentRuntime {
 export interface AgentRuntimeConfig {
   agentId: string;
   systemPrompt: string;
-  /** MCP servers mounted for the current runtime invocation. */
   mcpServers: McpServerConfig[];
-  /**
-   * MCP servers the agent may use but that are not mounted by default. Callers
-   * can promote these into `mcpServers` for a turn before invoking the runtime.
-   */
-  availableMcpServers?: McpServerConfig[];
-  /** Debug/telemetry for the server set selected for this invocation. */
-  mcpMountSelection?: McpMountSelection;
   runtimePreferences: {
     model?: string;
     reasoningEffort?: "low" | "medium" | "high" | "max";
@@ -56,14 +48,6 @@ export interface AgentRuntimeConfig {
    * OllamaProvider instead. Populated from V2AgentConfig.legacyProvider.default.
    */
   backend?: "claude-code" | "ollama";
-}
-
-export interface McpMountSelection {
-  defaultServerNames: string[];
-  availableServerNames: string[];
-  mountedServerNames: string[];
-  activatedServerNames: string[];
-  triggerReasons: Record<string, string[]>;
 }
 
 export interface McpServerConfig {

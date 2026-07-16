@@ -45,22 +45,5 @@ export function augmentRuntimeConfigWithDiscordProvenance(
         },
       };
     }),
-    ...(config.availableMcpServers
-      ? {
-          availableMcpServers: config.availableMcpServers.map((server) => {
-            if (!isAtlasMemoryMcpServer(server)) {
-              return server;
-            }
-
-            return {
-              ...server,
-              env: {
-                ...(server.env ?? {}),
-                ...envPatch,
-              },
-            };
-          }),
-        }
-      : {}),
   };
 }

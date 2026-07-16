@@ -53,8 +53,8 @@ describe("findRepoLayerPersonalPromptFindings", () => {
   it("reports repo-layer symlinks and context directories", () => {
     const repoRoot = makeTempDir("tango-prompt-audit-repo-");
     const homeDir = makeTempDir("tango-prompt-audit-home-");
-    const agentDir = path.join(repoRoot, "agents", "assistants", "wellness");
-    const legacyProfileDir = path.join(homeDir, "profiles", "default", "config", "agents", "wellness");
+    const agentDir = path.join(repoRoot, "agents", "assistants", "jules");
+    const legacyProfileDir = path.join(homeDir, "profiles", "default", "config", "agents", "jules");
     fs.mkdirSync(agentDir, { recursive: true });
     fs.mkdirSync(legacyProfileDir, { recursive: true });
     fs.writeFileSync(path.join(legacyProfileDir, "USER.md"), "legacy profile user", "utf8");
@@ -82,7 +82,7 @@ describe("findRepoLayerPersonalPromptFindings", () => {
         "default",
         "private",
         "agents",
-        "wellness",
+        "jules",
         "context",
       ),
     });

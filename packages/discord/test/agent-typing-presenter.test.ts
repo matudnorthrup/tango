@@ -19,17 +19,17 @@ function createAgent(
 describe("resolveTypingTokenFromEnv", () => {
   it("reads the configured env var name", () => {
     expect(
-      resolveTypingTokenFromEnv("WELLNESS_DISCORD_TOKEN", {
-        WELLNESS_DISCORD_TOKEN: "wellness-token",
+      resolveTypingTokenFromEnv("JULES_DISCORD_TOKEN", {
+        JULES_DISCORD_TOKEN: "jules-token",
       })
-    ).toBe("wellness-token");
+    ).toBe("jules-token");
   });
 
   it("returns undefined when the env var is missing or empty", () => {
-    expect(resolveTypingTokenFromEnv("WELLNESS_DISCORD_TOKEN", {})).toBeUndefined();
+    expect(resolveTypingTokenFromEnv("JULES_DISCORD_TOKEN", {})).toBeUndefined();
     expect(
-      resolveTypingTokenFromEnv("WELLNESS_DISCORD_TOKEN", {
-        WELLNESS_DISCORD_TOKEN: "   ",
+      resolveTypingTokenFromEnv("JULES_DISCORD_TOKEN", {
+        JULES_DISCORD_TOKEN: "   ",
       })
     ).toBeUndefined();
   });
@@ -40,13 +40,13 @@ describe("resolveAgentTypingToken", () => {
     expect(
       resolveAgentTypingToken(
         createAgent({
-          id: "wellness",
+          id: "jules",
           type: "wellness",
-          discord: { typingTokenEnv: "WELLNESS_DISCORD_TOKEN" },
+          discord: { typingTokenEnv: "JULES_DISCORD_TOKEN" },
         }),
-        { WELLNESS_DISCORD_TOKEN: "wellness-token" }
+        { JULES_DISCORD_TOKEN: "jules-token" }
       )
-    ).toBe("wellness-token");
+    ).toBe("jules-token");
   });
 });
 
@@ -55,7 +55,7 @@ describe("triggerAgentTyping", () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
 
     await expect(
-      triggerAgentTyping("100000000000000202", "wellness-token", { fetchImpl })
+      triggerAgentTyping("100000000000000202", "jules-token", { fetchImpl })
     ).resolves.toBe(true);
 
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -63,7 +63,7 @@ describe("triggerAgentTyping", () => {
       {
         method: "POST",
         headers: {
-          Authorization: "Bot wellness-token",
+          Authorization: "Bot jules-token",
         },
       }
     );
@@ -82,7 +82,7 @@ describe("createAgentTypingPresenter", () => {
       fetchImpl,
     });
 
-    const session = presenter.start("wellness", "channel-1");
+    const session = presenter.start("jules", "channel-1");
     session.stop();
 
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ describe("createAgentTypingPresenter", () => {
       fetchImpl,
     });
 
-    const session = presenter.start("wellness", "channel-1");
+    const session = presenter.start("jules", "channel-1");
     await Promise.resolve();
     session.stop();
 
@@ -114,12 +114,12 @@ describe("createAgentTypingPresenter", () => {
   it("uses the per-agent token before the default token", async () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
     const presenter = createAgentTypingPresenter({
-      resolveAgentTypingToken: () => "wellness-token",
+      resolveAgentTypingToken: () => "jules-token",
       defaultToken: "default-token",
       fetchImpl,
     });
 
-    const session = presenter.start("wellness", "channel-1");
+    const session = presenter.start("jules", "channel-1");
     await Promise.resolve();
     session.stop();
 
@@ -128,7 +128,7 @@ describe("createAgentTypingPresenter", () => {
       {
         method: "POST",
         headers: {
-          Authorization: "Bot wellness-token",
+          Authorization: "Bot jules-token",
         },
       }
     );
@@ -141,7 +141,7 @@ describe("createAgentTypingPresenter", () => {
       fetchImpl,
     });
 
-    const session = presenter.start("wellness", "channel-1");
+    const session = presenter.start("jules", "channel-1");
     session.stop();
 
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -152,12 +152,12 @@ describe("createAgentTypingPresenter", () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
     const presenter = createAgentTypingPresenter({
       resolveAgentTypingToken: (agentId) =>
-        agentId === "wellness" ? "wellness-token" : undefined,
+        agentId === "jules" ? "jules-token" : undefined,
       fetchImpl,
       refreshIntervalMs: 8_000,
     });
 
-    const session = presenter.start("wellness", "channel-1");
+    const session = presenter.start("jules", "channel-1");
     await Promise.resolve();
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);

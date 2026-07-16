@@ -69,10 +69,6 @@ describe("loadV2AgentConfig", () => {
       command: "node",
       args: ["packages/atlas-memory/dist/index.js"],
     });
-    expect(config.mcp).toEqual({
-      defaultServers: ["memory", "wellness", "fatsecret"],
-      availableServers: undefined,
-    });
   });
 
   it("loads Victor as an operations agent with Linear and Obsidian access but no dev MCP surface", () => {
@@ -110,45 +106,6 @@ describe("loadV2AgentConfig", () => {
     });
   });
 
-  it("rejects dynamic MCP mount policies that name unknown servers", () => {
-    const dir = createTempDir("tango-v2-bad-mcp-");
-    const configPath = path.join(dir, "alpha.yaml");
-    fs.writeFileSync(
-      configPath,
-      [
-        "id: alpha",
-        "display_name: Alpha",
-        "type: test",
-        "system_prompt_file: agents/assistants/watson/soul.md",
-        "mcp_servers:",
-        "  - name: memory",
-        "    command: node",
-        "    args: [memory.js]",
-        "mcp:",
-        "  default_servers: [memory, missing]",
-        "runtime:",
-        "  mode: persistent",
-        "  provider: claude-code-v2",
-        "  model: claude-sonnet-4-6",
-        "  reasoning_effort: medium",
-        "  idle_timeout_hours: 24",
-        "  context_reset_threshold: 0.8",
-        "memory:",
-        "  post_turn_extraction: enabled",
-        "  extraction_model: claude-haiku-4-5",
-        "  importance_threshold: 0.4",
-        "  scheduled_reflection: enabled",
-        "discord:",
-        "  default_channel_id: '123'",
-      ].join("\n"),
-      "utf8",
-    );
-
-    expect(() => loadV2AgentConfig(configPath)).toThrow(
-      "mcp.default_servers references unknown MCP server(s): missing",
-    );
-  });
-
   it("loads configured shared memory scopes for Ollama clones", () => {
     const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "sierra-ollama.yaml"));
 
@@ -159,36 +116,6 @@ describe("loadV2AgentConfig", () => {
     expect(resolveV2MemoryScope("sierra-ollama", config)).toEqual({
       canonicalAgentId: "sierra",
       aliasAgentIds: ["sierra", "sierra-ollama"],
-    });
-  });
-
-  it("loads generic responsibility and collaboration policy config", () => {
-    const victor = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "victor.yaml"));
-    const sierra = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "sierra.yaml"));
-
-    expect(victor.responsibilities?.[0]).toMatchObject({
-      id: "operations_coordination",
-      autonomy: {
-        default: "supervised",
-        writesRequireConfirmation: true,
-        purchaseOrPayment: "never",
-      },
-      collaboration: {
-        canRequest: [
-          {
-            agent: "sierra",
-            purposes: ["source-check", "vendor-comparison", "local-business-research"],
-          },
-        ],
-      },
-    });
-
-    expect(sierra.responsibilities?.[0]?.collaboration?.canFulfill?.[0]).toMatchObject({
-      purpose: "source-check",
-      maxTurns: 1,
-      maxDurationSeconds: 180,
-      maxToolCalls: 6,
-      visibilityModes: ["summary", "digest", "thread", "transcript", "silent"],
     });
   });
 

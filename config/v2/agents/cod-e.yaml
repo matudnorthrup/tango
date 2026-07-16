@@ -18,7 +18,7 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "wellness-db"]
     env:
-      WELLNESS_DB_PATH: "~/.tango/profiles/default/wellness/wellness.db"
+      JULES_WELLNESS_DB_PATH: "~/.tango/profiles/default/wellness/wellness.db"
       ALLOWED_TOOL_IDS: "wellnessdb_delete_product,wellnessdb_delete_supplement"
   - name: send-image
     command: node

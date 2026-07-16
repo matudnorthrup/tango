@@ -50,7 +50,7 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "location"]
     env:
-      ALLOWED_TOOL_IDS: "location_read,local_business_search,driving_route,walking_route,route_ahead_search,find_diesel"
+      ALLOWED_TOOL_IDS: "location_read,local_business_search,driving_route,walking_route,find_diesel"
   - name: file-ops
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "file-ops"]
@@ -82,11 +82,6 @@ mcp_servers:
     env:
       ALLOWED_TOOL_IDS: "discord_send_image"
 
-mcp:
-  default_servers:
-    - memory
-    - exa
-
 # Runtime configuration
 runtime:
   mode: persistent
@@ -107,34 +102,6 @@ memory:
   extraction_model: claude-haiku-4-5
   importance_threshold: 0.4
   scheduled_reflection: enabled
-
-responsibilities:
-  - id: research_support
-    description: Provide bounded research, source checking, and comparison support for other agents.
-    objectives:
-      - Return source-grounded findings with concise evidence.
-      - Avoid writes or purchases when fulfilling collaboration requests unless a separate configured responsibility allows them.
-    autonomy:
-      default: supervised
-      writes_require_confirmation: true
-      purchase_or_payment: never
-    collaboration:
-      can_fulfill:
-        - purpose: source-check
-          max_turns: 1
-          max_duration_seconds: 180
-          max_tool_calls: 6
-          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
-        - purpose: vendor-comparison
-          max_turns: 1
-          max_duration_seconds: 240
-          max_tool_calls: 8
-          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
-        - purpose: local-business-research
-          max_turns: 1
-          max_duration_seconds: 240
-          max_tool_calls: 8
-          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
 
 # Voice configuration
 voice:

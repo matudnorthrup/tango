@@ -1,8 +1,8 @@
 /**
- * Wellness Wellness DB Tools -- structured MCP access to the configured wellness db.
+ * Jules Wellness DB Tools -- structured MCP access to the configured wellness db.
  *
  * Workers call these tools instead of raw SQL. Database path comes from
- * WELLNESS_DB_PATH (falls back to the default profile wellness db).
+ * JULES_WELLNESS_DB_PATH (falls back to the default profile wellness db).
  */
 
 import * as fs from "node:fs";
@@ -97,7 +97,7 @@ function defaultWellnessDbPath(): string {
 }
 
 export function resolveWellnessDbPath(override?: string): string {
-  const configured = override?.trim() || process.env.WELLNESS_DB_PATH?.trim();
+  const configured = override?.trim() || process.env.JULES_WELLNESS_DB_PATH?.trim();
   if (configured) {
     return resolveConfiguredPath(configured);
   }
