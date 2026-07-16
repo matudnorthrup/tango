@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe("createWorkoutTools", () => {
   it("returns stdout on success", async () => {
-    const scriptPath = makeScript("#!/bin/bash\necho 'query ok'\n");
+    const scriptPath = makeScript("#!/usr/bin/env bash\necho 'query ok'\n");
     const [tool] = createWorkoutTools({ workoutScript: scriptPath });
 
     const result = await tool!.handler({ sql: "SELECT 1;" });
@@ -43,7 +43,7 @@ describe("createWorkoutTools", () => {
   });
 
   it("surfaces shell failures instead of pretending the result was empty", async () => {
-    const scriptPath = makeScript("#!/bin/bash\necho 'container is not running' >&2\nexit 1\n");
+    const scriptPath = makeScript("#!/usr/bin/env bash\necho 'container is not running' >&2\nexit 1\n");
     const [tool] = createWorkoutTools({ workoutScript: scriptPath });
 
     await expect(tool!.handler({ sql: "SELECT 1;" })).rejects.toThrow("container is not running");
@@ -113,7 +113,7 @@ describe("createRecipeTools", () => {
 
 describe("createNutritionTools", () => {
   it("fails fast when a FatSecret method is called without required params", async () => {
-    const scriptPath = makeScript("#!/bin/bash\necho 'should not run'\n");
+    const scriptPath = makeScript("#!/usr/bin/env bash\necho 'should not run'\n");
     const fatsecretTool = createNutritionTools({ fatsecretApiScript: scriptPath })
       .find((tool) => tool.name === "fatsecret_api");
 

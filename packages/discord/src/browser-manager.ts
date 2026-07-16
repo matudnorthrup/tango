@@ -252,10 +252,16 @@ export function getBrowserManager(): BrowserManager {
   return manager;
 }
 
-/** Find the Brave browser executable on macOS. */
+let cachedBrowserPath: string | null | undefined;
+/** Resolve a Chromium-based browser executable. */
 function findBrowserPath(): string | null {
-  const p = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser";
-  return fs.existsSync(p) ? p : null;
+  if (cachedBrowserPath !== undefined) return cachedBrowserPath;
+  const macBrave = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser";
+  return (cachedBrowserPath = fs.existsSync(macBrave) ? macBrave : (
+    ["brave-browser", "brave", "chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]
+      .flatMap((name) => (process.env.PATH?.split(path.delimiter) ?? []).map((dir) => path.join(dir, name)))
+      .find((candidate) => fs.existsSync(candidate)) ?? null
+  ));
 }
 
 export function resolveBrowserProfileDir(): string {
@@ -412,7 +418,7 @@ export class BrowserManager {
     const browserPath = findBrowserPath();
     if (!browserPath) {
       throw new Error(
-        "Brave not found. Install Brave Browser in /Applications.",
+        "No Chromium-based browser found. Install in /Applications or ensure on PATH.",
       );
     }
 
