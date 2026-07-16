@@ -21,7 +21,7 @@ describe("aggregateModelPairs", () => {
       run({ latencyMs: 2000 }),
       run({ latencyMs: 9000, isError: true }),
       run({ stopReason: "max_tool_iters", latencyMs: 4000 }),
-      run({ agentId: "watson", model: "glm-5" }),
+      run({ agentId: "watson", model: "glm-5.2" }),
     ];
     const pairs = aggregateModelPairs(rows);
     expect(pairs).toHaveLength(2);
@@ -45,7 +45,7 @@ describe("aggregateModelPairs", () => {
 
 describe("buildModelScorecard flags", () => {
   const base = {
-    evaluatedModels: new Set(["deepseek-v4-pro:cloud", "glm-5", "minimax-m2.5"]),
+    evaluatedModels: new Set(["deepseek-v4-pro:cloud", "glm-5.2", "minimax-m2.5"]),
     windowDays: 7,
     now: new Date("2026-06-09T12:00:00Z"),
   };

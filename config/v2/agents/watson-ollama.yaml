@@ -82,9 +82,10 @@ runtime:
   fallback: codex
   # Model bake-off live test (2026-06-08): watson is judgment-heavy (planning,
   # morning briefing, prioritization) where "thinking" models earned their keep —
-  # GLM-5 gave the deepest, most insightful reads on ambiguous tasks. Operational
+  # GLM-5 was retired by Ollama on 2026-07-15; GLM-5.2 is the active successor.
+  # Operational
   # clones use MiniMax M2.5 (faster). Others stay on deepseek as the A/B baseline.
-  model: glm-5
+  model: glm-5.2
   reasoning_effort: medium
   idle_timeout_hours: 24
   context_reset_threshold: 0.80

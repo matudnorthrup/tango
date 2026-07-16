@@ -58,7 +58,7 @@ const KNOWN_MCP_SERVER_TOOLS: Record<string, string[]> = {
 const PER_TASK_ROUTING = (process.env.TANGO_PER_TASK_MODEL_ROUTING ?? "true") !== "false";
 const TASK_ROUTER_MODEL = process.env.TANGO_TASK_ROUTER_MODEL?.trim() || "ministral-3:3b";
 const TASK_ROUTER_BASE_URL = process.env.OLLAMA_BASE_URL?.trim() || "https://ollama.com/v1";
-const MODEL_FOR_JUDGMENT = process.env.TANGO_MODEL_JUDGMENT?.trim() || "glm-5";
+const MODEL_FOR_JUDGMENT = process.env.TANGO_MODEL_JUDGMENT?.trim() || "glm-5.2";
 const MODEL_FOR_DATA = process.env.TANGO_MODEL_DATA?.trim() || "deepseek-v4-pro:cloud";
 
 async function classifyTaskShape(task: string, apiKey: string): Promise<"JUDGMENT" | "DATA" | "OTHER"> {
@@ -105,11 +105,11 @@ async function classifyTaskShape(task: string, apiKey: string): Promise<"JUDGMEN
 
 // Models already strong enough at a shape that the router must NOT downgrade them. A bake-off
 // showed deepseek-v4-pro is the BEST model for emotional-judgment (juliet) and teaching
-// (porter) — so a blanket "JUDGMENT -> glm-5" would replace their deliberately-assigned strong
+// (porter) — so a blanket "JUDGMENT -> glm-5.2" would replace their deliberately-assigned strong
 // model with a worse one. So the router only OVERRIDES to upgrade a weak/fast fallback for its
 // weak shape; an agent already on a strong model for that shape keeps it.
 const STRONG_JUDGMENT_MODELS = new Set([
-  "glm-5", "glm-4.7", "deepseek-v4-pro:cloud", "deepseek-v4-pro", "kimi-k2.6", "kimi-k2:1t",
+  "glm-5.2", "glm-5.1", "glm-4.7", "deepseek-v4-pro:cloud", "deepseek-v4-pro", "kimi-k2.6", "kimi-k2:1t",
 ]);
 const STRONG_DATA_MODELS = new Set([
   "deepseek-v4-pro:cloud", "deepseek-v4-pro", "deepseek-v4-flash",
