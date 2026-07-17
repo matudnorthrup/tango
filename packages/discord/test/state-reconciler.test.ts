@@ -88,11 +88,20 @@ describe("State Reconciler fixture dataset", () => {
 
   it("rejects invented evidence and persists a failed run after retry", async () => {
     const { storage, service, config } = harness();
+    const phantomFocus = await runStateReconciler({
+      service,
+      v2Config: config,
+      resolveProvider: () => provider(JSON.stringify({ changes: [], engaged_entity_ids: ["project:phantom"] })),
+      turn: turn(1, "Nothing changed."),
+    });
+    expect(phantomFocus.status).toBe("ok");
+    expect(phantomFocus.rejected).toEqual(["engaged entity 'project:phantom' does not exist or is not visible"]);
+
     const invented = await runStateReconciler({
       service,
       v2Config: config,
       resolveProvider: () => provider(JSON.stringify({ changes: [{ action: "new_entity", type_id: "project", title: "Invented", attributes: {}, evidence: "not in the turn" }] })),
-      turn: turn(1, "Nothing changed."),
+      turn: turn(2, "Nothing changed."),
     });
     expect(invented.appliedEventIds).toEqual([]);
     expect(invented.rejected[0]).toMatch(/evidence quote/u);
@@ -102,12 +111,12 @@ describe("State Reconciler fixture dataset", () => {
       service,
       v2Config: config,
       resolveProvider: () => ({ generate: vi.fn(async () => { throw new Error("fixture outage"); }) }),
-      turn: turn(2, "Still nothing."),
+      turn: turn(3, "Still nothing."),
       onPersistentFailure,
     });
     expect(failed.status).toBe("error");
     expect(onPersistentFailure).toHaveBeenCalledOnce();
-    expect((storage.getDatabase().prepare("SELECT status, error FROM state_reconciler_runs WHERE turn_id='turn-2'").get() as { status: string; error: string })).toMatchObject({ status: "error", error: "fixture outage" });
+    expect((storage.getDatabase().prepare("SELECT status, error FROM state_reconciler_runs WHERE turn_id='turn-3'").get() as { status: string; error: string })).toMatchObject({ status: "error", error: "fixture outage" });
     storage.close();
   }, 10_000);
 });

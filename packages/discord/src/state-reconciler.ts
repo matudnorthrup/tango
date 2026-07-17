@@ -185,11 +185,18 @@ export async function runStateReconciler(input: RunStateReconcilerInput): Promis
       input.turn.agentResponse,
       formatToolCalls(input.turn.toolCalls ?? []),
     ].join("\n"));
+    const rejected: string[] = [];
     const appliedEventIds: number[] = [];
     const revertedEventIds: number[] = [];
-    const engaged = new Set(changeset.engagedEntityIds);
+    const engaged = new Set<string>();
+    for (const entityId of changeset.engagedEntityIds) {
+      if (input.service.getEntity(entityId, access)) {
+        engaged.add(entityId);
+      } else {
+        rejected.push(`engaged entity '${entityId}' does not exist or is not visible`);
+      }
+    }
     const claimedFacts: string[] = [];
-    const rejected: string[] = [];
     for (const [index, proposal] of changeset.changes.entries()) {
       if (proposal.action === "no_op") continue;
       if (!proposal.evidence || !evidenceCorpus.includes(normalizeEvidence(proposal.evidence))) {
