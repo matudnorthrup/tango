@@ -546,6 +546,19 @@ describe("loadIntentContractConfigs", () => {
 });
 
 describe("loadScheduleConfigs", () => {
+  it("runs the state lifecycle sweep on every cron interval", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+    const sweep = loadScheduleConfigs(defaultsDir).find((schedule) => schedule.id === "state-sweep");
+
+    expect(sweep).toMatchObject({
+      enabled: true,
+      schedule: { cron: "*/10 * * * *", timezone: "America/Los_Angeles" },
+      execution: { mode: "deterministic", handler: "state-sweep" },
+      completion: { workflowId: "state-sweep", scope: "daily", checkBeforeRun: false },
+    });
+  });
+
   it("keeps default schedule provider models canonical", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     process.env.TANGO_CONFIG_DIR = defaultsDir;
