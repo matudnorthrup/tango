@@ -14,6 +14,7 @@ export interface StateHttpServerOptions {
   host?: string;
   port?: number;
   unarchiveMemories?: (eventIds: readonly number[]) => Promise<void>;
+  reportError?: (error: unknown) => void;
 }
 
 export interface StateHttpServer {
@@ -32,7 +33,8 @@ export function createStateHttpServer(options: StateHttpServerOptions): StateHtt
   const port = options.port ?? numberEnv(process.env.TANGO_STATE_PORT, DEFAULT_PORT);
   const server = createServer((req, res) => {
     void handleRequest(req, res, options).catch((error) => {
-      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      (options.reportError ?? reportServerError)(error);
+      sendJson(res, 500, { error: "Internal server error" });
     });
   });
   return {
@@ -57,6 +59,11 @@ export function createStateHttpServer(options: StateHttpServerOptions): StateHtt
       server.close((error) => error ? reject(error) : resolve());
     }),
   };
+}
+
+function reportServerError(error: unknown): void {
+  const detail = error instanceof Error ? `${error.name}: ${error.message}` : "Unknown error";
+  console.error(`[state-http] request failed: ${detail}`);
 }
 
 async function handleRequest(

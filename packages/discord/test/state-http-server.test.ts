@@ -16,7 +16,8 @@ describe("state dashboard HTTP API", () => {
     dirs.push(dir);
     const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
     const service = new StateService(storage.getDatabase());
-    const server = createStateHttpServer({ service, port: 0 });
+    const reportedErrors: unknown[] = [];
+    const server = createStateHttpServer({ service, port: 0, reportError: (error) => reportedErrors.push(error) });
     await server.start();
     try {
       const health = await fetch(`${server.url}/api/health`).then((response) => response.json()) as { status: string };
@@ -59,6 +60,16 @@ describe("state dashboard HTTP API", () => {
 
       const archived = await fetch(`${server.url}/api/entities/${encodeURIComponent(created.entity.id)}/archive`, { method: "POST" }).then((response) => response.json()) as { entity: { archivedAt: string } };
       expect(archived.entity.archivedAt).toBeTruthy();
+
+      const failed = await fetch(`${server.url}/api/entities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{private fixture details",
+      });
+      expect(failed.status).toBe(500);
+      expect(await failed.json()).toEqual({ error: "Internal server error" });
+      expect(reportedErrors).toHaveLength(1);
+      expect(reportedErrors[0]).toBeInstanceOf(SyntaxError);
     } finally {
       await server.stop();
       storage.close();

@@ -184,6 +184,14 @@ describe("StateService", () => {
     expect(() => service.defineType({
       id: "fixture", displayName: "Fixture", attributesSchema: { type: "object", properties: { count: { type: "number" } } }, origin: "conversation", confirm: true,
     })).toThrow(/cannot be removed/u);
+    const normalized = service.defineType({
+      id: `${"-".repeat(20_000)}Fixture${"-".repeat(20_000)}Type${"-".repeat(20_000)}`,
+      displayName: "Normalized Fixture",
+      attributesSchema: { type: "object", properties: {} },
+      origin: "conversation",
+      confirm: true,
+    });
+    expect(normalized.type.id).toBe("fixture-type");
     storage.close();
   });
 

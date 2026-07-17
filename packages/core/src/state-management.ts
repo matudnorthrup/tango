@@ -1802,7 +1802,21 @@ function formatAjvErrors(errors: ErrorObject[] | null | undefined): string {
 }
 
 function normalizeTypeId(value: string): string {
-  const normalized = requireText(value, "typeId").toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "");
+  const input = requireText(value, "typeId").toLowerCase();
+  let normalized = "";
+  let pendingSeparator = false;
+  for (const character of input) {
+    const code = character.charCodeAt(0);
+    const isAsciiLetter = code >= 97 && code <= 122;
+    const isDigit = code >= 48 && code <= 57;
+    if (isAsciiLetter || isDigit) {
+      if (pendingSeparator && normalized) normalized += "-";
+      normalized += character;
+      pendingSeparator = false;
+    } else if (normalized) {
+      pendingSeparator = true;
+    }
+  }
   if (!normalized) throw new Error("typeId must contain letters or numbers.");
   return normalized;
 }
