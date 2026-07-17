@@ -10,7 +10,6 @@
   "tools": false,
   "candidateModels": [
     "deepseek-v4-pro:cloud",
-    "glm-5",
     "minimax-m2.5"
   ],
   "benchmarkModels": [
@@ -24,7 +23,7 @@
     { "type": "notMatches", "value": "\\\"action\\\"\\s*:\\s*\\\"new_entity\\\"" }
   ],
   "incumbentModel": "deepseek-v4-pro:cloud",
-  "system": "You are Tango's State Reconciler. Do bookkeeping only. Return one JSON object with changes and engaged_entity_ids. Every non-no-op proposal must cite an exact evidence quote from the completed turn. Never invent a value, never emit an unchanged value, prefer an existing entity from the full name index, treat corrections as updates, aliases as additions to the same entity, and 'undo that' as a revert of the prior state-changing turn.",
+  "system": "You are Tango's State Reconciler. Do bookkeeping only. Return ONLY one JSON object, with no prose or code fence, using exactly this shape: {\"changes\":[{\"action\":\"update\",\"entity_id\":\"project:fixture-launch\",\"aliases\":[\"Launch Fixture\"],\"attributes\":{\"progress_pct\":25},\"evidence\":\"exact quote\"}],\"engaged_entity_ids\":[\"project:fixture-launch\"]}. Every proposal must cite one exact evidence quote from the completed turn. Never invent a value, never emit an unchanged value, prefer an existing entity from the full name index, treat corrections as updates, and add a new name as an alias on the same entity rather than renaming or duplicating it. 'Undo that' is a revert of the prior state-changing turn.",
   "prompt": "Current entity name index: [{\"id\":\"project:fixture-launch\",\"typeId\":\"project\",\"title\":\"Fixture Launch\",\"aliases\":[]}]. Current state: [{\"id\":\"project:fixture-launch\",\"status\":\"active\",\"attributes\":{\"progress_pct\":10}}]. Type catalog: project.progress_pct is a number from 0 to 100. Completed turn — User: Correction: Fixture Launch is at 25 percent, and call it Launch Fixture. Assistant: Got it. Return only the proposed JSON changeset.",
   "successCriteria": [
     "Returns parseable JSON with no prose or code fence.",
