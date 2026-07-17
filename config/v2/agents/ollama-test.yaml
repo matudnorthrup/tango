@@ -36,6 +36,9 @@ memory:
   importance_threshold: 0.5
   scheduled_reflection: disabled
 
+active_tasks:
+  continuation: disabled
+
 # Discord routing
 discord:
   default_channel_id: "100000000000000017"

@@ -23,7 +23,7 @@ function config(): V2AgentConfig {
 }
 
 describe("strict post-turn pipeline", () => {
-  it("runs state before memory and emits the receipt last from the persisted turn", async () => {
+  it("runs state and its visible receipt before downstream memory work", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-state-pipeline-"));
     dirs.push(dir);
     const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
@@ -57,7 +57,7 @@ describe("strict post-turn pipeline", () => {
       turnId: "turn-pipeline", conversationKey: "thread:fixture", sessionId: "session", agentId: "watson",
       userMessage: "Fixture Pipeline is active.", response: { text: "Acknowledged.", durationMs: 1 }, channelId: "fixture",
     });
-    expect(order).toEqual(["state", "memory", "receipt"]);
+    expect(order).toEqual(["state", "receipt", "memory"]);
     storage.close();
   });
 

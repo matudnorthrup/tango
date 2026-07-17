@@ -338,6 +338,20 @@ export function createV2PostTurnHook(input: {
       }
     }
 
+    // State visibility is part of the state pass, not a tail action. Publish
+    // before memory/task work so a downstream extractor failure cannot hide a
+    // successfully committed mutation from the user.
+    const receipt = input.stateService?.renderTurnReceipt(context.turnId);
+    if (receipt && input.publishStateReceipt) {
+      try {
+        await input.publishStateReceipt(context, receipt);
+      } catch (error) {
+        console.warn(
+          `[tango-state] failed to publish receipt turn=${context.turnId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
     // Pass 2: Atlas memory, suppressing only facts successfully claimed by
     // state. Test channels remain memory-inert but still run reconciliation.
     const memorySuppressed = input.extractionSuppressedChannelIds?.has(context.channelId) ?? false;
@@ -396,10 +410,6 @@ export function createV2PostTurnHook(input: {
       });
     }
 
-    const receipt = input.stateService?.renderTurnReceipt(context.turnId);
-    if (receipt && input.publishStateReceipt) {
-      await input.publishStateReceipt(context, receipt);
-    }
   };
 }
 
