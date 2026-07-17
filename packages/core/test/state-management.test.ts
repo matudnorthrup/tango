@@ -91,6 +91,37 @@ describe("StateService", () => {
     storage.close();
   });
 
+  it("supports exact matching for distinct machine-owned projections", () => {
+    const { storage, service, context } = harness();
+    const production = service.mutate({
+      typeId: "project",
+      title: "Finance Review",
+      aliases: ["weekly-finance-review"],
+      matchStrategy: "exact",
+      status: "active",
+      attributes: {},
+    }, context);
+    const dryRun = service.mutate({
+      typeId: "project",
+      title: "Finance Review Dry Run",
+      aliases: ["manual-test-weekly-finance-review"],
+      matchStrategy: "exact",
+      status: "active",
+      attributes: {},
+    }, context);
+
+    expect(dryRun.entity.id).not.toBe(production.entity.id);
+    expect(service.query({ type: "project" }).entities).toHaveLength(2);
+    expect(service.mutate({
+      typeId: "project",
+      title: "Renamed Dry Run",
+      aliases: ["manual-test-weekly-finance-review"],
+      matchStrategy: "exact",
+      attributes: { next_action: "Verify the projection" },
+    }, context).entity.id).toBe(dryRun.entity.id);
+    storage.close();
+  });
+
   it("supports observations, trend aggregations, per-event revert, turn undo, and create undo by archive", () => {
     const { storage, service, context } = harness();
     const entity = service.mutate({
