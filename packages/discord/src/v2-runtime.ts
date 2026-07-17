@@ -5,6 +5,8 @@ import type {
   ColdStartContextBuilder,
   RuntimeResponse,
   SendOptions,
+  StateService,
+  TangoStorage,
   V2AgentConfig,
 } from "@tango/core";
 import {
@@ -20,12 +22,19 @@ import {
   extractAndStoreMemories,
   type MemoryCaptureConfig,
 } from "./memory-capture.js";
+import { runActiveTaskPostTurn } from "./active-task-continuation.js";
+import {
+  runStateReconciler,
+  type StateReconcilerOutcome,
+  type StateReconcilerTurn,
+} from "./state-reconciler.js";
 
 export interface FeatureFlaggedRouteRequest {
   message: string;
   channelId: string;
   threadId?: string;
   agentId: string;
+  messageId?: string;
   sendOptions?: SendOptions;
 }
 
@@ -33,6 +42,7 @@ export interface FeatureFlaggedRouteResult {
   response: RuntimeResponse;
   agentId: string;
   conversationKey: string;
+  turnId: string;
 }
 
 export interface FeatureFlaggedRouter {
@@ -43,6 +53,22 @@ export interface FeatureFlaggedRouter {
 type ReasoningEffort = NonNullable<AgentRuntimeConfig["runtimePreferences"]["reasoningEffort"]>;
 
 const DEFAULT_V2_RUNTIME_TIMEOUT_MS = 900_000;
+const STATE_MCP_SERVER: AgentRuntimeConfig["mcpServers"][number] = {
+  name: "state",
+  command: "node",
+  args: ["packages/core/dist/mcp-proxy.js", "state"],
+  env: {
+    ALLOWED_TOOL_IDS: "state_query,state_update,state_define_type",
+  },
+};
+
+export function buildStateMcpServerConfig(): AgentRuntimeConfig["mcpServers"][number] {
+  return {
+    ...STATE_MCP_SERVER,
+    args: [...(STATE_MCP_SERVER.args ?? [])],
+    env: { ...(STATE_MCP_SERVER.env ?? {}) },
+  };
+}
 
 function splitMcpServersForMountPolicy(
   config: V2AgentConfig,
@@ -57,6 +83,7 @@ function splitMcpServersForMountPolicy(
 
   const serversByName = new Map(servers.map((server) => [server.name, server]));
   const defaultNames = new Set(config.mcp.defaultServers ?? []);
+  defaultNames.add("state");
   const availableNames = new Set(
     config.mcp.availableServers
       ?? servers
@@ -113,7 +140,10 @@ export function buildV2RuntimeConfigs(
     }
 
     const memoryScope = resolveV2MemoryScope(agentId, v2Config);
-    const mcpServers = v2Config.mcpServers.map((server) => ({
+    const configuredServers = v2Config.mcpServers.some((server) => server.name === "state")
+      ? v2Config.mcpServers
+      : [...v2Config.mcpServers, buildStateMcpServerConfig()];
+    const mcpServers = configuredServers.map((server) => ({
       ...server,
       env: {
         ...(server.env ?? {}),
@@ -166,6 +196,7 @@ export function createAtlasColdStartContextBuilder(
      * on where the project stands. See project-state.ts.
      */
     projectStateProvider?: (conversationKey: string) => string | undefined;
+    stateDigestProvider?: (conversationKey: string, agentId: string) => string | undefined;
     attachmentStore?: AttachmentStore;
     v2Configs?: ReadonlyMap<string, V2AgentConfig>;
   } = {},
@@ -197,10 +228,14 @@ export function createAtlasColdStartContextBuilder(
         : null;
 
     const projectBlock = options.projectStateProvider?.(conversationKey);
+    const stateDigest = options.stateDigestProvider?.(conversationKey, agentId);
 
     return {
       pinnedFacts: formatPinnedFacts([...pinnedFacts, ...agentFacts]),
-      recentMessages: projectBlock ? `Project state:\n${projectBlock}` : "",
+      recentMessages: [
+        projectBlock ? `Project state:\n${projectBlock}` : "",
+        stateDigest ?? "",
+      ].filter(Boolean).join("\n\n"),
       relevantMemories: formatMemories(relevantMemories),
       ...(attachmentContext?.prompt ? { attachmentDirectories: attachmentContext.prompt } : {}),
     };
@@ -221,61 +256,177 @@ export function createV2PostTurnHook(input: {
    */
   extractionSuppressedChannelIds?: ReadonlySet<string>;
   extractAndStoreMemoriesImpl?: typeof extractAndStoreMemories;
-}): (context: {
+  stateService?: StateService;
+  storage?: TangoStorage;
+  runStateReconcilerImpl?: typeof runStateReconciler;
+  publishStateReceipt?: (context: V2PostTurnContext, receipt: string) => Promise<void>;
+}): (context: V2PostTurnContext) => Promise<void> {
+  return async (context) => {
+    const agentV2Config = input.v2Configs.get(context.agentId);
+    let reconcilerOutcome: StateReconcilerOutcome | null = null;
+
+    // Pass 1: typed canonical state. This always runs first. A failure is
+    // fail-open: claimedStateFacts remains empty and memory extraction proceeds.
+    if (input.stateService) {
+      const runReconciler = input.runStateReconcilerImpl ?? runStateReconciler;
+      reconcilerOutcome = await runReconciler({
+        service: input.stateService,
+        v2Config: agentV2Config,
+        resolveProvider: input.resolveProvider,
+        turn: {
+          turnId: context.turnId,
+          conversationKey: context.conversationKey,
+          sessionId: context.sessionId,
+          agentId: context.agentId,
+          userMessage: context.userMessage,
+          agentResponse: context.response.text,
+          toolCalls: context.response.toolCalls,
+          requestMessageId: context.discordRequestMessageId ?? context.requestMessageId,
+          responseMessageId: context.discordResponseMessageId ?? context.responseMessageId,
+          occurredAt: context.occurredAt,
+        },
+        onPersistentFailure: ({ providerName, model, prompt, error }) => {
+          if (!input.storage) return;
+          input.storage.insertDeadLetter({
+            sessionId: context.sessionId,
+            agentId: context.agentId,
+            providerName,
+            conversationKey: context.conversationKey,
+            requestMessageId: context.requestMessageId ?? null,
+            discordChannelId: context.channelId,
+            promptText: prompt,
+            systemPrompt: "State Reconciler",
+            responseMode: "state-reconciler",
+            lastErrorMessage: error,
+            metadata: { kind: "state_reconciler", turnId: context.turnId, model },
+          });
+        },
+        unarchiveMemories: async (eventIds) => {
+          if (!input.stateService) return;
+          const memoryIds = input.stateService.getArchivedMemoryIdsForEvents(eventIds);
+          if (memoryIds.length === 0) return;
+          await input.atlasMemoryClient.memoryAdmin({
+            operation: "unarchive",
+            filter: { ids: memoryIds, include_archived: true },
+          });
+          input.stateService.markMemoriesUnarchived(memoryIds);
+        },
+      });
+
+      if (input.storage && reconcilerOutcome.providerName && reconcilerOutcome.model) {
+        input.storage.insertModelRun({
+          sessionId: context.sessionId,
+          agentId: context.agentId,
+          providerName: reconcilerOutcome.providerName,
+          conversationKey: context.conversationKey,
+          model: reconcilerOutcome.model,
+          stopReason: reconcilerOutcome.status,
+          responseMode: "state-reconciler",
+          latencyMs: reconcilerOutcome.latencyMs,
+          isError: reconcilerOutcome.status === "error",
+          errorMessage: reconcilerOutcome.error ?? null,
+          requestMessageId: context.requestMessageId ?? null,
+          responseMessageId: context.responseMessageId ?? null,
+          metadata: {
+            kind: "state_reconciler",
+            turnId: context.turnId,
+            proposals: reconcilerOutcome.proposals,
+            appliedEventIds: reconcilerOutcome.appliedEventIds,
+            rejected: reconcilerOutcome.rejected,
+          },
+        });
+      }
+    }
+
+    // State visibility is part of the state pass, not a tail action. Publish
+    // before memory/task work so a downstream extractor failure cannot hide a
+    // successfully committed mutation from the user.
+    const receipt = input.stateService?.renderTurnReceipt(context.turnId);
+    if (receipt && input.publishStateReceipt) {
+      try {
+        await input.publishStateReceipt(context, receipt);
+      } catch (error) {
+        console.warn(
+          `[tango-state] failed to publish receipt turn=${context.turnId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    // Pass 2: Atlas memory, suppressing only facts successfully claimed by
+    // state. Test channels remain memory-inert but still run reconciliation.
+    const memorySuppressed = input.extractionSuppressedChannelIds?.has(context.channelId) ?? false;
+    if (!memorySuppressed && agentV2Config?.memory.postTurnExtraction === "enabled") {
+      const memoryScope = resolveV2MemoryScope(context.agentId, agentV2Config);
+      const extractionProvider =
+        agentV2Config.memory.extractionProvider
+        ?? (isOllamaBackedAgent(agentV2Config) ? "ollama" : "claude-oauth");
+      const provider = input.resolveProvider(extractionProvider);
+      if (!provider) {
+        console.warn(
+          `[memory-capture] no provider '${extractionProvider}' registered for agent ${context.agentId}; skipping post-turn extraction`,
+        );
+      } else {
+        const captureConfig: MemoryCaptureConfig = {
+          enabled: true,
+          extractionProvider,
+          extractionModel: agentV2Config.memory.extractionModel,
+          importanceThreshold: agentV2Config.memory.importanceThreshold,
+        };
+        const extractAndStore = input.extractAndStoreMemoriesImpl ?? extractAndStoreMemories;
+        await extractAndStore(
+          {
+            conversationKey: context.conversationKey,
+            agentId: memoryScope.canonicalAgentId,
+            runtimeAgentId: context.agentId,
+            userMessage: context.userMessage,
+            agentResponse: context.response.text,
+            channelId: context.channelId,
+            ...(context.threadId ? { threadId: context.threadId } : {}),
+            claimedStateFacts: reconcilerOutcome?.status === "ok" ? reconcilerOutcome.claimedFacts : [],
+          },
+          captureConfig,
+          input.atlasMemoryClient,
+          provider,
+        );
+      }
+    }
+
+    // Pass 3: active-task continuation. This is sequenced after state/memory,
+    // rather than racing as a second fire-and-forget hook.
+    if (input.storage) {
+      await runActiveTaskPostTurn({
+        storage: input.storage,
+        v2Config: agentV2Config,
+        resolveProvider: input.resolveProvider,
+        context: {
+          sessionId: context.sessionId,
+          agentId: context.agentId,
+          userMessage: context.userMessage,
+          agentResponse: context.response.text,
+          toolsUsed: context.response.toolsUsed,
+          requestMessageId: context.requestMessageId,
+          responseMessageId: context.responseMessageId,
+        },
+      });
+    }
+
+  };
+}
+
+export interface V2PostTurnContext {
+  turnId: string;
   conversationKey: string;
+  sessionId: string;
   agentId: string;
   userMessage: string;
   response: RuntimeResponse;
   channelId: string;
   threadId?: string;
-}) => Promise<void> {
-  return async (context) => {
-    if (input.extractionSuppressedChannelIds?.has(context.channelId)) {
-      return;
-    }
-    const agentV2Config = input.v2Configs.get(context.agentId);
-    if (agentV2Config?.memory.postTurnExtraction !== "enabled") {
-      return;
-    }
-    const memoryScope = resolveV2MemoryScope(context.agentId, agentV2Config);
-
-    // Resolve the extraction provider. Explicit config wins; otherwise derive from
-    // the agent backend so Ollama clones extract via the (cheap, off-Claude) Ollama
-    // provider rather than billing the Claude CLI on every turn.
-    const extractionProvider =
-      agentV2Config.memory.extractionProvider ??
-      (isOllamaBackedAgent(agentV2Config) ? "ollama" : "claude-oauth");
-    const provider = input.resolveProvider(extractionProvider);
-    if (!provider) {
-      console.warn(
-        `[memory-capture] no provider '${extractionProvider}' registered for agent ${context.agentId}; skipping post-turn extraction`,
-      );
-      return;
-    }
-
-    const captureConfig: MemoryCaptureConfig = {
-      enabled: true,
-      extractionProvider,
-      extractionModel: agentV2Config.memory.extractionModel,
-      importanceThreshold: agentV2Config.memory.importanceThreshold,
-    };
-    const extractAndStore = input.extractAndStoreMemoriesImpl ?? extractAndStoreMemories;
-
-    await extractAndStore(
-      {
-        conversationKey: context.conversationKey,
-        agentId: memoryScope.canonicalAgentId,
-        runtimeAgentId: context.agentId,
-        userMessage: context.userMessage,
-        agentResponse: context.response.text,
-        channelId: context.channelId,
-        ...(context.threadId ? { threadId: context.threadId } : {}),
-      },
-      captureConfig,
-      input.atlasMemoryClient,
-      provider,
-    );
-  };
+  requestMessageId?: number | null;
+  responseMessageId?: number | null;
+  discordRequestMessageId?: string | null;
+  discordResponseMessageId?: string | null;
+  occurredAt?: string;
 }
 
 export async function routeV2MessageIfEnabled(
@@ -293,6 +444,7 @@ export async function routeV2MessageIfEnabled(
     message: params.message,
     channelId: params.channelId,
     ...(params.threadId ? { threadId: params.threadId } : {}),
+    ...(params.messageId ? { messageId: params.messageId } : {}),
     agentId: params.agentId,
     sendOptions: params.sendOptions,
   });
@@ -325,7 +477,10 @@ export function formatMemories(memories: readonly MemoryRecord[]): string {
   return memories
     .map((memory) => {
       const tags = memory.tags.length > 0 ? ` [${memory.tags.join(", ")}]` : "";
-      return `- ${memory.content}${tags}`;
+      const historical = memory.tags.some((tag) => tag.startsWith("state:"))
+        ? `historical as of ${memory.createdAt}: `
+        : "";
+      return `- ${historical}${memory.content}${tags}`;
     })
     .join("\n");
 }

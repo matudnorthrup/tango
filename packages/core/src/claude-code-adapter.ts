@@ -433,6 +433,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
             durationMs,
             model: parsed.metadata?.model ?? this.config.runtimePreferences.model,
             toolsUsed,
+            ...(parsed.toolCalls && parsed.toolCalls.length > 0 ? { toolCalls: parsed.toolCalls } : {}),
             metadata: {
               ...baseMetadata,
               sessionId: parsed.providerSessionId,
@@ -474,6 +475,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
         durationMs,
         model: parsed.metadata?.model ?? this.config.runtimePreferences.model,
         toolsUsed,
+        ...(parsed.toolCalls && parsed.toolCalls.length > 0 ? { toolCalls: parsed.toolCalls } : {}),
         metadata: {
           ...baseMetadata,
           sessionId: this.sessionId,

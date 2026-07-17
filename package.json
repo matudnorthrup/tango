@@ -72,6 +72,7 @@
     "memory:index:obsidian": "node --import tsx ./scripts/memory-obsidian-index.ts",
     "memory:reembed": "node --import tsx ./scripts/memory-reembed.ts",
     "memory:reflect": "node --import tsx ./scripts/memory-reflect.ts",
+    "state:backfill": "node --import tsx ./scripts/state-backfill.mts",
     "vault:audit": "node --import tsx ./scripts/vault-audit.ts",
     "vault:cleanup-plan": "node --import tsx ./scripts/vault-cleanup-plan.ts",
     "vault:daily-check": "node --import tsx ./scripts/vault-daily-check.ts",

@@ -65,6 +65,14 @@ export interface McpHttpToolClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface McpToolTurnContext {
+  conversationKey?: string;
+  turnId?: string;
+  messageId?: string;
+  channelId?: string;
+  threadId?: string;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
@@ -119,10 +127,11 @@ export class McpHttpToolClient {
     workerId: string,
     allowedToolIds?: string[],
     readOnlyStep?: boolean,
+    turnContext?: McpToolTurnContext,
   ): Promise<string> {
     let result: unknown;
     try {
-      result = await this.rpc("tools/call", { name, arguments: args }, workerId, allowedToolIds, readOnlyStep);
+      result = await this.rpc("tools/call", { name, arguments: args }, workerId, allowedToolIds, readOnlyStep, turnContext);
     } catch (error) {
       return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -142,6 +151,7 @@ export class McpHttpToolClient {
     workerId: string,
     allowedToolIds?: string[],
     readOnlyStep?: boolean,
+    turnContext?: McpToolTurnContext,
   ): Promise<unknown> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -159,6 +169,11 @@ export class McpHttpToolClient {
       headers["X-Allowed-Tool-Ids"] =
         allowedToolIds.length > 0 ? allowedToolIds.join(",") : EMPTY_ALLOWED_TOOL_IDS;
     }
+    if (turnContext?.conversationKey) headers["X-Tango-Conversation-Key"] = turnContext.conversationKey;
+    if (turnContext?.turnId) headers["X-Tango-Turn-Id"] = turnContext.turnId;
+    if (turnContext?.messageId) headers["X-Tango-Message-Id"] = turnContext.messageId;
+    if (turnContext?.channelId) headers["X-Tango-Channel-Id"] = turnContext.channelId;
+    if (turnContext?.threadId) headers["X-Tango-Thread-Id"] = turnContext.threadId;
 
     const body = JSON.stringify({
       jsonrpc: "2.0",

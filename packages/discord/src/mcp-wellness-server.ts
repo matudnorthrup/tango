@@ -55,6 +55,7 @@ import { createNotionTools } from "./notion-agent-tools.js";
 import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { createOrientationNudgeTools, orientationNudgeToolLooksReadOnly } from "./orientation-nudge.js";
 import { createCollaborationTools } from "./collaboration-agent-tools.js";
+import { createStateTools } from "./state-agent-tools.js";
 import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
@@ -178,6 +179,7 @@ const allTools: AgentTool[] = [
   ...createClaudeSessionTools(),
   ...createOrientationNudgeTools(),
   ...createCollaborationTools(),
+  ...createStateTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -449,6 +451,13 @@ async function executeToolCall(
   principalId: string | null,
   readOnlyStep: boolean,
   allowedToolIds: Set<string> | null,
+  turnProvenance: {
+    conversationKey?: string;
+    turnId?: string;
+    messageId?: string;
+    channelId?: string;
+    threadId?: string;
+  } = {},
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   const handler = handlerMap.get(name);
 
@@ -495,10 +504,18 @@ async function executeToolCall(
     const scopedArgs = workerScope
       ? applyMemoryScopeToToolArgs(name, args, workerScope.workerId, workerScope.memoryScope)
       : args;
-    const effectiveArgs =
-      name === "collaborate_with_agent" && workerScope
-        ? { ...scopedArgs, _requester_agent_id: workerScope.workerId }
-        : scopedArgs;
+    const needsRuntimeContext = name === "collaborate_with_agent" || name.startsWith("state_");
+    const effectiveArgs = needsRuntimeContext
+      ? {
+          ...scopedArgs,
+          ...(workerScope ? { _requester_agent_id: workerScope.workerId } : {}),
+          ...(turnProvenance.conversationKey ? { _conversation_key: turnProvenance.conversationKey } : {}),
+          ...(turnProvenance.turnId ? { _turn_id: turnProvenance.turnId } : {}),
+          ...(turnProvenance.messageId ? { _message_id: turnProvenance.messageId } : {}),
+          ...(turnProvenance.channelId ? { _channel_id: turnProvenance.channelId } : {}),
+          ...(turnProvenance.threadId ? { _thread_id: turnProvenance.threadId } : {}),
+        }
+      : scopedArgs;
     const result = await handler(effectiveArgs);
     const text = JSON.stringify(result);
     debug(`tools/call: ${name} completed in ${Date.now() - startMs}ms (${text.length} chars)`);
@@ -558,6 +575,13 @@ if (isHttpMode) {
     const principalId = workerIdHeader ? `worker:${workerIdHeader}` : null;
     const readOnlyStep = req.headers["x-read-only-step"] === "1";
     const allowedToolIds = parseAllowedToolIds(req.headers["x-allowed-tool-ids"] as string | undefined);
+    const turnProvenance = {
+      conversationKey: req.headers["x-tango-conversation-key"] as string | undefined,
+      turnId: req.headers["x-tango-turn-id"] as string | undefined,
+      messageId: req.headers["x-tango-message-id"] as string | undefined,
+      channelId: req.headers["x-tango-channel-id"] as string | undefined,
+      threadId: req.headers["x-tango-thread-id"] as string | undefined,
+    };
 
     try {
       const body = await readBody(req);
@@ -629,6 +653,7 @@ if (isHttpMode) {
             principalId,
             readOnlyStep,
             allowedToolIds,
+            turnProvenance,
           );
           response = {
             jsonrpc: "2.0",
@@ -703,6 +728,13 @@ if (isHttpMode) {
   const principalId = workerId ? `worker:${workerId}` : null;
   const readOnlyStep = process.env.READ_ONLY_STEP === "1";
   const allowedToolIds = parseAllowedToolIds(process.env.ALLOWED_TOOL_IDS);
+  const turnProvenance = {
+    conversationKey: process.env.TANGO_CONVERSATION_KEY,
+    turnId: process.env.TANGO_TURN_ID,
+    messageId: process.env.TANGO_MESSAGE_ID,
+    channelId: process.env.TANGO_DISCORD_CHANNEL_ID,
+    threadId: process.env.TANGO_DISCORD_THREAD_ID,
+  };
   const governance = createGovernance();
   const visibleTools = getToolsForWorker(governance, principalId, allowedToolIds);
 
@@ -740,6 +772,7 @@ if (isHttpMode) {
       principalId,
       readOnlyStep,
       allowedToolIds,
+      turnProvenance,
     );
   });
 

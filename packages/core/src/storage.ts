@@ -2636,6 +2636,217 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'route_ahead_search');
     `,
   },
+  {
+    // Typed, deterministic entity state. State values are profile data and are
+    // never seeded here; only generic schemas and lifecycle templates ship in
+    // the repository.
+    version: 63,
+    sql: `
+      CREATE TABLE IF NOT EXISTS state_entity_types (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        attributes_schema TEXT NOT NULL,
+        statuses TEXT,
+        staleness_policy TEXT,
+        digest_template TEXT,
+        body_fields TEXT,
+        visibility TEXT NOT NULL DEFAULT 'shared',
+        origin TEXT NOT NULL DEFAULT 'seed',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        archived_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS state_entities (
+        id TEXT PRIMARY KEY,
+        type_id TEXT NOT NULL REFERENCES state_entity_types(id),
+        slug TEXT NOT NULL,
+        title TEXT NOT NULL,
+        aliases TEXT,
+        status TEXT,
+        attributes TEXT NOT NULL,
+        summary TEXT,
+        body_pointer TEXT,
+        body_fields_hash TEXT,
+        owner_user_id TEXT,
+        owner_agent_id TEXT,
+        source TEXT NOT NULL,
+        last_event_at TEXT,
+        stale_after TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        archived_at TEXT,
+        UNIQUE (type_id, slug)
+      );
+      CREATE INDEX IF NOT EXISTS idx_state_entities_type_status
+        ON state_entities(type_id, status, archived_at);
+      CREATE INDEX IF NOT EXISTS idx_state_entities_stale
+        ON state_entities(stale_after) WHERE archived_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS state_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_id TEXT NOT NULL REFERENCES state_entities(id),
+        kind TEXT NOT NULL,
+        patch TEXT,
+        note TEXT,
+        actor TEXT NOT NULL,
+        session_id TEXT,
+        message_id TEXT,
+        turn_id TEXT,
+        reverts_event_id INTEGER REFERENCES state_events(id),
+        occurred_at TEXT NOT NULL,
+        recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_state_events_entity
+        ON state_events(entity_id, occurred_at);
+      CREATE INDEX IF NOT EXISTS idx_state_events_turn
+        ON state_events(turn_id, id);
+      CREATE INDEX IF NOT EXISTS idx_state_events_session
+        ON state_events(session_id, recorded_at);
+
+      CREATE TABLE IF NOT EXISTS state_focus (
+        conversation_key TEXT NOT NULL,
+        entity_id TEXT NOT NULL REFERENCES state_entities(id),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT NOT NULL,
+        PRIMARY KEY (conversation_key, entity_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_state_focus_expires
+        ON state_focus(expires_at);
+
+      CREATE TABLE IF NOT EXISTS state_reconciler_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        turn_id TEXT NOT NULL UNIQUE,
+        conversation_key TEXT NOT NULL,
+        session_id TEXT,
+        agent_id TEXT NOT NULL,
+        provider_name TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('running', 'ok', 'error')),
+        proposal_count INTEGER NOT NULL DEFAULT 0,
+        applied_count INTEGER NOT NULL DEFAULT 0,
+        rejected_count INTEGER NOT NULL DEFAULT 0,
+        claimed_facts TEXT,
+        rejection_reasons TEXT,
+        latency_ms INTEGER,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        completed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_state_reconciler_runs_created
+        ON state_reconciler_runs(created_at);
+      CREATE INDEX IF NOT EXISTS idx_state_reconciler_runs_status
+        ON state_reconciler_runs(status, created_at);
+
+      CREATE TABLE IF NOT EXISTS state_issues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_id TEXT REFERENCES state_entities(id),
+        kind TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        metadata TEXT,
+        status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'resolved')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_state_issues_open
+        ON state_issues(status, kind, created_at);
+
+      CREATE TABLE IF NOT EXISTS state_memory_links (
+        event_id INTEGER NOT NULL REFERENCES state_events(id),
+        memory_id TEXT NOT NULL,
+        entity_id TEXT NOT NULL REFERENCES state_entities(id),
+        verdict TEXT NOT NULL,
+        archived_at TEXT,
+        unarchived_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (event_id, memory_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_state_memory_links_memory
+        ON state_memory_links(memory_id);
+
+      CREATE TABLE IF NOT EXISTS state_adapter_cursors (
+        adapter_id TEXT PRIMARY KEY,
+        cursor TEXT,
+        metadata TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT OR IGNORE INTO state_entity_types (
+        id, display_name, description, attributes_schema, statuses,
+        staleness_policy, digest_template, body_fields, visibility, origin
+      ) VALUES
+        (
+          'project',
+          'Project',
+          'A durable project or initiative with an independently tracked lifecycle.',
+          '{"type":"object","additionalProperties":false,"properties":{"next_action":{"type":"string"},"target_date":{"type":"string","format":"date"},"collaborating_agent":{"type":"string"},"progress_pct":{"type":"number","minimum":0,"maximum":100},"priority":{"type":"string","enum":["low","normal","high","urgent"]}}}',
+          '{"values":["idea","active","blocked","waiting","done","dropped"],"transitions":{"idea":["active","dropped"],"active":["blocked","waiting","done","dropped"],"blocked":["active","waiting","done","dropped"],"waiting":["active","blocked","done","dropped"],"done":["active"],"dropped":["active"]},"initial":"idea"}',
+          '{"expected_update_days":7,"on_stale":"nudge"}',
+          '{title} — {status}; next: {next_action} ({updated_age})',
+          '["status","next_action","target_date","progress_pct"]',
+          'shared',
+          'seed'
+        ),
+        (
+          'travel',
+          'Travel',
+          'A time-bound trip with current location and plan freshness.',
+          '{"type":"object","additionalProperties":false,"properties":{"start_date":{"type":"string","format":"date"},"end_date":{"type":"string","format":"date"},"current_location":{"type":"string"},"location_updated_at":{"type":"string","format":"date-time"},"next_stop":{"type":"string"},"plan_status":{"type":"string"}}}',
+          '{"values":["planning","active","completed","canceled"],"transitions":{"planning":["active","canceled"],"active":["completed","canceled"],"completed":["active"],"canceled":["planning"]},"initial":"planning"}',
+          '{"expected_update_days":1,"on_stale":"nudge","archive_after_end_days":1}',
+          '{title} — {status}; day_of(start_date,end_date); in {current_location}; location age(location_updated_at)',
+          '["status","start_date","end_date","current_location","location_updated_at","next_stop"]',
+          'shared',
+          'seed'
+        ),
+        (
+          'body-composition',
+          'Body Composition',
+          'Current body-composition observations and nutrition targets.',
+          '{"type":"object","additionalProperties":false,"properties":{"weight_lb":{"type":"number","exclusiveMinimum":0},"body_fat_pct":{"type":"number","minimum":0,"maximum":100},"protein_goal_g":{"type":"number","minimum":0},"calorie_target":{"type":"number","minimum":0}}}',
+          NULL,
+          '{"expected_update_days":7,"on_stale":"nudge"}',
+          '{title}: weight {weight_lb} lb, body fat {body_fat_pct}%, protein {protein_goal_g} g ({updated_age})',
+          '["weight_lb","body_fat_pct","protein_goal_g","calorie_target"]',
+          'private:wellness',
+          'seed'
+        ),
+        (
+          'vehicle',
+          'Vehicle',
+          'One independently tracked vehicle per entity.',
+          '{"type":"object","additionalProperties":false,"properties":{"year":{"type":"integer","minimum":1886},"make":{"type":"string"},"model":{"type":"string"},"kind":{"type":"string"},"primary_use":{"type":"string"},"operational_status":{"type":"string"}}}',
+          '{"values":["active","stored","sold","retired"],"transitions":{"active":["stored","sold","retired"],"stored":["active","sold","retired"],"sold":["active"],"retired":["active"]},"initial":"active"}',
+          '{"expected_update_days":90,"on_stale":"nudge"}',
+          '{title} — {status}; {year} {make} {model}; {primary_use}',
+          '["status","year","make","model","kind","primary_use","operational_status"]',
+          'shared',
+          'seed'
+        );
+
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('state_query', 'state', 'State Query', 'read'),
+        ('state_update', 'state', 'State Update', 'write'),
+        ('state_define_type', 'state', 'State Type Definition', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT id, 'state_query', 'read', 'deterministic current-state access'
+      FROM principals
+      WHERE type IN ('user', 'agent', 'worker');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT id, 'state_update', 'write', 'revertible current-state updates'
+      FROM principals
+      WHERE type IN ('user', 'agent', 'worker');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT id, 'state_define_type', 'write', 'confirmed additive state type authoring'
+      FROM principals
+      WHERE type IN ('user', 'agent', 'worker');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
@@ -2673,6 +2884,7 @@ export class TangoStorage {
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
+    this.db.exec("PRAGMA busy_timeout = 5000;");
   }
 
   migrate(): void {

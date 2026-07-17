@@ -95,6 +95,14 @@ export interface V2AgentConfig {
     extractionProvider?: string;
     extractionModel?: string;
   };
+  /** Typed canonical state digest and per-turn reconciliation settings. */
+  state?: {
+    reconciliation: V2FeatureToggle;
+    extractionProvider?: string;
+    extractionModel?: string;
+    alwaysOnTypes: string[];
+    focusTtlDays: number;
+  };
   voice?: {
     callSigns: string[];
     kokoroVoice?: string;
@@ -236,6 +244,13 @@ const rawV2AgentConfigSchema = z.object({
     continuation: featureToggleSchema,
     extraction_provider: z.string().min(1).optional(),
     extraction_model: z.string().min(1).optional(),
+  }).optional(),
+  state: z.object({
+    reconciliation: featureToggleSchema.default("enabled"),
+    extraction_provider: z.string().min(1).optional(),
+    extraction_model: z.string().min(1).optional(),
+    always_on_types: z.array(z.string().min(1)).default([]),
+    focus_ttl_days: z.number().positive().default(7),
   }).optional(),
   voice: z.object({
     call_signs: z.array(z.string().min(1)).min(1),
@@ -392,6 +407,27 @@ function parseV2AgentConfig(rawConfig: unknown): V2AgentConfig {
             : {}),
         }
       : undefined,
+    state: parsed.state
+      ? {
+          reconciliation: parsed.state.reconciliation,
+          ...(parsed.state.extraction_provider
+            ? { extractionProvider: parsed.state.extraction_provider }
+            : {}),
+          ...(parsed.state.extraction_model
+            ? { extractionModel: parsed.state.extraction_model }
+            : {}),
+          alwaysOnTypes: parsed.state.always_on_types,
+          focusTtlDays: parsed.state.focus_ttl_days,
+        }
+      : {
+          reconciliation: "enabled",
+          alwaysOnTypes: parsed.type === "wellness"
+            ? ["body-composition"]
+            : parsed.type === "personal"
+              ? ["project", "travel", "vehicle"]
+              : [],
+          focusTtlDays: 7,
+        },
     voice: parsed.voice
       ? {
           callSigns: parsed.voice.call_signs,

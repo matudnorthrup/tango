@@ -1,4 +1,4 @@
-import type { ProviderImageInput } from "./provider.js";
+import type { ProviderImageInput, ProviderToolCall } from "./provider.js";
 
 export class RuntimeAbortedError extends Error {
   readonly aborted = true;
@@ -104,6 +104,8 @@ export interface RuntimeResponse {
   durationMs: number;
   model?: string;
   toolsUsed?: string[];
+  /** Executed tool inputs/results, used by post-turn state reconciliation. */
+  toolCalls?: ProviderToolCall[];
   metadata?: Record<string, unknown>;
 }
 

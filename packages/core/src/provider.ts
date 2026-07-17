@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { ProviderReasoningEffort } from "./types.js";
-import type { McpHttpToolClient, OpenAIToolDefinition } from "./mcp-http-tool-client.js";
+import type { McpHttpToolClient, McpToolTurnContext, OpenAIToolDefinition } from "./mcp-http-tool-client.js";
 
 export interface ProviderImageInput {
   /** Base64-encoded image bytes (no `data:` prefix). */
@@ -31,6 +31,8 @@ export interface ProviderRequest {
    * permissions. Ignored by CLI providers.
    */
   workerId?: string;
+  /** Per-turn provenance forwarded to MCP write tools (state receipts/undo). */
+  toolTurnContext?: McpToolTurnContext;
 }
 
 export interface ProviderResponse {
@@ -1499,7 +1501,14 @@ export class OllamaProvider implements ChatProvider {
           executedToolCalls.push(executed);
           let output: string;
           try {
-            output = await toolClient.callTool(call.function.name, args, workerId, allowlist);
+            output = await toolClient.callTool(
+              call.function.name,
+              args,
+              workerId,
+              allowlist,
+              false,
+              request.toolTurnContext,
+            );
           } catch (error) {
             // callTool already swallows MCP errors, but guard defensively: a tool
             // failure must NEVER throw out of the loop.
