@@ -201,10 +201,39 @@ describe("StateService", () => {
       ...context,
       occurredAt: "2026-06-01T00:00:00Z",
     });
+    const trip = service.mutate({
+      typeId: "travel",
+      title: "Completed Trip Fixture",
+      status: "completed",
+      attributes: { start_date: "2026-07-10", end_date: "2026-07-15" },
+    }, { ...context, turnId: "turn-trip", occurredAt: "2026-07-15T12:00:00Z" });
+    service.defineType({
+      id: "expiring-fixture",
+      displayName: "Expiring Fixture",
+      attributesSchema: { type: "object", additionalProperties: false, properties: {} },
+      statuses: {
+        values: ["active", "expired"],
+        transitions: { active: ["expired"], expired: ["active"] },
+        initial: "active",
+      },
+      stalenessPolicy: { expected_update_days: 1, on_stale: "expire" },
+      origin: "seed",
+      confirm: true,
+    }, { includePrivate: true });
+    const expiring = service.mutate({
+      typeId: "expiring-fixture",
+      title: "Expiring Entity Fixture",
+      status: "active",
+      attributes: {},
+    }, { ...context, turnId: "turn-expiring", occurredAt: "2026-07-01T00:00:00Z" });
     const report = service.sweep();
-    expect(report.stale).toBe(1);
+    expect(report).toMatchObject({ stale: 3, expired: 1, archived: 1 });
     expect(service.listIssues("open").some((issue) => issue.entityId === stale.entity.id && issue.kind === "stale")).toBe(true);
     expect(service.listIssues("open").some((issue) => issue.kind === "reconciler_stalled")).toBe(true);
+    expect(service.getEntity(expiring.entity.id, {}, true)?.status).toBe("expired");
+    expect(service.listEvents(expiring.entity.id)[0]).toMatchObject({ kind: "status_change", actor: "sweep" });
+    expect(service.getEntity(trip.entity.id, {}, true)?.archivedAt).toBeTruthy();
+    expect(service.listEvents(trip.entity.id)[0]).toMatchObject({ kind: "archive", actor: "sweep" });
     service.setAdapterCursor("fixture-adapter", "cursor-1", { count: 1 });
     expect(service.getAdapterCursor("fixture-adapter")).toEqual({ cursor: "cursor-1", metadata: { count: 1 } });
     service.linkMemoryVerdict({ eventId: stale.event!.id, memoryId: "fixture-memory", entityId: stale.entity.id, verdict: "current_truth", archived: true });
