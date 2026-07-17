@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ChatProvider, V2AgentConfig } from "@tango/core";
 import { StateService, TangoStorage } from "@tango/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseStateChangeset, runStateReconciler } from "../src/state-reconciler.js";
+import { parseStateChangeset, resolveStateReconcilerSettings, runStateReconciler } from "../src/state-reconciler.js";
 
 const dirs: string[] = [];
 
@@ -53,6 +53,18 @@ function turn(index: number, userMessage: string, agentResponse = "Acknowledged.
 }
 
 describe("State Reconciler fixture dataset", () => {
+  it("routes a Claude extraction model independently of an Ollama serving runtime", () => {
+    const ollamaServingConfig = {
+      ...configForSettings(),
+      legacyProvider: { default: "ollama", failover: [] },
+      memory: { ...configForSettings().memory, extractionModel: "claude-haiku-4-5" },
+    } satisfies V2AgentConfig;
+    expect(resolveStateReconcilerSettings(ollamaServingConfig)).toMatchObject({
+      providerName: "claude-oauth",
+      model: "claude-haiku-4-5",
+    });
+  });
+
   it("rejects non-empty changes that do not match the constrained action schema", () => {
     expect(() => parseStateChangeset('{"changes":[{"operation":"add"}],"engaged_entity_ids":[]}'))
       .toThrow(/required action schema/u);
@@ -143,3 +155,13 @@ describe("State Reconciler fixture dataset", () => {
     storage.close();
   }, 10_000);
 });
+
+function configForSettings(): V2AgentConfig {
+  return {
+    id: "ollama-test", displayName: "Ollama Test", type: "personal", systemPromptFile: "fixture.md", mcpServers: [],
+    runtime: { mode: "persistent", provider: "ollama", model: "fixture", reasoningEffort: "low", idleTimeoutHours: 24, contextResetThreshold: 0.8 },
+    memory: { postTurnExtraction: "enabled", extractionModel: "fixture", importanceThreshold: 0.4, scheduledReflection: "enabled" },
+    state: { reconciliation: "enabled", alwaysOnTypes: ["project"], focusTtlDays: 7 },
+    discord: { defaultChannelId: "fixture" },
+  };
+}

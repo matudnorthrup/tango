@@ -85,14 +85,23 @@ export function resolveStateReconcilerSettings(
   config: V2AgentConfig | null | undefined,
 ): StateReconcilerSettings | null {
   if (!config || config.state?.reconciliation === "disabled") return null;
+  const model = config.state?.extractionModel ?? config.memory.extractionModel;
   const providerName = config.state?.extractionProvider
     ?? config.memory.extractionProvider
-    ?? (config.legacyProvider?.default === "ollama" ? "ollama" : "claude-oauth");
+    ?? (isClaudeExtractionModel(model)
+      ? "claude-oauth"
+      : config.legacyProvider?.default === "ollama"
+        ? "ollama"
+        : "claude-oauth");
   return {
     providerName,
-    model: config.state?.extractionModel ?? config.memory.extractionModel,
+    model,
     focusTtlDays: config.state?.focusTtlDays ?? 7,
   };
+}
+
+function isClaudeExtractionModel(model: string): boolean {
+  return /^(?:claude(?:-|:)|haiku|sonnet|opus)/iu.test(model.trim());
 }
 
 export function buildStateReconcilerPrompt(input: {
