@@ -34,7 +34,11 @@ The same sections run in every phase. The phase changes strictness:
 Scheduled finance reviews have a `finance-review` state entity initialized
 before the agent turn starts. Query `state_query` with `type: finance-review`
 and select the current period entity whose `dry_run` value matches this run.
-Use that entity ID for every checkpoint update.
+It must also have today's `review_date`, `last_execution_status: running`, and a
+non-null `schedule_run_id`. Use that entity ID for every checkpoint update.
+Never create a `finance-review` entity during a scheduled review. If exactly
+one initialized entity cannot be identified, report the review as blocked and
+stop instead of creating or guessing a record.
 
 Checkpoint writes are evidence gates, not progress narration. After each step
 actually finishes, call `state_update` in `patch` mode with that step's field

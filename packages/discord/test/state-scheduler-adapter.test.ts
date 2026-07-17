@@ -300,6 +300,16 @@ describe("StateSchedulerAdapter", () => {
       status: "running",
       preCheckResult: null,
     }));
+    const productionJob = service.query({ type: "automation-job", includePrivate: true }).entities[0]!;
+    const productionReview = service.query({ type: "finance-review", includePrivate: true }).entities[0]!;
+    service.mutate({
+      entityId: productionJob.id,
+      aliases: ["manual-test-weekly-finance-review"],
+    }, { actor: "fixture", source: "fixture", includePrivate: true });
+    service.mutate({
+      entityId: productionReview.id,
+      aliases: ["manual-test-weekly-finance-review", "2026-W29"],
+    }, { actor: "fixture", source: "fixture", includePrivate: true });
     await adapter.recordStarted(dryRun, run({
       id: 65,
       scheduleId: dryRun.id,
