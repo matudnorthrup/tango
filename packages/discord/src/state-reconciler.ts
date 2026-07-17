@@ -218,13 +218,6 @@ export async function runStateReconciler(input: RunStateReconcilerInput): Promis
     const appliedEventIds: number[] = [];
     const revertedEventIds: number[] = [];
     const engaged = new Set<string>();
-    for (const entityId of changeset.engagedEntityIds) {
-      if (input.service.getEntity(entityId, access)) {
-        engaged.add(entityId);
-      } else {
-        rejected.push(`engaged entity '${entityId}' does not exist or is not visible`);
-      }
-    }
     const claimedFacts: string[] = [];
     for (const [index, proposal] of changeset.changes.entries()) {
       if (proposal.action === "no_op") continue;
@@ -240,6 +233,15 @@ export async function runStateReconciler(input: RunStateReconcilerInput): Promis
         if (outcome.applied) claimedFacts.push(proposal.evidence);
       } catch (error) {
         rejected.push(`change ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    // Validate model-proposed focus after mutations so a correctly predicted ID
+    // for a just-created entity resolves without a false rejection or FK error.
+    for (const entityId of changeset.engagedEntityIds) {
+      if (input.service.getEntity(entityId, access)) {
+        engaged.add(entityId);
+      } else {
+        rejected.push(`engaged entity '${entityId}' does not exist or is not visible`);
       }
     }
     if (engaged.size > 0) {
