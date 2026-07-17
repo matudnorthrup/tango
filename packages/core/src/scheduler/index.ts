@@ -15,6 +15,7 @@ import type {
   DeliveryFn,
   AlertFn,
   SystemLogFn,
+  ScheduleRunLifecycleFn,
 } from "./types.js";
 import { SchedulerStore } from "./store.js";
 import { SchedulerEngine, type EngineConfig } from "./engine.js";
@@ -30,6 +31,10 @@ export interface SchedulerServiceDeps {
   alert?: AlertFn;
   /** Function to post system log entries (every run) */
   systemLog?: SystemLogFn;
+  /** Optional state/audit hook after a run row is inserted. */
+  onRunStarted?: ScheduleRunLifecycleFn;
+  /** Optional state/audit hook after a run row is finalized. */
+  onRunFinished?: ScheduleRunLifecycleFn;
   /** Engine configuration overrides */
   engineConfig?: EngineConfig;
 }
@@ -46,6 +51,8 @@ export class SchedulerService {
       deliver: deps.deliver,
       alert: deps.alert,
       systemLog: deps.systemLog,
+      onRunStarted: deps.onRunStarted,
+      onRunFinished: deps.onRunFinished,
       db: deps.db,
     }, deps.engineConfig);
 
@@ -114,4 +121,7 @@ export type {
   AlertFn,
   SystemLogFn,
   SystemLogEntry,
+  ScheduleStateTrackingConfig,
+  ScheduleRunLifecycleInput,
+  ScheduleRunLifecycleFn,
 } from "./types.js";

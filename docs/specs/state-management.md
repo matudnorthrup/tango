@@ -146,12 +146,22 @@ is a `state_define_type` call (JSON Schema for attributes, status list +
 transitions, staleness policy), not a code change or migration. Evolution is
 additive-only in v1 (§3).
 
+**Post-v1 workflow projection (2026-07-17):** recurring finance work adds two
+generic seeded types without turning state into an orchestrator:
+`automation-job` projects the latest scheduler run plus a deterministic
+post-check, and `finance-review` records seven evidence-backed review
+checkpoints. `schedule_runs` remains authoritative for whether code executed;
+state answers whether the domain outcome was verified. Both types carry
+provider-neutral `body_pointer` links to the applicable monthly job log or
+weekly review note. A normal agent return never completes a review by itself.
+
 ---
 
 ## 5. Storage
 
 **Location:** `tango.sqlite` (core store), new migration. Check live
-`PRAGMA user_version` before numbering (62 at time of writing → this is 63).
+`PRAGMA user_version` before numbering (the v1 substrate is 63; the scoped
+workflow-projection type seeds are migration 64).
 Atlas stays the *semantic* tier; state is *relational* and belongs beside
 `active_tasks` / `project_state`, sharing their WAL/transaction semantics.
 Because `tango.sqlite` is per-profile, all state data is profile-scoped by

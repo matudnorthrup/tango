@@ -30,8 +30,11 @@ category from a Lunch Money rule; still verify it against the finance rules.
 
 Read the categorization rules from the path provided in the task context. When
 invoked by the nightly job, that path is
-`References/Finance/Lunch Money Rules.md`. If no path is
-provided, ask before proceeding — do not guess.
+`References/Finance/Lunch Money Rules.md`. For background jobs, resolve that
+vault-relative path beneath the configured `TANGO_OBSIDIAN_VAULT` and read it
+with direct filesystem I/O. Never treat it as relative to the Tango repository;
+that produces a false ENOENT and silently bypasses the rules. If no path or
+configured vault root is provided, stop and report the block — do not guess.
 
 For each uncategorized transaction, check payee against rules (first match wins). Auto-categorizable transactions can be updated directly:
 

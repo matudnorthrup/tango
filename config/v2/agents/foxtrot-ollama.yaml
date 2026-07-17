@@ -91,6 +91,13 @@ memory:
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
+state:
+  reconciliation: enabled
+  always_on_types:
+    - automation-job
+    - finance-review
+  focus_ttl_days: 7
+
 discord:
   default_channel_id: "100000000000000005"
   smoke_test_channel_id: "100000000000001005" # foxtrot-test (placeholder; real id in profile overlay)

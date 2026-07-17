@@ -79,6 +79,23 @@ export class SchedulerStore {
       );
   }
 
+  getRun(runId: number): ScheduleRunRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT
+           id, schedule_id AS scheduleId, started_at AS startedAt,
+           finished_at AS finishedAt, status, execution_mode AS executionMode,
+           pre_check_result AS preCheckResult, duration_ms AS durationMs,
+           error, summary, model_used AS modelUsed, worker_id AS workerId,
+           delivery_status AS deliveryStatus, delivery_error AS deliveryError,
+           metadata
+         FROM schedule_runs
+         WHERE id = ?`
+      )
+      .get(runId) as ScheduleRunRecord | undefined;
+    return row ?? null;
+  }
+
   getRecentRuns(scheduleId: string, limit = 20): ScheduleRunRecord[] {
     return this.db
       .prepare(
@@ -259,11 +276,15 @@ function formatCompletionDate(scope: CompletionScope): string {
     case "daily":
       return now.toISOString().slice(0, 10); // YYYY-MM-DD
     case "weekly": {
-      // ISO week: YYYY-Www
-      const jan4 = new Date(now.getFullYear(), 0, 4);
-      const dayOfYear = Math.floor((now.getTime() - jan4.getTime()) / 86400000) + jan4.getDay();
-      const week = Math.ceil(dayOfYear / 7);
-      return `${now.getFullYear()}-W${String(week).padStart(2, "0")}`;
+      // ISO-8601 week using the host-local calendar date. Moving to Thursday
+      // identifies the ISO week-year and avoids the old one-week drift.
+      const local = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+      const isoDay = local.getUTCDay() || 7;
+      local.setUTCDate(local.getUTCDate() + 4 - isoDay);
+      const isoYear = local.getUTCFullYear();
+      const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+      const week = Math.ceil((((local.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
+      return `${isoYear}-W${String(week).padStart(2, "0")}`;
     }
     case "monthly":
       return now.toISOString().slice(0, 7); // YYYY-MM
