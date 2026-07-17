@@ -75,6 +75,13 @@ export class AtlasMemoryClient {
     }>("memory_reflect", params);
   }
 
+  async memoryAdmin(params: {
+    operation: "archive" | "unarchive" | "tag" | "export" | "stats";
+    filter?: Record<string, unknown>;
+  }): Promise<unknown> {
+    return await this.callTool("memory_admin", params);
+  }
+
   /** Candidate memories for warm-start ranking (agent-scoped + global, newest first). */
   listMemoriesForContext(input: { agentId?: string | null; agentIds?: string[]; limit?: number }): AtlasContextMemoryRow[] {
     return listAtlasMemoriesForContext(this.db, input);

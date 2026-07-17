@@ -245,7 +245,7 @@ describe("buildV2RuntimeConfigs", () => {
 
     const runtimeConfig = buildV2RuntimeConfigs(configs, { repoRoot }).get("watson");
 
-    expect(runtimeConfig?.mcpServers.map((server) => server.name)).toEqual(["memory"]);
+    expect(runtimeConfig?.mcpServers.map((server) => server.name)).toEqual(["memory", "state"]);
     expect(runtimeConfig?.availableMcpServers?.map((server) => server.name)).toEqual(["attachments"]);
     expect(runtimeConfig?.availableMcpServers?.[0]?.env).toMatchObject({
       WORKER_ID: "watson",
@@ -511,6 +511,7 @@ describe("createV2PostTurnHook", () => {
         agentResponse: "Logged it.",
         channelId: "channel-1",
         threadId: "thread-1",
+        claimedStateFacts: [],
       },
       {
         enabled: true,

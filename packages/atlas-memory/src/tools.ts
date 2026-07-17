@@ -437,6 +437,10 @@ export function createAtlasMemoryTools(
                 type: "array",
                 items: { type: "string" },
               },
+              metadata_patch: {
+                type: "object",
+                description: "Metadata fields to merge when archiving selected memories.",
+              },
             },
             additionalProperties: false,
           },
@@ -534,6 +538,17 @@ function archiveMatchingMemories(
   filter: MemoryAdminFilter,
   archivedAt: string,
 ): { updated: number } {
+  if (filter.metadata_patch && Object.keys(filter.metadata_patch).length > 0) {
+    const memories = selectMemories(context, { ...filter, include_archived: true });
+    const update = context.db.prepare("UPDATE memories SET archived_at = ?, metadata = ? WHERE id = ?");
+    const updateMany = context.db.transaction((records: MemoryRecord[]) => {
+      for (const memory of records) {
+        update.run(archivedAt, JSON.stringify({ ...(memory.metadata ?? {}), ...filter.metadata_patch }), memory.id);
+      }
+    });
+    updateMany(memories);
+    return { updated: memories.length };
+  }
   const { whereClause, params } = buildMemoryWhereClause({
     ...filter,
     include_archived: true,
@@ -696,6 +711,7 @@ function buildMemoryAdminFilter(input: unknown): MemoryAdminFilter {
     session_id: readOptionalString(raw.session_id),
     query: readOptionalString(raw.query),
     add_tags: readOptionalStringArray(raw.add_tags),
+    metadata_patch: isRecord(raw.metadata_patch) ? raw.metadata_patch : undefined,
   };
 }
 

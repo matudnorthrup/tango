@@ -11,6 +11,7 @@ import {
   type SendOptions,
   type SessionLifecycleConfig,
 } from "@tango/core";
+import { randomUUID } from "node:crypto";
 import { augmentRuntimeConfigWithDiscordProvenance } from "./discord-memory-provenance.js";
 
 export interface TangoRouterConfig {
@@ -30,6 +31,7 @@ export interface TangoRouterConfig {
 }
 
 export interface PostTurnContext {
+  turnId: string;
   conversationKey: string;
   agentId: string;
   userMessage: string;
@@ -42,6 +44,7 @@ export interface RouteResult {
   response: RuntimeResponse;
   agentId: string;
   conversationKey: string;
+  turnId: string;
 }
 
 const INTERNAL_WORKER_DISPATCH_FALLBACK =
@@ -104,10 +107,12 @@ export class TangoRouter {
     message: string;
     channelId: string;
     threadId?: string;
+    messageId?: string;
     conversationKey?: string;
     agentId: string;
     sendOptions?: SendOptions;
   }): Promise<RouteResult> {
+    const turnId = randomUUID();
     const conversationKey =
       params.conversationKey?.trim()
       || this.getConversationKey(params.channelId, params.threadId);
@@ -117,6 +122,8 @@ export class TangoRouter {
         conversationKey,
         channelId: params.channelId,
         ...(params.threadId ? { threadId: params.threadId } : {}),
+        turnId,
+        ...(params.messageId ? { messageId: params.messageId } : {}),
       },
     );
     const { config: agentConfig, selection: mcpSelection } = selectMcpServersForTurn(
@@ -142,6 +149,7 @@ export class TangoRouter {
 
     this.schedulePostTurn({
       conversationKey,
+      turnId,
       agentId: params.agentId,
       userMessage: params.message,
       response,
@@ -153,6 +161,7 @@ export class TangoRouter {
       response,
       agentId: params.agentId,
       conversationKey,
+      turnId,
     };
   }
 

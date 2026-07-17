@@ -17,6 +17,8 @@ export interface MemoryCaptureContext {
   agentResponse: string;
   channelId: string;
   threadId?: string;
+  /** State-shaped facts already claimed by the first post-turn pass. */
+  claimedStateFacts?: string[];
 }
 
 interface ExtractedMemory {
@@ -144,8 +146,12 @@ async function extractWithRetry(
 function buildExtractionPrompt(context: MemoryCaptureContext): string {
   return [
     "Extract any facts, decisions, preferences, or commitments worth remembering from this exchange.",
+    "Do not extract volatile current-state facts claimed by the State Reconciler; state owns those facts.",
     "Return a JSON array of objects: [{content, importance (0-1), tags: string[]}].",
     "If nothing worth remembering, return [].",
+    ...(context.claimedStateFacts?.length
+      ? ["State-claimed facts to suppress:", ...context.claimedStateFacts.map((fact) => `- ${fact}`), ""]
+      : []),
     "",
     `User: ${context.userMessage}`,
     `Agent: ${context.agentResponse}`,

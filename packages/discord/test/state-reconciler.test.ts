@@ -1,0 +1,113 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { ChatProvider, V2AgentConfig } from "@tango/core";
+import { StateService, TangoStorage } from "@tango/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runStateReconciler } from "../src/state-reconciler.js";
+
+const dirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function harness() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-reconciler-"));
+  dirs.push(dir);
+  const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
+  const service = new StateService(storage.getDatabase(), { now: () => new Date("2026-07-17T12:00:00Z") });
+  const config = {
+    id: "watson",
+    displayName: "Watson",
+    type: "personal",
+    systemPromptFile: "fixture.md",
+    mcpServers: [],
+    runtime: { mode: "persistent", provider: "claude-code-v2", model: "fixture", reasoningEffort: "low", idleTimeoutHours: 24, contextResetThreshold: 0.8 },
+    memory: { postTurnExtraction: "enabled", extractionModel: "fixture-extractor", importanceThreshold: 0.4, scheduledReflection: "enabled" },
+    state: { reconciliation: "enabled", extractionProvider: "fixture", extractionModel: "fixture-state", alwaysOnTypes: ["project"], focusTtlDays: 7 },
+    discord: { defaultChannelId: "fixture" },
+  } satisfies V2AgentConfig;
+  return { storage, service, config };
+}
+
+function provider(...responses: string[]): ChatProvider {
+  const queue = [...responses];
+  return {
+    generate: vi.fn(async () => ({ text: queue.shift() ?? '{"changes":[],"engaged_entity_ids":[]}', durationMs: 1 })),
+  };
+}
+
+function turn(index: number, userMessage: string, agentResponse = "Acknowledged.") {
+  return {
+    turnId: `turn-${index}`,
+    conversationKey: "thread:fixture",
+    sessionId: "session-fixture",
+    agentId: "watson",
+    userMessage,
+    agentResponse,
+    requestMessageId: `request-${index}`,
+    responseMessageId: `response-${index}`,
+    occurredAt: `2026-07-${String(10 + index).padStart(2, "0")}T12:00:00Z`,
+  };
+}
+
+describe("State Reconciler fixture dataset", () => {
+  it("creates, corrects, aliases, focuses, no-ops idempotently, and undoes the preceding state turn", async () => {
+    const { storage, service, config } = harness();
+    const outputs = provider(
+      JSON.stringify({ changes: [{ action: "new_entity", type_id: "project", title: "Fixture Launch", status: "active", attributes: { progress_pct: 10 }, evidence: "Fixture Launch is active at 10 percent." }], engaged_entity_ids: [] }),
+      JSON.stringify({ changes: [{ action: "update", entity_id: "project:fixture-launch", attributes: { progress_pct: 25 }, evidence: "Correction: Fixture Launch is at 25 percent." }], engaged_entity_ids: ["project:fixture-launch"] }),
+      JSON.stringify({ changes: [{ action: "update", entity_id: "project:fixture-launch", aliases: ["Launch Fixture"], evidence: "Call Fixture Launch the Launch Fixture." }], engaged_entity_ids: [] }),
+      JSON.stringify({ changes: [{ action: "update", entity_id: "project:fixture-launch", attributes: { progress_pct: 25 }, evidence: "It remains at 25 percent." }], engaged_entity_ids: [] }),
+      JSON.stringify({ changes: [{ action: "revert", evidence: "Undo that." }], engaged_entity_ids: [] }),
+    );
+    const run = (index: number, message: string) => runStateReconciler({
+      service,
+      v2Config: config,
+      resolveProvider: () => outputs,
+      turn: turn(index, message),
+    });
+
+    expect((await run(1, "Fixture Launch is active at 10 percent.")).appliedEventIds).toHaveLength(1);
+    expect(service.getEntity("project:fixture-launch")?.attributes.progress_pct).toBe(10);
+    expect((await run(2, "Correction: Fixture Launch is at 25 percent.")).claimedFacts).toEqual(["Correction: Fixture Launch is at 25 percent."]);
+    expect(service.getEntity("project:fixture-launch")?.attributes.progress_pct).toBe(25);
+    await run(3, "Call Fixture Launch the Launch Fixture.");
+    expect(service.getEntity("project:fixture-launch")?.aliases).toContain("Launch Fixture");
+    const noOp = await run(4, "It remains at 25 percent.");
+    expect(noOp.appliedEventIds).toEqual([]);
+    expect(noOp.claimedFacts).toEqual([]);
+    const undo = await run(5, "Undo that.");
+    expect(undo.revertedEventIds).toHaveLength(1);
+    expect(service.getEntity("project:fixture-launch")?.aliases).toEqual([]);
+    expect(service.buildDigest({ conversationKey: "thread:fixture" })).toContain("Fixture Launch");
+    expect(Number((storage.getDatabase().prepare("SELECT COUNT(*) AS count FROM state_reconciler_runs WHERE status='ok'").get() as { count: number }).count)).toBe(5);
+    storage.close();
+  });
+
+  it("rejects invented evidence and persists a failed run after retry", async () => {
+    const { storage, service, config } = harness();
+    const invented = await runStateReconciler({
+      service,
+      v2Config: config,
+      resolveProvider: () => provider(JSON.stringify({ changes: [{ action: "new_entity", type_id: "project", title: "Invented", attributes: {}, evidence: "not in the turn" }] })),
+      turn: turn(1, "Nothing changed."),
+    });
+    expect(invented.appliedEventIds).toEqual([]);
+    expect(invented.rejected[0]).toMatch(/evidence quote/u);
+
+    const onPersistentFailure = vi.fn();
+    const failed = await runStateReconciler({
+      service,
+      v2Config: config,
+      resolveProvider: () => ({ generate: vi.fn(async () => { throw new Error("fixture outage"); }) }),
+      turn: turn(2, "Still nothing."),
+      onPersistentFailure,
+    });
+    expect(failed.status).toBe("error");
+    expect(onPersistentFailure).toHaveBeenCalledOnce();
+    expect((storage.getDatabase().prepare("SELECT status, error FROM state_reconciler_runs WHERE turn_id='turn-2'").get() as { status: string; error: string })).toMatchObject({ status: "error", error: "fixture outage" });
+    storage.close();
+  }, 10_000);
+});

@@ -211,6 +211,9 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
       // resolves this agent's tool permissions from X-Worker-ID. The provider's
       // shared fixed-port tool client targets the server; no port is passed here.
       workerId: this.config.agentId,
+      ...(resolveToolTurnContext(this.config.mcpServers)
+        ? { toolTurnContext: resolveToolTurnContext(this.config.mcpServers) }
+        : {}),
     };
 
     this.stateValue = "active";
@@ -255,6 +258,7 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
       durationMs,
       ...(model ? { model } : {}),
       ...(toolsUsed.length > 0 ? { toolsUsed } : {}),
+      ...(response.toolCalls && response.toolCalls.length > 0 ? { toolCalls: response.toolCalls } : {}),
       metadata: {
         backend: "ollama",
         // Mirror ClaudeCodeAdapter: the discord v2 path reads model / stopReason
@@ -314,6 +318,21 @@ export class OllamaRuntimeAdapter implements AgentRuntime {
     sections.push(message);
     return sections.join("\n\n");
   }
+}
+
+function resolveToolTurnContext(servers: readonly McpServerConfig[]): ProviderRequest["toolTurnContext"] {
+  for (const server of servers) {
+    const env = server.env;
+    if (!env?.TANGO_TURN_ID && !env?.TANGO_CONVERSATION_KEY) continue;
+    return {
+      conversationKey: env.TANGO_CONVERSATION_KEY,
+      turnId: env.TANGO_TURN_ID,
+      messageId: env.TANGO_MESSAGE_ID,
+      channelId: env.TANGO_DISCORD_CHANNEL_ID,
+      threadId: env.TANGO_DISCORD_THREAD_ID,
+    };
+  }
+  return undefined;
 }
 
 function resolveMcpToolAllowlist(servers: McpServerConfig[]): string[] | undefined {
