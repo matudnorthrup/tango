@@ -323,7 +323,7 @@ async function applyProposal(
       ? "status_change"
       : "update";
   const result = input.service.mutate({
-    ...(proposal.entityId ? { entityId: proposal.entityId } : {}),
+    ...(proposal.entityId && proposal.action !== "new_entity" ? { entityId: proposal.entityId } : {}),
     ...(proposal.typeId ? { typeId: proposal.typeId } : {}),
     ...(proposal.title ? { title: proposal.title } : {}),
     ...(proposal.aliases ? { aliases: proposal.aliases } : {}),

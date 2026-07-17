@@ -107,7 +107,7 @@ describe("State Reconciler fixture dataset", () => {
     const { storage, service, config } = harness();
     const outputs = provider(
       JSON.stringify({ changes: [{ action: "update", entity_id: "project:retry-fixture", attributes: { progress_pct: 10 }, evidence: "Track Retry Fixture as active at 10 percent." }], engaged_entity_ids: [] }),
-      JSON.stringify({ changes: [{ action: "new_entity", type_id: "project", title: "Retry Fixture", status: "active", attributes: { progress_pct: 10 }, evidence: "Track Retry Fixture as active at 10 percent." }], engaged_entity_ids: [] }),
+      JSON.stringify({ changes: [{ action: "new_entity", entity_id: "project:predicted-retry-fixture", type_id: "project", title: "Retry Fixture", status: "active", attributes: { progress_pct: 10 }, evidence: "Track Retry Fixture as active at 10 percent." }], engaged_entity_ids: [] }),
     );
     const result = await runStateReconciler({
       service,
