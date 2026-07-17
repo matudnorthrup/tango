@@ -91,6 +91,24 @@ describe("State Reconciler fixture dataset", () => {
     storage.close();
   });
 
+  it("retries a missing-entity update as a grounded new entity before applying", async () => {
+    const { storage, service, config } = harness();
+    const outputs = provider(
+      JSON.stringify({ changes: [{ action: "update", entity_id: "project:retry-fixture", attributes: { progress_pct: 10 }, evidence: "Track Retry Fixture as active at 10 percent." }], engaged_entity_ids: [] }),
+      JSON.stringify({ changes: [{ action: "new_entity", type_id: "project", title: "Retry Fixture", status: "active", attributes: { progress_pct: 10 }, evidence: "Track Retry Fixture as active at 10 percent." }], engaged_entity_ids: [] }),
+    );
+    const result = await runStateReconciler({
+      service,
+      v2Config: config,
+      resolveProvider: () => outputs,
+      turn: turn(1, "Track Retry Fixture as active at 10 percent."),
+    });
+    expect(outputs.generate).toHaveBeenCalledTimes(2);
+    expect(result.appliedEventIds).toHaveLength(1);
+    expect(service.getEntity("project:retry-fixture")?.attributes.progress_pct).toBe(10);
+    storage.close();
+  });
+
   it("rejects invented evidence and persists a failed run after retry", async () => {
     const { storage, service, config } = harness();
     const phantomFocus = await runStateReconciler({

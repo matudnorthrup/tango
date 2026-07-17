@@ -185,7 +185,21 @@ export async function runStateReconciler(input: RunStateReconcilerInput): Promis
   });
 
   try {
-    const changeset = await extractWithRetry(provider, settings, prompt);
+    const changeset = await extractWithRetry(provider, settings, prompt, (candidate) => {
+      for (const proposal of candidate.changes) {
+        if (
+          proposal.entityId
+          && proposal.action !== "new_entity"
+          && proposal.action !== "revert"
+          && proposal.action !== "no_op"
+          && !input.service.getEntity(proposal.entityId, access)
+        ) {
+          throw new Error(
+            `proposal action '${proposal.action}' references missing entity '${proposal.entityId}'; use new_entity when the name index has no match`,
+          );
+        }
+      }
+    });
     const evidenceCorpus = normalizeEvidence([
       input.turn.userMessage,
       input.turn.agentResponse,
@@ -323,16 +337,21 @@ async function extractWithRetry(
   provider: ChatProvider,
   settings: StateReconcilerSettings,
   prompt: string,
+  validate?: (changeset: StateChangeset) => void,
 ): Promise<StateChangeset> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       const response = await provider.generate({
-        prompt,
+        prompt: attempt === 1
+          ? prompt
+          : `${prompt}\n\nCORRECTION REQUIRED: Your previous changeset was invalid: ${lastError instanceof Error ? lastError.message : String(lastError)}. Return a corrected object in the exact required schema.`,
         model: settings.model,
         reasoningEffort: "low",
       });
-      return parseStateChangeset(response.text);
+      const changeset = parseStateChangeset(response.text);
+      validate?.(changeset);
+      return changeset;
     } catch (error) {
       lastError = error;
       if (attempt < MAX_ATTEMPTS) await delay(RETRY_DELAY_MS);
