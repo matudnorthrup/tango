@@ -546,6 +546,45 @@ describe("loadIntentContractConfigs", () => {
 });
 
 describe("loadScheduleConfigs", () => {
+  it("loads opt-in state tracking for finance automations and review checkpoints", () => {
+    const defaultsDir = path.join(repoRoot, "config", "defaults");
+    process.env.TANGO_CONFIG_DIR = defaultsDir;
+    const schedules = loadScheduleConfigs(defaultsDir);
+
+    expect(schedules.find((schedule) => schedule.id === "receipt-cataloger")?.stateTracking).toEqual({
+      enabled: true,
+      domain: "finance",
+      cadence: "daily",
+      verification: "pre_check",
+      reviewChecklist: undefined,
+    });
+    expect(schedules.find((schedule) => schedule.id === "nightly-transaction-categorizer")?.stateTracking)
+      .toMatchObject({ enabled: true, domain: "finance", cadence: "daily", verification: "pre_check" });
+    expect(schedules.find((schedule) => schedule.id === "weekly-finance-review")).toMatchObject({
+      execution: { timeoutSeconds: 900 },
+      stateTracking: {
+        enabled: true,
+        domain: "finance",
+        cadence: "weekly",
+        verification: "none",
+        reviewChecklist: "finance",
+      },
+      completion: {
+        workflowId: "weekly-finance-review",
+        scope: "weekly",
+        checkBeforeRun: false,
+        markOnSuccess: false,
+      },
+    });
+    expect(schedules.find((schedule) => schedule.id === "manual-test-weekly-finance-review")).toMatchObject({
+      execution: { timeoutSeconds: 900 },
+      stateTracking: { enabled: true, reviewChecklist: "finance" },
+      completion: { checkBeforeRun: false, markOnSuccess: false },
+    });
+    expect(schedules.find((schedule) => schedule.id === "nightly-transaction-categorizer")?.execution.taskTemplate)
+      .toContain("$TANGO_OBSIDIAN_VAULT/References/Finance/Lunch Money Rules.md");
+  });
+
   it("runs the state lifecycle sweep on every cron interval", () => {
     const defaultsDir = path.join(repoRoot, "config", "defaults");
     process.env.TANGO_CONFIG_DIR = defaultsDir;

@@ -11,6 +11,12 @@ obsidian_log:
   domain: Finance
   job_name: Receipt Cataloger
 
+state_tracking:
+  enabled: true
+  domain: finance
+  cadence: daily
+  verification: pre_check
+
 schedule:
   cron: "0 2 * * *"
   timezone: America/Los_Angeles

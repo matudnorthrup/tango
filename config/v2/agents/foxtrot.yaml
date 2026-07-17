@@ -90,6 +90,13 @@ memory:
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
+state:
+  reconciliation: enabled
+  always_on_types:
+    - automation-job
+    - finance-review
+  focus_ttl_days: 7
+
 responsibilities:
   - id: finance_support
     description: Provide bounded finance, receipt, and reimbursement status support for other agents.

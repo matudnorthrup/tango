@@ -39,7 +39,7 @@ describe("state management schema and governance", () => {
       expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)).toBeTruthy();
     }
     expect(db.prepare("SELECT id FROM state_entity_types ORDER BY id").all().map((row) => (row as { id: string }).id)).toEqual([
-      "body-composition", "project", "travel", "vehicle",
+      "automation-job", "body-composition", "finance-review", "project", "travel", "vehicle",
     ]);
     const stateTools = db.prepare("SELECT id FROM governance_tools WHERE id LIKE 'state_%' ORDER BY id").all().map((row) => (row as { id: string }).id);
     expect(stateTools).toEqual(["state_define_type", "state_query", "state_update"]);

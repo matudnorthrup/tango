@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TangoStorage } from "../src/storage.js";
 import { SchedulerStore } from "../src/scheduler/store.js";
 
@@ -16,6 +16,7 @@ function createStore() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   while (cleanups.length > 0) {
     const cleanup = cleanups.pop();
     cleanup?.storage.close();
@@ -49,6 +50,12 @@ describe("SchedulerStore timestamp persistence", () => {
     expect(row.started_at).toMatch(/Z$/);
     expect(row.finished_at).toMatch(/T/);
     expect(row.finished_at).toMatch(/Z$/);
+    expect(store.getRun(runId)).toMatchObject({
+      id: runId,
+      scheduleId: "weekly-finance-review",
+      status: "ok",
+      summary: "done",
+    });
   });
 
   it("stores schedule completion timestamps as explicit UTC ISO-8601 values", () => {
@@ -67,5 +74,19 @@ describe("SchedulerStore timestamp persistence", () => {
 
     expect(row.completed_at).toMatch(/T/);
     expect(row.completed_at).toMatch(/Z$/);
+  });
+
+  it("uses the correct ISO week key at a Sunday boundary", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    const { store } = createStore();
+
+    store.markCompletion({
+      workflowId: "weekly-finance-review",
+      scope: "weekly",
+      completedBy: "schedule:weekly-finance-review",
+    });
+
+    expect(store.checkCompletion("weekly-finance-review", "weekly")?.completedDate).toBe("2026-W27");
   });
 });

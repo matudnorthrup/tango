@@ -10,6 +10,12 @@ obsidian_log:
   domain: Finance
   job_name: Nightly Transaction Categorizer
 
+state_tracking:
+  enabled: true
+  domain: finance
+  cadence: daily
+  verification: pre_check
+
 schedule:
   cron: "0 23 * * *"
   timezone: America/Los_Angeles
@@ -35,8 +41,11 @@ execution:
        correct them using the finance rules.
     2. If the follow-up fetch unexpectedly returns zero transactions,
        return EXACTLY the text "__NO_OUTPUT__" and nothing else.
-    3. Read the categorization rules from
-       References/Finance/Lunch Money Rules.md
+    3. Read the categorization rules with direct filesystem I/O from
+       $TANGO_OBSIDIAN_VAULT/References/Finance/Lunch Money Rules.md.
+       Do not resolve this path relative to the Tango repository. If the
+       configured file cannot be read, stop without clearing transactions and
+       report the run as blocked.
     4. Follow the transaction_categorization skill to apply rules,
        handle splits, and flag ambiguous vendors for review.
     5. Apply categories via the Lunch Money API (PUT with category_id

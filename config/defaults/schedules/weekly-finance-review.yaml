@@ -11,6 +11,13 @@ obsidian_log:
   domain: Finance
   job_name: Finance Review
 
+state_tracking:
+  enabled: true
+  domain: finance
+  cadence: weekly
+  verification: none
+  review_checklist: finance
+
 schedule:
   cron: "0 7 * * 0"
   timezone: America/Los_Angeles
@@ -37,6 +44,11 @@ execution:
     Follow the unified finance_review skill guidance in
     agents/skills/finance-review.md. Weekly review is the rolling phase of the
     same process, not a separate workflow.
+
+    The scheduler has already initialized this period's `finance-review` state
+    entity. Query it before Step 1 and record each of the seven evidence-backed
+    checkpoints exactly as the skill specifies. A prose summary is not a
+    checkpoint, and you must not mark the overall review complete yourself.
 
     Required behavior:
     1. Refresh stale Lunch Money/Plaid account data before judging missing
@@ -74,7 +86,9 @@ execution:
     user explicitly approved a correction during the review.
 
     Rate limit: wait 0.3s between Lunch Money API calls.
-  timeout_seconds: 600
+  # The live Jul 12 review reached the former 600s ceiling. The review now
+  # records seven checkpoints, so preserve partial state and allow 15 minutes.
+  timeout_seconds: 900
 
 provider:
   model: claude-sonnet-4-6
@@ -85,6 +99,10 @@ delivery:
 completion:
   workflow_id: weekly-finance-review
   scope: weekly
+  # The finance-review state completion gate is authoritative. A returned
+  # agent turn is not enough to suppress a same-week retry.
+  check_before_run: false
+  mark_on_success: false
 
 policy:
   max_consecutive_failures: 3

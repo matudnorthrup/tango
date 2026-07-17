@@ -117,6 +117,19 @@ export interface ObsidianLogConfig {
   jobName: string;
 }
 
+export interface ScheduleStateTrackingConfig {
+  /** Opt this schedule into the canonical state projection. */
+  enabled: boolean;
+  /** Domain label stored on the automation entity (for example, finance). */
+  domain: string;
+  /** Period used for deterministic entity keys and freshness checks. */
+  cadence: CompletionScope;
+  /** Re-run the configured read-only pre-check after success to verify remaining work. */
+  verification?: "none" | "pre_check";
+  /** Optional structured checklist maintained alongside the automation entity. */
+  reviewChecklist?: "finance";
+}
+
 export interface ScheduleConfig {
   id: string;
   displayName?: string;
@@ -132,6 +145,7 @@ export interface ScheduleConfig {
   completion?: ScheduleCompletionConfig;
   tags?: string[];
   obsidianLog?: ObsidianLogConfig;
+  stateTracking?: ScheduleStateTrackingConfig;
 }
 
 // ============================================================
@@ -248,3 +262,10 @@ export interface SystemLogEntry {
 
 /** Function signature for posting system log entries. */
 export type SystemLogFn = (entry: SystemLogEntry) => Promise<void>;
+
+export interface ScheduleRunLifecycleInput {
+  config: ScheduleConfig;
+  run: ScheduleRunRecord;
+}
+
+export type ScheduleRunLifecycleFn = (input: ScheduleRunLifecycleInput) => Promise<void>;

@@ -2847,6 +2847,41 @@ const MIGRATIONS: Migration[] = [
       WHERE type IN ('user', 'agent', 'worker');
     `,
   },
+  {
+    // Runtime scheduler/workflow projections. Only generic schemas ship here;
+    // profile-specific job and review values are created by adapters at runtime.
+    version: 64,
+    sql: `
+      INSERT OR IGNORE INTO state_entity_types (
+        id, display_name, description, attributes_schema, statuses,
+        staleness_policy, digest_template, body_fields, visibility, origin
+      ) VALUES
+        (
+          'automation-job',
+          'Automation Job',
+          'Current verified outcome for a recurring scheduled job, with scheduler-run and log provenance.',
+          '{"type":"object","additionalProperties":false,"required":["schedule_id","domain","cadence","period_key","execution_status","verification_status","last_run_id","last_started_at","evidence_ref","needs_attention"],"properties":{"schedule_id":{"type":"string"},"domain":{"type":"string"},"cadence":{"type":"string","enum":["daily","weekly","monthly"]},"period_key":{"type":"string"},"execution_status":{"type":"string","enum":["not_run","running","ok","error","skipped"]},"verification_status":{"type":"string","enum":["overdue","pending","verified_complete","verified_partial","nothing_to_do","unverified","failed"]},"last_run_id":{"type":["integer","null"],"minimum":1},"last_started_at":{"type":["string","null"],"format":"date-time"},"last_finished_at":{"type":["string","null"],"format":"date-time"},"expected_run_at":{"type":["string","null"],"format":"date-time"},"items_found":{"type":["integer","null"],"minimum":0},"items_remaining":{"type":["integer","null"],"minimum":0},"needs_attention":{"type":"boolean"},"evidence_ref":{"type":"string"},"log_pointer":{"type":["string","null"]},"last_error":{"type":["string","null"]}}}',
+          '{"values":["overdue","running","healthy","attention","failed","unverified"],"transitions":{"overdue":["running","healthy","attention","failed","unverified"],"running":["overdue","healthy","attention","failed","unverified"],"healthy":["overdue","running","attention","failed","unverified"],"attention":["overdue","running","healthy","failed","unverified"],"failed":["overdue","running","healthy","attention","unverified"],"unverified":["overdue","running","healthy","attention","failed"]},"initial":"running"}',
+          '{"expected_update_days":8,"on_stale":"nudge"}',
+          '{title} — {verification_status}; run {last_run_id}; remaining {items_remaining}; evidence {evidence_ref}',
+          '[]',
+          'private:finance',
+          'seed'
+        ),
+        (
+          'finance-review',
+          'Finance Review',
+          'One weekly or close-period finance review with explicit per-step verification and evidence pointers.',
+          '{"type":"object","additionalProperties":false,"required":["period_key","review_date","phase","dry_run","review_status","schedule_run_id","last_execution_status","step_context","step_freshness","step_job_health","step_budget","step_sinking_funds","step_reimbursements","step_close","review_note_pointer"],"properties":{"period_key":{"type":"string"},"review_date":{"type":"string","format":"date"},"phase":{"type":"string","enum":["rolling","close_prep","close","post_close"]},"dry_run":{"type":"boolean"},"review_status":{"type":"string","enum":["in_progress","blocked","complete","complete_with_actions"]},"schedule_run_id":{"type":["integer","null"],"minimum":1},"last_execution_status":{"type":"string","enum":["not_run","running","ok","error","skipped"]},"last_run_finished_at":{"type":["string","null"],"format":"date-time"},"last_error":{"type":["string","null"]},"step_context":{"$ref":"#/$defs/stepStatus"},"step_freshness":{"$ref":"#/$defs/stepStatus"},"step_job_health":{"$ref":"#/$defs/stepStatus"},"step_budget":{"$ref":"#/$defs/stepStatus"},"step_sinking_funds":{"$ref":"#/$defs/stepStatus"},"step_reimbursements":{"$ref":"#/$defs/stepStatus"},"step_close":{"$ref":"#/$defs/stepStatus"},"evidence_context":{"type":["string","null"]},"evidence_freshness":{"type":["string","null"]},"evidence_job_health":{"type":["string","null"]},"evidence_budget":{"type":["string","null"]},"evidence_sinking_funds":{"type":["string","null"]},"evidence_reimbursements":{"type":["string","null"]},"evidence_close":{"type":["string","null"]},"review_note_pointer":{"type":"string"},"job_log_pointer":{"type":["string","null"]},"open_actions":{"type":"array","items":{"type":"string"}}},"$defs":{"stepStatus":{"type":"string","enum":["pending","in_progress","verified","flagged","blocked","unverified","not_applicable"]}},"allOf":[{"if":{"properties":{"review_status":{"enum":["complete","complete_with_actions"]}},"required":["review_status"]},"then":{"properties":{"step_context":{"enum":["verified","flagged","not_applicable"]},"step_freshness":{"enum":["verified","flagged","not_applicable"]},"step_job_health":{"enum":["verified","flagged","not_applicable"]},"step_budget":{"enum":["verified","flagged","not_applicable"]},"step_sinking_funds":{"enum":["verified","flagged","not_applicable"]},"step_reimbursements":{"enum":["verified","flagged","not_applicable"]},"step_close":{"enum":["verified","flagged","not_applicable"]}}}}]}',
+          '{"values":["in_progress","blocked","complete","complete_with_actions"],"transitions":{"in_progress":["blocked","complete","complete_with_actions"],"blocked":["in_progress","complete","complete_with_actions"],"complete":["in_progress"],"complete_with_actions":["in_progress","complete"]},"initial":"in_progress"}',
+          '{"expected_update_days":8,"on_stale":"nudge"}',
+          '{title} — {review_status}; freshness {step_freshness}; jobs {step_job_health}; budget {step_budget}; funds {step_sinking_funds}; reimbursements {step_reimbursements}',
+          '[]',
+          'private:finance',
+          'seed'
+        );
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
