@@ -53,6 +53,7 @@ export function createStateTools(options: StateToolOptions = {}): AgentTool[] {
       description: [
         "Read canonical typed state. State results override conflicting memories.",
         "List/filter entities, inspect one entity with recent events, or query a numeric event trend.",
+        "A query with type returns typeDefinition (the authoritative schema/status catalog) even when entities is empty.",
         "A zero-entity result means no matching entity; it does NOT mean the type is missing.",
         "Examples: {type:'project',status:'active'}, {entity_id:'body-composition:current',trend:{field:'weight_lb',window_days:30,aggregation:'change'}}.",
       ].join("\n"),
@@ -86,7 +87,7 @@ export function createStateTools(options: StateToolOptions = {}): AgentTool[] {
       name: "state_update",
       description: [
         "Create or update a canonical state entity through the validated append-only state ledger.",
-        "The seeded type IDs project, travel, body-composition, and vehicle already exist; use them directly when creating entities.",
+        "The seeded type IDs project, travel, body-composition, and vehicle already exist; inspect them with state_query {type:...} and use only declared attributes.",
         "Every mutation is idempotent, visible in a turn receipt, and revertible. Use revert_turn for 'undo that'.",
         "Modes: upsert, patch, transition, observation, note, archive, restore, revert_event, revert_turn.",
       ].join("\n"),

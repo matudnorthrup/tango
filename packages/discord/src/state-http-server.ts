@@ -199,7 +199,11 @@ async function handleTool(
           }
         : {}),
     };
-    return options.service.query(query);
+    const result = options.service.query(query);
+    const typeId = stringValue(input.type);
+    return typeId
+      ? { ...result, typeDefinition: options.service.getType(typeId, access) }
+      : result;
   }
   if (tool === "state_define_type") {
     return options.service.defineType({
@@ -244,6 +248,17 @@ async function handleTool(
     return result;
   }
   const entityMutation = toEntityMutation(input);
+  if (
+    mode === "upsert"
+    && entityMutation.entityId
+    && entityMutation.typeId
+    && entityMutation.title
+    && !options.service.getEntity(entityMutation.entityId, access, true)
+  ) {
+    // Models commonly predict the slug while creating. The service owns slug
+    // assignment, so treat an unknown id plus a complete identity as a create.
+    delete entityMutation.entityId;
+  }
   if (mode === "transition") entityMutation.kind = "status_change";
   if (mode === "observation") entityMutation.kind = "observation";
   if (mode === "note") entityMutation.kind = "note";
