@@ -23,10 +23,15 @@ export const SAFETY_TIER_DEFAULTS = {
 
 export const DEFAULT_RUBRIC_THRESHOLD = 0.7;
 
-/** Models run for comparison only — never eligible for assignment (subscription
- *  print-mode benchmarks, e.g. Opus/Sonnet). Identified by the `claude:` prefix. */
+/** Provider discriminator: routes a model to the Claude CLI runner instead of
+ *  the Ollama provider. Matches the `claude:` prefix (CLI aliases like
+ *  `claude:sonnet`) and bare runtime ids (`claude-opus-4-8`) so fixtures can
+ *  name candidates exactly as agent configs do. Assignability is decided by
+ *  list membership (candidateModels vs benchmarkModels), not by provider —
+ *  headless Claude was confirmed unmetered 2026-07-17, retiring the old
+ *  "subscription print mode is never assignable" rule. */
 export function isClaudeModel(model) {
-  return typeof model === "string" && model.startsWith("claude:");
+  return typeof model === "string" && (model.startsWith("claude:") || model.startsWith("claude-"));
 }
 
 export function normalizeFixture(raw, { sourcePath } = {}) {

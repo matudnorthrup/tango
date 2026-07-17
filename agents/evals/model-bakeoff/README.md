@@ -52,8 +52,19 @@ node scripts/model-bakeoff.mjs --task agents/evals/model-bakeoff/tasks/<fixture>
 node scripts/model-bakeoff.mjs --prompt "<task>" --worker watson-ollama --full
 ```
 
-Requires `OLLAMA_API_KEY` in `.env`, the `:9100` MCP server for tool fixtures,
-and a logged-in `claude` CLI for the judge and `claude:*` benchmarks.
+Requires `OLLAMA_API_KEY` in `.env` (when Ollama models run), the `:9100` MCP
+server for tool fixtures, and a logged-in `claude` CLI for the judge and any
+Claude candidates/benchmarks.
+
+Claude models are first-class **assignable candidates** as of 2026-07-17
+(headless subscription use confirmed unmetered, retiring the old
+"print mode is never assignable" rule). Name them in `candidateModels` using
+bare runtime ids exactly as agent configs do (`claude-opus-4-8`,
+`claude-haiku-4-5`); `claude:` CLI aliases (`claude:sonnet`) also work. They
+run through the same MCP worker tools, gates, and rubric as Ollama candidates.
+Limits: vision fixtures auto-exclude Claude candidates (the CLI runner has no
+image input), and subscription pricing means they rank by tokens-per-success
+like every other subscription model (see `pricing.json` note).
 
 ## Where results go
 
@@ -83,8 +94,9 @@ Scoring fields:
   write tiers 5 runs @ 1.0 (failure on write paths is unacceptable)
 - `rubricThreshold` (default 0.7), `judge: { model }` (default sonnet)
 - `incumbentModel`: current production assignment, enables hysteresis
-- `benchmarkModels`: e.g. `["claude:sonnet", "claude:opus"]` — run for comparison,
-  never recommended (subscription print mode, not an assignable runtime)
+- `benchmarkModels`: e.g. `["claude:sonnet", "claude:opus"]` — run for comparison
+  only, never recommended. Any model here is benchmark-only by list membership;
+  to make a Claude model assignable, put it in `candidateModels` instead.
 
 Validate with `npm run eval:validate`. Per-category contract rules (e.g. travel
 route fixtures must gate on `driving_route`) live in the validator's
