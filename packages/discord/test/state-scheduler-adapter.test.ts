@@ -269,6 +269,58 @@ describe("StateSchedulerAdapter", () => {
     expect(job.status).toBe("unverified");
   });
 
+  it("keeps production and dry-run review projections distinct", async () => {
+    const { service, adapter } = fixture();
+    const reviewTracking = {
+      enabled: true,
+      domain: "finance",
+      cadence: "weekly" as const,
+      verification: "none" as const,
+      reviewChecklist: "finance" as const,
+    };
+    const production = schedule({
+      id: "weekly-finance-review",
+      displayName: "Finance Review (Rolling)",
+      execution: { mode: "agent", task: "review" },
+      stateTracking: reviewTracking,
+    });
+    const dryRun = schedule({
+      id: "manual-test-weekly-finance-review",
+      displayName: "Manual Test Finance Review Dry Run",
+      execution: { mode: "agent", task: "review" },
+      stateTracking: reviewTracking,
+    });
+
+    await adapter.recordStarted(production, run({
+      id: 64,
+      scheduleId: production.id,
+      executionMode: "agent",
+      startedAt: "2026-07-12T14:00:00.000Z",
+      finishedAt: null,
+      status: "running",
+      preCheckResult: null,
+    }));
+    await adapter.recordStarted(dryRun, run({
+      id: 65,
+      scheduleId: dryRun.id,
+      executionMode: "agent",
+      startedAt: "2026-07-17T20:00:00.000Z",
+      finishedAt: null,
+      status: "running",
+      preCheckResult: null,
+    }));
+
+    const jobs = service.query({ type: "automation-job", includePrivate: true }).entities;
+    expect(jobs).toHaveLength(2);
+    expect(jobs.map((entity) => entity.attributes.schedule_id).sort()).toEqual([
+      "manual-test-weekly-finance-review",
+      "weekly-finance-review",
+    ]);
+    const reviews = service.query({ type: "finance-review", includePrivate: true }).entities;
+    expect(reviews).toHaveLength(2);
+    expect(reviews.map((entity) => entity.attributes.dry_run).sort()).toEqual([false, true]);
+  });
+
   it("preserves completed checkpoints when a review is retried in the same period", async () => {
     const { service, adapter } = fixture();
     const config = schedule({

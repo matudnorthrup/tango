@@ -65,6 +65,7 @@ export class StateSchedulerAdapter {
       typeId: AUTOMATION_TYPE,
       title: config.displayName ?? config.id,
       aliases: [config.id],
+      matchStrategy: "exact",
       status: "running",
       attributes: {
         schedule_id: config.id,
@@ -123,6 +124,7 @@ export class StateSchedulerAdapter {
       typeId: AUTOMATION_TYPE,
       title: config.displayName ?? config.id,
       aliases: [config.id],
+      matchStrategy: "exact",
       status: automationStatus,
       attributes: {
         schedule_id: config.id,
@@ -244,6 +246,7 @@ export class StateSchedulerAdapter {
             typeId: AUTOMATION_TYPE,
             title: config.displayName ?? config.id,
             aliases: [config.id],
+            matchStrategy: "exact",
             status: "overdue",
             attributes: {
               schedule_id: config.id,
@@ -343,7 +346,12 @@ export class StateSchedulerAdapter {
     return this.options.service.mutate({
       ...(existing
         ? { entityId: existing.id }
-        : { typeId: FINANCE_REVIEW_TYPE, title, aliases: [config.id, period.key] }),
+        : {
+            typeId: FINANCE_REVIEW_TYPE,
+            title,
+            aliases: [config.id, period.key],
+            matchStrategy: "exact" as const,
+          }),
       status: "in_progress",
       attributes,
       summary: `Finance review ${period.key} is in progress.`,
@@ -413,7 +421,14 @@ export class StateSchedulerAdapter {
           open_actions: [],
         };
     return this.options.service.mutate({
-      ...(existing ? { entityId: existing.id } : { typeId: FINANCE_REVIEW_TYPE, title, aliases: [config.id, period.key] }),
+      ...(existing
+        ? { entityId: existing.id }
+        : {
+            typeId: FINANCE_REVIEW_TYPE,
+            title,
+            aliases: [config.id, period.key],
+            matchStrategy: "exact" as const,
+          }),
       status: "blocked",
       attributes,
       summary: `Finance review ${period.key}: blocked because the scheduled run is overdue.`,
