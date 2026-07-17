@@ -110,7 +110,7 @@ export interface StateEntityMutation {
   title?: string;
   aliases?: string[];
   /** Use exact normalized names when a machine-owned projection has a stable key. */
-  matchStrategy?: "plausible" | "exact";
+  matchStrategy?: "plausible" | "exact" | "none";
   attributes?: Record<string, unknown>;
   status?: string | null;
   summary?: string | null;
@@ -1215,6 +1215,7 @@ export class StateService {
     context: StateAccessContext,
     strategy: StateEntityMutation["matchStrategy"] = "plausible",
   ): StateEntity | null {
+    if (strategy === "none") return null;
     if (strategy !== "exact") return this.findPlausibleEntity(typeId, title, aliases, context);
     const names = new Set([title, ...aliases].map(normalizeName).filter(Boolean));
     return this.query({ ...context, type: typeId, includeArchived: false, limit: 500 }).entities

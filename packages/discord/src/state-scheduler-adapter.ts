@@ -62,10 +62,9 @@ export class StateSchedulerAdapter {
     const period = periodForRun(run.startedAt, config.schedule.timezone, config.stateTracking!.cadence);
     const logPointer = buildJobLogPointer(config, period.localDate);
     const automation = this.options.service.mutate({
-      typeId: AUTOMATION_TYPE,
+      ...automationIdentity(this.options.service, config),
       title: config.displayName ?? config.id,
       aliases: [config.id],
-      matchStrategy: "exact",
       status: "running",
       attributes: {
         schedule_id: config.id,
@@ -121,10 +120,9 @@ export class StateSchedulerAdapter {
       : await this.verifyRun(config, run);
     const automationStatus = automationEntityStatus(verification.status, verification.needsAttention);
     const automation = this.options.service.mutate({
-      typeId: AUTOMATION_TYPE,
+      ...automationIdentity(this.options.service, config),
       title: config.displayName ?? config.id,
       aliases: [config.id],
-      matchStrategy: "exact",
       status: automationStatus,
       attributes: {
         schedule_id: config.id,
@@ -243,10 +241,11 @@ export class StateSchedulerAdapter {
         const current = findAutomationEntity(this.options.service, config.id);
         if (current?.status !== "overdue" || current.attributes.evidence_ref !== evidenceRef) {
           const result = this.options.service.mutate({
-            typeId: AUTOMATION_TYPE,
+            ...(current
+              ? { entityId: current.id }
+              : { typeId: AUTOMATION_TYPE, matchStrategy: "none" as const }),
             title: config.displayName ?? config.id,
             aliases: [config.id],
-            matchStrategy: "exact",
             status: "overdue",
             attributes: {
               schedule_id: config.id,
@@ -350,7 +349,7 @@ export class StateSchedulerAdapter {
             typeId: FINANCE_REVIEW_TYPE,
             title,
             aliases: [config.id, period.key],
-            matchStrategy: "exact" as const,
+            matchStrategy: "none" as const,
           }),
       status: "in_progress",
       attributes,
@@ -427,7 +426,7 @@ export class StateSchedulerAdapter {
             typeId: FINANCE_REVIEW_TYPE,
             title,
             aliases: [config.id, period.key],
-            matchStrategy: "exact" as const,
+            matchStrategy: "none" as const,
           }),
       status: "blocked",
       attributes,
@@ -657,6 +656,13 @@ function buildFinanceReviewPointer(localDate: string, dryRun: boolean): string {
 
 function reviewTitle(config: ScheduleConfig, periodKey: string): string {
   return `Finance Review${config.id.startsWith("manual-test-") ? " Dry Run" : ""} ${periodKey}`;
+}
+
+function automationIdentity(service: StateService, config: ScheduleConfig) {
+  const existing = findAutomationEntity(service, config.id);
+  return existing
+    ? { entityId: existing.id }
+    : { typeId: AUTOMATION_TYPE, matchStrategy: "none" as const };
 }
 
 function findAutomationEntity(service: StateService, scheduleId: string): StateEntity | undefined {
