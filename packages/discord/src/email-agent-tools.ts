@@ -148,7 +148,7 @@ export function resolveEmailAccount(
   const candidate = override?.trim() || allowedAccount;
   const normalized = candidate.toLowerCase();
   if (firewalledAccounts.has(normalized)) {
-    throw new Error(`Gmail account is firewalled for Piper email tools: ${candidate}`);
+    throw new Error("Gmail account is firewalled for Piper email tools.");
   }
   if (normalized !== normalizedAllowed) {
     throw new Error("Piper email tools only support the configured Piper Gmail account.");
@@ -295,6 +295,15 @@ function defaultGogRunner(gogCommand: string): GogRunner {
   return (args, timeoutMs = 60_000) => runGogCommand(gogCommand, args, timeoutMs);
 }
 
+const EMAIL_ADDRESS_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+/** Error surfaces (Discord replies, eval transcripts, logs) must never echo
+ *  mailbox addresses — the configured and firewalled accounts are profile-layer
+ *  denylisted values. Tool RESULTS keep real addresses; only errors redact. */
+export function redactEmailAddresses(text: string): string {
+  return text.replace(EMAIL_ADDRESS_PATTERN, "[redacted-email]");
+}
+
 function runGogCommand(gogCommand: string, args: string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     let stdout = "";
@@ -323,7 +332,7 @@ function runGogCommand(gogCommand: string, args: string[], timeoutMs: number): P
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error(`${gogCommand} ${args.join(" ")} failed: ${stderr.trim() || stdout.trim() || `exit ${code}`}`));
+        reject(new Error(redactEmailAddresses(`${gogCommand} ${args.join(" ")} failed: ${stderr.trim() || stdout.trim() || `exit ${code}`}`)));
         return;
       }
       resolve(stdout.trim());
