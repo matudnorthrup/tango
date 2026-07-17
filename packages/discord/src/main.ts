@@ -118,6 +118,7 @@ import {
   findRepoLayerPersonalPromptFindings,
   type PromptLayerAuditFinding,
   AgentCollaborationService,
+  StateService,
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
@@ -247,9 +248,15 @@ import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
 import { buildModelScorecard, loadEvaluatedModels } from "./model-scorecard.js";
 import { AtlasMemoryClient } from "./atlas-memory-client.js";
 import { TangoRouter } from "./tango-router.js";
+import { createStateHttpServer } from "./state-http-server.js";
+import { StateObsidianAdapter } from "./state-obsidian-adapter.js";
+import { StateHealthAutoExportAdapter } from "./state-health-adapter.js";
+import { runStateMemorySupersession } from "./state-memory-supersession.js";
+import { StateLifecycleRunner } from "./state-lifecycle.js";
 import {
   buildV2EnabledAgentSet,
   buildV2RuntimeConfigs,
+  buildStateMcpServerConfig,
   createAtlasColdStartContextBuilder,
   createV2PostTurnHook,
   formatMemories,
@@ -693,6 +700,7 @@ const slotModeAgentTestChannels = agentConfigs
   }));
 const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !== undefined).length;
 const storage = new TangoStorage(dbPath);
+const stateService = new StateService(storage.getDatabase());
 const attachmentStore = new AttachmentStore(storage.getDatabase());
 const attachmentDataDir = resolveTangoDataDir();
 // Manual enablement: flip config/v2/agents/<agent>.yaml runtime.provider to
@@ -728,15 +736,7 @@ const tangoRouter = new TangoRouter({
       }),
     attachmentStore,
     v2Configs,
-  }),
-  onPostTurn: createV2PostTurnHook({
-    v2Configs,
-    atlasMemoryClient,
-    // Resolve the extraction provider lazily at turn time from the shared registry
-    // (defined just below); lets Ollama clones extract via the cheap Ollama model
-    // instead of billing the Claude CLI every turn.
-    resolveProvider: (name) => providers.get(name),
-    extractionSuppressedChannelIds: memoryInertChannelIds,
+    stateDigestProvider: (conversationKey, agentId) => buildStateDigest(conversationKey, agentId),
   }),
   ollamaProvider,
 });
@@ -748,6 +748,7 @@ const collaborationRouter = new TangoRouter({
       renderProjectStateBlock(storage, conversationKey, { vaultRoot: resolveStateVaultRoot() }),
     attachmentStore,
     v2Configs,
+    stateDigestProvider: (conversationKey, agentId) => buildStateDigest(conversationKey, agentId),
   }),
   ollamaProvider,
 });
@@ -816,6 +817,105 @@ const providers = createBuiltInProviderRegistry({
 // Reuse the single OllamaProvider instance built above so the legacy registry
 // and the v2 runtime share one provider (and one cached 1Password key lookup).
 providers.set("ollama", ollamaProvider);
+const stateHttpServer = createStateHttpServer({
+  service: stateService,
+  v2Configs,
+  unarchiveMemories: async (eventIds) => {
+    const memoryIds = stateService.getArchivedMemoryIdsForEvents(eventIds);
+    if (memoryIds.length === 0) return;
+    await atlasMemoryClient.memoryAdmin({
+      operation: "unarchive",
+      filter: { ids: memoryIds, include_archived: true },
+    });
+    stateService.markMemoriesUnarchived(memoryIds);
+  },
+});
+void stateHttpServer.start().then(() => {
+  console.log(`[tango-state] dashboard and tool bridge listening at ${stateHttpServer.url}`);
+}).catch((error) => {
+  console.error("[tango-state] failed to start state HTTP server", error);
+  process.exit(1);
+});
+
+const statePostTurnHook = createV2PostTurnHook({
+  v2Configs,
+  atlasMemoryClient,
+  resolveProvider: (name) => providers.get(name),
+  extractionSuppressedChannelIds: memoryInertChannelIds,
+  stateService,
+  storage,
+  publishStateReceipt: async (context, receipt) => {
+    if (!client.isReady()) return;
+    const channel = await client.channels.fetch(context.channelId).catch(() => null);
+    if (!channel || !channel.isTextBased()) return;
+    await sendPresentedReply(
+      channel as Message["channel"],
+      receipt,
+      agentRegistry.get(context.agentId) ?? systemAgent,
+    );
+  },
+});
+const stateObsidianAdapter = new StateObsidianAdapter({
+  service: stateService,
+  vaultRoot: resolveStateVaultRoot(),
+});
+void stateObsidianAdapter.start().then((report) => {
+  console.log(`[tango-state] Obsidian adapter linked=${report.linked} unavailable=${report.unavailable} invalid=${report.invalid}`);
+}).catch((error) => {
+  console.warn("[tango-state] Obsidian adapter startup scan failed", error);
+});
+const stateHealthAdapter = new StateHealthAutoExportAdapter(stateService);
+const stateLifecycleRunner = new StateLifecycleRunner({
+  service: stateService,
+  obsidian: stateObsidianAdapter,
+  health: stateHealthAdapter,
+  runSupersession: async () => {
+    const config = v2Configs.get("watson-ollama") ?? v2Configs.get("watson") ?? [...v2Configs.values()][0];
+    const providerName = config?.state?.extractionProvider
+      ?? config?.memory.extractionProvider
+      ?? (config && isOllamaBackedAgent(config) ? "ollama" : "claude-oauth");
+    const provider = providerName ? providers.get(providerName) : undefined;
+    const model = config?.state?.extractionModel ?? config?.memory.extractionModel;
+    if (!provider || !model) return { candidates: 0, archived: 0, tagged: 0, unsure: 0, rejected: 0 };
+    return runStateMemorySupersession({ service: stateService, atlas: atlasMemoryClient, provider, model });
+  },
+  promptCheckIn: async (request) => {
+    const config = v2Configs.get(request.agentId);
+    if (!config || !v2EnabledAgents.has(request.agentId)) throw new Error(`Check-in agent '${request.agentId}' is not enabled.`);
+    const channelId = config.discord.defaultChannelId;
+    const result = await tangoRouter.routeMessage({
+      message: request.prompt,
+      channelId,
+      conversationKey: `state-check-in:${request.entityId}`,
+      agentId: request.agentId,
+    });
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel || !channel.isTextBased()) throw new Error(`Check-in channel '${channelId}' is unavailable.`);
+    await sendPresentedReply(channel as Message["channel"], result.response.text, agentRegistry.get(request.agentId) ?? systemAgent);
+  },
+});
+
+function buildStateDigest(conversationKey: string, agentId: string): string | undefined {
+  const config = v2Configs.get(agentId);
+  return stateService.buildDigest({
+    conversationKey,
+    agentId,
+    agentType: config?.type ?? null,
+    scopes: [config?.type ?? "", agentId.replace(/-ollama$/u, "")].filter(Boolean),
+    alwaysOnTypes: config?.state?.alwaysOnTypes ?? [],
+  });
+}
+
+function scheduleStatePostTurn(context: Parameters<typeof statePostTurnHook>[0]): void {
+  setImmediate(() => {
+    void statePostTurnHook(context).catch((error) => {
+      console.error(
+        `[tango-state] post-turn pipeline failed turn=${context.turnId} agent=${context.agentId}`,
+        error,
+      );
+    });
+  });
+}
 const attachmentWorker = new AttachmentJobWorker(
   attachmentStore,
   `discord-${process.pid}`,
@@ -1040,7 +1140,10 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
           agentId: config.id,
           backend: isOllamaBackedAgent(config) ? "ollama" : "claude-code",
           systemPrompt,
-          mcpServers: config.mcpServers.map((server) => ({
+          mcpServers: [
+            ...config.mcpServers,
+            ...(config.mcpServers.some((server) => server.name === "state") ? [] : [buildStateMcpServerConfig()]),
+          ].map((server) => ({
             name: server.name,
             command: server.command,
             ...(server.args ? { args: [...server.args] } : {}),
@@ -1076,6 +1179,14 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
 // ---------------------------------------------------------------------------
 
 registerDeterministicHandler("contacts-sync", contactsSyncHandler);
+registerDeterministicHandler("state-sweep", async () => {
+  const report = await stateLifecycleRunner.run();
+  return {
+    status: report.health?.status === "unavailable" ? "skipped" : "ok",
+    summary: `state=${report.sweep.evaluated} stale=${report.sweep.stale} obsidian=${report.obsidian?.linked ?? 0} health=${report.health?.applied ?? 0} superseded=${report.supersession?.archived ?? 0} checkins=${report.checkIns.prompted}`,
+    data: { ...report },
+  };
+});
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
 registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
 registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
@@ -1782,7 +1893,10 @@ startPersistentMcpServer().then((port) => {
         agentId: scheduledAgentId,
         backend: isOllamaBackedAgent(v2Entry) ? "ollama" : "claude-code",
         systemPrompt,
-        mcpServers: v2Entry.mcpServers.map((server) => ({
+        mcpServers: [
+          ...v2Entry.mcpServers,
+          ...(v2Entry.mcpServers.some((server) => server.name === "state") ? [] : [buildStateMcpServerConfig()]),
+        ].map((server) => ({
           name: server.name,
           command: server.command,
           ...(server.args ? { args: [...server.args] } : {}),
@@ -3976,6 +4090,7 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
     ...(typeof voiceSessionContextUsage === "number" && Number.isFinite(voiceSessionContextUsage)
       ? { contextUsageFraction: voiceSessionContextUsage }
       : {}),
+    stateDigest: buildStateDigest(voiceConversationKey, targetAgent.id),
   });
   const voiceContext = mergeSendContext(
     voiceWarmStartPrompt,
@@ -4096,19 +4211,18 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       // Skip capture when the runtime produced no text (turnResult fell back
       // to the TTS error message, which is not a real exchange).
       if (turnResult === baseTurnResult) {
-        scheduleActiveTaskPostTurn({
-          storage,
-          v2Config: v2AgentConfig,
-          resolveProvider: (name) => providers.get(name),
-          context: {
-            sessionId: turnInput.sessionId,
-            agentId: targetAgent.id,
-            userMessage: turnInput.transcript,
-            agentResponse: turnResult.responseText,
-            toolsUsed: response.toolsUsed ?? [],
-            requestMessageId: inboundMessageId,
-            responseMessageId: outboundMessageId,
-          },
+        scheduleStatePostTurn({
+          turnId: routeResult.turnId,
+          conversationKey: routeResult.conversationKey,
+          sessionId: turnInput.sessionId,
+          agentId: targetAgent.id,
+          userMessage: turnInput.transcript,
+          response: { ...response, text: turnResult.responseText },
+          channelId: resolvedVoiceSyncChannelId ?? voiceRouterChannelId,
+          requestMessageId: inboundMessageId,
+          responseMessageId: outboundMessageId,
+          discordResponseMessageId: null,
+          occurredAt: turnInput.messageTimestamp ?? new Date().toISOString(),
         });
       }
 
@@ -7563,6 +7677,7 @@ async function handleMessage(
               ],
             }
           : {}),
+        stateDigest: buildStateDigest(briefingConversationKey, targetAgent.id),
       });
       const sendContext = buildSendContextWithOptionalSavePass(warmStartPrompt, hasPendingSavePass);
       // Clone same-turn vision: hand inbound image bytes to the Ollama runtime so the
@@ -7578,6 +7693,7 @@ async function handleMessage(
           message: prompt,
           channelId: routingChannelId,
           ...(threadId ? { threadId } : {}),
+          messageId: message.id,
           agentId: targetAgent.id,
           sendOptions: {
             ...(sendContext ? { context: sendContext } : {}),
@@ -7708,19 +7824,20 @@ async function handleMessage(
       );
 
       if (!runtimeError) {
-        scheduleActiveTaskPostTurn({
-          storage,
-          v2Config: v2AgentConfig,
-          resolveProvider: (name) => providers.get(name),
-          context: {
-            sessionId: promptRoute.sessionId,
-            agentId: targetAgent.id,
-            userMessage: prompt,
-            agentResponse: replyText,
-            toolsUsed,
-            requestMessageId: inboundMessageId,
-            responseMessageId: outboundMessageId,
-          },
+        scheduleStatePostTurn({
+          turnId: v2Result.turnId,
+          conversationKey: v2Result.conversationKey,
+          sessionId: promptRoute.sessionId,
+          agentId: targetAgent.id,
+          userMessage: prompt,
+          response: { ...v2Result.response, text: replyText },
+          channelId: message.channelId,
+          ...(threadId ? { threadId } : {}),
+          requestMessageId: inboundMessageId,
+          responseMessageId: outboundMessageId,
+          discordRequestMessageId: message.id,
+          discordResponseMessageId: replyDelivery.lastMessageId,
+          occurredAt: message.createdAt.toISOString(),
         });
       }
 
@@ -8375,6 +8492,17 @@ function shutdown(signal: "SIGINT" | "SIGTERM"): void {
       }
     } catch (error) {
       console.error("[tango-imessage] listener shutdown failed", error);
+    }
+    try {
+      stateObsidianAdapter.stop();
+      await stateHealthAdapter.close();
+    } catch (error) {
+      console.error("[tango-state] adapter shutdown failed", error);
+    }
+    try {
+      await stateHttpServer.stop();
+    } catch (error) {
+      console.error("[tango-state] HTTP server shutdown failed", error);
     }
     try {
       await shutdownV2Runtime({

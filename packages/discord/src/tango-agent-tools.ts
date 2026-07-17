@@ -445,15 +445,30 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
             return { error: `Directory not found: ${agentId || relPath || "/"}` };
           }
 
-          const entries = fs.readdirSync(resolved);
-          const mdFiles = entries.filter((e) => e.endsWith(".md"));
-          const dirs = entries.filter((e) => {
+          const listPaths = [resolved];
+          if (relPath && isAgentTreeRelativePath(relPath)) {
+            const normalized = normalizeRelativePath(relPath);
+            const repoPath = path.resolve(agentsDir, normalized);
+            if (
+              repoPath.startsWith(path.resolve(agentsDir))
+              && fs.existsSync(repoPath)
+              && !listPaths.includes(repoPath)
+            ) {
+              listPaths.push(repoPath);
+            }
+          }
+
+          // Agent profile directories are per-file overlays. A profile that only
+          // overrides knowledge.md must not hide soul.md from the repo fallback.
+          const entries = [...new Set(listPaths.flatMap((dir) => fs.readdirSync(dir)))];
+          const mdFiles = entries.filter((entry) => entry.endsWith(".md"));
+          const dirs = entries.filter((entry) => listPaths.some((dir) => {
             try {
-              return fs.statSync(path.join(resolved!, e)).isDirectory();
+              return fs.statSync(path.join(dir, entry)).isDirectory();
             } catch {
               return false;
             }
-          });
+          }));
 
           // Surface profile-overlay-only skill/tool docs alongside repo files.
           const listedDir = path.basename(resolved);

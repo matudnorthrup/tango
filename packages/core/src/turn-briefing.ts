@@ -39,6 +39,8 @@ export interface TurnBriefingInput {
   signals?: string[];
   /** Escape hatch for additional short lines. */
   extraLines?: string[];
+  /** Compact canonical typed-state digest. Values here override memory. */
+  stateDigest?: string;
 }
 
 function formatPercent(fraction: number): number {
@@ -90,7 +92,12 @@ export function buildTurnBriefingPrompt(input: TurnBriefingInput = {}): string |
     }
   }
 
-  if (lines.length === 0) return undefined;
+  const stateDigest = input.stateDigest?.trim();
+  if (lines.length === 0 && !stateDigest) return undefined;
 
-  return ["Session briefing (act on this every turn):", ...lines.map((l) => `- ${l}`)].join("\n");
+  return [
+    "Session briefing (act on this every turn):",
+    ...lines.map((l) => `- ${l}`),
+    ...(stateDigest ? [stateDigest] : []),
+  ].join("\n");
 }

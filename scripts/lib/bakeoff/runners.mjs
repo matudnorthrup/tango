@@ -184,7 +184,10 @@ export async function runClaudeOnce({ model, fixture, claudeCommand = "claude", 
 
   const startedAt = Date.now();
   const result = await new Promise((resolvePromise) => {
-    const child = spawn(claudeCommand, args, { cwd: workdir, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    // Eager tool loading for parity with Ollama candidates (which get the full
+    // catalog upfront): fixtures replace the system prompt, which would strip
+    // the CLI's ToolSearch guidance and leave deferred MCP tools undiscoverable.
+    const child = spawn(claudeCommand, args, { cwd: workdir, env: { ...process.env, ENABLE_TOOL_SEARCH: "false" }, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;

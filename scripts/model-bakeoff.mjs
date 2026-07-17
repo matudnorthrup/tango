@@ -148,7 +148,7 @@ const benchmarkModels = arg("benchmarks") === "none"
   : csv(arg("benchmarks")).length > 0 ? csv(arg("benchmarks")) : fixture.benchmarkModels;
 const seen = new Set();
 let allModels = [
-  ...candidateModels.map((model) => ({ model, benchmarkOnly: isClaudeModel(model) })),
+  ...candidateModels.map((model) => ({ model, benchmarkOnly: false })),
   ...benchmarkModels.map((model) => ({ model: isClaudeModel(model) ? model : `claude:${model}`, benchmarkOnly: true })),
 ].filter(({ model }) => (seen.has(model) ? false : (seen.add(model), true)));
 
@@ -192,7 +192,7 @@ if (needsOllama && !apiKey) {
 if (needsClaude) {
   const probe = spawnSync("claude", ["--version"], { encoding: "utf8" });
   if (probe.error || probe.status !== 0) {
-    console.error("INFRA: `claude` CLI not available (needed for judge and claude:* benchmarks)");
+    console.error("INFRA: `claude` CLI not available (needed for the judge and claude candidates/benchmarks)");
     process.exit(3);
   }
 }
@@ -231,7 +231,7 @@ const makeProvider = (model) =>
 // ---- Run candidates × runs (sequential for comparable timings) ----------------
 console.log(`\nBake-off v${HARNESS_VERSION}: ${fixture.id} — ${fixture.title}`);
 console.log(`worker=${fixture.worker} tools=${fixture.tools} runs/candidate=${fixture.runs} passRate>=${fixture.passRateThreshold} rubric>=${fixture.rubricThreshold} judge=${judgeEnabled ? judgeModel : "off"}`);
-console.log(`candidates: ${allModels.map((m) => m.model + (m.benchmarkOnly ? "*" : "")).join(", ")}  (*benchmark only)\n`);
+console.log(`candidates: ${allModels.map((m) => m.model + (m.benchmarkOnly ? "*" : "")).join(", ")}${allModels.some((m) => m.benchmarkOnly) ? "  (*benchmark only)" : ""}\n`);
 console.log("model".padEnd(24) + "| run | stop         | calls | secs | gates");
 
 async function runOnce(model) {

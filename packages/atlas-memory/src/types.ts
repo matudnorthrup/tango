@@ -77,4 +77,5 @@ export interface MemoryAdminFilter {
   session_id?: string;
   query?: string;
   add_tags?: string[];
+  metadata_patch?: Record<string, unknown>;
 }

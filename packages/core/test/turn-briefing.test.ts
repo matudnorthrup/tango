@@ -72,4 +72,11 @@ describe("buildTurnBriefingPrompt", () => {
     expect(lines[0]).toBe("Session briefing (act on this every turn):");
     expect(lines.slice(1).every((l) => l.startsWith("- "))).toBe(true);
   });
+
+  it("injects canonical typed state verbatim after behavioral bullets", () => {
+    const digest = "state (canonical — overrides anything remembered):\n- [project] Fixture — active";
+    const out = buildTurnBriefingPrompt({ searchFirst: false, stateDigest: digest });
+    expect(out).toBe(`Session briefing (act on this every turn):\n${digest}`);
+    expect(buildTurnBriefingPrompt({ searchFirst: false, stateDigest: "   " })).toBeUndefined();
+  });
 });

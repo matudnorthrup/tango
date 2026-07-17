@@ -85,6 +85,9 @@ const SERVER_KEYWORD_PATTERNS: Record<string, RegExp[]> = {
   slack: [
     /\b(slack|channel mention|slack thread)\b/iu,
   ],
+  state: [
+    /\b(state|status|current value|track|tracking|progress|project|trip|travel|vehicle|weight|body fat|protein goal|calorie target|undo that)\b/iu,
+  ],
   wellness: [
     /\b(health|wellness|workout|nutrition|meal|recipe|supplement|calorie|sleep|recovery)\b/iu,
   ],

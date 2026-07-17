@@ -159,6 +159,7 @@ describe("TangoRouter", () => {
       },
       agentId: "bravo",
       conversationKey: "channel:channel-1",
+      turnId: expect.any(String),
     });
     expect(mockState.sendMessage).toHaveBeenCalledWith(
       "channel:channel-1",
@@ -167,10 +168,11 @@ describe("TangoRouter", () => {
         mcpServers: [
             {
               ...bravoConfig.mcpServers[0]!,
-              env: {
+              env: expect.objectContaining({
                 TANGO_CONVERSATION_KEY: "channel:channel-1",
                 TANGO_DISCORD_CHANNEL_ID: "channel-1",
-              },
+                TANGO_TURN_ID: expect.any(String),
+              }),
             },
           ],
         mcpMountSelection: {
@@ -282,10 +284,11 @@ describe("TangoRouter", () => {
         mcpServers: [
           {
             ...createAgentConfig("alpha").mcpServers[0]!,
-            env: {
+            env: expect.objectContaining({
               TANGO_CONVERSATION_KEY: "voice:session-42:alpha",
               TANGO_DISCORD_CHANNEL_ID: "channel-1",
-            },
+              TANGO_TURN_ID: expect.any(String),
+            }),
           },
         ],
         mcpMountSelection: {
@@ -335,6 +338,7 @@ describe("TangoRouter", () => {
     await waitForImmediate();
 
     expect(onPostTurn).toHaveBeenCalledWith({
+      turnId: result.turnId,
       conversationKey: "thread:thread-1",
       agentId: "alpha",
       userMessage: "remember this",
