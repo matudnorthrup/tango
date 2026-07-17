@@ -1,0 +1,146 @@
+{
+  "latest": {
+    "when": "2026-07-17T16:17:25.846Z",
+    "harnessVersion": "2.0.0",
+    "fixtureSource": "model-bakeoff/tasks/state-reconciler-new-entity.json",
+    "runsPerCandidate": 2,
+    "verdict": {
+      "fixtureId": "state.reconciler.new-entity",
+      "passRateThreshold": 0.8,
+      "rubricThreshold": 0.7,
+      "rubricFloor": 0.6,
+      "recommendation": "deepseek-v4-pro:cloud",
+      "reason": "cheapest reliable candidate (passRate 100%, 308 out-tok/success (price unknown))",
+      "winner": "deepseek-v4-pro:cloud",
+      "incumbent": "deepseek-v4-pro:cloud",
+      "eligible": [
+        "deepseek-v4-pro:cloud",
+        "minimax-m2.5"
+      ],
+      "infraIncomplete": false
+    },
+    "candidates": [
+      {
+        "model": "deepseek-v4-pro:cloud",
+        "benchmarkOnly": false,
+        "validRuns": 2,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9999999999999999,
+        "rubricMin": 0.9999999999999999,
+        "rubricStdDev": 0,
+        "meanSeconds": 5.5605,
+        "meanOutputTokens": 308,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "minimax-m2.5",
+        "benchmarkOnly": false,
+        "validRuns": 2,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9999999999999999,
+        "rubricMin": 0.9999999999999999,
+        "rubricStdDev": 0,
+        "meanSeconds": 4.4704999999999995,
+        "meanOutputTokens": 374.5,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "claude:haiku",
+        "benchmarkOnly": true,
+        "validRuns": 2,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9999999999999999,
+        "rubricMin": 0.9999999999999999,
+        "rubricStdDev": 0,
+        "meanSeconds": 9.1735,
+        "meanOutputTokens": 520.5,
+        "meanCostUsd": null,
+        "gateFailures": []
+      }
+    ]
+  },
+  "history": [
+    {
+      "when": "2026-07-17T16:15:06.014Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/state-reconciler-new-entity.json",
+      "runsPerCandidate": 2,
+      "verdict": {
+        "fixtureId": "state.reconciler.new-entity",
+        "passRateThreshold": 0.8,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": null,
+        "reason": "no candidate met the reliability bar",
+        "winner": null,
+        "incumbent": "deepseek-v4-pro:cloud",
+        "eligible": [],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 2,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": 0.9137499999999998,
+          "rubricMin": 0.8424999999999999,
+          "rubricStdDev": 0.07124999999999998,
+          "meanSeconds": 14.6205,
+          "meanOutputTokens": 840,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "output:matches: \\\"action\\\"\\s*:\\s*\\\"new_entity\\\"",
+            "output:matches: \\\"type_id\\\"\\s*:\\s*\\\"project\\\"",
+            "output:matches: \\\"action\\\"\\s*:\\s*\\\"new_entity\\\"",
+            "output:matches: \\\"type_id\\\"\\s*:\\s*\\\"project\\\""
+          ]
+        },
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 2,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": 0.6025,
+          "rubricMin": 0.5875,
+          "rubricStdDev": 0.014999999999999958,
+          "meanSeconds": 4.0675,
+          "meanOutputTokens": 323.5,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "output:matches: \\\"action\\\"\\s*:\\s*\\\"new_entity\\\"",
+            "output:matches: \\\"type_id\\\"\\s*:\\s*\\\"project\\\"",
+            "output:matches: \\\"action\\\"\\s*:\\s*\\\"new_entity\\\"",
+            "output:matches: \\\"type_id\\\"\\s*:\\s*\\\"project\\\""
+          ]
+        },
+        {
+          "model": "claude:haiku",
+          "benchmarkOnly": true,
+          "validRuns": 2,
+          "infraRuns": 0,
+          "passRate": 0,
+          "rubricMean": 0.8600000000000001,
+          "rubricMin": 0.8200000000000001,
+          "rubricStdDev": 0.03999999999999998,
+          "meanSeconds": 13.878,
+          "meanOutputTokens": 1070,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "output:matches: \\\"action\\\"\\s*:\\s*\\\"new_entity\\\"",
+            "output:matches: \\\"type_id\\\"\\s*:\\s*\\\"project\\\"",
+            "output:matches: \\\"action\\\"\\s*:\\s*\\\"new_entity\\\"",
+            "output:matches: \\\"type_id\\\"\\s*:\\s*\\\"project\\\""
+          ]
+        }
+      ]
+    }
+  ]
+}

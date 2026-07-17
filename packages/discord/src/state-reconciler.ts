@@ -114,11 +114,15 @@ export function buildStateReconcilerPrompt(input: {
     "Rules:",
     "- Every non-no_op proposal MUST include an exact evidence quote present in the user message, assistant reply, or shown tool result.",
     "- Never invent a value. Never emit a value equal to the current snapshot.",
+    "- The supplied type catalog is authoritative. Never conclude that a listed type is missing because the serving assistant or a tool result says otherwise.",
+    "- A user's explicit request to track a new entity under an existing catalog type is sufficient evidence for new_entity. Only creation of a NEW TYPE needs confirmation.",
+    "- When the serving assistant is confused, refuses bookkeeping, or asks an unnecessary confirmation, still apply the user's grounded state instruction.",
     "- Resolve mentions against the FULL entity name index. Prefer an existing entity. New entity only when nothing plausibly matches.",
     "- If a known entity is called a new name, update aliases on that same entity.",
     "- 'undo that' means revert the previous state-changing turn. Corrections are updates with the corrected value.",
     "- State-shaped current facts belong here; preferences, biography, feelings, and narrative do not.",
     "- Use occurred_at only when the turn explicitly establishes when the fact was true.",
+    '- Example: "Track a project named X as active at 10 percent" with project in the catalog becomes {"action":"new_entity","type_id":"project","title":"X","status":"active","attributes":{"progress_pct":10},"evidence":"exact user quote"}.',
     "- If nothing changed, return {\"changes\":[],\"engaged_entity_ids\":[]}.",
     "",
     `Turn timestamp: ${input.turn.occurredAt ?? new Date().toISOString()}`,
@@ -141,9 +145,11 @@ export function parseStateChangeset(text: string): StateChangeset {
       continue;
     }
     if (!isRecord(value)) continue;
-    const changes = Array.isArray(value.changes)
-      ? value.changes.flatMap(normalizeProposal)
-      : [];
+    const rawChanges = Array.isArray(value.changes) ? value.changes : [];
+    const changes = rawChanges.flatMap(normalizeProposal);
+    if (rawChanges.length > 0 && changes.length === 0) {
+      throw new Error("State Reconciler changes did not match the required action schema.");
+    }
     const engagedEntityIds = normalizeStringArray(value.engaged_entity_ids ?? value.engagedEntityIds);
     return { changes, engagedEntityIds };
   }

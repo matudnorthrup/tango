@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ChatProvider, V2AgentConfig } from "@tango/core";
 import { StateService, TangoStorage } from "@tango/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runStateReconciler } from "../src/state-reconciler.js";
+import { parseStateChangeset, runStateReconciler } from "../src/state-reconciler.js";
 
 const dirs: string[] = [];
 
@@ -53,6 +53,11 @@ function turn(index: number, userMessage: string, agentResponse = "Acknowledged.
 }
 
 describe("State Reconciler fixture dataset", () => {
+  it("rejects non-empty changes that do not match the constrained action schema", () => {
+    expect(() => parseStateChangeset('{"changes":[{"operation":"add"}],"engaged_entity_ids":[]}'))
+      .toThrow(/required action schema/u);
+  });
+
   it("creates, corrects, aliases, focuses, no-ops idempotently, and undoes the preceding state turn", async () => {
     const { storage, service, config } = harness();
     const outputs = provider(
