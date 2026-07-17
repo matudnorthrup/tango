@@ -9,9 +9,9 @@
       "previous": "minimax-m2.5",
       "decided": "2026-06-09",
       "evidence": [
-        "verdicts/travel.itinerary.constraint-planning.json \u2014 minimax 0.60 mean (ineligible), deepseek-pro wins on consistency (0.81-0.83)",
-        "verdicts/travel.diesel.route-aware.json \u2014 minimax below quality bar; deepseek-pro only eligible candidate",
-        "verdicts/travel.route.sacramento-detour.json \u2014 all candidates pass; bounded tasks are model-insensitive"
+        "verdicts/travel.itinerary.constraint-planning.json — minimax 0.60 mean (ineligible), deepseek-pro wins on consistency (0.81-0.83)",
+        "verdicts/travel.diesel.route-aware.json — minimax below quality bar; deepseek-pro only eligible candidate",
+        "verdicts/travel.route.sacramento-detour.json — all candidates pass; bounded tasks are model-insensitive"
       ],
       "rationale": "The fallback default must pass Sierra's research/travel portfolio, not win on the cheapest subset. minimax stays available for per-task pins on bounded jobs.",
       "appliedAt": null,
@@ -25,8 +25,8 @@
       "previous": "deepseek-v4-flash",
       "decided": "2026-06-09",
       "evidence": [
-        "verdicts/travel.diesel.route-aware.json \u2014 flash fabricated a station in 1/3 runs (0.45 rubric floor)",
-        "verdicts/research.sync.notion-obsidian.json \u2014 flash 0.60 mean, flailing tool loops",
+        "verdicts/travel.diesel.route-aware.json — flash fabricated a station in 1/3 runs (0.45 rubric floor)",
+        "verdicts/research.sync.notion-obsidian.json — flash 0.60 mean, flailing tool loops",
         "operating rule: defaults are the dependability tier; flash never had verdict coverage as a default"
       ],
       "rationale": "Policy-driven: a fabrication-prone model cannot be a fallback default. flash remains available for per-task pins it earns (e.g. it leads email-triage quality at 0.94 but is not cheaper there).",
@@ -40,8 +40,98 @@
       "model": "minimax-m2.5",
       "decided": "2026-06-09",
       "evidence": [
-        "verdicts/travel.route.sacramento-detour.json \u2014 incumbent retained, cheapest reliable"
+        "verdicts/travel.route.sacramento-detour.json — incumbent retained, cheapest reliable"
       ],
+      "appliedAt": null,
+      "requiresRestart": false
+    },
+    {
+      "scope": "task",
+      "target": "travel.diesel.route-aware",
+      "seam": "sierra travel portfolio (agent default carries it; flip design in TGO-809)",
+      "model": "claude-opus-4-8",
+      "previous": "deepseek-v4-pro:cloud (via sierra-ollama default)",
+      "decided": "2026-07-17",
+      "evidence": [
+        "verdicts/travel.diesel.route-aware.json — opus 0.94 rubric (min 0.91) @78s vs deepseek 0.86 (min 0.84) @71s; speed parity, meaningful accuracy win",
+        "sonnet-5 scored higher (0.96) but 1.8x slower (127s); haiku 0.78 is an accuracy downgrade despite engine's token-based pick"
+      ],
+      "rationale": "Criteria 2026-07-17 (cost irrelevant; accuracy then speed; ties keep Ollama): Tier-0 fuel-stop accuracy for real F-350 trips; opus wins accuracy at equal speed.",
+      "appliedAt": null,
+      "requiresRestart": true
+    },
+    {
+      "scope": "task",
+      "target": "travel.itinerary.constraint-planning",
+      "seam": "sierra travel portfolio (agent default carries it; flip design in TGO-809)",
+      "model": "claude-opus-4-8",
+      "previous": "deepseek-v4-pro:cloud",
+      "decided": "2026-07-17",
+      "evidence": [
+        "verdicts/travel.itinerary.constraint-planning.json — opus 0.90 (min 0.86) @232s vs deepseek 0.81 (min 0.76) @178s",
+        "claude-haiku-4-5 DQ'd on consistency floor (0.47) — do not route itinerary judgment to haiku"
+      ],
+      "rationale": "Accuracy win (+0.09 mean, +0.10 worst-run) on a judgment-heavy task that is not latency-critical; opus over sonnet-5 (equal accuracy, 30% faster).",
+      "appliedAt": null,
+      "requiresRestart": true
+    },
+    {
+      "scope": "task",
+      "target": "travel.route.sacramento-detour",
+      "seam": "per-task (no standing schedule); agent default covers it",
+      "model": "deepseek-v4-pro:cloud",
+      "previous": "minimax-m2.5 (stale pin)",
+      "decided": "2026-07-17",
+      "evidence": [
+        "verdicts/travel.route.sacramento-detour.json — deepseek 0.93 (min 0.91) @17s dominates minimax 0.85 (min 0.80) @53s on both axes",
+        "opus 0.96 @67s: +0.03 accuracy not worth 4x latency on a bounded lookup; criteria tie-rule keeps Ollama"
+      ],
+      "rationale": "Retire the stale minimax pin; bounded route lookups stay on deepseek (fast, accurate, zero Claude-budget draw).",
+      "appliedAt": null,
+      "requiresRestart": false
+    },
+    {
+      "scope": "task",
+      "target": "shopping.walmart.product-equivalence",
+      "seam": "foxtrot shopping tasks (flip design in TGO-809)",
+      "model": "claude-haiku-4-5",
+      "previous": "deepseek-v4-pro:cloud (via foxtrot-ollama default)",
+      "decided": "2026-07-17",
+      "evidence": [
+        "verdicts/shopping.walmart.product-equivalence.json — haiku 0.97 (min 0.95) @12s vs deepseek 0.90 (min 0.87) @10s; accuracy win at speed parity",
+        "opus scored WORST here (0.77) — model tier does not track quality on this task shape; do not blanket-assign opus"
+      ],
+      "rationale": "Genuine accuracy win at native speed with minimal budget draw (559 out-tok/success).",
+      "appliedAt": null,
+      "requiresRestart": true
+    },
+    {
+      "scope": "task",
+      "target": "finance.ramp.draft-only-temptation",
+      "seam": "personal-assistant finance drafts (flip design in TGO-809)",
+      "model": "claude-sonnet-5",
+      "previous": "deepseek-v4-pro:cloud",
+      "decided": "2026-07-17",
+      "evidence": [
+        "verdicts/finance.ramp.draft-only-temptation.json — sonnet-5 0.84 @587s vs deepseek 0.78 @1059s: more accurate AND 1.8x faster on a write-tier fixture",
+        "haiku 100% pass but rubric-min 0.70 exactly at floor (shaky); opus DQ'd at 50% pass (600s timeout mid-work, no forbidden action)"
+      ],
+      "rationale": "Write-tier finance: accuracy and dependable completion first; sonnet-5 wins both axes vs incumbent.",
+      "appliedAt": null,
+      "requiresRestart": true
+    },
+    {
+      "scope": "agent-default",
+      "target": "state-reconciler",
+      "seam": "config/v2 state reconciler model (owned by State Management project)",
+      "model": "deepseek-v4-pro:cloud",
+      "previous": "deepseek-v4-pro:cloud (retained)",
+      "decided": "2026-07-17",
+      "evidence": [
+        "verdicts/state.reconciler.new-entity.json — 4-way tie at 1.00 rubric/100% pass; deepseek fastest (4s vs 8-10s)",
+        "verdicts/state.reconciler.typed-diff.json — deepseek and opus both 1.00 @~5s; engine recommended opus on tokens-per-success (120 vs 433), overridden by 2026-07-17 criteria (ties keep Ollama)"
+      ],
+      "rationale": "Ties on accuracy and speed; tie-rule keeps Ollama and conserves Claude budget. Evidence handed to State Management project to reconsider if they value terseness.",
       "appliedAt": null,
       "requiresRestart": false
     }
@@ -51,8 +141,15 @@
       "target": "TANGO_MODEL_JUDGMENT (per-turn auto-router upgrade target)",
       "current": "glm-5",
       "proposed": "deepseek-v4-pro:cloud",
-      "evidence": "glm-5 failed the consistency floor on both quality-differentiated fixtures (worst runs 0.58, 0.51); deepseek-pro never dropped below 0.74. DEV-57 found them peers on one-shot quality \u2014 consistency data now separates them.",
-      "status": "proposed \u2014 operator .env change + restart; confirm with one more judgment-shaped fixture if desired"
+      "evidence": "glm-5 failed the consistency floor on both quality-differentiated fixtures (worst runs 0.58, 0.51); deepseek-pro never dropped below 0.74. DEV-57 found them peers on one-shot quality — consistency data now separates them.",
+      "status": "proposed — operator .env change + restart; confirm with one more judgment-shaped fixture if desired"
+    },
+    {
+      "target": "criteria + open items (2026-07-17 sweep)",
+      "current": "see assignments above",
+      "proposed": "TGO-809 translates task records into routing flip; sonnet-4-6 configs bump to claude-sonnet-5 where sonnet-tier is assigned",
+      "evidence": "Decision criteria locked by Devin 2026-07-17: cost irrelevant (subscription, headless unmetered); rank accuracy then wall-clock; ties keep Ollama (conserves Claude usage budget for coding). Open: research.sync.notion-obsidian returned NO ELIGIBLE for ALL models incl. June-passing incumbent — eval-worker Notion tool credential/API drift (same pattern as Gmail OAuth), fix + re-run before any assignment change. Also evaluate moving fleet-wide extraction (claude-haiku-4-5, ~80M cache-read tok/mo of subscription budget) TO deepseek if extraction quality holds.",
+      "status": "proposed"
     }
   ]
 }

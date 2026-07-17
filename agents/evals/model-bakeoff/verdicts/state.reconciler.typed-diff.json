@@ -1,21 +1,23 @@
 {
   "latest": {
-    "when": "2026-07-17T17:04:28.768Z",
+    "when": "2026-07-17T19:28:17.659Z",
     "harnessVersion": "2.0.0",
     "fixtureSource": "model-bakeoff/tasks/state-reconciler.json",
-    "runsPerCandidate": 2,
+    "runsPerCandidate": 3,
     "verdict": {
       "fixtureId": "state.reconciler.typed-diff",
       "passRateThreshold": 0.8,
       "rubricThreshold": 0.7,
       "rubricFloor": 0.6,
-      "recommendation": "minimax-m2.5",
-      "reason": "minimax-m2.5 beats incumbent deepseek-v4-pro:cloud (passRate 100% vs 100%, 246 out-tok/success (price unknown) vs 601 out-tok/success (price unknown))",
-      "winner": "minimax-m2.5",
+      "recommendation": "claude-opus-4-8",
+      "reason": "claude-opus-4-8 beats incumbent deepseek-v4-pro:cloud (passRate 100% vs 100%, 120 out-tok/success (price unknown) vs 433 out-tok/success (price unknown))",
+      "winner": "claude-opus-4-8",
       "incumbent": "deepseek-v4-pro:cloud",
       "eligible": [
-        "minimax-m2.5",
-        "deepseek-v4-pro:cloud"
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "deepseek-v4-pro:cloud",
+        "claude-haiku-4-5"
       ],
       "infraIncomplete": false
     },
@@ -23,48 +25,127 @@
       {
         "model": "deepseek-v4-pro:cloud",
         "benchmarkOnly": false,
-        "validRuns": 2,
+        "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
         "rubricMean": 0.9999999999999999,
         "rubricMin": 0.9999999999999999,
         "rubricStdDev": 0,
-        "meanSeconds": 10.3915,
-        "meanOutputTokens": 601,
+        "meanSeconds": 5.615666666666667,
+        "meanOutputTokens": 433.3333333333333,
         "meanCostUsd": null,
         "gateFailures": []
       },
       {
-        "model": "minimax-m2.5",
+        "model": "claude-haiku-4-5",
         "benchmarkOnly": false,
-        "validRuns": 2,
+        "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.9824999999999999,
-        "rubricMin": 0.965,
-        "rubricStdDev": 0.01749999999999996,
-        "meanSeconds": 3.106,
-        "meanOutputTokens": 246,
+        "rubricMean": 0.9291666666666666,
+        "rubricMin": 0.885,
+        "rubricStdDev": 0.05059369745553508,
+        "meanSeconds": 8.954333333333333,
+        "meanOutputTokens": 446,
         "meanCostUsd": null,
         "gateFailures": []
       },
       {
-        "model": "claude:haiku",
-        "benchmarkOnly": true,
-        "validRuns": 2,
+        "model": "claude-sonnet-5",
+        "benchmarkOnly": false,
+        "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.9199999999999999,
-        "rubricMin": 0.9199999999999999,
+        "rubricMean": 0.9999999999999999,
+        "rubricMin": 0.9999999999999999,
         "rubricStdDev": 0,
-        "meanSeconds": 8.4535,
-        "meanOutputTokens": 575.5,
+        "meanSeconds": 6.927333333333333,
+        "meanOutputTokens": 363.6666666666667,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "claude-opus-4-8",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9999999999999999,
+        "rubricMin": 0.9999999999999999,
+        "rubricStdDev": 0,
+        "meanSeconds": 5.126,
+        "meanOutputTokens": 120,
         "meanCostUsd": null,
         "gateFailures": []
       }
     ]
   },
   "history": [
+    {
+      "when": "2026-07-17T17:04:28.768Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/state-reconciler.json",
+      "runsPerCandidate": 2,
+      "verdict": {
+        "fixtureId": "state.reconciler.typed-diff",
+        "passRateThreshold": 0.8,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": "minimax-m2.5",
+        "reason": "minimax-m2.5 beats incumbent deepseek-v4-pro:cloud (passRate 100% vs 100%, 246 out-tok/success (price unknown) vs 601 out-tok/success (price unknown))",
+        "winner": "minimax-m2.5",
+        "incumbent": "deepseek-v4-pro:cloud",
+        "eligible": [
+          "minimax-m2.5",
+          "deepseek-v4-pro:cloud"
+        ],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 2,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.9999999999999999,
+          "rubricMin": 0.9999999999999999,
+          "rubricStdDev": 0,
+          "meanSeconds": 10.3915,
+          "meanOutputTokens": 601,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 2,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.9824999999999999,
+          "rubricMin": 0.965,
+          "rubricStdDev": 0.01749999999999996,
+          "meanSeconds": 3.106,
+          "meanOutputTokens": 246,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "claude:haiku",
+          "benchmarkOnly": true,
+          "validRuns": 2,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.9199999999999999,
+          "rubricMin": 0.9199999999999999,
+          "rubricStdDev": 0,
+          "meanSeconds": 8.4535,
+          "meanOutputTokens": 575.5,
+          "meanCostUsd": null,
+          "gateFailures": []
+        }
+      ]
+    },
     {
       "when": "2026-07-17T17:01:45.380Z",
       "harnessVersion": "2.0.0",
