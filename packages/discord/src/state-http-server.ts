@@ -88,6 +88,26 @@ async function handleRequest(
       status: valueOrUndefined(url.searchParams.get("status")),
       text: valueOrUndefined(url.searchParams.get("q")),
       stale: booleanQuery(url.searchParams.get("stale")),
+      overdue: booleanQuery(url.searchParams.get("overdue")),
+      projectEntityId: valueOrUndefined(url.searchParams.get("project_entity_id")),
+      ownerUserId: valueOrUndefined(url.searchParams.get("owner_user_id")),
+      ownerAgentId: valueOrUndefined(url.searchParams.get("owner_agent_id")),
+      source: valueOrUndefined(url.searchParams.get("source")),
+      dueBefore: valueOrUndefined(url.searchParams.get("due_before")),
+      dueAfter: valueOrUndefined(url.searchParams.get("due_after")),
+      nextCheckBefore: valueOrUndefined(url.searchParams.get("next_check_before")),
+      nextCheckAfter: valueOrUndefined(url.searchParams.get("next_check_after")),
+      expectedResponseBefore: valueOrUndefined(url.searchParams.get("expected_response_before")),
+      expectedResponseAfter: valueOrUndefined(url.searchParams.get("expected_response_after")),
+      lastProgressBefore: valueOrUndefined(url.searchParams.get("last_progress_before")),
+      lastProgressAfter: valueOrUndefined(url.searchParams.get("last_progress_after")),
+      progressOlderThanDays: numberQueryOrUndefined(url.searchParams.get("progress_older_than_days")),
+      progressNewerThanDays: numberQueryOrUndefined(url.searchParams.get("progress_newer_than_days")),
+      relationKind: valueOrUndefined(url.searchParams.get("relation_kind")),
+      relatedEntityId: valueOrUndefined(url.searchParams.get("related_entity_id")),
+      referenceRole: valueOrUndefined(url.searchParams.get("reference_role")),
+      includeRelations: url.searchParams.get("include_relations") === "true",
+      includeReferences: url.searchParams.get("include_references") === "true",
       includeArchived: url.searchParams.get("archived") === "true",
       limit: numberQuery(url.searchParams.get("limit"), 200),
     }));
@@ -99,6 +119,8 @@ async function handleRequest(
       includePrivate: true,
       entityId,
       includeArchived: true,
+      includeRelations: true,
+      includeReferences: true,
       recentEvents: 100,
     });
     if (result.entities.length === 0) {
@@ -192,7 +214,27 @@ async function handleTool(
       type: stringValue(input.type) ?? undefined,
       status: stringValue(input.status) ?? undefined,
       stale: typeof input.stale === "boolean" ? input.stale : undefined,
+      overdue: typeof input.overdue === "boolean" ? input.overdue : undefined,
       text: stringValue(input.text) ?? undefined,
+      projectEntityId: stringValue(input.project_entity_id) ?? undefined,
+      ownerUserId: stringValue(input.owner_user_id) ?? undefined,
+      ownerAgentId: stringValue(input.owner_agent_id) ?? undefined,
+      source: stringValue(input.source) ?? undefined,
+      dueBefore: stringValue(input.due_before) ?? undefined,
+      dueAfter: stringValue(input.due_after) ?? undefined,
+      nextCheckBefore: stringValue(input.next_check_before) ?? undefined,
+      nextCheckAfter: stringValue(input.next_check_after) ?? undefined,
+      expectedResponseBefore: stringValue(input.expected_response_before) ?? undefined,
+      expectedResponseAfter: stringValue(input.expected_response_after) ?? undefined,
+      lastProgressBefore: stringValue(input.last_progress_before) ?? undefined,
+      lastProgressAfter: stringValue(input.last_progress_after) ?? undefined,
+      progressOlderThanDays: numericValue(input.progress_older_than_days) ?? undefined,
+      progressNewerThanDays: numericValue(input.progress_newer_than_days) ?? undefined,
+      relationKind: stringValue(input.relation_kind) ?? undefined,
+      relatedEntityId: stringValue(input.related_entity_id) ?? undefined,
+      referenceRole: stringValue(input.reference_role) ?? undefined,
+      includeRelations: input.include_relations === true,
+      includeReferences: input.include_references === true,
       includeArchived: input.include_archived === true,
       limit: numericValue(input.limit) ?? undefined,
       recentEvents: numericValue(input.recent_events) ?? undefined,
@@ -284,6 +326,31 @@ function toEntityMutation(input: Record<string, unknown>): StateEntityMutation {
     ...(input.status === null || typeof input.status === "string" ? { status: input.status as string | null } : {}),
     ...(input.summary === null || typeof input.summary === "string" ? { summary: input.summary as string | null } : {}),
     ...(input.body_pointer === null || typeof input.body_pointer === "string" ? { bodyPointer: input.body_pointer as string | null } : {}),
+    ...(input.project_entity_id === null || typeof input.project_entity_id === "string"
+      ? { projectEntityId: input.project_entity_id as string | null }
+      : {}),
+    ...(input.owner_user_id === null || typeof input.owner_user_id === "string"
+      ? { ownerUserId: input.owner_user_id as string | null }
+      : {}),
+    ...(input.owner_agent_id === null || typeof input.owner_agent_id === "string"
+      ? { ownerAgentId: input.owner_agent_id as string | null }
+      : {}),
+    ...(input.visibility === null || typeof input.visibility === "string"
+      ? { visibility: input.visibility as string | null }
+      : {}),
+    ...(input.due_at === null || typeof input.due_at === "string" ? { dueAt: input.due_at as string | null } : {}),
+    ...(input.next_check_at === null || typeof input.next_check_at === "string"
+      ? { nextCheckAt: input.next_check_at as string | null }
+      : {}),
+    ...(input.expected_response_at === null || typeof input.expected_response_at === "string"
+      ? { expectedResponseAt: input.expected_response_at as string | null }
+      : {}),
+    ...(input.last_progress_at === null || typeof input.last_progress_at === "string"
+      ? { lastProgressAt: input.last_progress_at as string | null }
+      : {}),
+    ...(typeof input.mark_progress === "boolean" ? { markProgress: input.mark_progress } : {}),
+    ...(Array.isArray(input.relations) ? { relations: stateRelationArray(input.relations) } : {}),
+    ...(Array.isArray(input.references) ? { references: stateReferenceArray(input.references) } : {}),
     note: stringValue(input.note),
   };
 }
@@ -352,12 +419,45 @@ function numberQuery(value: string | null, fallback: number): number {
   return numericValue(value) ?? fallback;
 }
 
+function numberQueryOrUndefined(value: string | null): number | undefined {
+  return numericValue(value) ?? undefined;
+}
+
 function booleanQuery(value: string | null): boolean | undefined {
   return value === "true" ? true : value === "false" ? false : undefined;
 }
 
 function valueOrUndefined(value: string | null): string | undefined {
   return value?.trim() || undefined;
+}
+
+function stateRelationArray(value: unknown[]): NonNullable<StateEntityMutation["relations"]> {
+  return value.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`relations[${index}] must be an object`);
+    return {
+      kind: requireString(item.kind, `relations[${index}].kind`),
+      targetEntityId: requireString(item.target_entity_id ?? item.targetEntityId, `relations[${index}].target_entity_id`),
+      ...(item.metadata === null || isRecord(item.metadata) ? { metadata: item.metadata } : {}),
+      ...(typeof item.remove === "boolean" ? { remove: item.remove } : {}),
+    };
+  });
+}
+
+function stateReferenceArray(value: unknown[]): NonNullable<StateEntityMutation["references"]> {
+  return value.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`references[${index}] must be an object`);
+    const supportsEventId = item.supports_event_id ?? item.supportsEventId;
+    return {
+      role: requireString(item.role, `references[${index}].role`),
+      ref: requireString(item.ref, `references[${index}].ref`),
+      ...(item.label === null || typeof item.label === "string" ? { label: item.label } : {}),
+      ...(item.metadata === null || isRecord(item.metadata) ? { metadata: item.metadata } : {}),
+      ...(supportsEventId === null ? { supportsEventId: null } : numericValue(supportsEventId) !== null
+        ? { supportsEventId: numericValue(supportsEventId)! }
+        : {}),
+      ...(typeof item.remove === "boolean" ? { remove: item.remove } : {}),
+    };
+  });
 }
 
 function numberEnv(value: string | undefined, fallback: number): number {

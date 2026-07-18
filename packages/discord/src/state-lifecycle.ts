@@ -2,6 +2,7 @@ import type { StateService } from "@tango/core";
 import type { StateHealthAutoExportAdapter, HealthAutoExportSyncReport } from "./state-health-adapter.js";
 import type { StateObsidianAdapter, StateObsidianScanReport } from "./state-obsidian-adapter.js";
 import type { StateMemorySupersessionReport } from "./state-memory-supersession.js";
+import type { StateProjectionReport, StateProjectionRunner } from "./state-projection.js";
 
 export interface StateCheckInRequest {
   entityId: string;
@@ -16,6 +17,7 @@ export interface StateLifecycleReport {
   obsidian?: StateObsidianScanReport;
   health?: HealthAutoExportSyncReport;
   supersession?: StateMemorySupersessionReport;
+  projections?: StateProjectionReport;
   checkIns: { due: number; prompted: number; failed: number };
 }
 
@@ -25,6 +27,7 @@ export class StateLifecycleRunner {
     obsidian?: Pick<StateObsidianAdapter, "scan">;
     health?: Pick<StateHealthAutoExportAdapter, "sync">;
     runSupersession?: () => Promise<StateMemorySupersessionReport>;
+    projections?: Pick<StateProjectionRunner, "run">;
     promptCheckIn?: (request: StateCheckInRequest) => Promise<void>;
   }) {}
 
@@ -35,6 +38,8 @@ export class StateLifecycleRunner {
       this.options.health?.sync(),
       this.options.runSupersession?.(),
     ]);
+    // Render after adapters finish so projections consume their latest heads.
+    const projections = this.options.projections?.run();
     const due = this.options.service.listDueCheckIns();
     let prompted = 0;
     let failed = 0;
@@ -64,6 +69,7 @@ export class StateLifecycleRunner {
       ...(obsidian ? { obsidian } : {}),
       ...(health ? { health } : {}),
       ...(supersession ? { supersession } : {}),
+      ...(projections ? { projections } : {}),
       checkIns: { due: due.length, prompted, failed },
     };
   }
