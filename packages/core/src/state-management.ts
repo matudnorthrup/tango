@@ -109,6 +109,8 @@ export interface StateEntityMutation {
   typeId?: string;
   title?: string;
   aliases?: string[];
+  /** Use exact normalized names when a machine-owned projection has a stable key. */
+  matchStrategy?: "plausible" | "exact" | "none";
   attributes?: Record<string, unknown>;
   status?: string | null;
   summary?: string | null;
@@ -1048,7 +1050,13 @@ export class StateService {
     if (!input.title) throw new Error("title is required when creating a state entity.");
     const type = this.requireType(input.typeId, context);
     const title = requireText(input.title, "title");
-    const duplicate = this.findPlausibleEntity(type.id, title, input.aliases ?? [], context);
+    const duplicate = this.findMatchingEntity(
+      type.id,
+      title,
+      input.aliases ?? [],
+      context,
+      input.matchStrategy,
+    );
     if (duplicate) {
       return this.updateEntity(duplicate, input, context);
     }
@@ -1191,7 +1199,29 @@ export class StateService {
   private resolveEntity(input: StateEntityMutation, context: StateAccessContext): StateEntity | null {
     if (input.entityId?.trim()) return this.requireEntity(input.entityId.trim(), context, true);
     if (!input.typeId || !input.title) return null;
-    return this.findPlausibleEntity(normalizeTypeId(input.typeId), input.title, input.aliases ?? [], context);
+    return this.findMatchingEntity(
+      normalizeTypeId(input.typeId),
+      input.title,
+      input.aliases ?? [],
+      context,
+      input.matchStrategy,
+    );
+  }
+
+  private findMatchingEntity(
+    typeId: string,
+    title: string,
+    aliases: readonly string[],
+    context: StateAccessContext,
+    strategy: StateEntityMutation["matchStrategy"] = "plausible",
+  ): StateEntity | null {
+    if (strategy === "none") return null;
+    if (strategy !== "exact") return this.findPlausibleEntity(typeId, title, aliases, context);
+    const names = new Set([title, ...aliases].map(normalizeName).filter(Boolean));
+    return this.query({ ...context, type: typeId, includeArchived: false, limit: 500 }).entities
+      .find((entity) => [entity.title, entity.slug, ...entity.aliases]
+        .map(normalizeName)
+        .some((name) => names.has(name))) ?? null;
   }
 
   private findPlausibleEntity(

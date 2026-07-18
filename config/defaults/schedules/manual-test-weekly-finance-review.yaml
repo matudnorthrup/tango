@@ -5,6 +5,17 @@ description: >
 enabled: false
 runtime: v2
 
+obsidian_log:
+  domain: Finance
+  job_name: Finance Review Dry Run
+
+state_tracking:
+  enabled: true
+  domain: finance
+  cadence: weekly
+  verification: none
+  review_checklist: finance
+
 schedule:
   cron: "0 7 * * 1"
   timezone: America/Los_Angeles
@@ -32,6 +43,15 @@ execution:
     agents/skills/finance-review.md. This manual schedule validates the process
     without changing financial records.
 
+    The scheduler has already initialized this period's dry-run
+    `finance-review` state entity. Query it before Step 1 and record each of the
+    seven evidence-backed checkpoints exactly as the skill specifies. A prose
+    summary is not a checkpoint, and you must not mark the overall review
+    complete yourself. Update the one initialized entity with today's
+    `review_date`, `dry_run: true`, `last_execution_status: running`, and a
+    non-null `schedule_run_id`. Never create another `finance-review` entity;
+    stop as blocked if that lookup is not unique.
+
     Dry-run rules:
     - You may refresh stale Lunch Money/Plaid account data with POST
       /plaid_accounts/fetch so the analysis is based on current data.
@@ -53,7 +73,7 @@ execution:
     gaps, budget pace signals, and any process deviations.
 
     Rate limit: wait 0.3s between Lunch Money API calls.
-  timeout_seconds: 600
+  timeout_seconds: 900
 
 provider:
   model: claude-sonnet-4-6
@@ -65,6 +85,8 @@ delivery:
 completion:
   workflow_id: manual-test-weekly-finance-review
   scope: daily
+  check_before_run: false
+  mark_on_success: false
 
 policy:
   max_consecutive_failures: 3

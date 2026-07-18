@@ -29,6 +29,47 @@ The same sections run in every phase. The phase changes strictness:
 - `close`: every unresolved item must be cleared or explicitly carried forward.
 - `post_close`: only handle late-arriving exceptions.
 
+## Canonical state checkpoints
+
+Scheduled finance reviews have a `finance-review` state entity initialized
+before the agent turn starts. Query `state_query` with `type: finance-review`
+and select the current period entity whose `dry_run` value matches this run.
+It must also have today's `review_date`, `last_execution_status: running`, and a
+non-null `schedule_run_id`. Use that entity ID for every checkpoint update.
+Never create a `finance-review` entity during a scheduled review. If exactly
+one initialized entity cannot be identified, report the review as blocked and
+stop instead of creating or guessing a record.
+
+Checkpoint writes are evidence gates, not progress narration. After each step
+actually finishes, call `state_update` in `patch` mode with that step's field
+and evidence field. Never mark a step from intended work, an old review note,
+or the final prose summary alone.
+
+| Review work | State field | Evidence requirement |
+| --- | --- | --- |
+| Confirm date, phase, and create the review record | `step_context` / `evidence_context` | Current date plus the exact review-note pointer |
+| Refresh and validate source data | `step_freshness` / `evidence_freshness` | Structured account freshness query/refresh result |
+| Check job health and transaction backlog | `step_job_health` / `evidence_job_health` | Current automation state or scheduler run references plus live backlog query |
+| Evaluate budget pace | `step_budget` / `evidence_budget` | Current Budget Targets source plus queried period totals |
+| Reconcile sinking funds | `step_sinking_funds` / `evidence_sinking_funds` | Current account/ledger results used for the conclusion |
+| Reconcile reimbursements and receipts | `step_reimbursements` / `evidence_reimbursements` | Receipt Registry/Ramp reconciliation results or an explicit unavailable result |
+| Apply phase close criteria and finish the note | `step_close` / `evidence_close` | Written review-note pointer and explicit criteria assessment |
+
+Allowed step values are:
+
+- `verified` — the check completed and found no owner action;
+- `flagged` — the check completed and produced an action or decision;
+- `blocked` — a required operation failed;
+- `unverified` — the source could not establish the truth;
+- `not_applicable` — the step genuinely does not apply to this phase.
+
+Add concise owner follow-ups to `open_actions`. Do not set `review_status` or
+the entity status to complete yourself. The scheduler finalizer evaluates all
+seven checkpoints after the turn and only transitions the review to `complete`
+or `complete_with_actions` when every step has terminal evidence. On timeout or
+failure, completed checkpoints remain in the append-only state history and the
+review becomes `blocked` instead of disappearing.
+
 ## Write policy
 
 Default review runs may:

@@ -39,7 +39,7 @@ describe("state management schema and governance", () => {
       expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)).toBeTruthy();
     }
     expect(db.prepare("SELECT id FROM state_entity_types ORDER BY id").all().map((row) => (row as { id: string }).id)).toEqual([
-      "body-composition", "project", "travel", "vehicle",
+      "automation-job", "body-composition", "finance-review", "project", "travel", "vehicle",
     ]);
     const stateTools = db.prepare("SELECT id FROM governance_tools WHERE id LIKE 'state_%' ORDER BY id").all().map((row) => (row as { id: string }).id);
     expect(stateTools).toEqual(["state_define_type", "state_query", "state_update"]);
@@ -88,6 +88,37 @@ describe("StateService", () => {
     expect(changed.entity.status).toBe("blocked");
     expect(changed.event?.messageId).toBe("message-3");
     expect(service.renderTurnReceipt("turn-3")).toContain("progress pct 10 → 40");
+    storage.close();
+  });
+
+  it("supports exact matching for distinct machine-owned projections", () => {
+    const { storage, service, context } = harness();
+    const production = service.mutate({
+      typeId: "project",
+      title: "Finance Review",
+      aliases: ["weekly-finance-review"],
+      matchStrategy: "exact",
+      status: "active",
+      attributes: {},
+    }, context);
+    const dryRun = service.mutate({
+      typeId: "project",
+      title: "Finance Review Dry Run",
+      aliases: ["manual-test-weekly-finance-review"],
+      matchStrategy: "exact",
+      status: "active",
+      attributes: {},
+    }, context);
+
+    expect(dryRun.entity.id).not.toBe(production.entity.id);
+    expect(service.query({ type: "project" }).entities).toHaveLength(2);
+    expect(service.mutate({
+      typeId: "project",
+      title: "Renamed Dry Run",
+      aliases: ["manual-test-weekly-finance-review"],
+      matchStrategy: "exact",
+      attributes: { next_action: "Verify the projection" },
+    }, context).entity.id).toBe(dryRun.entity.id);
     storage.close();
   });
 

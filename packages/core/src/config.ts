@@ -704,6 +704,14 @@ const obsidianLogSchema = z.object({
   job_name: z.string().min(1),
 }).optional();
 
+const scheduleStateTrackingSchema = z.object({
+  enabled: z.boolean(),
+  domain: z.string().min(1),
+  cadence: z.enum(["daily", "weekly", "monthly"]),
+  verification: z.enum(["none", "pre_check"]).optional(),
+  review_checklist: z.enum(["finance"]).optional(),
+}).optional();
+
 const scheduleSchema = z.object({
   id: z.string().min(1),
   display_name: z.string().min(1).optional(),
@@ -718,6 +726,7 @@ const scheduleSchema = z.object({
   completion: scheduleCompletionSchema,
   tags: z.array(z.string().min(1)).optional(),
   obsidian_log: obsidianLogSchema,
+  state_tracking: scheduleStateTrackingSchema,
 });
 
 export function loadScheduleConfigs(configDir: string): ScheduleConfig[] {
@@ -792,6 +801,15 @@ export function loadScheduleConfigs(configDir: string): ScheduleConfig[] {
         ? {
             domain: parsed.obsidian_log.domain,
             jobName: parsed.obsidian_log.job_name,
+          }
+        : undefined,
+      stateTracking: parsed.state_tracking
+        ? {
+            enabled: parsed.state_tracking.enabled,
+            domain: parsed.state_tracking.domain,
+            cadence: parsed.state_tracking.cadence,
+            verification: parsed.state_tracking.verification,
+            reviewChecklist: parsed.state_tracking.review_checklist,
           }
         : undefined,
     } satisfies ScheduleConfig),

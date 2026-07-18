@@ -16,6 +16,7 @@ import type {
   DeliveryFn,
   AlertFn,
   SystemLogFn,
+  ScheduleRunLifecycleFn,
 } from "./types.js";
 import { SchedulerStore } from "./store.js";
 import { executeSchedule, type ExecutionResult } from "./executor.js";
@@ -33,6 +34,8 @@ export interface EngineDeps {
   deliver?: DeliveryFn;
   alert?: AlertFn;
   systemLog?: SystemLogFn;
+  onRunStarted?: ScheduleRunLifecycleFn;
+  onRunFinished?: ScheduleRunLifecycleFn;
   db: import("node:sqlite").DatabaseSync;
 }
 
@@ -209,6 +212,19 @@ export class SchedulerEngine {
       workerId: config.execution.workerId,
     });
 
+    if (this.deps.onRunStarted) {
+      const run = store.getRun(runId);
+      if (run) {
+        try {
+          await this.deps.onRunStarted({ config, run });
+        } catch (error) {
+          console.error(
+            `[scheduler] run-start hook failed schedule=${config.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+
     console.error(
       `[scheduler] run:start schedule=${config.id} mode=${config.execution.mode}` +
         (config.execution.workerId ? ` worker=${config.execution.workerId}` : "")
@@ -331,6 +347,19 @@ export class SchedulerEngine {
     // Clear alert flag on success
     if (result.status === "ok") {
       this.alertedSchedules.delete(config.id);
+    }
+
+    if (this.deps.onRunFinished) {
+      const run = store.getRun(runId);
+      if (run) {
+        try {
+          await this.deps.onRunFinished({ config, run });
+        } catch (error) {
+          console.error(
+            `[scheduler] run-finished hook failed schedule=${config.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
     }
 
     // Post to system log channel (every run, regardless of status)

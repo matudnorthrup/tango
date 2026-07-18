@@ -253,6 +253,7 @@ import { StateObsidianAdapter } from "./state-obsidian-adapter.js";
 import { StateHealthAutoExportAdapter } from "./state-health-adapter.js";
 import { runStateMemorySupersession } from "./state-memory-supersession.js";
 import { StateLifecycleRunner } from "./state-lifecycle.js";
+import { StateSchedulerAdapter } from "./state-scheduler-adapter.js";
 import {
   buildV2EnabledAgentSet,
   buildV2RuntimeConfigs,
@@ -865,6 +866,11 @@ void stateObsidianAdapter.start().then((report) => {
   console.warn("[tango-state] Obsidian adapter startup scan failed", error);
 });
 const stateHealthAdapter = new StateHealthAutoExportAdapter(stateService);
+const stateSchedulerAdapter = new StateSchedulerAdapter({
+  service: stateService,
+  db: storage.getDatabase(),
+  vaultRoot: resolveStateVaultRoot(),
+});
 const stateLifecycleRunner = new StateLifecycleRunner({
   service: stateService,
   obsidian: stateObsidianAdapter,
@@ -1178,13 +1184,21 @@ function loadEnabledVoiceV2AgentRuntimeConfigs(input: {
 // Deterministic scheduler handlers — registered before scheduler starts
 // ---------------------------------------------------------------------------
 
+let scheduler: SchedulerService | null = null;
+
 registerDeterministicHandler("contacts-sync", contactsSyncHandler);
 registerDeterministicHandler("state-sweep", async () => {
   const report = await stateLifecycleRunner.run();
+  const schedulerBackfill = scheduler
+    ? await stateSchedulerAdapter.backfillLatest(scheduleConfigs, scheduler.getStore())
+    : { considered: 0, applied: 0, skipped: 0, failed: 0 };
+  const scheduledState = scheduler
+    ? await stateSchedulerAdapter.reconcileExpectedRuns(scheduleConfigs, scheduler.getStore())
+    : { considered: 0, overdue: 0, applied: 0, failed: 0 };
   return {
     status: report.health?.status === "unavailable" ? "skipped" : "ok",
-    summary: `state=${report.sweep.evaluated} stale=${report.sweep.stale} obsidian=${report.obsidian?.linked ?? 0} health=${report.health?.applied ?? 0} superseded=${report.supersession?.archived ?? 0} checkins=${report.checkIns.prompted}`,
-    data: { ...report },
+    summary: `state=${report.sweep.evaluated} stale=${report.sweep.stale} obsidian=${report.obsidian?.linked ?? 0} health=${report.health?.applied ?? 0} superseded=${report.supersession?.archived ?? 0} checkins=${report.checkIns.prompted} scheduler_backfill=${schedulerBackfill.applied} overdue_jobs=${scheduledState.overdue}`,
+    data: { ...report, schedulerBackfill, scheduledState },
   };
 });
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
@@ -1852,9 +1866,8 @@ registerDeterministicHandler("model-scorecard", async (_ctx) => {
 });
 
 // Start the persistent server, then initialize the scheduler
-let scheduler: SchedulerService | null = null;
 
-startPersistentMcpServer().then((port) => {
+startPersistentMcpServer().then(async (port) => {
   persistentMcpPort = port;
 
   // Initialize and start the scheduler once MCP is ready
@@ -2130,7 +2143,20 @@ startPersistentMcpServer().then((port) => {
       deliver: deliverToChannel,
       alert: sendAlert,
       systemLog: sendSystemLog,
+      onRunStarted: async ({ config, run }) => {
+        await stateSchedulerAdapter.recordStarted(config, run);
+      },
+      onRunFinished: async ({ config, run }) => {
+        await stateSchedulerAdapter.recordFinished(config, run);
+      },
     });
+    const stateBackfill = await stateSchedulerAdapter.backfillLatest(
+      scheduleConfigs,
+      scheduler.getStore(),
+    );
+    console.log(
+      `[tango-state] scheduler backfill considered=${stateBackfill.considered} applied=${stateBackfill.applied} skipped=${stateBackfill.skipped} failed=${stateBackfill.failed}`,
+    );
     // Only the canonical production bot runs the automatic scheduler tick loop.
     // Slot / worktree-dev instances (TANGO_SLOT set) skip it so they never
     // double-run scheduled jobs or fire real external side effects (email,

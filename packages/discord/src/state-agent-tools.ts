@@ -87,7 +87,7 @@ export function createStateTools(options: StateToolOptions = {}): AgentTool[] {
       name: "state_update",
       description: [
         "Create or update a canonical state entity through the validated append-only state ledger.",
-        "The seeded type IDs project, travel, body-composition, and vehicle already exist; inspect them with state_query {type:...} and use only declared attributes.",
+        "Seeded type IDs include project, travel, body-composition, vehicle, automation-job, and finance-review; inspect them with state_query {type:...} and use only declared attributes.",
         "Every mutation is idempotent, visible in a turn receipt, and revertible. Use revert_turn for 'undo that'.",
         "Modes: upsert, patch, transition, observation, note, archive, restore, revert_event, revert_turn.",
       ].join("\n"),
