@@ -32,7 +32,7 @@ afterEach(() => {
 
 function createHarness(): Harness {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-attachment-processing-"));
-  const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
+  const storage = new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
   const harness = {
     dir,
     storage,

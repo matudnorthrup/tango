@@ -28,7 +28,7 @@ afterEach(() => {
 function createStorage(): TangoStorage {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-project-state-"));
   tempDirs.push(dir);
-  return new TangoStorage(path.join(dir, "tango.sqlite"));
+  return new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
 }
 
 describe("project-state integration", () => {

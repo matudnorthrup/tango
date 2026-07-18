@@ -129,9 +129,11 @@ describe("GovernanceChecker", () => {
 describe("governance seed", () => {
   it("grants discord_send_image to send-image personas but not kilo", async () => {
     const { DatabaseSync } = await import("node:sqlite");
-    const { GOVERNANCE_DDL, GOVERNANCE_SEED } = await import("../src/governance-schema.js");
+    const { GOVERNANCE_DDL, GOVERNANCE_SEED, GOVERNANCE_EXAMPLE_SEED } = await import(
+      "../src/governance-schema.js"
+    );
     const db = new DatabaseSync(":memory:");
-    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED);
+    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED + GOVERNANCE_EXAMPLE_SEED);
 
     const checker = new GovernanceChecker(db as unknown as DatabaseSync);
     expect(checker.getToolAccessType("discord_send_image")).toBe("write");
@@ -154,9 +156,11 @@ describe("governance seed", () => {
 
   it("seeds Walmart shopping for Foxtrot instead of Sierra", async () => {
     const { DatabaseSync } = await import("node:sqlite");
-    const { GOVERNANCE_DDL, GOVERNANCE_SEED } = await import("../src/governance-schema.js");
+    const { GOVERNANCE_DDL, GOVERNANCE_SEED, GOVERNANCE_EXAMPLE_SEED } = await import(
+      "../src/governance-schema.js"
+    );
     const db = new DatabaseSync(":memory:");
-    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED);
+    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED + GOVERNANCE_EXAMPLE_SEED);
 
     const checker = new GovernanceChecker(db as unknown as DatabaseSync);
     expect(checker.getToolAccessType("walmart")).toBe("write");
@@ -168,14 +172,50 @@ describe("governance seed", () => {
 
   it("seeds local business search for Sierra research workers", async () => {
     const { DatabaseSync } = await import("node:sqlite");
-    const { GOVERNANCE_DDL, GOVERNANCE_SEED } = await import("../src/governance-schema.js");
+    const { GOVERNANCE_DDL, GOVERNANCE_SEED, GOVERNANCE_EXAMPLE_SEED } = await import(
+      "../src/governance-schema.js"
+    );
     const db = new DatabaseSync(":memory:");
-    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED);
+    db.exec(GOVERNANCE_DDL + GOVERNANCE_SEED + GOVERNANCE_EXAMPLE_SEED);
 
     const checker = new GovernanceChecker(db as unknown as DatabaseSync);
     expect(checker.getToolAccessType("local_business_search")).toBe("read");
     expect(checker.hasPermission("worker:research-assistant", "local_business_search", "read")).toBe(true);
     expect(checker.hasPermission("worker:sierra-ollama", "local_business_search", "read")).toBe(true);
     expect(checker.hasPermission("worker:sierra-ollama", "local_business_search", "write")).toBe(false);
+  });
+});
+
+describe("born ungranted (T-I-071)", () => {
+  it("a fresh database holds no roster principals and no non-owner grants", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const { TangoStorage } = await import("../src/storage.js");
+    const dir = mkdtempSync(path.join(tmpdir(), "t-i-071-"));
+    const storage = new TangoStorage(path.join(dir, "fresh.sqlite"));
+    const db = storage.getDatabase();
+    const one = (sql: string) => (db.prepare(sql).get() as { c: number }).c;
+    expect(one("SELECT COUNT(*) c FROM principals WHERE type IN ('agent','worker')")).toBe(0);
+    expect(one("SELECT COUNT(*) c FROM permissions WHERE principal_id != 'user:owner'")).toBe(0);
+    expect(one("SELECT COUNT(*) c FROM principals")).toBe(1);
+    expect(one("SELECT COUNT(*) c FROM governance_tools")).toBeGreaterThan(50);
+    storage.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("opting into the example roster restores the historical seeded world", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const { TangoStorage } = await import("../src/storage.js");
+    const dir = mkdtempSync(path.join(tmpdir(), "t-i-071ex-"));
+    const storage = new TangoStorage(path.join(dir, "fresh.sqlite"), { seedExampleRoster: true });
+    const db = storage.getDatabase();
+    const one = (sql: string) => (db.prepare(sql).get() as { c: number }).c;
+    expect(one("SELECT COUNT(*) c FROM principals WHERE type IN ('agent','worker')")).toBeGreaterThan(25);
+    expect(one("SELECT COUNT(*) c FROM permissions")).toBeGreaterThan(150);
+    storage.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 });

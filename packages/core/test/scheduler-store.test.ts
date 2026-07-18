@@ -9,7 +9,7 @@ const cleanups: Array<{ dir: string; storage: TangoStorage }> = [];
 
 function createStore() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-scheduler-store-"));
-  const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
+  const storage = new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
   const store = new SchedulerStore(storage.getDatabase());
   cleanups.push({ dir, storage });
   return { dir, storage, store };

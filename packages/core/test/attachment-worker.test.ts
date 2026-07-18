@@ -26,7 +26,7 @@ function createHarness(): Harness {
   return {
     dbPath,
     open: () => {
-      const storage = new TangoStorage(dbPath);
+      const storage = new TangoStorage(dbPath, { seedExampleRoster: true });
       cleanup.storages.add(storage);
       return {
         storage,

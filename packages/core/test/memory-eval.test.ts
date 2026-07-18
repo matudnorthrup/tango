@@ -30,7 +30,7 @@ function createTempDir(): string {
 }
 
 function createStorage(dir: string): TangoStorage {
-  return new TangoStorage(path.join(dir, "tango.sqlite"));
+  return new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
 }
 
 describe("memory-eval", () => {
