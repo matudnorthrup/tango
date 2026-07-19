@@ -2269,8 +2269,10 @@ registerDeterministicHandler("active-threads-tracker", createActiveThreadsTracke
 const orientationNudgeChannelId =
   process.env.ORIENTATION_NUDGE_CHANNEL_ID
   ?? process.env.TANGO_ORIENTATION_NUDGE_CHANNEL_ID
-  ?? agentRegistry.get("watson-ollama")?.voice?.defaultChannelId
+  // 2026-07-18 claude-primary flip (TGO-809): watson owns the primary dogfood
+  // channel again, so prefer its voice channel before the Ollama clone's.
   ?? agentRegistry.get("watson")?.voice?.defaultChannelId
+  ?? agentRegistry.get("watson-ollama")?.voice?.defaultChannelId
   ?? null;
 registerDeterministicHandler("orientation-nudge", createOrientationNudgeHandler(client, {
   channelId: orientationNudgeChannelId,

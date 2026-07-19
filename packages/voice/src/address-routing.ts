@@ -326,7 +326,9 @@ export class VoiceTargetDirectory {
       }
     }
 
-    for (const fallbackId of ["watson-ollama", "watson"]) {
+    // 2026-07-18 claude-primary flip (TGO-809): the original Claude-backed
+    // watson is the default voice target again; the clone is the escape hatch.
+    for (const fallbackId of ["watson", "watson-ollama"]) {
       const fallback = this.getAgent(fallbackId);
       if (fallback && !this.isSystemAgent(fallback.id)) return fallback;
     }

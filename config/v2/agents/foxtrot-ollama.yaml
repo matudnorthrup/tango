@@ -132,13 +132,13 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — Ollama clones are the primary voice targets: the bare
-# name (and hey/hello greetings, which the matcher treats as optional
-# prefixes) routes here; "Zulu Foxtrot" is the original's fallback wake word.
+# Voice addressing — 2026-07-18 claude-primary flip (TGO-809): the bare
+# name routes to the original Claude agent again; this clone keeps
+# "Bravo Foxtrot" and gains "Zulu Foxtrot" as the escape-hatch wake words.
 voice:
   call_signs:
     - "Bravo Foxtrot"
-    - Foxtrot
+    - "Zulu Foxtrot"
   kokoro_voice: am_echo
   default_channel_id: "100000000000000005"
   smoke_test_channel_id: "100000000000001005" # foxtrot-test (placeholder; real id in profile overlay)

@@ -97,7 +97,10 @@ memory:
   alias_agent_ids:
     - watson
     - watson-ollama
-  extraction_model: claude-haiku-4-5
+  # 2026-07-18 claude-primary flip (TGO-809): extraction stays on DeepSeek —
+  # the clones have extracted with it since June and it conserves the Claude
+  # subscription budget for turn traffic.
+  extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
@@ -121,7 +124,7 @@ responsibilities:
 # Voice configuration
 voice:
   call_signs:
-    - "Zulu Watson"
+    - Watson
   kokoro_voice: bm_george
   default_channel_id: "100000000000000001"
   smoke_test_channel_id: "100000000000001001"
@@ -143,6 +146,9 @@ provider:
   fallback:
     - claude-oauth-secondary
     - codex
+    # 2026-07-18 (TGO-809): a full Claude outage fails over to the
+    # unmetered Ollama/DeepSeek path after codex.
+    - ollama
 
 tools:
   mode: allowlist
@@ -160,3 +166,6 @@ deterministic_routing:
     fallback:
       - claude-oauth-secondary
       - codex
+      # 2026-07-18 (TGO-809): a full Claude outage fails over to the
+      # unmetered Ollama/DeepSeek path after codex.
+      - ollama

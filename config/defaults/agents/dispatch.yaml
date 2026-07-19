@@ -11,6 +11,8 @@ default_project: personal
 voice:
   call_signs:
     - Tango
-  default_prompt_agent: watson-ollama
+  # 2026-07-18 claude-primary flip (TGO-809): unaddressed speech goes back
+  # to the original Claude-backed watson.
+  default_prompt_agent: watson
 response_mode: concise
 prompt_file: ../../../agents/system/dispatch/soul.md

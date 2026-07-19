@@ -115,15 +115,13 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — Ollama clones are the primary voice targets: the bare
-# name and nicknames (and hey/hello greetings, which the matcher treats as
-# optional prefixes) route here; "Zulu Malibu" is the original's fallback.
+# Voice addressing — 2026-07-18 claude-primary flip (TGO-809): the bare
+# name and nicknames route to the original Claude agent again; this clone keeps
+# "Bravo Malibu" and gains "Zulu Malibu" as the escape-hatch wake words.
 voice:
   call_signs:
     - "Bravo Malibu"
-    - Malibu
-    - Malibooth
-    - "Coach Malibu"
+    - "Zulu Malibu"
   kokoro_voice: am_puck
   default_channel_id: "100000000000000002"
   smoke_test_channel_id: "100000000000001002" # malibu-test (placeholder; real id in profile overlay)

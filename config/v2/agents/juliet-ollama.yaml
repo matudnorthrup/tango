@@ -94,13 +94,13 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — Ollama clones are the primary voice targets: the bare
-# name (and hey/hello greetings, which the matcher treats as optional
-# prefixes) routes here; "Zulu Juliet" is the original's fallback wake word.
+# Voice addressing — 2026-07-18 claude-primary flip (TGO-809): the bare
+# name routes to the original Claude agent again; this clone keeps
+# "Bravo Juliet" and gains "Zulu Juliet" as the escape-hatch wake words.
 voice:
   call_signs:
     - "Bravo Juliet"
-    - Juliet
+    - "Zulu Juliet"
   kokoro_voice: af_bella
   default_channel_id: "100000000000000008"
   smoke_test_channel_id: "100000000000001007" # juliet-test (placeholder; real id in profile overlay)

@@ -71,14 +71,19 @@ memory:
   alias_agent_ids:
     - malibu
     - malibu-ollama
-  extraction_model: claude-haiku-4-5
+  # 2026-07-18 claude-primary flip (TGO-809): extraction stays on DeepSeek —
+  # the clones have extracted with it since June and it conserves the Claude
+  # subscription budget for turn traffic.
+  extraction_model: deepseek-v4-pro:cloud
   importance_threshold: 0.4
   scheduled_reflection: enabled
 
 # Voice configuration
 voice:
   call_signs:
-    - "Zulu Malibu"
+    - Malibu
+    - Malibooth
+    - "Coach Malibu"
   kokoro_voice: am_puck
   default_channel_id: "100000000000000002"
   smoke_test_channel_id: "100000000000001002"
@@ -99,6 +104,9 @@ provider:
   fallback:
     - claude-oauth-secondary
     - codex
+    # 2026-07-18 (TGO-809): a full Claude outage fails over to the
+    # unmetered Ollama/DeepSeek path after codex.
+    - ollama
 
 tools:
   mode: off
@@ -115,3 +123,6 @@ deterministic_routing:
     fallback:
       - claude-oauth-secondary
       - codex
+      # 2026-07-18 (TGO-809): a full Claude outage fails over to the
+      # unmetered Ollama/DeepSeek path after codex.
+      - ollama
