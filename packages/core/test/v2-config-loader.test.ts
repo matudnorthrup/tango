@@ -48,12 +48,12 @@ describe("loadV2AgentConfig", () => {
       },
       memory: {
         postTurnExtraction: "enabled",
-        extractionModel: "claude-haiku-4-5",
+        extractionModel: "deepseek-v4-pro:cloud",
         importanceThreshold: 0.4,
         scheduledReflection: "enabled",
       },
       voice: {
-        callSigns: ["Zulu Malibu"],
+        callSigns: ["Malibu", "Malibooth", "Coach Malibu"],
         kokoroVoice: "am_puck",
         defaultChannelId: "100000000000000002",
         smokeTestChannelId: "100000000000001002",
@@ -250,7 +250,7 @@ describe("loadV2AgentConfig", () => {
         timeoutSeconds: 2700,
       },
       voice: {
-        callSigns: ["Zulu Porter"],
+        callSigns: ["Porter", "Brother Porter"],
         kokoroVoice: "am_liam",
         defaultChannelId: "100000000000000006",
         smokeTestChannelId: "100000000000001006",

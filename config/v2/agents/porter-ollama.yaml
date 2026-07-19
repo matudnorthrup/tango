@@ -115,14 +115,13 @@ deterministic_routing:
       - claude-oauth-secondary
       - codex
 
-# Voice addressing — Ollama clones are the primary voice targets: the bare
-# name and nicknames (and hey/hello greetings, which the matcher treats as
-# optional prefixes) route here; "Zulu Porter" is the original's fallback.
+# Voice addressing — 2026-07-18 claude-primary flip (TGO-809): the bare
+# name and nicknames route to the original Claude agent again; this clone keeps
+# "Bravo Porter" and gains "Zulu Porter" as the escape-hatch wake words.
 voice:
   call_signs:
     - "Bravo Porter"
-    - Porter
-    - Brother Porter
+    - "Zulu Porter"
   kokoro_voice: am_liam
   default_channel_id: "100000000000000006"
   smoke_test_channel_id: "100000000000001006" # porter-test (placeholder; real id in profile overlay)

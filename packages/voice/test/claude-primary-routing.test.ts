@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 function createConfigDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-voice-ollama-primary-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-voice-claude-primary-"));
   tempDirs.push(dir);
   fs.mkdirSync(path.join(dir, "agents"), { recursive: true });
   return dir;
@@ -28,7 +28,11 @@ function writeAgent(dir: string, fileName: string, lines: string[]): void {
   fs.writeFileSync(path.join(dir, "agents", fileName), `${lines.join("\n")}\n`);
 }
 
-describe("Ollama-primary call-sign scheme", () => {
+// 2026-07-18 claude-primary flip (TGO-809): inverse of the June Ollama-primary
+// scheme (PR #110). Bare names, greetings, and nicknames reach the original
+// Claude-backed agents again; the clones keep "Bravo X" and gain "Zulu X" as
+// escape-hatch wake words.
+describe("Claude-primary call-sign scheme", () => {
   function buildPairDirectory(options?: { dispatchDefault?: string }): VoiceTargetDirectory {
     const dir = createConfigDir();
     writeAgent(dir, "dispatch.yaml", [
@@ -50,7 +54,7 @@ describe("Ollama-primary call-sign scheme", () => {
       "  default: claude-oauth",
       "voice:",
       "  call_signs:",
-      '    - "Zulu Watson"'
+      "    - Watson"
     ]);
     writeAgent(dir, "watson-ollama.yaml", [
       "id: watson-ollama",
@@ -61,12 +65,12 @@ describe("Ollama-primary call-sign scheme", () => {
       "voice:",
       "  call_signs:",
       '    - "Bravo Watson"',
-      "    - Watson"
+      '    - "Zulu Watson"'
     ]);
     return new VoiceTargetDirectory(dir);
   }
 
-  it("routes the bare name and hey/hello greetings to the clone", () => {
+  it("routes the bare name and hey/hello greetings to the original", () => {
     const directory = buildPairDirectory();
     for (const transcript of [
       "Watson, status update",
@@ -75,7 +79,7 @@ describe("Ollama-primary call-sign scheme", () => {
       "hey watson what's up"
     ]) {
       expect(directory.resolveExplicitAddress(transcript)).toMatchObject({
-        agent: { id: "watson-ollama" }
+        agent: { id: "watson" }
       });
     }
   });
@@ -92,7 +96,7 @@ describe("Ollama-primary call-sign scheme", () => {
     });
   });
 
-  it("routes Zulu forms to the original, including greeting and comma variants", () => {
+  it("routes Zulu forms to the clone, including greeting and comma variants", () => {
     const directory = buildPairDirectory();
     for (const transcript of [
       "Zulu Watson, status",
@@ -100,7 +104,7 @@ describe("Ollama-primary call-sign scheme", () => {
       "hello Zulu Watson, status"
     ]) {
       expect(directory.resolveExplicitAddress(transcript)).toMatchObject({
-        agent: { id: "watson" },
+        agent: { id: "watson-ollama" },
         matchedName: "Zulu Watson"
       });
     }
@@ -120,13 +124,13 @@ describe("Ollama-primary call-sign scheme", () => {
   });
 
   it("prefers the configured default prompt agent", () => {
-    const directory = buildPairDirectory({ dispatchDefault: "watson-ollama" });
-    expect(directory.resolveDefaultPromptAgent(null)?.id).toBe("watson-ollama");
+    const directory = buildPairDirectory({ dispatchDefault: "watson" });
+    expect(directory.resolveDefaultPromptAgent(null)?.id).toBe("watson");
   });
 
-  it("falls back to watson-ollama before watson when no default is configured", () => {
+  it("falls back to watson before watson-ollama when no default is configured", () => {
     const directory = buildPairDirectory();
-    expect(directory.resolveDefaultPromptAgent(null)?.id).toBe("watson-ollama");
+    expect(directory.resolveDefaultPromptAgent(null)?.id).toBe("watson");
   });
 });
 
@@ -205,13 +209,13 @@ describe("shipped repo config call-sign matrix", () => {
       const clone = `${name.toLowerCase()}-ollama`;
       const original = name.toLowerCase();
       const expectations: Array<[string, string]> = [
-        [`${name}, status update`, clone],
-        [`hello ${name}, status update`, clone],
-        [`hey ${name} what's up`, clone],
+        [`${name}, status update`, original],
+        [`hello ${name}, status update`, original],
+        [`hey ${name} what's up`, original],
         [`Bravo ${name}, status update`, clone],
         [`bravo, ${name.toLowerCase()} status`, clone],
-        [`Zulu ${name}, status update`, original],
-        [`zulu, ${name.toLowerCase()}, status`, original]
+        [`Zulu ${name}, status update`, clone],
+        [`zulu, ${name.toLowerCase()}, status`, clone]
       ];
       for (const [transcript, expectedAgentId] of expectations) {
         const resolved = directory.resolveExplicitAddress(transcript);
@@ -222,11 +226,11 @@ describe("shipped repo config call-sign matrix", () => {
     }
   });
 
-  it("keeps nickname aliases on the clones", () => {
+  it("keeps nickname aliases on the originals", () => {
     const directory = buildRepoDirectory();
-    expect(directory.resolveExplicitAddress("Malibooth, hi")?.agent.id).toBe("malibu-ollama");
-    expect(directory.resolveExplicitAddress("Coach Malibu, hi")?.agent.id).toBe("malibu-ollama");
-    expect(directory.resolveExplicitAddress("Brother Porter, hi")?.agent.id).toBe("porter-ollama");
+    expect(directory.resolveExplicitAddress("Malibooth, hi")?.agent.id).toBe("malibu");
+    expect(directory.resolveExplicitAddress("Coach Malibu, hi")?.agent.id).toBe("malibu");
+    expect(directory.resolveExplicitAddress("Brother Porter, hi")?.agent.id).toBe("porter");
   });
 
   it("keeps unpaired agents on their bare names", () => {
@@ -235,12 +239,12 @@ describe("shipped repo config call-sign matrix", () => {
     expect(directory.resolveExplicitAddress("Tango, settings")?.agent.id).toBe("dispatch");
   });
 
-  it("defaults unaddressed speech to watson-ollama", () => {
+  it("defaults unaddressed speech to watson", () => {
     const directory = buildRepoDirectory();
-    expect(directory.resolveDefaultPromptAgent(null)?.id).toBe("watson-ollama");
+    expect(directory.resolveDefaultPromptAgent(null)?.id).toBe("watson");
   });
 
-  it("runs kilo on the Ollama backend (TGO-735)", () => {
+  it("keeps kilo on the Ollama backend (TGO-735, unchanged by TGO-809)", () => {
     const kilo = yaml.load(
       fs.readFileSync(path.join(repoRoot, "config/v2/agents/kilo.yaml"), "utf8")
     ) as { provider?: { default?: string }; runtime?: { model?: string } };
