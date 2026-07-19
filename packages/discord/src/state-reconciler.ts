@@ -4,6 +4,8 @@ import type {
   StateAccessContext,
   StateEventKind,
   StateMutationContext,
+  StateReferenceMutation,
+  StateRelationMutation,
   StateService,
   V2AgentConfig,
 } from "@tango/core";
@@ -42,6 +44,17 @@ export interface StateProposal {
   status?: string | null;
   summary?: string | null;
   bodyPointer?: string | null;
+  projectEntityId?: string | null;
+  ownerUserId?: string | null;
+  ownerAgentId?: string | null;
+  visibility?: string | null;
+  dueAt?: string | null;
+  nextCheckAt?: string | null;
+  expectedResponseAt?: string | null;
+  lastProgressAt?: string | null;
+  markProgress?: boolean;
+  relations?: StateRelationMutation[];
+  references?: StateReferenceMutation[];
   note?: string;
   occurredAt?: string;
   targetTurnId?: string;
@@ -118,7 +131,7 @@ export function buildStateReconcilerPrompt(input: {
     "You are Tango's State Reconciler. You do bookkeeping only; never answer the user.",
     "Inspect every completed turn and propose only grounded changes to canonical typed state.",
     "Return ONLY one JSON object with this shape:",
-    '{"changes":[{"action":"observation|update|transition|new_entity|revert|no_op","entity_id":"...","type_id":"...","title":"...","aliases":["..."],"attributes":{},"status":"...","summary":"...","body_pointer":"...","note":"...","occurred_at":"ISO timestamp","target_turn_id":"...","evidence":"exact quote from turn"}],"engaged_entity_ids":["..."]}',
+    '{"changes":[{"action":"observation|update|transition|new_entity|revert|no_op","entity_id":"...","type_id":"...","title":"...","aliases":["..."],"attributes":{},"status":"...","summary":"...","body_pointer":"...","project_entity_id":"...","owner_user_id":"...","owner_agent_id":"...","visibility":"...","due_at":"ISO timestamp","next_check_at":"ISO timestamp","expected_response_at":"ISO timestamp","last_progress_at":"ISO timestamp","mark_progress":true,"relations":[{"kind":"depends_on","target_entity_id":"...","metadata":{}}],"references":[{"role":"evidence","ref":"obsidian:path-or-log-ref","label":"..."}],"note":"...","occurred_at":"ISO timestamp","target_turn_id":"...","evidence":"exact quote from turn"}],"engaged_entity_ids":["..."]}',
     "",
     "Rules:",
     "- Every non-no_op proposal MUST include an exact evidence quote present in the user message, assistant reply, or shown tool result.",
@@ -130,6 +143,9 @@ export function buildStateReconcilerPrompt(input: {
     "- If a known entity is called a new name, update aliases on that same entity.",
     "- 'undo that' means revert the previous state-changing turn. Corrections are updates with the corrected value.",
     "- State-shaped current facts belong here; preferences, biography, feelings, and narrative do not.",
+    "- Project association, owners, temporal fields, relations, and references are generic bookkeeping fields available to every entity type; do not invent any of them.",
+    "- mark_progress=true only for meaningful forward movement explicitly established by the turn. Routine touches, notes, reformatting, and status checks are not progress.",
+    "- NEVER infer completion from narrative, plans, summaries, document existence, or optimistic assistant prose. A terminal status requires an explicit completion statement or deterministic tool result, and any cited log/document should be captured as a reference.",
     "- Use occurred_at only when the turn explicitly establishes when the fact was true.",
     '- Example: "Track a project named X as active at 10 percent" with project in the catalog becomes {"action":"new_entity","type_id":"project","title":"X","status":"active","attributes":{"progress_pct":10},"evidence":"exact user quote"}.',
     "- If nothing changed, return {\"changes\":[],\"engaged_entity_ids\":[]}.",
@@ -333,6 +349,17 @@ async function applyProposal(
     ...(proposal.status !== undefined ? { status: proposal.status } : {}),
     ...(proposal.summary !== undefined ? { summary: proposal.summary } : {}),
     ...(proposal.bodyPointer !== undefined ? { bodyPointer: proposal.bodyPointer } : {}),
+    ...(proposal.projectEntityId !== undefined ? { projectEntityId: proposal.projectEntityId } : {}),
+    ...(proposal.ownerUserId !== undefined ? { ownerUserId: proposal.ownerUserId } : {}),
+    ...(proposal.ownerAgentId !== undefined ? { ownerAgentId: proposal.ownerAgentId } : {}),
+    ...(proposal.visibility !== undefined ? { visibility: proposal.visibility } : {}),
+    ...(proposal.dueAt !== undefined ? { dueAt: proposal.dueAt } : {}),
+    ...(proposal.nextCheckAt !== undefined ? { nextCheckAt: proposal.nextCheckAt } : {}),
+    ...(proposal.expectedResponseAt !== undefined ? { expectedResponseAt: proposal.expectedResponseAt } : {}),
+    ...(proposal.lastProgressAt !== undefined ? { lastProgressAt: proposal.lastProgressAt } : {}),
+    ...(proposal.markProgress !== undefined ? { markProgress: proposal.markProgress } : {}),
+    ...(proposal.relations ? { relations: proposal.relations } : {}),
+    ...(proposal.references ? { references: proposal.references } : {}),
     ...(proposal.note ? { note: proposal.note } : {}),
     kind,
   }, context);
@@ -378,6 +405,8 @@ function normalizeProposal(value: unknown): StateProposal[] {
   if (!actionRaw || !allowed.has(actionRaw as StateProposal["action"])) return [];
   const evidence = stringValue(value.evidence) ?? "";
   const attributes = isRecord(value.attributes) ? value.attributes : undefined;
+  const relations = normalizeRelations(value.relations);
+  const references = normalizeReferences(value.references);
   return [{
     action: actionRaw as StateProposal["action"],
     ...(stringValue(value.entity_id ?? value.entityId) ? { entityId: stringValue(value.entity_id ?? value.entityId)! } : {}),
@@ -392,11 +421,82 @@ function normalizeProposal(value: unknown): StateProposal[] {
       : value.bodyPointer === null || typeof value.bodyPointer === "string"
         ? { bodyPointer: value.bodyPointer as string | null }
         : {}),
+    ...nullableStringProposal(value, "project_entity_id", "projectEntityId"),
+    ...nullableStringProposal(value, "owner_user_id", "ownerUserId"),
+    ...nullableStringProposal(value, "owner_agent_id", "ownerAgentId"),
+    ...nullableStringProposal(value, "visibility", "visibility"),
+    ...nullableStringProposal(value, "due_at", "dueAt"),
+    ...nullableStringProposal(value, "next_check_at", "nextCheckAt"),
+    ...nullableStringProposal(value, "expected_response_at", "expectedResponseAt"),
+    ...nullableStringProposal(value, "last_progress_at", "lastProgressAt"),
+    ...(typeof value.mark_progress === "boolean"
+      ? { markProgress: value.mark_progress }
+      : typeof value.markProgress === "boolean"
+        ? { markProgress: value.markProgress }
+        : {}),
+    ...(relations ? { relations } : {}),
+    ...(references ? { references } : {}),
     ...(stringValue(value.note) ? { note: stringValue(value.note)! } : {}),
     ...(stringValue(value.occurred_at ?? value.occurredAt) ? { occurredAt: stringValue(value.occurred_at ?? value.occurredAt)! } : {}),
     ...(stringValue(value.target_turn_id ?? value.targetTurnId) ? { targetTurnId: stringValue(value.target_turn_id ?? value.targetTurnId)! } : {}),
     evidence,
   }];
+}
+
+function nullableStringProposal(
+  value: Record<string, unknown>,
+  snakeKey: string,
+  camelKey: keyof Pick<StateProposal,
+    | "projectEntityId"
+    | "ownerUserId"
+    | "ownerAgentId"
+    | "visibility"
+    | "dueAt"
+    | "nextCheckAt"
+    | "expectedResponseAt"
+    | "lastProgressAt">,
+): Partial<StateProposal> {
+  const raw = value[snakeKey] !== undefined ? value[snakeKey] : value[camelKey];
+  return raw === null || typeof raw === "string" ? { [camelKey]: raw } : {};
+}
+
+function normalizeRelations(value: unknown): StateRelationMutation[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("State Reconciler relations must be an array.");
+  return value.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`State Reconciler relations[${index}] must be an object.`);
+    const kind = stringValue(item.kind);
+    const targetEntityId = stringValue(item.target_entity_id ?? item.targetEntityId);
+    if (!kind || !targetEntityId) throw new Error(`State Reconciler relations[${index}] requires kind and target_entity_id.`);
+    return {
+      kind,
+      targetEntityId,
+      ...(item.metadata === null || isRecord(item.metadata) ? { metadata: item.metadata } : {}),
+      ...(typeof item.remove === "boolean" ? { remove: item.remove } : {}),
+    };
+  });
+}
+
+function normalizeReferences(value: unknown): StateReferenceMutation[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("State Reconciler references must be an array.");
+  return value.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`State Reconciler references[${index}] must be an object.`);
+    const role = stringValue(item.role);
+    const ref = stringValue(item.ref);
+    if (!role || !ref) throw new Error(`State Reconciler references[${index}] requires role and ref.`);
+    const supportsEventId = item.supports_event_id ?? item.supportsEventId;
+    return {
+      role,
+      ref,
+      ...(item.label === null || typeof item.label === "string" ? { label: item.label } : {}),
+      ...(item.metadata === null || isRecord(item.metadata) ? { metadata: item.metadata } : {}),
+      ...(supportsEventId === null || (typeof supportsEventId === "number" && Number.isInteger(supportsEventId) && supportsEventId > 0)
+        ? { supportsEventId }
+        : {}),
+      ...(typeof item.remove === "boolean" ? { remove: item.remove } : {}),
+    };
+  });
 }
 
 const StateProposalActions: readonly StateProposal["action"][] = [

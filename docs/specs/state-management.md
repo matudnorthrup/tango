@@ -1,8 +1,9 @@
 # State Management — Spec
 
-**Status:** v5 — simplification pass: verdicts batched, receipts simplified, Obsidian editing rebuilt as an ingestion adapter, v1 scope trimmed (2026-07-17)
+**Status:** v6 — generic project associations, relations/evidence, temporal semantics, profile type packs, and deterministic Markdown/Obsidian views (2026-07-18)
 **Owner:** Tango PM · stakeholder: Devin
 **Tracking:** Linear project *State Management* (work breakdown + status live there; this doc is the durable spec)
+**Follow-on tracking:** Linear project *Generic State Projects & Views*
 **Companion:** [`unified-memory-system.md`](unified-memory-system.md) — narrative/arc memory. This spec covers *typed, structured, deterministic* state. The two share substrate patterns and converge (§15).
 
 ---
@@ -78,6 +79,10 @@ into every turn as canonical truth that overrides memory.*
 - **Staleness is a first-class signal**: per-type freshness policy, sweep job,
   nudges, auto-expiry.
 - **Human-observable**: a read-write dashboard on the tailnet (§13).
+- **Configurable use-case vocabulary and views:** optional profile-layer type
+  packs define domain schemas without changing the engine, and deterministic
+  view definitions project State + Atlas into read-only Markdown/Obsidian
+  documents (§20).
 
 **Non-goals**
 
@@ -106,6 +111,9 @@ into every turn as canonical truth that overrides memory.*
 | History discipline | **Archive-only; two ledgers** (2026-07-17) | Nothing is overwritten or deleted, anywhere. Entities finish/archive via status, events are append-only (reverts are new events), and Atlas memories are archived — reversibly — never edited or removed. Atlas is the *conversational history*; state is the *state history*; they diverge by design and are reconciled at read time (§11). |
 | V1 simplification pass | **Accepted** (2026-07-17) | Supersession verdicts run batched in the sweep, not on-write (§11); receipts are a follow-up line, edit-in-place is an enhancement (§10); undo defaults to turn-level (§10); reconciler snapshot carries a full entity name-index (§9); Slice 4 ships two adapters (health-export + Obsidian), workout + OwnTracks deferred — OwnTracks has a hidden revive-the-feed dependency (§8); dashboard writes go through a bot-process HTTP API and the core DB gains `busy_timeout` (§5, §13). |
 | Linear sync | **Skipped for v1** (2026-07-16) | Project entities are native; revisit a one-way Linear adapter later. |
+| Use-case vocabulary | **Profile-config type packs; no domain types in the kernel** (2026-07-18) | Work items, milestones, documents, costs, and other domain concepts are ordinary dynamic types. Packs contain schemas only and install transactionally through the existing additive-only type service. |
+| Generated project documents | **Deterministic State + Atlas projections** (2026-07-18) | Views are configuration, not engine behavior. Generated Markdown is stamped read-only, excluded from Atlas indexing, ignored by state-body ingestion, and never overwrites a human-authored note. |
+| Generic project association | **`project_entity_id` references a canonical `project` state entity** (2026-07-18) | The name deliberately avoids collision with legacy `project_state.project_id`, which is a conversation key. Project visibility is inherited by associated entities. |
 
 ---
 
@@ -160,8 +168,9 @@ weekly review note. A normal agent return never completes a review by itself.
 ## 5. Storage
 
 **Location:** `tango.sqlite` (core store), new migration. Check live
-`PRAGMA user_version` before numbering (the v1 substrate is 63; the scoped
-workflow-projection type seeds are migration 64).
+`PRAGMA user_version` before numbering (the v1 substrate is 63; scoped
+workflow-projection type seeds are migration 64; the generic project/view
+kernel is migration 65; seeded terminal lifecycle metadata is migration 66).
 Atlas stays the *semantic* tier; state is *relational* and belongs beside
 `active_tasks` / `project_state`, sharing their WAL/transaction semantics.
 Because `tango.sqlite` is per-profile, all state data is profile-scoped by
@@ -686,8 +695,10 @@ auth; types read-only in v1** (§3).
 - Seed `state_query` / `state_update` / `state_define_type` in
   `governance_tools` + grants in the same migration; include all `-ollama`
   clones (TGO-737 lesson).
-- **Type-level visibility:** `visibility: private:<scope>` types (health,
-  mental-health) are only visible to designated agents' queries and digests;
+- **Inherited visibility:** `visibility: private:<scope>` types and entities
+  are only visible to designated agents' queries and digests. An entity also
+  inherits every containing project's visibility, so a child can never widen
+  a private type or project. This is
   enforced in the service layer via the existing 4-step governance resolution,
   logged to `governance_log`. The reconciler honors the same scoping: it only
   receives (and can only write) types visible to the serving agent's context.
@@ -720,7 +731,7 @@ auth; types read-only in v1** (§3).
 | **`active_context_items`** | Superseded. Same idea, built in v1, never wired (0 rows). Retire rather than resurrect: its schema lacks types/events/staleness, and dormant code is a false floor. |
 | **`topics` / `project_focus` / `topic_focus`** | Near-empty in practice (0 / 6 rows); used as digest-scoping inputs when present, but the maintained focus signal is the new reconciler-written `state_focus` (§7). Topic status maintenance can later ride the sweep. |
 | **Linear** | Stays the source of truth for Tango dev projects, unsynced (locked decision). A one-way adapter into `project` entities is a candidate follow-on after Slice 5. |
-| **Obsidian** | Human-readable tier per the locked boundary rule: entities point at vault docs (`body_pointer`); declared fields sync two-way via the Obsidian adapter (§7.1) with the head canonical; write-guard + `source_kind` protections from UMS apply to body writes; the mirror touches only declared frontmatter keys. |
+| **Obsidian** | Human-readable tier per the locked boundary rule. Human-authored linked bodies use `body_pointer` and declared-field ingestion (§7.1), with the state head canonical. Separately, configured views can generate read-only Markdown/Obsidian projections from State + Atlas. Generated projections are not linked-body inputs or Atlas memories and can only change through regeneration. |
 
 ---
 
@@ -768,6 +779,22 @@ tested"):
     digest; a chat-driven change appears in the doc's frontmatter; an
     unrelated narrative edit produces **no** state event (mirror + hash gate
     proven).
+14. **Generic project decomposition:** a synthetic project can associate
+    arbitrary dynamic entity types, owners, deadlines, next checks, expected
+    responses, dependencies, and evidence pointers without adding a
+    use-case-specific table or engine branch.
+15. **Meaningful progress and overdue:** notes/check-ins do not advance
+    `last_progress_at`; explicit progress does. Queries for overdue work and
+    progress older/newer than N days use the injected service clock and remain
+    deterministic in tests.
+16. **Profile type pack:** an enabled schema-only pack installs idempotently;
+    an incompatible pack rolls back atomically without creating entities or
+    preventing independent packs from installing.
+17. **Generated view isolation:** a configured project view renders stable
+    State + Atlas Markdown into an explicitly configured root, does not rewrite
+    unchanged output, cannot escape through paths/symlinks, never overwrites a
+    human note, cannot be edited through Obsidian tools, and is neither indexed
+    into Atlas nor ingested back into State.
 
 ---
 
@@ -850,3 +877,109 @@ Same discipline as UMS: thin end-to-end increments, live-tested, then widen.
   follow-on once UMS lands.)
 - Per-slice issues carry the §16/§17 acceptance criteria as validation gates;
   live-test evidence attached before Done.
+
+---
+
+## 20. Generic project associations, type packs, and views (v6)
+
+The v6 extension keeps the state engine abstract. It adds reusable substrate
+and configuration rather than hard-coding case-management vocabulary.
+
+### 20.1 Kernel additions (migrations 65–66)
+
+Every entity may carry these cross-cutting fields:
+
+- `project_entity_id` — optional self-reference to a canonical `project`
+  entity. Nested associations are allowed; cycles are rejected.
+- `visibility` — optional entity restriction. Effective access is the
+  intersection of type, entity, and containing-project visibility.
+- `due_at`, `next_check_at`, `expected_response_at`, `last_progress_at`, and
+  `closed_at` — generic operational time semantics. `overdue` is derived from
+  `due_at` and `closed_at`, never stored as a second truth.
+- `owner_user_id` and `owner_agent_id` — generic responsibility fields.
+
+Two append-only link tables extend the head/event model:
+
+```text
+state_entity_relations   source → target, arbitrary kind + metadata,
+                         created/archived by state events
+state_entity_references  entity → provider-neutral ref, arbitrary role,
+                         optional supported event + metadata
+```
+
+Relation and reference additions/removals are encoded into the same event
+ledger and revert with their originating event or turn. References store
+pointers such as a note, log, receipt, or source URI—not document contents.
+
+The deterministic query surface adds project, owner, source, deadline,
+overdue, next-check, expected-response, exact/relative progress age,
+relation, and reference-role filters. Relation filters only consider targets
+visible to the caller.
+
+Migration 66 additively marks the terminal statuses on statusful seeded types
+that predate the `statuses.terminal` contract. Existing terminal additions are
+preserved. Existing heads already in a terminal status receive `closed_at`
+from their last event (falling back to `updated_at`), so overdue calculations
+are correct immediately after upgrade.
+
+### 20.2 Type packs are configuration, not kernel types
+
+Layered `state-type-packs/*.yaml` files contain schema definitions only. Real
+domain packs belong in the profile configuration layer; tracked defaults and
+tests must remain sanitized. A pack can define any number of dynamic types:
+
+```yaml
+id: example-operations
+enabled: true
+types:
+  - id: tracked-item
+    display_name: Tracked Item
+    attributes_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        priority: { type: string }
+    statuses:
+      values: [open, blocked, complete]
+      initial: open
+      terminal: [complete]
+```
+
+At startup, each enabled pack installs through `StateService.defineType` under
+one SQLite savepoint. Installation is additive-only and idempotent. A failure
+rolls back the entire pack while independent packs continue. Packs never
+contain entity values.
+
+### 20.3 Deterministic Markdown/Obsidian views
+
+Layered `state-views/*.yaml` definitions select root entities and configured
+sections from State or Atlas. Selectors support types, statuses, fields,
+project association, relations, reference roles, stable sorting, limits, and
+`$root.*` joins. The renderer is deterministic and contains no model call.
+
+Rendering requires both an enabled view and an explicit
+`TANGO_STATE_PROJECTION_ROOT`. The root may be an Obsidian vault or any other
+Markdown directory. Output is path- and symlink-contained, written atomically,
+and left untouched when only the generation timestamp would change.
+
+Every generated document carries:
+
+```yaml
+tango_view: <view-id>
+tango_root_entity_id: <state-entity-id>
+generated_at: <timestamp>
+read_only_projection: true
+source_kind: generated
+projection_content_hash: <sha256>
+```
+
+Generated projections have three independent loop guards:
+
+1. the Obsidian indexer excludes them and prunes previously indexed copies;
+2. Obsidian mutation tools refuse edits, moves, and deletion, even with
+   `--force`;
+3. the State Obsidian adapter ignores them if one is ever linked by mistake.
+
+Human-authored project notes remain editable sources or evidence. Generated
+views remain disposable/read-only projections and are regenerated only from
+canonical State + Atlas inputs.

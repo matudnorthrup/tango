@@ -12,9 +12,13 @@
  * — the one key shared by the whisper, reseed, and post-turn paths. Mapping a
  * Tango `project:{id}` onto this key is a future refinement.
  */
-import os from "node:os";
 import path from "node:path";
-import { resolveTangoProfileDir, type TangoStorage } from "@tango/core";
+import {
+  resolveConfiguredPath,
+  resolveDefaultObsidianVaultPath,
+  resolveTangoProfileDir,
+  type TangoStorage,
+} from "@tango/core";
 import {
   parseStateBodyPointer,
   readStateBody as readProviderStateBody,
@@ -47,9 +51,32 @@ export function conversationKeyFor(channelId: string, threadId?: string): string
   return threadId ? `thread:${threadId}` : `channel:${channelId}`;
 }
 
-/** Obsidian vault root (mirrors personal-agent-tools.resolveObsidianVaultRoot). */
-export function resolveStateVaultRoot(): string {
-  return path.join(os.homedir(), "Documents", "main");
+/**
+ * Obsidian vault root shared by project-state and typed-state adapters.
+ *
+ * An explicitly injected root wins. Dev-slot profiles stay inside the slot
+ * even when the shared .env configures the production vault; other configured
+ * roots keep their normal precedence. A selected profile without a configured
+ * vault also uses profile-local notes before the legacy production fallback.
+ */
+export function resolveStateVaultRoot(explicitRoot?: string | null): string {
+  const injected = explicitRoot?.trim();
+  if (injected) return resolveConfiguredPath(injected);
+
+  const profileName = process.env.TANGO_PROFILE?.trim();
+  const slotName = process.env.TANGO_SLOT?.trim();
+  if (slotName || (profileName && /^wt-[1-9][0-9]*$/u.test(profileName))) {
+    return path.join(resolveTangoProfileDir(), "notes");
+  }
+
+  const configured = process.env.TANGO_OBSIDIAN_VAULT?.trim();
+  if (configured) return resolveConfiguredPath(configured);
+
+  if (profileName || process.env.TANGO_HOME?.trim()) {
+    return path.join(resolveTangoProfileDir(), "notes");
+  }
+
+  return resolveConfiguredPath(resolveDefaultObsidianVaultPath());
 }
 
 /** Active Tango profile root for profile-backed state bodies. */

@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import { StateService, type StateEntity, type StateTypeDefinition } from "@tango/core";
+import {
+  isGeneratedObsidianProjection,
+  StateService,
+  type StateEntity,
+  type StateTypeDefinition,
+} from "@tango/core";
 import { parseStateBodyPointer } from "./state-body-provider.js";
 
 export interface StateObsidianAdapterOptions {
@@ -99,9 +104,9 @@ export class StateObsidianAdapter {
     if (!this.vaultRoot || !isDirectory(this.vaultRoot)) return "unavailable";
     let document: FrontmatterDocument;
     try {
-      document = fs.existsSync(filePath)
-        ? parseFrontmatter(fs.readFileSync(filePath, "utf8"))
-        : { data: {}, body: "" };
+      const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : null;
+      if (content !== null && isGeneratedObsidianProjection(content)) return "unchanged";
+      document = content !== null ? parseFrontmatter(content) : { data: {}, body: "" };
     } catch (error) {
       this.service.openIssue(entity.id, "body_validation", `Could not parse linked state body: ${errorMessage(error)}`, { bodyPointer: entity.bodyPointer });
       return "invalid";
@@ -172,9 +177,9 @@ export class StateObsidianAdapter {
     try {
       filePath = this.resolveBodyPath(item.entity.bodyPointer!);
       if (!this.vaultRoot || !isDirectory(this.vaultRoot)) throw new Error("Obsidian vault is unavailable");
-      const document = fs.existsSync(filePath)
-        ? parseFrontmatter(fs.readFileSync(filePath, "utf8"))
-        : { data: {}, body: "" };
+      const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : null;
+      if (content !== null && isGeneratedObsidianProjection(content)) return;
+      const document = content !== null ? parseFrontmatter(content) : { data: {}, body: "" };
       const fields = stateFields(item.entity, item.type.bodyFields);
       await this.mirror(item.entity, item.type, filePath, document, fields, StateService.hashBodyFields(fields));
     } catch (error) {

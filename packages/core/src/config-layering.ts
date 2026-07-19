@@ -15,6 +15,8 @@ export type ConfigCategory =
   | "projects"
   | "schedules"
   | "sessions"
+  | "state-type-packs"
+  | "state-views"
   | "tool-contracts"
   | "workflows"
   | "workers";

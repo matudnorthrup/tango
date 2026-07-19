@@ -7,7 +7,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/dev/test-message.sh --thread <thread-id> --message "What time is it?" [--wait-response] [--timeout 30] [--cleanup]
+  scripts/dev/test-message.sh --thread <thread-id> --message "What time is it?" [--wait-response] [--wait-state-receipt] [--timeout 30] [--cleanup]
   scripts/dev/test-message.sh --channel <channel-id> --message "Probe"
   scripts/dev/test-message.sh --agent <agent-id> [--slot 1|2|3] --message "Probe"
 

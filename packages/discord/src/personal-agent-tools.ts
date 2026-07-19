@@ -16,7 +16,12 @@ import { readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import { extractAttachmentText, resolveDefaultObsidianVaultPath, type AgentTool } from "@tango/core";
+import {
+  extractAttachmentText,
+  isGeneratedObsidianProjection,
+  resolveDefaultObsidianVaultPath,
+  type AgentTool,
+} from "@tango/core";
 import yaml from "js-yaml";
 import { getBrowserManager } from "./browser-manager.js";
 import { getSecret } from "./op-secret.js";
@@ -838,6 +843,7 @@ interface NoteGovernance {
   sourceKind?: string;
   versioned: boolean;
   readonly: boolean;
+  readonlyProjection: boolean;
 }
 
 function readNoteGovernance(content: string): NoteGovernance {
@@ -846,10 +852,12 @@ function readNoteGovernance(content: string): NoteGovernance {
   const sourceKind = typeof rawKind === "string" ? rawKind.trim().toLowerCase() : undefined;
   const versionedRaw = frontmatter.data.versioned;
   const versioned = versionedRaw === true || versionedRaw === "true";
+  const readonlyProjection = isGeneratedObsidianProjection(content);
   return {
     ...(sourceKind ? { sourceKind } : {}),
     versioned,
-    readonly: sourceKind ? READONLY_SOURCE_KINDS.has(sourceKind) : false,
+    readonly: readonlyProjection || (sourceKind ? READONLY_SOURCE_KINDS.has(sourceKind) : false),
+    readonlyProjection,
   };
 }
 
@@ -929,6 +937,12 @@ async function guardAndVersionExistingNote(
     return;
   }
   const governance = readNoteGovernance(content);
+  if (governance.readonlyProjection) {
+    throw new Error(
+      `Refusing to ${options.operation} '${vaultRelative(vaultRoot, notePath)}': `
+      + "read_only_projection marks this as a generated state view. Regenerate it from canonical state instead.",
+    );
+  }
   if (governance.readonly && !options.force) {
     throw new Error(
       `Refusing to ${options.operation} '${vaultRelative(vaultRoot, notePath)}': `
@@ -990,6 +1004,8 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
         "    are refused. Add --force only when you genuinely intend to modify source data.",
         "  Notes with frontmatter versioned: true get a prior-version snapshot before any",
         "    mutation; use 'versions' to list/restore. (canonical/working notes stay editable.)",
+        "  Notes with frontmatter read_only_projection: true are generated state views and",
+        "    cannot be mutated even with --force; update canonical state and regenerate them.",
         "",
         "For bulk search/read, use shell commands against the configured notes root directly.",
         "",
@@ -1144,6 +1160,10 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
                 );
               }
 
+              await guardAndVersionExistingNote(vaultRoot, notePath, {
+                force: forceWrite,
+                operation: `edit section '${heading}' of`,
+              });
               await fs.writeFile(notePath, nextContent, "utf8");
               return formatToolResult(
                 `Updated section '${heading}' in ${path.relative(vaultRoot, notePath).split(path.sep).join("/")}`,

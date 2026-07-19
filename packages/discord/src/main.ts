@@ -84,6 +84,8 @@ import {
   loadMemoryEvalConfig,
   loadSessionConfigs,
   loadScheduleConfigs,
+  loadStateTypePackConfigs,
+  loadStateViewConfigs,
   renderMemoryEvalDiscordSummary,
   renderMemoryEvalMarkdownReport,
   buildRuntimePathEnv,
@@ -254,6 +256,8 @@ import { StateHealthAutoExportAdapter } from "./state-health-adapter.js";
 import { runStateMemorySupersession } from "./state-memory-supersession.js";
 import { StateLifecycleRunner } from "./state-lifecycle.js";
 import { StateSchedulerAdapter } from "./state-scheduler-adapter.js";
+import { StateProjectionRunner } from "./state-projection.js";
+import { installStateTypePacks } from "./state-type-packs.js";
 import {
   buildV2EnabledAgentSet,
   buildV2RuntimeConfigs,
@@ -671,6 +675,8 @@ const voiceTangoRouter = voiceV2AgentRuntimeConfigs.size > 0
     })
   : null;
 const scheduleConfigs = loadScheduleConfigs(configDir);
+const stateTypePackConfigs = loadStateTypePackConfigs(configDir);
+const stateViewConfigs = loadStateViewConfigs(configDir);
 const memoryEvalConfig = loadMemoryEvalConfig(configDir);
 const agentRegistry = new AgentRegistry(agentConfigs);
 const agentTypingPresenter = createAgentTypingPresenter({
@@ -702,6 +708,19 @@ const slotModeAgentTestChannels = agentConfigs
 const agentAccessOverrideCount = agentConfigs.filter((agent) => agent.access !== undefined).length;
 const storage = new TangoStorage(dbPath);
 const stateService = new StateService(storage.getDatabase());
+const stateTypePackReport = installStateTypePacks({
+  service: stateService,
+  db: storage.getDatabase(),
+  packs: stateTypePackConfigs,
+});
+if (stateTypePackConfigs.length > 0) {
+  console.log(
+    `[tango-state] type-packs installed=${stateTypePackReport.installed} skipped=${stateTypePackReport.skipped} failed=${stateTypePackReport.failed} created=${stateTypePackReport.typesCreated} updated=${stateTypePackReport.typesUpdated}`,
+  );
+  for (const failed of stateTypePackReport.packs.filter((pack) => pack.status === "failed")) {
+    console.warn(`[tango-state] type-pack '${failed.packId}' failed atomically: ${failed.error}`);
+  }
+}
 const attachmentStore = new AttachmentStore(storage.getDatabase());
 const attachmentDataDir = resolveTangoDataDir();
 // Manual enablement: flip config/v2/agents/<agent>.yaml runtime.provider to
@@ -871,10 +890,42 @@ const stateSchedulerAdapter = new StateSchedulerAdapter({
   db: storage.getDatabase(),
   vaultRoot: resolveStateVaultRoot(),
 });
+const stateProjectionOutputRoot = process.env.TANGO_STATE_PROJECTION_ROOT?.trim() || null;
+const enabledStateViewCount = stateViewConfigs.filter((view) => view.enabled).length;
+const stateProjectionRunner = stateProjectionOutputRoot && enabledStateViewCount > 0
+  ? new StateProjectionRunner({
+      service: stateService,
+      views: stateViewConfigs,
+      outputRoot: stateProjectionOutputRoot,
+      atlasRecords: (root) => atlasMemoryClient.listMemoriesForStateProjection({
+        projectEntityId: root.projectEntityId ?? root.id,
+        stateEntityId: root.id,
+      }).map((memory) => ({
+        id: memory.id,
+        content: memory.content,
+        source: memory.source,
+        agentId: memory.agentId,
+        importance: memory.importance,
+        tags: memory.tags,
+        createdAt: memory.createdAt,
+        metadata: memory.metadata,
+      })),
+    })
+  : undefined;
+if (enabledStateViewCount > 0 && !stateProjectionOutputRoot) {
+  console.warn("[tango-state] enabled state views are idle: TANGO_STATE_PROJECTION_ROOT is not configured");
+}
+if (stateProjectionRunner) {
+  const projectionReport = stateProjectionRunner.run();
+  console.log(
+    `[tango-state] projections startup written=${projectionReport.written} unchanged=${projectionReport.unchanged} removed=${projectionReport.removed} errors=${projectionReport.errors.length}`,
+  );
+}
 const stateLifecycleRunner = new StateLifecycleRunner({
   service: stateService,
   obsidian: stateObsidianAdapter,
   health: stateHealthAdapter,
+  projections: stateProjectionRunner,
   runSupersession: async () => {
     const config = v2Configs.get("watson-ollama") ?? v2Configs.get("watson") ?? [...v2Configs.values()][0];
     const providerName = config?.state?.extractionProvider
