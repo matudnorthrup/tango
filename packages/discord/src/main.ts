@@ -227,6 +227,11 @@ import {
 } from "./receipt-catalog-precheck.js";
 import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
 import {
+  findBudgetNeutralInternalTransfers,
+  formatBudgetNeutralTransferDetails,
+  readFinanceCategorizationRules,
+} from "./finance-automation.js";
+import {
   applySlotNickname,
   initializeSlotMode,
   isSlotModeActive,
@@ -1352,12 +1357,18 @@ registerPreCheckHandler("foxtrot-unreviewed-transactions", async () => {
       reason: "No uncleared transactions in the last 48 hours.",
     };
   }
+  const categorizationRules = readFinanceCategorizationRules();
+  const budgetNeutralTransfers = findBudgetNeutralInternalTransfers(transactions);
   return {
     action: "proceed" as const,
     context: {
       startDate,
       endDate,
       unreviewedCount,
+      categorizationRulesPath: categorizationRules.relativePath,
+      categorizationRules: categorizationRules.content,
+      budgetNeutralTransferCount: budgetNeutralTransfers.length,
+      budgetNeutralTransferDetails: formatBudgetNeutralTransferDetails(budgetNeutralTransfers),
     },
   };
 });
@@ -1398,6 +1409,7 @@ registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
         `No recent receipt candidates or reimbursement tracking gaps for configured retailers in the last ${lookbackDays} days.`,
     };
   }
+  const categorizationRules = readFinanceCategorizationRules();
 
   return {
     action: "proceed" as const,
@@ -1421,6 +1433,8 @@ registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
       reimbursementGapDetails: formatReimbursementGapCandidateDetails(
         reimbursementGapCandidates,
       ),
+      categorizationRulesPath: categorizationRules.relativePath,
+      categorizationRules: categorizationRules.content,
     },
   };
 });

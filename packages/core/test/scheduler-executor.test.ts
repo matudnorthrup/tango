@@ -8,6 +8,7 @@ import type { ScheduleConfig } from "../src/scheduler/types.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
+const originalObsidianVault = process.env.TANGO_OBSIDIAN_VAULT;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -16,6 +17,11 @@ afterEach(() => {
     delete process.env.HOME;
   } else {
     process.env.HOME = originalHome;
+  }
+  if (originalObsidianVault === undefined) {
+    delete process.env.TANGO_OBSIDIAN_VAULT;
+  } else {
+    process.env.TANGO_OBSIDIAN_VAULT = originalObsidianVault;
   }
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -45,6 +51,7 @@ function createAgentSchedule(overrides?: Partial<ScheduleConfig>): ScheduleConfi
 function createTempHome(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-scheduler-home-"));
   tempDirs.push(dir);
+  fs.mkdirSync(path.join(dir, "Documents", "main"), { recursive: true });
   return dir;
 }
 
@@ -258,6 +265,57 @@ describe("executeSchedule", () => {
     expect(result.preCheckResult).toContain("\"action\":\"proceed\"");
     expect(executeV2Turn).toHaveBeenCalledOnce();
     expect(executeV2Turn.mock.calls[0]?.[0].task).toContain("Found 2 unreviewed transactions");
+  });
+
+  it("logs and flags a failed finance pre-check instead of running the worker", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-19T12:34:00Z"));
+    const vaultRoot = path.join(createTempHome(), "vault");
+    process.env.TANGO_OBSIDIAN_VAULT = vaultRoot;
+    if (!getPreCheckHandler("test-missing-finance-rules")) {
+      registerPreCheckHandler("test-missing-finance-rules", async () => {
+        throw new Error(
+          "Finance automation blocked: unable to read required rules note 'References/Finance/Lunch Money Rules.md' (ENOENT).",
+        );
+      });
+    }
+    const executeV2Turn = vi.fn();
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        id: "nightly-transaction-categorizer",
+        runtime: "v2",
+        obsidianLog: {
+          domain: "Finance",
+          jobName: "Nightly Transaction Categorizer",
+        },
+        execution: {
+          mode: "conditional-agent",
+          preCheck: { handler: "test-missing-finance-rules" },
+          workerId: "personal-assistant",
+          taskTemplate: "Rules: {{categorizationRules}}",
+        },
+      }),
+      {
+        store: { getState: () => null } as never,
+        executeV2Turn,
+        db: {} as never,
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("Finance automation blocked"),
+    });
+    expect(executeV2Turn).not.toHaveBeenCalled();
+
+    const logText = fs.readFileSync(
+      path.join(vaultRoot, "Records", "Jobs", "Finance", "2026-07.md"),
+      "utf8",
+    );
+    expect(logText).toContain("**Status:** Failed");
+    expect(logText).toContain("**Flagged:**");
+    expect(logText).toContain("unable to read required rules note");
   });
 
   it("writes an Obsidian job log after a successful agent run when configured", async () => {
