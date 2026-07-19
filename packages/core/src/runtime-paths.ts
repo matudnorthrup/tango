@@ -57,6 +57,8 @@ const CONFIG_CATEGORY_DIRS = [
   "projects",
   "schedules",
   "sessions",
+  "state-type-packs",
+  "state-views",
   "tool-contracts",
   "workflows",
   "workers",

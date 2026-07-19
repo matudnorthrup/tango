@@ -2882,6 +2882,135 @@ const MIGRATIONS: Migration[] = [
         );
     `,
   },
+  {
+    // Generic project scoping, temporal semantics, and append-only links for
+    // relationships and provider-neutral evidence/reference pointers. This
+    // migration adds substrate only: profile-specific values and use-case
+    // type packs remain outside the repository.
+    version: 65,
+    sql: `
+      UPDATE state_entities
+      SET last_progress_at = COALESCE(last_event_at, created_at)
+      WHERE last_progress_at IS NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_state_entities_project
+        ON state_entities(project_entity_id, archived_at);
+      CREATE INDEX IF NOT EXISTS idx_state_entities_owner_user
+        ON state_entities(owner_user_id, archived_at);
+      CREATE INDEX IF NOT EXISTS idx_state_entities_owner_agent
+        ON state_entities(owner_agent_id, archived_at);
+      CREATE INDEX IF NOT EXISTS idx_state_entities_due
+        ON state_entities(due_at, closed_at) WHERE archived_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_state_entities_next_check
+        ON state_entities(next_check_at) WHERE archived_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_state_entities_expected_response
+        ON state_entities(expected_response_at) WHERE archived_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_state_entities_progress
+        ON state_entities(last_progress_at) WHERE archived_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS state_entity_relations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_entity_id TEXT NOT NULL REFERENCES state_entities(id),
+        target_entity_id TEXT NOT NULL REFERENCES state_entities(id),
+        kind TEXT NOT NULL,
+        metadata TEXT,
+        created_event_id INTEGER NOT NULL REFERENCES state_events(id),
+        archived_event_id INTEGER REFERENCES state_events(id),
+        created_at TEXT NOT NULL,
+        archived_at TEXT,
+        CHECK(source_entity_id != target_entity_id)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_state_entity_relations_active
+        ON state_entity_relations(source_entity_id, target_entity_id, kind)
+        WHERE archived_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_state_entity_relations_target
+        ON state_entity_relations(target_entity_id, kind, archived_at);
+
+      CREATE TABLE IF NOT EXISTS state_entity_references (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_id TEXT NOT NULL REFERENCES state_entities(id),
+        role TEXT NOT NULL,
+        ref TEXT NOT NULL,
+        label TEXT,
+        metadata TEXT,
+        supports_event_id INTEGER REFERENCES state_events(id),
+        created_event_id INTEGER NOT NULL REFERENCES state_events(id),
+        archived_event_id INTEGER REFERENCES state_events(id),
+        created_at TEXT NOT NULL,
+        archived_at TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_state_entity_references_active
+        ON state_entity_references(entity_id, role, ref)
+        WHERE archived_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_state_entity_references_role
+        ON state_entity_references(role, entity_id, archived_at);
+      CREATE INDEX IF NOT EXISTS idx_state_entity_references_supported_event
+        ON state_entity_references(supports_event_id);
+    `,
+  },
+  {
+    // Lifecycle metadata for seeded statusful types created before terminal
+    // statuses became part of the generic type contract. Keep this additive:
+    // existing terminal values are retained and only missing values appended.
+    version: 66,
+    sql: `
+      UPDATE state_entity_types
+      SET statuses = json_set(
+        statuses,
+        '$.terminal',
+        json(COALESCE(json_extract(statuses, '$.terminal'), '[]'))
+      )
+      WHERE id IN ('project', 'travel', 'vehicle', 'finance-review')
+        AND statuses IS NOT NULL;
+
+      UPDATE state_entity_types
+      SET statuses = json_insert(statuses, '$.terminal[#]', 'done'), updated_at = datetime('now')
+      WHERE id = 'project'
+        AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(statuses, '$.terminal')) WHERE value = 'done');
+      UPDATE state_entity_types
+      SET statuses = json_insert(statuses, '$.terminal[#]', 'dropped'), updated_at = datetime('now')
+      WHERE id = 'project'
+        AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(statuses, '$.terminal')) WHERE value = 'dropped');
+
+      UPDATE state_entity_types
+      SET statuses = json_insert(statuses, '$.terminal[#]', 'completed'), updated_at = datetime('now')
+      WHERE id = 'travel'
+        AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(statuses, '$.terminal')) WHERE value = 'completed');
+      UPDATE state_entity_types
+      SET statuses = json_insert(statuses, '$.terminal[#]', 'canceled'), updated_at = datetime('now')
+      WHERE id = 'travel'
+        AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(statuses, '$.terminal')) WHERE value = 'canceled');
+
+      UPDATE state_entity_types
+      SET statuses = json_insert(statuses, '$.terminal[#]', 'sold'), updated_at = datetime('now')
+      WHERE id = 'vehicle'
+        AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(statuses, '$.terminal')) WHERE value = 'sold');
+      UPDATE state_entity_types
+      SET statuses = json_insert(statuses, '$.terminal[#]', 'retired'), updated_at = datetime('now')
+      WHERE id = 'vehicle'
+        AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(statuses, '$.terminal')) WHERE value = 'retired');
+
+      UPDATE state_entity_types
+      SET statuses = json_insert(statuses, '$.terminal[#]', 'complete'), updated_at = datetime('now')
+      WHERE id = 'finance-review'
+        AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(statuses, '$.terminal')) WHERE value = 'complete');
+      UPDATE state_entity_types
+      SET statuses = json_insert(statuses, '$.terminal[#]', 'complete_with_actions'), updated_at = datetime('now')
+      WHERE id = 'finance-review'
+        AND NOT EXISTS (SELECT 1 FROM json_each(json_extract(statuses, '$.terminal')) WHERE value = 'complete_with_actions');
+
+      UPDATE state_entities AS entity
+      SET closed_at = COALESCE(entity.last_event_at, entity.updated_at)
+      WHERE entity.closed_at IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM state_entity_types AS type,
+               json_each(json_extract(type.statuses, '$.terminal')) AS terminal
+          WHERE type.id = entity.type_id
+            AND terminal.value = entity.status
+        );
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
@@ -2930,6 +3059,7 @@ export class TangoStorage {
 
       this.db.exec("BEGIN IMMEDIATE;");
       try {
+        if (migration.version === 65) this.ensureStateManagementV65Columns();
         this.db.exec(migration.sql);
         this.db.exec(`PRAGMA user_version = ${migration.version};`);
         this.db.exec("COMMIT;");
@@ -2937,6 +3067,23 @@ export class TangoStorage {
         this.db.exec("ROLLBACK;");
         throw error;
       }
+    }
+  }
+
+  private ensureStateManagementV65Columns(): void {
+    const columns = new Set((this.db.prepare("PRAGMA table_info(state_entities)").all() as Array<{ name: string }>)
+      .map((row) => row.name));
+    const additions: Array<[string, string]> = [
+      ["project_entity_id", "TEXT REFERENCES state_entities(id)"],
+      ["visibility", "TEXT"],
+      ["due_at", "TEXT"],
+      ["next_check_at", "TEXT"],
+      ["expected_response_at", "TEXT"],
+      ["last_progress_at", "TEXT"],
+      ["closed_at", "TEXT"],
+    ];
+    for (const [name, definition] of additions) {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE state_entities ADD COLUMN ${name} ${definition};`);
     }
   }
 

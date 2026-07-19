@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   getAtlasConversationSummary,
   listAtlasMemoriesForContext,
+  listAtlasMemoriesForStateProjection,
   listAtlasPinnedFactsForContext,
   openAtlasMemoryDatabase,
   touchAtlasMemories,
@@ -86,6 +87,66 @@ describe("atlas context read surface", () => {
       "sierra fact",
       "sierra ollama fact",
     ]);
+
+    db.close();
+  });
+
+  it("reads all narrative associated with a state root without a global recency cap", () => {
+    const { db } = createDb();
+    const insert = db.prepare(
+      `INSERT INTO memories (id, content, source, agent_id, importance, tags, embedding, embedding_model, created_at, last_accessed_at, access_count, archived_at, metadata)
+       VALUES (?, ?, 'conversation', NULL, 0.6, ?, NULL, NULL, ?, ?, 0, ?, ?)`,
+    );
+    const insertFixture = db.transaction(() => {
+      for (let index = 0; index < 5_001; index += 1) {
+        insert.run(
+          `noise-${index}`,
+          `unrelated recent narrative ${index}`,
+          "[]",
+          "2026-07-18T12:00:00.000Z",
+          "2026-07-18T12:00:00.000Z",
+          null,
+          JSON.stringify({ project_entity_id: "unrelated-project" }),
+        );
+      }
+      insert.run(
+        "project-narrative",
+        "older project narrative",
+        JSON.stringify(["project-history"]),
+        "2025-01-01T00:00:00.000Z",
+        "2025-01-01T00:00:00.000Z",
+        null,
+        JSON.stringify({ project_entity_id: "project-123" }),
+      );
+      insert.run(
+        "state-narrative",
+        "older state-specific narrative",
+        "[]",
+        "2024-01-01T00:00:00.000Z",
+        "2024-01-01T00:00:00.000Z",
+        null,
+        JSON.stringify({ state_entity_id: "state-456" }),
+      );
+      insert.run(
+        "archived-project-narrative",
+        "archived narrative",
+        "[]",
+        "2027-01-01T00:00:00.000Z",
+        "2027-01-01T00:00:00.000Z",
+        "2027-01-01T00:00:00.000Z",
+        JSON.stringify({ project_entity_id: "project-123" }),
+      );
+    });
+    insertFixture();
+
+    expect(listAtlasMemoriesForContext(db, { limit: 5_000 }).some((row) => row.id === "project-narrative")).toBe(false);
+    const rows = listAtlasMemoriesForStateProjection(db, {
+      projectEntityId: "project-123",
+      stateEntityId: "state-456",
+    });
+    expect(rows.map((row) => row.id)).toEqual(["project-narrative", "state-narrative"]);
+    expect(rows[0]?.tags).toEqual(["project-history"]);
+    expect(rows.every((row) => row.metadata !== null)).toBe(true);
 
     db.close();
   });

@@ -50,6 +50,8 @@ export interface HarnessRunInput {
   content: string;
   username?: string | null;
   waitForResponse?: boolean;
+  /** Wait for a later raw Discord message beginning with this prefix. */
+  followUpPrefix?: string | null;
   timeoutMs?: number;
   cleanup?: boolean;
 }
@@ -62,6 +64,9 @@ export interface HarnessRunResult {
   responseRecordId: number | null;
   responseAgentId: string | null;
   responseSessionId: string | null;
+  receivedFollowUp: boolean;
+  followUpText: string | null;
+  followUpMessageId: string | null;
   targetChannelId: string;
   targetChannelName: string;
   targetKind: "channel" | "thread";
@@ -467,6 +472,29 @@ async function waitForHarnessResponse(
   return null;
 }
 
+async function waitForHarnessFollowUp(input: {
+  target: HarnessTarget;
+  sentMessageId: string;
+  prefix: string;
+  timeoutMs: number;
+}): Promise<{ text: string; messageId: string } | null> {
+  const prefix = input.prefix.trim();
+  if (!prefix) return null;
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < input.timeoutMs) {
+    const messages = await input.target.channel.messages.fetch({
+      after: input.sentMessageId,
+      limit: 50,
+    });
+    const followUp = [...messages.values()]
+      .sort((left, right) => left.createdTimestamp - right.createdTimestamp)
+      .find((candidate) => candidate.content.trim().startsWith(prefix));
+    if (followUp) return { text: followUp.content, messageId: followUp.id };
+    await sleep(DEFAULT_POLL_INTERVAL_MS);
+  }
+  return null;
+}
+
 export async function runHarnessTurn(input: HarnessRunInput): Promise<HarnessRunResult> {
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let webhook = await resolveOrCreateHarnessWebhook(input.target);
@@ -493,6 +521,7 @@ export async function runHarnessTurn(input: HarnessRunInput): Promise<HarnessRun
   const sentMessage = sent as Message;
 
   let response: Awaited<ReturnType<typeof waitForHarnessResponse>> = null;
+  let followUp: Awaited<ReturnType<typeof waitForHarnessFollowUp>> = null;
   try {
     if (input.waitForResponse ?? false) {
       response = await waitForHarnessResponse({
@@ -502,8 +531,19 @@ export async function runHarnessTurn(input: HarnessRunInput): Promise<HarnessRun
         timeoutMs,
       });
     }
+    if (input.followUpPrefix?.trim()) {
+      followUp = await waitForHarnessFollowUp({
+        target: input.target,
+        sentMessageId: sentMessage.id,
+        prefix: input.followUpPrefix,
+        timeoutMs,
+      });
+    }
   } finally {
     if (input.cleanup) {
+      if (followUp?.messageId) {
+        await deleteDiscordMessage(input.target, followUp.messageId);
+      }
       if (response?.responseMessageId) {
         await deleteDiscordMessage(input.target, response.responseMessageId);
       }
@@ -519,6 +559,9 @@ export async function runHarnessTurn(input: HarnessRunInput): Promise<HarnessRun
     responseRecordId: response?.responseRecordId ?? null,
     responseAgentId: response?.responseAgentId ?? null,
     responseSessionId: response?.responseSessionId ?? null,
+    receivedFollowUp: Boolean(followUp),
+    followUpText: followUp?.text ?? null,
+    followUpMessageId: followUp?.messageId ?? null,
     targetChannelId: input.target.channelId,
     targetChannelName: input.target.channelName,
     targetKind: input.target.kind,

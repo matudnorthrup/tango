@@ -229,4 +229,43 @@ describe("obsidian indexer", () => {
 
     storage.close();
   });
+
+  it("excludes generated read-only projections and prunes an older indexed copy", async () => {
+    const { storage, vaultDir } = createFixture();
+    const notePath = path.join(vaultDir, "Views", "Synthetic Overview.md");
+    fs.mkdirSync(path.dirname(notePath), { recursive: true });
+    fs.writeFileSync(
+      notePath,
+      "# Synthetic Overview\n\nThis ordinary note is initially indexable narrative.\n",
+      "utf8",
+    );
+
+    const first = await indexObsidianVault({ storage, paths: [vaultDir] });
+    expect(first.indexedFileCount).toBe(1);
+    expect(storage.listMemories({ source: "obsidian", limit: 10 }).length).toBeGreaterThan(0);
+
+    fs.writeFileSync(
+      notePath,
+      [
+        "---",
+        "tango_view: generic-overview",
+        "tango_root_entity_id: synthetic-root",
+        "read_only_projection: true",
+        "source_kind: generated",
+        "---",
+        "# Synthetic Overview",
+        "",
+        "Derived operational state must not become Atlas narrative.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const second = await indexObsidianVault({ storage, paths: [vaultDir] });
+    expect(second.scannedFileCount).toBe(0);
+    expect(second.removedFileCount).toBe(1);
+    expect(storage.listMemories({ source: "obsidian", limit: 10 })).toHaveLength(0);
+    expect(storage.getObsidianIndexEntry(notePath)).toBeNull();
+    storage.close();
+  });
 });

@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TangoStorage } from "@tango/core";
 import {
   buildStateFilePointer,
   conversationKeyFor,
   refreshProjectHeadOnTurn,
   renderProjectStateBlock,
+  resolveStateVaultRoot,
 } from "../src/project-state.js";
 import {
   formatStateBodyPointer,
@@ -20,6 +21,7 @@ import { createAtlasColdStartContextBuilder } from "../src/v2-runtime.js";
 
 const tempDirs: string[] = [];
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -32,6 +34,29 @@ function createStorage(): TangoStorage {
 }
 
 describe("project-state integration", () => {
+  it("resolves state vaults from injection, configuration, or an isolated profile", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tango-state-vault-root-"));
+    tempDirs.push(root);
+    const injected = path.join(root, "injected");
+    const configured = path.join(root, "configured");
+
+    vi.stubEnv("TANGO_OBSIDIAN_VAULT", configured);
+    expect(resolveStateVaultRoot(injected)).toBe(injected);
+    expect(resolveStateVaultRoot()).toBe(configured);
+
+    vi.stubEnv("TANGO_OBSIDIAN_VAULT", "");
+    vi.stubEnv("TANGO_HOME", root);
+    vi.stubEnv("TANGO_PROFILE", "wt-2");
+    expect(resolveStateVaultRoot()).toBe(path.join(root, "profiles", "wt-2", "notes"));
+    expect(fs.existsSync(path.join(root, "profiles", "wt-2", "notes"))).toBe(false);
+
+    // The repo's shared .env may configure the production vault. Slot identity
+    // must still win so a live-test bot cannot write operator documents.
+    vi.stubEnv("TANGO_OBSIDIAN_VAULT", configured);
+    vi.stubEnv("TANGO_SLOT", "2");
+    expect(resolveStateVaultRoot()).toBe(path.join(root, "profiles", "wt-2", "notes"));
+  });
+
   it("derives the conversation key like TangoRouter", () => {
     expect(conversationKeyFor("chan-1")).toBe("channel:chan-1");
     expect(conversationKeyFor("chan-1", "thread-9")).toBe("thread:thread-9");

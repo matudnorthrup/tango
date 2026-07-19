@@ -315,7 +315,11 @@ function collectEligibleFiles(
       continue;
     }
 
-    if (isMarkdownFile(resolved) && !path.basename(resolved).startsWith(".")) {
+    if (
+      isMarkdownFile(resolved)
+      && !path.basename(resolved).startsWith(".")
+      && !isGeneratedObsidianProjection(fs.readFileSync(resolved, "utf8"))
+    ) {
       results.add(resolved);
     }
   }
@@ -345,7 +349,11 @@ function walkDirectory(
       continue;
     }
 
-    if (entry.isFile() && isMarkdownFile(entryPath)) {
+    if (
+      entry.isFile()
+      && isMarkdownFile(entryPath)
+      && !isGeneratedObsidianProjection(fs.readFileSync(entryPath, "utf8"))
+    ) {
       visit(entryPath);
     }
   }
@@ -395,6 +403,14 @@ function hashFile(filePath: string): string {
 
 function isMarkdownFile(filePath: string): boolean {
   return MARKDOWN_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+/** Generated state views are read-only projections, not narrative memory. */
+export function isGeneratedObsidianProjection(content: string): boolean {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(content)?.[1];
+  if (!frontmatter) return false;
+  return /^read_only_projection:\s*(?:true|["']true["'])\s*$/imu.test(frontmatter)
+    || /^tango_view:\s*\S.*$/imu.test(frontmatter);
 }
 
 function buildSourceRefPrefix(filePath: string): string {
