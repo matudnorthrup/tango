@@ -1,6 +1,6 @@
 {
   "latest": {
-    "when": "2026-06-09T19:25:05.536Z",
+    "when": "2026-07-17T19:47:31.100Z",
     "harnessVersion": "2.0.0",
     "fixtureSource": "model-bakeoff/tasks/travel-route-sacramento-detour.json",
     "runsPerCandidate": 3,
@@ -8,92 +8,189 @@
       "fixtureId": "travel.route.sacramento-detour",
       "passRateThreshold": 0.8,
       "rubricThreshold": 0.7,
+      "rubricFloor": 0.6,
       "recommendation": "minimax-m2.5",
-      "reason": "cheapest reliable candidate (passRate 100%, 1693 out-tok/success (price unknown))",
-      "winner": "minimax-m2.5",
+      "reason": "incumbent retained (hysteresis): claude-haiku-4-5 did not strictly beat it on pass rate, or cost/rubric advantage was insufficient",
+      "winner": "claude-haiku-4-5",
       "incumbent": "minimax-m2.5",
       "eligible": [
-        "minimax-m2.5",
-        "glm-5",
+        "claude-haiku-4-5",
         "deepseek-v4-pro:cloud",
-        "deepseek-v4-flash"
+        "minimax-m2.5",
+        "claude-opus-4-8",
+        "claude-sonnet-5"
       ],
       "infraIncomplete": false
     },
     "candidates": [
-      {
-        "model": "minimax-m2.5",
-        "benchmarkOnly": false,
-        "validRuns": 3,
-        "infraRuns": 0,
-        "passRate": 1,
-        "rubricMean": 0.8108333333333334,
-        "meanSeconds": 68.608,
-        "meanOutputTokens": 1693,
-        "meanCostUsd": null,
-        "gateFailures": []
-      },
-      {
-        "model": "glm-5",
-        "benchmarkOnly": false,
-        "validRuns": 3,
-        "infraRuns": 0,
-        "passRate": 1,
-        "rubricMean": 0.8811666666666667,
-        "meanSeconds": 46.35066666666666,
-        "meanOutputTokens": 1776.6666666666667,
-        "meanCostUsd": null,
-        "gateFailures": []
-      },
       {
         "model": "deepseek-v4-pro:cloud",
         "benchmarkOnly": false,
         "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.8835000000000001,
-        "meanSeconds": 50.71933333333333,
-        "meanOutputTokens": 2802.3333333333335,
+        "rubricMean": 0.93,
+        "rubricMin": 0.9099999999999999,
+        "rubricStdDev": 0.015411035007422472,
+        "meanSeconds": 17.262,
+        "meanOutputTokens": 1583,
         "meanCostUsd": null,
         "gateFailures": []
       },
       {
-        "model": "deepseek-v4-flash",
+        "model": "minimax-m2.5",
         "benchmarkOnly": false,
         "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.8668333333333335,
-        "meanSeconds": 49.89233333333333,
-        "meanOutputTokens": 3287,
+        "rubricMean": 0.8533333333333332,
+        "rubricMin": 0.7999999999999999,
+        "rubricStdDev": 0.04109609335312651,
+        "meanSeconds": 53.437333333333335,
+        "meanOutputTokens": 2042,
         "meanCostUsd": null,
         "gateFailures": []
       },
       {
-        "model": "claude:sonnet",
-        "benchmarkOnly": true,
+        "model": "claude-haiku-4-5",
+        "benchmarkOnly": false,
         "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.9558333333333332,
-        "meanSeconds": 93.59333333333335,
-        "meanOutputTokens": 4755.666666666667,
+        "rubricMean": 0.797,
+        "rubricMin": 0.7285,
+        "rubricStdDev": 0.05079862202855504,
+        "meanSeconds": 15.704333333333333,
+        "meanOutputTokens": 823,
         "meanCostUsd": null,
         "gateFailures": []
       },
       {
-        "model": "claude:opus",
-        "benchmarkOnly": true,
+        "model": "claude-sonnet-5",
+        "benchmarkOnly": false,
         "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.9753333333333333,
-        "meanSeconds": 93.31033333333335,
-        "meanOutputTokens": 6427,
+        "rubricMean": 0.9259999999999998,
+        "rubricMin": 0.8955,
+        "rubricStdDev": 0.022719301632459273,
+        "meanSeconds": 100.92033333333332,
+        "meanOutputTokens": 7883,
+        "meanCostUsd": null,
+        "gateFailures": []
+      },
+      {
+        "model": "claude-opus-4-8",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9575,
+        "rubricMin": 0.9425000000000001,
+        "rubricStdDev": 0.010606601717798144,
+        "meanSeconds": 67.208,
+        "meanOutputTokens": 4163,
         "meanCostUsd": null,
         "gateFailures": []
       }
     ]
   },
-  "history": []
+  "history": [
+    {
+      "when": "2026-06-09T19:25:05.536Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/travel-route-sacramento-detour.json",
+      "runsPerCandidate": 3,
+      "verdict": {
+        "fixtureId": "travel.route.sacramento-detour",
+        "passRateThreshold": 0.8,
+        "rubricThreshold": 0.7,
+        "recommendation": "minimax-m2.5",
+        "reason": "cheapest reliable candidate (passRate 100%, 1693 out-tok/success (price unknown))",
+        "winner": "minimax-m2.5",
+        "incumbent": "minimax-m2.5",
+        "eligible": [
+          "minimax-m2.5",
+          "glm-5",
+          "deepseek-v4-pro:cloud",
+          "deepseek-v4-flash"
+        ],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.8108333333333334,
+          "meanSeconds": 68.608,
+          "meanOutputTokens": 1693,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "glm-5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.8811666666666667,
+          "meanSeconds": 46.35066666666666,
+          "meanOutputTokens": 1776.6666666666667,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.8835000000000001,
+          "meanSeconds": 50.71933333333333,
+          "meanOutputTokens": 2802.3333333333335,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "deepseek-v4-flash",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.8668333333333335,
+          "meanSeconds": 49.89233333333333,
+          "meanOutputTokens": 3287,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "claude:sonnet",
+          "benchmarkOnly": true,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.9558333333333332,
+          "meanSeconds": 93.59333333333335,
+          "meanOutputTokens": 4755.666666666667,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "claude:opus",
+          "benchmarkOnly": true,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.9753333333333333,
+          "meanSeconds": 93.31033333333335,
+          "meanOutputTokens": 6427,
+          "meanCostUsd": null,
+          "gateFailures": []
+        }
+      ]
+    }
+  ]
 }
