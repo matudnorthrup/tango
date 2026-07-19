@@ -1,6 +1,6 @@
 {
   "latest": {
-    "when": "2026-06-09T22:04:38.425Z",
+    "when": "2026-07-17T20:07:10.757Z",
     "harnessVersion": "2.0.0",
     "fixtureSource": "model-bakeoff/tasks/travel-diesel-route-aware.json",
     "runsPerCandidate": 3,
@@ -9,92 +9,173 @@
       "passRateThreshold": 0.8,
       "rubricThreshold": 0.7,
       "rubricFloor": 0.6,
-      "recommendation": "deepseek-v4-pro:cloud",
-      "reason": "cheapest reliable candidate (passRate 100%, 2489 out-tok/success (price unknown))",
-      "winner": "deepseek-v4-pro:cloud",
-      "incumbent": "minimax-m2.5",
+      "recommendation": "claude-haiku-4-5",
+      "reason": "cheapest reliable candidate (passRate 100%, 1431 out-tok/success (price unknown))",
+      "winner": "claude-haiku-4-5",
+      "incumbent": null,
       "eligible": [
-        "deepseek-v4-pro:cloud"
+        "claude-haiku-4-5",
+        "deepseek-v4-pro:cloud",
+        "claude-opus-4-8",
+        "claude-sonnet-5"
       ],
       "infraIncomplete": false
     },
     "candidates": [
-      {
-        "model": "minimax-m2.5",
-        "benchmarkOnly": false,
-        "validRuns": 3,
-        "infraRuns": 0,
-        "passRate": 1,
-        "rubricMean": 0.6186666666666667,
-        "rubricMin": 0.521,
-        "rubricStdDev": 0.10234039063612936,
-        "meanSeconds": 45.04933333333333,
-        "meanOutputTokens": 1375,
-        "meanCostUsd": null,
-        "gateFailures": []
-      },
-      {
-        "model": "glm-5",
-        "benchmarkOnly": false,
-        "validRuns": 3,
-        "infraRuns": 0,
-        "passRate": 1,
-        "rubricMean": 0.5816666666666667,
-        "rubricMin": 0.505,
-        "rubricStdDev": 0.07171509991316716,
-        "meanSeconds": 54.76500000000001,
-        "meanOutputTokens": 1831.6666666666667,
-        "meanCostUsd": null,
-        "gateFailures": []
-      },
       {
         "model": "deepseek-v4-pro:cloud",
         "benchmarkOnly": false,
         "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.7688333333333333,
-        "rubricMin": 0.7374999999999999,
-        "rubricStdDev": 0.03125522178594947,
-        "meanSeconds": 50.57933333333333,
-        "meanOutputTokens": 2489.3333333333335,
+        "rubricMean": 0.8574999999999999,
+        "rubricMin": 0.8424999999999999,
+        "rubricStdDev": 0.012247448713915901,
+        "meanSeconds": 71.351,
+        "meanOutputTokens": 3201.6666666666665,
         "meanCostUsd": null,
         "gateFailures": []
       },
       {
-        "model": "deepseek-v4-flash",
+        "model": "claude-haiku-4-5",
         "benchmarkOnly": false,
         "validRuns": 3,
         "infraRuns": 0,
         "passRate": 1,
-        "rubricMean": 0.6983333333333333,
-        "rubricMin": 0.565,
-        "rubricStdDev": 0.09430299865622278,
-        "meanSeconds": 43.00466666666667,
-        "meanOutputTokens": 2413,
+        "rubricMean": 0.7758333333333333,
+        "rubricMin": 0.7175,
+        "rubricStdDev": 0.04515405728048021,
+        "meanSeconds": 64.68133333333333,
+        "meanOutputTokens": 1430.6666666666667,
         "meanCostUsd": null,
         "gateFailures": []
       },
       {
-        "model": "claude:sonnet",
-        "benchmarkOnly": true,
+        "model": "claude-sonnet-5",
+        "benchmarkOnly": false,
         "validRuns": 3,
         "infraRuns": 0,
-        "passRate": 0.6666666666666666,
-        "rubricMean": 0.8978333333333334,
-        "rubricMin": 0.8075,
-        "rubricStdDev": 0.06693446214187596,
-        "meanSeconds": 130.98833333333334,
-        "meanOutputTokens": 5444.333333333333,
+        "passRate": 1,
+        "rubricMean": 0.9625,
+        "rubricMin": 0.955,
+        "rubricStdDev": 0.01060660171779825,
+        "meanSeconds": 126.81133333333334,
+        "meanOutputTokens": 7814.666666666667,
         "meanCostUsd": null,
-        "gateFailures": [
-          "tool:find_diesel: called 0x, need >=1",
-          "tool:find_diesel: no call satisfied argCheck {\"path\":\".\",\"matches\":\"boise\"}"
-        ]
+        "gateFailures": []
+      },
+      {
+        "model": "claude-opus-4-8",
+        "benchmarkOnly": false,
+        "validRuns": 3,
+        "infraRuns": 0,
+        "passRate": 1,
+        "rubricMean": 0.9408333333333333,
+        "rubricMin": 0.9125,
+        "rubricStdDev": 0.021634591642911902,
+        "meanSeconds": 78.012,
+        "meanOutputTokens": 4178.333333333333,
+        "meanCostUsd": null,
+        "gateFailures": []
       }
     ]
   },
   "history": [
+    {
+      "when": "2026-06-09T22:04:38.425Z",
+      "harnessVersion": "2.0.0",
+      "fixtureSource": "model-bakeoff/tasks/travel-diesel-route-aware.json",
+      "runsPerCandidate": 3,
+      "verdict": {
+        "fixtureId": "travel.diesel.route-aware",
+        "passRateThreshold": 0.8,
+        "rubricThreshold": 0.7,
+        "rubricFloor": 0.6,
+        "recommendation": "deepseek-v4-pro:cloud",
+        "reason": "cheapest reliable candidate (passRate 100%, 2489 out-tok/success (price unknown))",
+        "winner": "deepseek-v4-pro:cloud",
+        "incumbent": "minimax-m2.5",
+        "eligible": [
+          "deepseek-v4-pro:cloud"
+        ],
+        "infraIncomplete": false
+      },
+      "candidates": [
+        {
+          "model": "minimax-m2.5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.6186666666666667,
+          "rubricMin": 0.521,
+          "rubricStdDev": 0.10234039063612936,
+          "meanSeconds": 45.04933333333333,
+          "meanOutputTokens": 1375,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "glm-5",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.5816666666666667,
+          "rubricMin": 0.505,
+          "rubricStdDev": 0.07171509991316716,
+          "meanSeconds": 54.76500000000001,
+          "meanOutputTokens": 1831.6666666666667,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "deepseek-v4-pro:cloud",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.7688333333333333,
+          "rubricMin": 0.7374999999999999,
+          "rubricStdDev": 0.03125522178594947,
+          "meanSeconds": 50.57933333333333,
+          "meanOutputTokens": 2489.3333333333335,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "deepseek-v4-flash",
+          "benchmarkOnly": false,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 1,
+          "rubricMean": 0.6983333333333333,
+          "rubricMin": 0.565,
+          "rubricStdDev": 0.09430299865622278,
+          "meanSeconds": 43.00466666666667,
+          "meanOutputTokens": 2413,
+          "meanCostUsd": null,
+          "gateFailures": []
+        },
+        {
+          "model": "claude:sonnet",
+          "benchmarkOnly": true,
+          "validRuns": 3,
+          "infraRuns": 0,
+          "passRate": 0.6666666666666666,
+          "rubricMean": 0.8978333333333334,
+          "rubricMin": 0.8075,
+          "rubricStdDev": 0.06693446214187596,
+          "meanSeconds": 130.98833333333334,
+          "meanOutputTokens": 5444.333333333333,
+          "meanCostUsd": null,
+          "gateFailures": [
+            "tool:find_diesel: called 0x, need >=1",
+            "tool:find_diesel: no call satisfied argCheck {\"path\":\".\",\"matches\":\"boise\"}"
+          ]
+        }
+      ]
+    },
     {
       "when": "2026-06-09T21:27:10.347Z",
       "harnessVersion": "2.0.0",
