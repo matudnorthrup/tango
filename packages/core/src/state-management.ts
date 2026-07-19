@@ -41,6 +41,8 @@ export interface StateStatusDefinition {
   values: string[];
   transitions?: Record<string, string[]>;
   initial?: string;
+  /** Statuses that close work for deadline/overdue purposes. */
+  terminal?: string[];
 }
 
 export interface StateStalenessPolicy {
@@ -66,6 +68,13 @@ export interface StateEntity {
   bodyFieldsHash: string | null;
   ownerUserId: string | null;
   ownerAgentId: string | null;
+  projectEntityId: string | null;
+  visibility: string | null;
+  dueAt: string | null;
+  nextCheckAt: string | null;
+  expectedResponseAt: string | null;
+  lastProgressAt: string | null;
+  closedAt: string | null;
   source: string;
   lastEventAt: string | null;
   staleAfter: string | null;
@@ -73,6 +82,49 @@ export interface StateEntity {
   updatedAt: string;
   archivedAt: string | null;
   stale: boolean;
+  overdue: boolean;
+}
+
+export interface StateEntityRelation {
+  id: number;
+  sourceEntityId: string;
+  targetEntityId: string;
+  kind: string;
+  metadata: Record<string, unknown> | null;
+  createdEventId: number;
+  archivedEventId: number | null;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+export interface StateEntityReference {
+  id: number;
+  entityId: string;
+  role: string;
+  ref: string;
+  label: string | null;
+  metadata: Record<string, unknown> | null;
+  supportsEventId: number | null;
+  createdEventId: number;
+  archivedEventId: number | null;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+export interface StateRelationMutation {
+  kind: string;
+  targetEntityId: string;
+  metadata?: Record<string, unknown> | null;
+  remove?: boolean;
+}
+
+export interface StateReferenceMutation {
+  role: string;
+  ref: string;
+  label?: string | null;
+  metadata?: Record<string, unknown> | null;
+  supportsEventId?: number | null;
+  remove?: boolean;
 }
 
 export interface StatePatchValue {
@@ -115,7 +167,17 @@ export interface StateEntityMutation {
   status?: string | null;
   summary?: string | null;
   bodyPointer?: string | null;
+  ownerUserId?: string | null;
   ownerAgentId?: string | null;
+  projectEntityId?: string | null;
+  visibility?: string | null;
+  dueAt?: string | null;
+  nextCheckAt?: string | null;
+  expectedResponseAt?: string | null;
+  lastProgressAt?: string | null;
+  markProgress?: boolean;
+  relations?: StateRelationMutation[];
+  references?: StateReferenceMutation[];
   kind?: StateEventKind;
   note?: string | null;
   archive?: boolean;
@@ -135,7 +197,27 @@ export interface StateQueryInput extends StateAccessContext {
   type?: string;
   status?: string;
   stale?: boolean;
+  overdue?: boolean;
   text?: string;
+  projectEntityId?: string;
+  ownerUserId?: string;
+  ownerAgentId?: string;
+  source?: string;
+  dueBefore?: string;
+  dueAfter?: string;
+  nextCheckBefore?: string;
+  nextCheckAfter?: string;
+  expectedResponseBefore?: string;
+  expectedResponseAfter?: string;
+  lastProgressBefore?: string;
+  lastProgressAfter?: string;
+  progressOlderThanDays?: number;
+  progressNewerThanDays?: number;
+  relationKind?: string;
+  relatedEntityId?: string;
+  referenceRole?: string;
+  includeRelations?: boolean;
+  includeReferences?: boolean;
   includeArchived?: boolean;
   limit?: number;
   recentEvents?: number;
@@ -147,7 +229,11 @@ export interface StateQueryInput extends StateAccessContext {
 }
 
 export interface StateQueryResult {
-  entities: Array<StateEntity & { events?: StateEvent[] }>;
+  entities: Array<StateEntity & {
+    events?: StateEvent[];
+    relations?: StateEntityRelation[];
+    references?: StateEntityReference[];
+  }>;
   trend?: {
     field: string;
     aggregation: string;
@@ -235,6 +321,22 @@ const DEFAULT_DIGEST_TOKEN_BUDGET = 400;
 const DEFAULT_FOCUS_TTL_DAYS = 7;
 const RECONCILER_STALL_MINUTES = 30;
 const ABSENT_ATTRIBUTE = "__tango_state_absent__";
+const RELATION_PATCH_PREFIX = "__relation__:";
+const REFERENCE_PATCH_PREFIX = "__reference__:";
+
+interface RelationPatchValue {
+  kind: string;
+  targetEntityId: string;
+  metadata: Record<string, unknown> | null;
+}
+
+interface ReferencePatchValue {
+  role: string;
+  ref: string;
+  label: string | null;
+  metadata: Record<string, unknown> | null;
+  supportsEventId: number | null;
+}
 
 const ajv = new Ajv({
   allErrors: true,
@@ -414,7 +516,9 @@ export class StateService {
     this.transaction(() => {
       const mutable = cloneEntity(entity);
       applyPatchToEntity(mutable, inverse, { guardAgainst: original.patch ?? {}, now });
-      const staleAfter = this.computeStaleAfter(this.requireType(mutable.typeId, context), occurredAt);
+      const staleAfter = mutable.lastProgressAt
+        ? this.computeStaleAfter(this.requireType(mutable.typeId, context), mutable.lastProgressAt)
+        : null;
       this.writeEntityHead(mutable, {
         source: context.source,
         updatedAt: now,
@@ -430,6 +534,7 @@ export class StateService {
         occurredAt,
         revertsEventId: eventId,
       });
+      this.applyLinkPatch(mutable.id, inverse, id, now, original.patch ?? {});
       updated = this.requireEntity(mutable.id, context, true);
       event = this.requireEvent(id);
     });
@@ -469,6 +574,8 @@ export class StateService {
   query(input: StateQueryInput = {}): StateQueryResult {
     const conditions: string[] = [];
     const values: Array<string | number> = [];
+    const nowDate = this.now();
+    const now = toSqlTimestamp(nowDate);
     if (!input.includeArchived) conditions.push("e.archived_at IS NULL");
     if (input.entityId) {
       conditions.push("e.id = ?");
@@ -482,38 +589,105 @@ export class StateService {
       conditions.push("e.status = ?");
       values.push(input.status.trim());
     }
-    if (input.stale === true) conditions.push("e.stale_after IS NOT NULL AND datetime(e.stale_after) <= datetime('now')");
-    if (input.stale === false) conditions.push("(e.stale_after IS NULL OR datetime(e.stale_after) > datetime('now'))");
+    if (input.stale === true) {
+      conditions.push("e.stale_after IS NOT NULL AND datetime(e.stale_after) <= datetime(?)");
+      values.push(now);
+    }
+    if (input.stale === false) {
+      conditions.push("(e.stale_after IS NULL OR datetime(e.stale_after) > datetime(?))");
+      values.push(now);
+    }
+    if (input.overdue === true) {
+      conditions.push("e.archived_at IS NULL AND e.due_at IS NOT NULL AND datetime(e.due_at) <= datetime(?) AND e.closed_at IS NULL");
+      values.push(now);
+    }
+    if (input.overdue === false) {
+      conditions.push("(e.archived_at IS NOT NULL OR e.due_at IS NULL OR datetime(e.due_at) > datetime(?) OR e.closed_at IS NOT NULL)");
+      values.push(now);
+    }
+    addExactCondition(conditions, values, "e.project_entity_id", input.projectEntityId);
+    addExactCondition(conditions, values, "e.owner_user_id", input.ownerUserId);
+    addExactCondition(conditions, values, "e.owner_agent_id", input.ownerAgentId);
+    addExactCondition(conditions, values, "e.source", input.source);
+    addTimestampCondition(conditions, values, "e.due_at", "<=", input.dueBefore, "dueBefore");
+    addTimestampCondition(conditions, values, "e.due_at", ">=", input.dueAfter, "dueAfter");
+    addTimestampCondition(conditions, values, "e.next_check_at", "<=", input.nextCheckBefore, "nextCheckBefore");
+    addTimestampCondition(conditions, values, "e.next_check_at", ">=", input.nextCheckAfter, "nextCheckAfter");
+    addTimestampCondition(conditions, values, "e.expected_response_at", "<=", input.expectedResponseBefore, "expectedResponseBefore");
+    addTimestampCondition(conditions, values, "e.expected_response_at", ">=", input.expectedResponseAfter, "expectedResponseAfter");
+    addTimestampCondition(conditions, values, "e.last_progress_at", "<=", input.lastProgressBefore, "lastProgressBefore");
+    addTimestampCondition(conditions, values, "e.last_progress_at", ">=", input.lastProgressAfter, "lastProgressAfter");
+    if (input.progressOlderThanDays !== undefined) {
+      const days = normalizeProgressDays(input.progressOlderThanDays, "progressOlderThanDays");
+      conditions.push("e.last_progress_at IS NOT NULL AND datetime(e.last_progress_at) <= datetime(?)");
+      values.push(toSqlTimestamp(new Date(nowDate.getTime() - days * 86_400_000)));
+    }
+    if (input.progressNewerThanDays !== undefined) {
+      const days = normalizeProgressDays(input.progressNewerThanDays, "progressNewerThanDays");
+      conditions.push("e.last_progress_at IS NOT NULL AND datetime(e.last_progress_at) >= datetime(?)");
+      values.push(toSqlTimestamp(new Date(nowDate.getTime() - days * 86_400_000)));
+    }
     if (input.text?.trim()) {
       conditions.push("(lower(e.title) LIKE ? OR lower(e.slug) LIKE ? OR lower(COALESCE(e.aliases, '')) LIKE ? OR lower(COALESCE(e.summary, '')) LIKE ?)");
       const term = `%${input.text.trim().toLowerCase()}%`;
       values.push(term, term, term, term);
     }
     const limit = clampInt(input.limit ?? 50, 1, 500);
-    values.push(limit);
+    const needsRelationFilter = Boolean(input.relationKind?.trim() || input.relatedEntityId?.trim());
+    const needsReferenceFilter = Boolean(input.referenceRole?.trim());
+    const needsLinkFilter = needsRelationFilter || needsReferenceFilter;
+    if (!needsLinkFilter) values.push(limit);
     const rows = this.db.prepare(`
       SELECT e.id, e.type_id AS typeId, e.slug, e.title, e.aliases,
              e.status, e.attributes, e.summary, e.body_pointer AS bodyPointer,
              e.body_fields_hash AS bodyFieldsHash, e.owner_user_id AS ownerUserId,
-             e.owner_agent_id AS ownerAgentId, e.source,
+             e.owner_agent_id AS ownerAgentId,
+             e.project_entity_id AS projectEntityId, e.visibility AS entityVisibility,
+             e.due_at AS dueAt, e.next_check_at AS nextCheckAt,
+             e.expected_response_at AS expectedResponseAt,
+             e.last_progress_at AS lastProgressAt, e.closed_at AS closedAt, e.source,
              e.last_event_at AS lastEventAt, e.stale_after AS staleAfter,
              e.created_at AS createdAt, e.updated_at AS updatedAt,
-             e.archived_at AS archivedAt, t.visibility
+             e.archived_at AS archivedAt, t.visibility AS typeVisibility,
+             p.visibility AS projectEntityVisibility,
+             pt.visibility AS projectTypeVisibility
       FROM state_entities e
       JOIN state_entity_types t ON t.id = e.type_id
+      LEFT JOIN state_entities p ON p.id = e.project_entity_id
+      LEFT JOIN state_entity_types pt ON pt.id = p.type_id
       ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY e.archived_at IS NOT NULL, datetime(e.updated_at) DESC, e.title
-      LIMIT ?
+      ${needsLinkFilter ? "" : "LIMIT ?"}
     `).all(...values) as unknown as EntityRowWithVisibility[];
 
     const recentEvents = clampInt(input.recentEvents ?? (input.entityId ? 20 : 0), 0, 100);
-    const entities = rows
-      .filter((row) => this.visibilityResolver(row.visibility, input))
+    const entitiesWithLinks = rows
+      .filter((row) => this.canAccessEntityRow(row, input))
       .map((row) => {
-        const entity = mapStateEntity(row, this.now());
-        return recentEvents > 0
-          ? { ...entity, events: this.listEvents(entity.id, recentEvents) }
-          : entity;
+        const entity = mapStateEntity(row, nowDate);
+        return {
+          ...entity,
+          ...(recentEvents > 0 ? { events: this.listEvents(entity.id, recentEvents) } : {}),
+          ...(input.includeRelations || needsRelationFilter ? { relations: this.listRelations(entity.id, input) } : {}),
+          ...(input.includeReferences || needsReferenceFilter ? { references: this.listReferences(entity.id, input) } : {}),
+        };
+      });
+    const entities = entitiesWithLinks
+      .filter((entity) => {
+        if (needsRelationFilter && !(entity.relations ?? []).some((relation) => {
+          return (!input.relationKind?.trim() || relation.kind === input.relationKind.trim())
+            && (!input.relatedEntityId?.trim() || relation.targetEntityId === input.relatedEntityId.trim());
+        })) return false;
+        if (needsReferenceFilter && !(entity.references ?? []).some((reference) => reference.role === input.referenceRole!.trim())) {
+          return false;
+        }
+        return true;
+      })
+      .slice(0, limit)
+      .map((entity) => {
+        if (!input.includeRelations) delete entity.relations;
+        if (!input.includeReferences) delete entity.references;
+        return entity;
       });
 
     const result: StateQueryResult = { entities };
@@ -544,6 +718,40 @@ export class StateService {
       ORDER BY datetime(occurred_at) DESC, id DESC LIMIT ?
     `).all(entityId, clampInt(limit, 1, 500)) as unknown as StateEventRow[];
     return rows.map(mapStateEvent);
+  }
+
+  listRelations(entityId: string, context: StateAccessContext = {}, includeArchived = false): StateEntityRelation[] {
+    if (!this.getEntity(entityId, context, true)) return [];
+    const rows = this.db.prepare(`
+      SELECT id, source_entity_id AS sourceEntityId, target_entity_id AS targetEntityId,
+             kind, metadata, created_event_id AS createdEventId,
+             archived_event_id AS archivedEventId, created_at AS createdAt,
+             archived_at AS archivedAt
+      FROM state_entity_relations
+      WHERE source_entity_id = ? ${includeArchived ? "" : "AND archived_at IS NULL"}
+      ORDER BY archived_at IS NOT NULL, kind, target_entity_id, id
+    `).all(entityId) as unknown as StateEntityRelationRow[];
+    return rows
+      .map(mapStateEntityRelation)
+      .filter((relation) => Boolean(this.getEntity(relation.targetEntityId, context, true)));
+  }
+
+  listReferences(entityId: string, context: StateAccessContext = {}, includeArchived = false): StateEntityReference[] {
+    if (!this.getEntity(entityId, context, true)) return [];
+    const rows = this.db.prepare(`
+      SELECT id, entity_id AS entityId, role, ref, label, metadata,
+             supports_event_id AS supportsEventId, created_event_id AS createdEventId,
+             archived_event_id AS archivedEventId, created_at AS createdAt,
+             archived_at AS archivedAt
+      FROM state_entity_references
+      WHERE entity_id = ? ${includeArchived ? "" : "AND archived_at IS NULL"}
+      ORDER BY archived_at IS NOT NULL, role, ref, id
+    `).all(entityId) as unknown as StateEntityReferenceRow[];
+    return rows.map(mapStateEntityReference).filter((reference) => {
+      if (reference.supportsEventId === null) return true;
+      const event = this.getEvent(reference.supportsEventId);
+      return Boolean(event && this.getEntity(event.entityId, context, true));
+    });
   }
 
   listTurnEvents(turnId: string): StateEvent[] {
@@ -615,7 +823,7 @@ export class StateService {
       `).run(key, entityId, updatedAt, expiresAt);
       changed += Number(result.changes);
     }
-    this.db.prepare("DELETE FROM state_focus WHERE datetime(expires_at) <= datetime('now')").run();
+    this.db.prepare("DELETE FROM state_focus WHERE datetime(expires_at) <= datetime(?)").run(updatedAt);
     return changed;
   }
 
@@ -626,6 +834,7 @@ export class StateService {
     const types = new Map(this.listTypes(options).map((type) => [type.id, type]));
     const selected: StateEntity[] = [];
     const seen = new Set<string>();
+    const focusedIds = new Set<string>();
     const addRows = (rows: StateEntity[]) => {
       for (const row of rows) {
         if (!seen.has(row.id)) {
@@ -639,18 +848,28 @@ export class StateService {
       SELECT e.id, e.type_id AS typeId, e.slug, e.title, e.aliases,
              e.status, e.attributes, e.summary, e.body_pointer AS bodyPointer,
              e.body_fields_hash AS bodyFieldsHash, e.owner_user_id AS ownerUserId,
-             e.owner_agent_id AS ownerAgentId, e.source,
+             e.owner_agent_id AS ownerAgentId,
+             e.project_entity_id AS projectEntityId, e.visibility AS entityVisibility,
+             e.due_at AS dueAt, e.next_check_at AS nextCheckAt,
+             e.expected_response_at AS expectedResponseAt,
+             e.last_progress_at AS lastProgressAt, e.closed_at AS closedAt, e.source,
              e.last_event_at AS lastEventAt, e.stale_after AS staleAfter,
              e.created_at AS createdAt, e.updated_at AS updatedAt,
-             e.archived_at AS archivedAt, t.visibility
+             e.archived_at AS archivedAt, t.visibility AS typeVisibility,
+             p.visibility AS projectEntityVisibility,
+             pt.visibility AS projectTypeVisibility
       FROM state_focus f
       JOIN state_entities e ON e.id = f.entity_id
       JOIN state_entity_types t ON t.id = e.type_id
+      LEFT JOIN state_entities p ON p.id = e.project_entity_id
+      LEFT JOIN state_entity_types pt ON pt.id = p.type_id
       WHERE f.conversation_key = ? AND datetime(f.expires_at) > datetime(?)
         AND e.archived_at IS NULL
       ORDER BY datetime(f.updated_at) DESC
     `).all(options.conversationKey, toSqlTimestamp(now)) as unknown as EntityRowWithVisibility[];
-    addRows(this.mapVisibleEntities(focusedRows, options, now));
+    const visibleFocusedRows = this.mapVisibleEntities(focusedRows, options, now);
+    for (const row of visibleFocusedRows) focusedIds.add(row.id);
+    addRows(visibleFocusedRows);
 
     const alwaysOn = [...new Set(options.alwaysOnTypes ?? [])].filter((type) => types.has(type));
     if (alwaysOn.length > 0) {
@@ -659,11 +878,19 @@ export class StateService {
         SELECT e.id, e.type_id AS typeId, e.slug, e.title, e.aliases,
                e.status, e.attributes, e.summary, e.body_pointer AS bodyPointer,
                e.body_fields_hash AS bodyFieldsHash, e.owner_user_id AS ownerUserId,
-               e.owner_agent_id AS ownerAgentId, e.source,
+               e.owner_agent_id AS ownerAgentId,
+               e.project_entity_id AS projectEntityId, e.visibility AS entityVisibility,
+               e.due_at AS dueAt, e.next_check_at AS nextCheckAt,
+               e.expected_response_at AS expectedResponseAt,
+               e.last_progress_at AS lastProgressAt, e.closed_at AS closedAt, e.source,
                e.last_event_at AS lastEventAt, e.stale_after AS staleAfter,
                e.created_at AS createdAt, e.updated_at AS updatedAt,
-               e.archived_at AS archivedAt, t.visibility
+               e.archived_at AS archivedAt, t.visibility AS typeVisibility,
+               p.visibility AS projectEntityVisibility,
+               pt.visibility AS projectTypeVisibility
         FROM state_entities e JOIN state_entity_types t ON t.id = e.type_id
+        LEFT JOIN state_entities p ON p.id = e.project_entity_id
+        LEFT JOIN state_entity_types pt ON pt.id = p.type_id
         WHERE e.archived_at IS NULL AND e.type_id IN (${placeholders})
         ORDER BY datetime(e.updated_at) DESC
       `).all(...alwaysOn) as unknown as EntityRowWithVisibility[];
@@ -674,11 +901,19 @@ export class StateService {
       SELECT e.id, e.type_id AS typeId, e.slug, e.title, e.aliases,
              e.status, e.attributes, e.summary, e.body_pointer AS bodyPointer,
              e.body_fields_hash AS bodyFieldsHash, e.owner_user_id AS ownerUserId,
-             e.owner_agent_id AS ownerAgentId, e.source,
+             e.owner_agent_id AS ownerAgentId,
+             e.project_entity_id AS projectEntityId, e.visibility AS entityVisibility,
+             e.due_at AS dueAt, e.next_check_at AS nextCheckAt,
+             e.expected_response_at AS expectedResponseAt,
+             e.last_progress_at AS lastProgressAt, e.closed_at AS closedAt, e.source,
              e.last_event_at AS lastEventAt, e.stale_after AS staleAfter,
              e.created_at AS createdAt, e.updated_at AS updatedAt,
-             e.archived_at AS archivedAt, t.visibility
+             e.archived_at AS archivedAt, t.visibility AS typeVisibility,
+             p.visibility AS projectEntityVisibility,
+             pt.visibility AS projectTypeVisibility
       FROM state_entities e JOIN state_entity_types t ON t.id = e.type_id
+      LEFT JOIN state_entities p ON p.id = e.project_entity_id
+      LEFT JOIN state_entity_types pt ON pt.id = p.type_id
       WHERE e.archived_at IS NULL AND datetime(e.updated_at) >= datetime(?, '-24 hours')
       ORDER BY datetime(e.updated_at) DESC
     `).all(toSqlTimestamp(now)) as unknown as EntityRowWithVisibility[];
@@ -688,11 +923,19 @@ export class StateService {
       SELECT e.id, e.type_id AS typeId, e.slug, e.title, e.aliases,
              e.status, e.attributes, e.summary, e.body_pointer AS bodyPointer,
              e.body_fields_hash AS bodyFieldsHash, e.owner_user_id AS ownerUserId,
-             e.owner_agent_id AS ownerAgentId, e.source,
+             e.owner_agent_id AS ownerAgentId,
+             e.project_entity_id AS projectEntityId, e.visibility AS entityVisibility,
+             e.due_at AS dueAt, e.next_check_at AS nextCheckAt,
+             e.expected_response_at AS expectedResponseAt,
+             e.last_progress_at AS lastProgressAt, e.closed_at AS closedAt, e.source,
              e.last_event_at AS lastEventAt, e.stale_after AS staleAfter,
              e.created_at AS createdAt, e.updated_at AS updatedAt,
-             e.archived_at AS archivedAt, t.visibility
+             e.archived_at AS archivedAt, t.visibility AS typeVisibility,
+             p.visibility AS projectEntityVisibility,
+             pt.visibility AS projectTypeVisibility
       FROM state_entities e JOIN state_entity_types t ON t.id = e.type_id
+      LEFT JOIN state_entities p ON p.id = e.project_entity_id
+      LEFT JOIN state_entity_types pt ON pt.id = p.type_id
       WHERE e.archived_at IS NULL AND e.stale_after IS NOT NULL
         AND datetime(e.stale_after) <= datetime(?)
       ORDER BY datetime(e.updated_at) DESC
@@ -709,13 +952,26 @@ export class StateService {
       if (!type) continue;
       const rendered = `- [${entity.typeId}] ${renderDigestTemplate(type, entity, now)}`;
       if (used + rendered.length + 1 > maxChars) {
+        if (focusedIds.has(entity.id)) {
+          const available = maxChars - used - 1;
+          const compact = `- [${entity.typeId}] ${entity.title}`;
+          if (available >= 12) {
+            const focusedLine = truncateText(compact, available);
+            lines.push(focusedLine);
+            used += focusedLine.length + 1;
+            continue;
+          }
+        }
         omitted += 1;
         continue;
       }
       lines.push(rendered);
       used += rendered.length + 1;
     }
-    if (omitted > 0) lines.push(`- (${omitted} more: use state_query)`);
+    if (omitted > 0) {
+      const summary = `- (${omitted} more: use state_query)`;
+      if (used + summary.length + 1 <= maxChars) lines.push(summary);
+    }
     return lines.join("\n");
   }
 
@@ -745,9 +1001,9 @@ export class StateService {
     const types = this.listTypes(context);
     const focused = this.db.prepare(`
       SELECT entity_id AS entityId FROM state_focus
-      WHERE conversation_key = ? AND datetime(expires_at) > datetime('now')
+      WHERE conversation_key = ? AND datetime(expires_at) > datetime(?)
       ORDER BY datetime(updated_at) DESC
-    `).all(context.conversationKey) as Array<{ entityId: string }>;
+    `).all(context.conversationKey, toSqlTimestamp(this.now())) as Array<{ entityId: string }>;
     const ids = new Set(focused.map((row) => row.entityId));
     for (const entity of this.query({ ...context, limit: 200 }).entities) {
       if ((context.alwaysOnTypes ?? []).includes(entity.typeId)) ids.add(entity.id);
@@ -1068,22 +1324,49 @@ export class StateService {
     const aliases = normalizeAliases(input.aliases ?? []);
     const now = toSqlTimestamp(this.now());
     const occurredAt = normalizeTimestamp(context.occurredAt) ?? now;
-    const staleAfter = this.computeStaleAfter(type, occurredAt);
+    const projectEntityId = this.validateProjectAssociation(input.projectEntityId, context, id);
+    const visibility = this.validateEntityVisibility(input.visibility, context);
+    const dueAt = normalizeNullableTimestamp(input.dueAt, "dueAt");
+    const nextCheckAt = normalizeNullableTimestamp(input.nextCheckAt, "nextCheckAt");
+    const expectedResponseAt = normalizeNullableTimestamp(input.expectedResponseAt, "expectedResponseAt");
+    const explicitProgressAt = normalizeNullableTimestamp(input.lastProgressAt, "lastProgressAt");
+    const lastProgressAt = input.markProgress === false ? explicitProgressAt : explicitProgressAt ?? occurredAt;
+    const closedAt = isTerminalStatus(type, status) ? occurredAt : null;
+    const summary = normalizeNullableText(input.summary ?? null);
+    const bodyPointer = normalizeNullableText(input.bodyPointer ?? null);
+    const ownerUserId = normalizeNullableText(input.ownerUserId ?? null);
+    const ownerAgentId = normalizeNullableText(input.ownerAgentId ?? context.agentId ?? null);
+    const staleAfter = lastProgressAt ? this.computeStaleAfter(type, lastProgressAt) : null;
     const patch: Record<string, StatePatchValue> = {
       __created__: { from: false, to: true },
       title: { from: null, to: title },
       attributes: { from: null, to: attributes },
     };
     if (status !== null) patch.status = { from: null, to: status };
+    if (aliases.length > 0) patch.aliases = { from: [], to: aliases };
+    if (summary !== null) patch.summary = { from: null, to: summary };
+    if (bodyPointer !== null) patch.bodyPointer = { from: null, to: bodyPointer };
+    if (ownerUserId !== null) patch.ownerUserId = { from: null, to: ownerUserId };
+    if (ownerAgentId !== null) patch.ownerAgentId = { from: null, to: ownerAgentId };
+    if (projectEntityId !== null) patch.projectEntityId = { from: null, to: projectEntityId };
+    if (visibility !== null) patch.visibility = { from: null, to: visibility };
+    if (dueAt !== null) patch.dueAt = { from: null, to: dueAt };
+    if (nextCheckAt !== null) patch.nextCheckAt = { from: null, to: nextCheckAt };
+    if (expectedResponseAt !== null) patch.expectedResponseAt = { from: null, to: expectedResponseAt };
+    if (lastProgressAt !== null) patch.lastProgressAt = { from: null, to: lastProgressAt };
+    if (closedAt !== null) patch.closedAt = { from: null, to: closedAt };
+    Object.assign(patch, this.buildLinkPatch(id, input.relations, input.references, context));
     let entity!: StateEntity;
     let event!: StateEvent;
     this.transaction(() => {
       this.db.prepare(`
         INSERT INTO state_entities (
           id, type_id, slug, title, aliases, status, attributes, summary,
-          body_pointer, owner_agent_id, source, last_event_at, stale_after,
+          body_pointer, owner_user_id, owner_agent_id, project_entity_id,
+          visibility, due_at, next_check_at, expected_response_at,
+          last_progress_at, closed_at, source, last_event_at, stale_after,
           created_at, updated_at, archived_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         type.id,
@@ -1092,9 +1375,17 @@ export class StateService {
         JSON.stringify(aliases),
         status,
         JSON.stringify(attributes),
-        input.summary ?? null,
-        input.bodyPointer ?? null,
-        input.ownerAgentId ?? context.agentId ?? null,
+        summary,
+        bodyPointer,
+        ownerUserId,
+        ownerAgentId,
+        projectEntityId,
+        visibility,
+        dueAt,
+        nextCheckAt,
+        expectedResponseAt,
+        lastProgressAt,
+        closedAt,
         context.source,
         occurredAt,
         staleAfter,
@@ -1110,6 +1401,7 @@ export class StateService {
         context,
         occurredAt,
       });
+      this.applyLinkPatch(id, patch, eventId, now);
       entity = this.requireEntity(id, context, true);
       event = this.requireEvent(eventId);
     });
@@ -1125,6 +1417,8 @@ export class StateService {
     const type = this.requireType(existing.typeId, context);
     const next = cloneEntity(existing);
     const patch: Record<string, StatePatchValue> = {};
+    const now = toSqlTimestamp(this.now());
+    const occurredAt = normalizeTimestamp(context.occurredAt) ?? now;
     if (input.title !== undefined) assignPatch(next, "title", requireText(input.title, "title"), patch);
     if (input.aliases !== undefined) {
       const aliases = normalizeAliases([...next.aliases, ...input.aliases]);
@@ -1132,7 +1426,19 @@ export class StateService {
     }
     if (input.summary !== undefined) assignPatch(next, "summary", normalizeNullableText(input.summary), patch);
     if (input.bodyPointer !== undefined) assignPatch(next, "bodyPointer", normalizeNullableText(input.bodyPointer), patch);
+    if (input.ownerUserId !== undefined) assignPatch(next, "ownerUserId", normalizeNullableText(input.ownerUserId), patch);
     if (input.ownerAgentId !== undefined) assignPatch(next, "ownerAgentId", normalizeNullableText(input.ownerAgentId), patch);
+    if (input.projectEntityId !== undefined) {
+      assignPatch(next, "projectEntityId", this.validateProjectAssociation(input.projectEntityId, context, existing.id), patch);
+    }
+    if (input.visibility !== undefined) {
+      assignPatch(next, "visibility", this.validateEntityVisibility(input.visibility, context), patch);
+    }
+    if (input.dueAt !== undefined) assignPatch(next, "dueAt", normalizeNullableTimestamp(input.dueAt, "dueAt"), patch);
+    if (input.nextCheckAt !== undefined) assignPatch(next, "nextCheckAt", normalizeNullableTimestamp(input.nextCheckAt, "nextCheckAt"), patch);
+    if (input.expectedResponseAt !== undefined) {
+      assignPatch(next, "expectedResponseAt", normalizeNullableTimestamp(input.expectedResponseAt, "expectedResponseAt"), patch);
+    }
     if (input.attributes) {
       const merged = { ...next.attributes };
       for (const [field, value] of Object.entries(input.attributes)) {
@@ -1152,8 +1458,20 @@ export class StateService {
       if (!deepEqual(next.status, status)) {
         patch.status = { from: next.status, to: status };
         next.status = status;
+        assignPatch(next, "closedAt", isTerminalStatus(type, status) ? occurredAt : null, patch);
       }
     }
+    const defaultProgress = Object.keys(patch).some((field) => field === "status"
+      || field.startsWith("attributes.")
+      || ["dueAt", "nextCheckAt", "expectedResponseAt"].includes(field))
+      || input.kind === "observation"
+      || input.kind === "sync";
+    if (input.lastProgressAt !== undefined) {
+      assignPatch(next, "lastProgressAt", normalizeNullableTimestamp(input.lastProgressAt, "lastProgressAt"), patch);
+    } else if (input.markProgress === true || (input.markProgress !== false && defaultProgress)) {
+      assignPatch(next, "lastProgressAt", occurredAt, patch);
+    }
+    Object.assign(patch, this.buildLinkPatch(existing.id, input.relations, input.references, context));
     if (input.archive && !next.archivedAt) {
       patch.archived_at = { from: null, to: "__now__" };
     }
@@ -1167,11 +1485,11 @@ export class StateService {
       return { applied: false, entity: existing, event: null, created: false, reason: "no_change" };
     }
 
-    const now = toSqlTimestamp(this.now());
-    const occurredAt = normalizeTimestamp(context.occurredAt) ?? now;
     if (input.archive && !next.archivedAt) next.archivedAt = now;
     if (input.restore && next.archivedAt) next.archivedAt = null;
-    const staleAfter = this.computeStaleAfter(type, occurredAt);
+    const staleAfter = next.lastProgressAt !== existing.lastProgressAt
+      ? (next.lastProgressAt ? this.computeStaleAfter(type, next.lastProgressAt) : null)
+      : existing.staleAfter;
     let entity!: StateEntity;
     let event!: StateEvent;
     this.transaction(() => {
@@ -1189,6 +1507,7 @@ export class StateService {
         context,
         occurredAt,
       });
+      this.applyLinkPatch(next.id, patch, eventId, now);
       entity = this.requireEntity(next.id, context, true);
       event = this.requireEvent(eventId);
     });
@@ -1246,14 +1565,22 @@ export class StateService {
       SELECT e.id, e.type_id AS typeId, e.slug, e.title, e.aliases,
              e.status, e.attributes, e.summary, e.body_pointer AS bodyPointer,
              e.body_fields_hash AS bodyFieldsHash, e.owner_user_id AS ownerUserId,
-             e.owner_agent_id AS ownerAgentId, e.source,
+             e.owner_agent_id AS ownerAgentId,
+             e.project_entity_id AS projectEntityId, e.visibility AS entityVisibility,
+             e.due_at AS dueAt, e.next_check_at AS nextCheckAt,
+             e.expected_response_at AS expectedResponseAt,
+             e.last_progress_at AS lastProgressAt, e.closed_at AS closedAt, e.source,
              e.last_event_at AS lastEventAt, e.stale_after AS staleAfter,
              e.created_at AS createdAt, e.updated_at AS updatedAt,
-             e.archived_at AS archivedAt, t.visibility
+             e.archived_at AS archivedAt, t.visibility AS typeVisibility,
+             p.visibility AS projectEntityVisibility,
+             pt.visibility AS projectTypeVisibility
       FROM state_entities e JOIN state_entity_types t ON t.id = e.type_id
+      LEFT JOIN state_entities p ON p.id = e.project_entity_id
+      LEFT JOIN state_entity_types pt ON pt.id = p.type_id
       WHERE e.id = ? ${includeArchived ? "" : "AND e.archived_at IS NULL"}
     `).get(entityId) as EntityRowWithVisibility | undefined;
-    if (!row || !this.visibilityResolver(row.visibility, context)) {
+    if (!row || !this.canAccessEntityRow(row, context)) {
       throw new Error(`State entity '${entityId}' was not found or is not visible to this agent.`);
     }
     return mapStateEntity(row, this.now());
@@ -1289,6 +1616,192 @@ export class StateService {
     }
   }
 
+  private validateProjectAssociation(
+    value: string | null | undefined,
+    context: StateAccessContext,
+    entityId: string,
+  ): string | null {
+    if (value === null || value === undefined || !value.trim()) return null;
+    const projectEntityId = value.trim();
+    if (projectEntityId === entityId) throw new Error("A state entity cannot be its own project.");
+    const project = this.requireEntity(projectEntityId, context, true);
+    if (project.typeId !== "project") {
+      throw new Error(`Project association '${projectEntityId}' must reference a project state entity.`);
+    }
+    const seen = new Set([entityId]);
+    let cursor: string | null = projectEntityId;
+    while (cursor) {
+      if (seen.has(cursor)) throw new Error("Project associations cannot form a cycle.");
+      seen.add(cursor);
+      const row = this.db.prepare(
+        "SELECT project_entity_id AS projectEntityId FROM state_entities WHERE id = ?",
+      ).get(cursor) as { projectEntityId: string | null } | undefined;
+      cursor = row?.projectEntityId ?? null;
+    }
+    return projectEntityId;
+  }
+
+  private validateEntityVisibility(
+    value: string | null | undefined,
+    context: StateAccessContext,
+  ): string | null {
+    if (value === null || value === undefined || !value.trim()) return null;
+    const visibility = value.trim();
+    if (visibility !== "shared" && !/^private:[a-z0-9][a-z0-9_-]*$/iu.test(visibility)) {
+      throw new Error("Entity visibility must be 'shared', 'private:<scope>', or null to inherit.");
+    }
+    if (!context.includePrivate && !this.visibilityResolver(visibility, context)) {
+      throw new Error(`Cannot assign inaccessible state visibility '${visibility}'.`);
+    }
+    return visibility;
+  }
+
+  private buildLinkPatch(
+    entityId: string,
+    relationMutations: readonly StateRelationMutation[] | undefined,
+    referenceMutations: readonly StateReferenceMutation[] | undefined,
+    context: StateAccessContext,
+  ): Record<string, StatePatchValue> {
+    const patch: Record<string, StatePatchValue> = {};
+    const seen = new Set<string>();
+    for (const mutation of relationMutations ?? []) {
+      const kind = requireText(mutation.kind, "relations.kind");
+      const targetEntityId = requireText(mutation.targetEntityId, "relations.targetEntityId");
+      if (targetEntityId === entityId) throw new Error("A state entity cannot relate to itself.");
+      this.requireEntity(targetEntityId, context, true);
+      const key = relationPatchKey(kind, targetEntityId);
+      if (seen.has(key)) throw new Error(`Duplicate relation mutation '${kind}' → '${targetEntityId}'.`);
+      seen.add(key);
+      const current = this.getActiveRelationValue(entityId, kind, targetEntityId);
+      const desired: RelationPatchValue | null = mutation.remove
+        ? null
+        : { kind, targetEntityId, metadata: normalizeMetadata(mutation.metadata) };
+      if (!deepEqual(current, desired)) patch[key] = { from: current, to: desired };
+    }
+    for (const mutation of referenceMutations ?? []) {
+      const role = requireText(mutation.role, "references.role");
+      const ref = requireText(mutation.ref, "references.ref");
+      const key = referencePatchKey(role, ref);
+      if (seen.has(key)) throw new Error(`Duplicate reference mutation '${role}' → '${ref}'.`);
+      seen.add(key);
+      if (mutation.supportsEventId !== undefined && mutation.supportsEventId !== null) {
+        const supportedEvent = this.getEvent(mutation.supportsEventId);
+        if (!supportedEvent || !this.getEntity(supportedEvent.entityId, context, true)) {
+          throw new Error(`Supported state event ${mutation.supportsEventId} was not found or is not visible.`);
+        }
+      }
+      const current = this.getActiveReferenceValue(entityId, role, ref);
+      const desired: ReferencePatchValue | null = mutation.remove
+        ? null
+        : {
+            role,
+            ref,
+            label: normalizeNullableText(mutation.label ?? null),
+            metadata: normalizeMetadata(mutation.metadata),
+            supportsEventId: mutation.supportsEventId ?? null,
+          };
+      if (!deepEqual(current, desired)) patch[key] = { from: current, to: desired };
+    }
+    return patch;
+  }
+
+  private applyLinkPatch(
+    entityId: string,
+    patch: Record<string, StatePatchValue>,
+    eventId: number,
+    now: string,
+    guardAgainst?: Record<string, StatePatchValue>,
+  ): void {
+    for (const [key, change] of Object.entries(patch)) {
+      if (key.startsWith(RELATION_PATCH_PREFIX)) {
+        const identity = parseRelationPatchKey(key);
+        const current = this.getActiveRelationValue(entityId, identity.kind, identity.targetEntityId);
+        const guard = guardAgainst?.[key];
+        if (guard && !deepEqual(current, guard.to ?? null)) {
+          throw new Error(`Cannot safely revert relation '${identity.kind}': current link no longer matches the event being reverted.`);
+        }
+        const desired = isRelationPatchValue(change.to) ? change.to : null;
+        if (current) {
+          this.db.prepare(`
+            UPDATE state_entity_relations SET archived_event_id = ?, archived_at = ?
+            WHERE source_entity_id = ? AND target_entity_id = ? AND kind = ? AND archived_at IS NULL
+          `).run(eventId, now, entityId, identity.targetEntityId, identity.kind);
+        }
+        if (desired) {
+          this.db.prepare(`
+            INSERT INTO state_entity_relations (
+              source_entity_id, target_entity_id, kind, metadata,
+              created_event_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+          `).run(entityId, desired.targetEntityId, desired.kind, jsonOrNull(desired.metadata), eventId, now);
+        }
+      } else if (key.startsWith(REFERENCE_PATCH_PREFIX)) {
+        const identity = parseReferencePatchKey(key);
+        const current = this.getActiveReferenceValue(entityId, identity.role, identity.ref);
+        const guard = guardAgainst?.[key];
+        if (guard && !deepEqual(current, guard.to ?? null)) {
+          throw new Error(`Cannot safely revert reference '${identity.role}': current link no longer matches the event being reverted.`);
+        }
+        const desired = isReferencePatchValue(change.to) ? change.to : null;
+        if (current) {
+          this.db.prepare(`
+            UPDATE state_entity_references SET archived_event_id = ?, archived_at = ?
+            WHERE entity_id = ? AND role = ? AND ref = ? AND archived_at IS NULL
+          `).run(eventId, now, entityId, identity.role, identity.ref);
+        }
+        if (desired) {
+          this.db.prepare(`
+            INSERT INTO state_entity_references (
+              entity_id, role, ref, label, metadata, supports_event_id,
+              created_event_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            entityId,
+            desired.role,
+            desired.ref,
+            desired.label,
+            jsonOrNull(desired.metadata),
+            desired.supportsEventId,
+            eventId,
+            now,
+          );
+        }
+      }
+    }
+  }
+
+  private getActiveRelationValue(entityId: string, kind: string, targetEntityId: string): RelationPatchValue | null {
+    const row = this.db.prepare(`
+      SELECT kind, target_entity_id AS targetEntityId, metadata
+      FROM state_entity_relations
+      WHERE source_entity_id = ? AND kind = ? AND target_entity_id = ? AND archived_at IS NULL
+      LIMIT 1
+    `).get(entityId, kind, targetEntityId) as { kind: string; targetEntityId: string; metadata: string | null } | undefined;
+    return row ? { kind: row.kind, targetEntityId: row.targetEntityId, metadata: parseJsonObject(row.metadata) } : null;
+  }
+
+  private getActiveReferenceValue(entityId: string, role: string, ref: string): ReferencePatchValue | null {
+    const row = this.db.prepare(`
+      SELECT role, ref, label, metadata, supports_event_id AS supportsEventId
+      FROM state_entity_references
+      WHERE entity_id = ? AND role = ? AND ref = ? AND archived_at IS NULL
+      LIMIT 1
+    `).get(entityId, role, ref) as {
+      role: string;
+      ref: string;
+      label: string | null;
+      metadata: string | null;
+      supportsEventId: number | bigint | null;
+    } | undefined;
+    return row ? {
+      role: row.role,
+      ref: row.ref,
+      label: row.label,
+      metadata: parseJsonObject(row.metadata),
+      supportsEventId: row.supportsEventId === null ? null : Number(row.supportsEventId),
+    } : null;
+  }
+
   private computeStaleAfter(type: StateTypeDefinition, fromTimestamp: string): string | null {
     const days = numericValue(type.stalenessPolicy?.expected_update_days);
     if (days === null || days <= 0) return null;
@@ -1317,8 +1830,10 @@ export class StateService {
     this.db.prepare(`
       UPDATE state_entities SET
         title = ?, aliases = ?, status = ?, attributes = ?, summary = ?,
-        body_pointer = ?, owner_agent_id = ?, source = ?, last_event_at = ?,
-        stale_after = ?, updated_at = ?, archived_at = ?
+        body_pointer = ?, owner_user_id = ?, owner_agent_id = ?,
+        project_entity_id = ?, visibility = ?, due_at = ?, next_check_at = ?,
+        expected_response_at = ?, last_progress_at = ?, closed_at = ?,
+        source = ?, last_event_at = ?, stale_after = ?, updated_at = ?, archived_at = ?
       WHERE id = ?
     `).run(
       entity.title,
@@ -1327,7 +1842,15 @@ export class StateService {
       JSON.stringify(entity.attributes),
       entity.summary,
       entity.bodyPointer,
+      entity.ownerUserId,
       entity.ownerAgentId,
+      entity.projectEntityId,
+      entity.visibility,
+      entity.dueAt,
+      entity.nextCheckAt,
+      entity.expectedResponseAt,
+      entity.lastProgressAt,
+      entity.closedAt,
       meta.source,
       meta.lastEventAt,
       meta.staleAfter,
@@ -1388,11 +1911,12 @@ export class StateService {
     const field = requireText(trend.field, "trend.field");
     const windowDays = clampInt(trend.windowDays ?? 30, 1, 3650);
     const aggregation = trend.aggregation ?? "raw";
+    const lowerBound = toSqlTimestamp(new Date(this.now().getTime() - windowDays * 86_400_000));
     const events = this.db.prepare(`
       SELECT patch, occurred_at AS occurredAt FROM state_events
-      WHERE entity_id = ? AND datetime(occurred_at) >= datetime('now', ?)
+      WHERE entity_id = ? AND datetime(occurred_at) >= datetime(?)
       ORDER BY datetime(occurred_at), id
-    `).all(entityId, `-${windowDays} days`) as Array<{ patch: string | null; occurredAt: string }>;
+    `).all(entityId, lowerBound) as Array<{ patch: string | null; occurredAt: string }>;
     const patchKey = field.startsWith("attributes.") ? field : `attributes.${field}`;
     const points = events.flatMap((row) => {
       const patch = parsePatch(row.patch);
@@ -1441,8 +1965,38 @@ export class StateService {
 
   private mapVisibleEntities(rows: EntityRowWithVisibility[], context: StateAccessContext, now: Date): StateEntity[] {
     return rows
-      .filter((row) => this.visibilityResolver(row.visibility, context))
+      .filter((row) => this.canAccessEntityRow(row, context))
       .map((row) => mapStateEntity(row, now));
+  }
+
+  private canAccessEntityRow(row: EntityRowWithVisibility, context: StateAccessContext): boolean {
+    if (![row.typeVisibility, row.entityVisibility]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .every((visibility) => this.visibilityResolver(visibility, context))) return false;
+    const visited = new Set<string>();
+    let projectEntityId = row.projectEntityId;
+    while (projectEntityId) {
+      if (visited.has(projectEntityId)) return false;
+      visited.add(projectEntityId);
+      const parent = this.db.prepare(`
+        SELECT e.project_entity_id AS projectEntityId,
+               e.visibility AS entityVisibility,
+               t.visibility AS typeVisibility
+        FROM state_entities e
+        JOIN state_entity_types t ON t.id = e.type_id
+        WHERE e.id = ?
+      `).get(projectEntityId) as {
+        projectEntityId: string | null;
+        entityVisibility: string | null;
+        typeVisibility: string;
+      } | undefined;
+      if (!parent) return false;
+      if (![parent.typeVisibility, parent.entityVisibility]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .every((visibility) => this.visibilityResolver(visibility, context))) return false;
+      projectEntityId = parent.projectEntityId;
+    }
+    return true;
   }
 
   private detectDuplicateEntities(entities: StateEntity[]): number {
@@ -1505,6 +2059,13 @@ interface StateEntityRow {
   bodyFieldsHash: string | null;
   ownerUserId: string | null;
   ownerAgentId: string | null;
+  projectEntityId: string | null;
+  entityVisibility: string | null;
+  dueAt: string | null;
+  nextCheckAt: string | null;
+  expectedResponseAt: string | null;
+  lastProgressAt: string | null;
+  closedAt: string | null;
   source: string;
   lastEventAt: string | null;
   staleAfter: string | null;
@@ -1513,7 +2074,37 @@ interface StateEntityRow {
   archivedAt: string | null;
 }
 
-type EntityRowWithVisibility = StateEntityRow & { visibility: string };
+type EntityRowWithVisibility = StateEntityRow & {
+  typeVisibility: string;
+  projectEntityVisibility: string | null;
+  projectTypeVisibility: string | null;
+};
+
+interface StateEntityRelationRow {
+  id: number | bigint;
+  sourceEntityId: string;
+  targetEntityId: string;
+  kind: string;
+  metadata: string | null;
+  createdEventId: number | bigint;
+  archivedEventId: number | bigint | null;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+interface StateEntityReferenceRow {
+  id: number | bigint;
+  entityId: string;
+  role: string;
+  ref: string;
+  label: string | null;
+  metadata: string | null;
+  supportsEventId: number | bigint | null;
+  createdEventId: number | bigint;
+  archivedEventId: number | bigint | null;
+  createdAt: string;
+  archivedAt: string | null;
+}
 
 interface StateEventRow {
   id: number | bigint;
@@ -1545,11 +2136,41 @@ function mapStateType(row: StateTypeRow): StateTypeDefinition {
 }
 
 function mapStateEntity(row: StateEntityRow, now: Date): StateEntity {
+  const {
+    entityVisibility,
+    typeVisibility: _typeVisibility,
+    projectEntityVisibility: _projectEntityVisibility,
+    projectTypeVisibility: _projectTypeVisibility,
+    ...rest
+  } = row as EntityRowWithVisibility;
   return {
-    ...row,
+    ...rest,
+    visibility: entityVisibility,
     aliases: parseJsonArray(row.aliases).filter((value): value is string => typeof value === "string"),
     attributes: parseJsonObject(row.attributes) ?? {},
     stale: Boolean(row.staleAfter && new Date(row.staleAfter).getTime() <= now.getTime()),
+    overdue: Boolean(!row.archivedAt && row.dueAt && !row.closedAt && new Date(row.dueAt).getTime() <= now.getTime()),
+  };
+}
+
+function mapStateEntityRelation(row: StateEntityRelationRow): StateEntityRelation {
+  return {
+    ...row,
+    id: Number(row.id),
+    metadata: parseJsonObject(row.metadata),
+    createdEventId: Number(row.createdEventId),
+    archivedEventId: row.archivedEventId === null ? null : Number(row.archivedEventId),
+  };
+}
+
+function mapStateEntityReference(row: StateEntityReferenceRow): StateEntityReference {
+  return {
+    ...row,
+    id: Number(row.id),
+    metadata: parseJsonObject(row.metadata),
+    supportsEventId: row.supportsEventId === null ? null : Number(row.supportsEventId),
+    createdEventId: Number(row.createdEventId),
+    archivedEventId: row.archivedEventId === null ? null : Number(row.archivedEventId),
   };
 }
 
@@ -1623,6 +2244,9 @@ function validateStatusDefinition(statuses: StateStatusDefinition | null): void 
   if (statuses.initial && !values.includes(statuses.initial)) {
     throw new Error(`Initial status '${statuses.initial}' is not in statuses.values.`);
   }
+  for (const terminal of normalizeStringArray(statuses.terminal)) {
+    if (!values.includes(terminal)) throw new Error(`Terminal status '${terminal}' is not in statuses.values.`);
+  }
   for (const [from, targets] of Object.entries(statuses.transitions ?? {})) {
     if (!values.includes(from)) throw new Error(`Transition source '${from}' is not an allowed status.`);
     for (const target of targets) {
@@ -1661,6 +2285,11 @@ function assertAdditiveTypeEvolution(
     for (const status of existing.statuses.values) {
       if (!input.statuses.values.includes(status)) throw new Error(`Type evolution is additive-only: status '${status}' cannot be removed.`);
     }
+    for (const terminal of existing.statuses.terminal ?? []) {
+      if (!(input.statuses.terminal ?? []).includes(terminal)) {
+        throw new Error(`Type evolution is additive-only: terminal status '${terminal}' cannot be removed.`);
+      }
+    }
   }
   validateBodyFields(input.bodyFields ?? [], mergeAdditiveSchema(existing.attributesSchema, input.attributesSchema));
 }
@@ -1691,6 +2320,7 @@ function mergeAdditiveStatuses(
     values: [...new Set([...existing.values, ...next.values])],
     transitions,
     initial: existing.initial ?? next.initial,
+    terminal: [...new Set([...(existing.terminal ?? []), ...(next.terminal ?? [])])],
   };
 }
 
@@ -1719,6 +2349,10 @@ function validateStatusTransition(type: StateTypeDefinition, from: string | null
   }
 }
 
+function isTerminalStatus(type: StateTypeDefinition, status: string | null): boolean {
+  return Boolean(status && type.statuses?.terminal?.includes(status));
+}
+
 function invertPatch(patch: Record<string, StatePatchValue>): Record<string, StatePatchValue> {
   return Object.fromEntries(Object.entries(patch).map(([field, value]) => [field, { from: value.to, to: value.from }]));
 }
@@ -1733,6 +2367,7 @@ function applyPatchToEntity(
     return;
   }
   for (const [field, change] of Object.entries(inverse)) {
+    if (field.startsWith(RELATION_PATCH_PREFIX) || field.startsWith(REFERENCE_PATCH_PREFIX)) continue;
     const original = options.guardAgainst[field];
     const current = readEntityPatchField(entity, field);
     if (original && !deepEqual(current, normalizeNowMarker(original.to, current))) {
@@ -1747,6 +2382,13 @@ function readEntityPatchField(entity: StateEntity, field: string): unknown {
   if (field === "archived_at") return entity.archivedAt;
   if (field === "body_pointer") return entity.bodyPointer;
   if (field === "owner_agent_id") return entity.ownerAgentId;
+  if (field === "owner_user_id") return entity.ownerUserId;
+  if (field === "project_entity_id") return entity.projectEntityId;
+  if (field === "due_at") return entity.dueAt;
+  if (field === "next_check_at") return entity.nextCheckAt;
+  if (field === "expected_response_at") return entity.expectedResponseAt;
+  if (field === "last_progress_at") return entity.lastProgressAt;
+  if (field === "closed_at") return entity.closedAt;
   if (field in entity) return (entity as unknown as Record<string, unknown>)[field] ?? null;
   if (field === "bodyPointer") return entity.bodyPointer;
   if (field === "ownerAgentId") return entity.ownerAgentId;
@@ -1767,10 +2409,32 @@ function writeEntityPatchField(entity: StateEntity, field: string, value: unknow
   else if (field === "summary") entity.summary = typeof value === "string" ? value : null;
   else if (field === "bodyPointer" || field === "body_pointer") entity.bodyPointer = typeof value === "string" ? value : null;
   else if (field === "ownerAgentId" || field === "owner_agent_id") entity.ownerAgentId = typeof value === "string" ? value : null;
+  else if (field === "ownerUserId" || field === "owner_user_id") entity.ownerUserId = typeof value === "string" ? value : null;
+  else if (field === "projectEntityId" || field === "project_entity_id") entity.projectEntityId = typeof value === "string" ? value : null;
+  else if (field === "visibility") entity.visibility = typeof value === "string" ? value : null;
+  else if (field === "dueAt" || field === "due_at") entity.dueAt = typeof value === "string" ? value : null;
+  else if (field === "nextCheckAt" || field === "next_check_at") entity.nextCheckAt = typeof value === "string" ? value : null;
+  else if (field === "expectedResponseAt" || field === "expected_response_at") entity.expectedResponseAt = typeof value === "string" ? value : null;
+  else if (field === "lastProgressAt" || field === "last_progress_at") entity.lastProgressAt = typeof value === "string" ? value : null;
+  else if (field === "closedAt" || field === "closed_at") entity.closedAt = typeof value === "string" ? value : null;
   else if (field === "attributes" && isRecord(value)) entity.attributes = { ...value };
 }
 
-function assignPatch<K extends "title" | "aliases" | "summary" | "bodyPointer" | "ownerAgentId">(
+function assignPatch<K extends
+  | "title"
+  | "aliases"
+  | "summary"
+  | "bodyPointer"
+  | "ownerUserId"
+  | "ownerAgentId"
+  | "projectEntityId"
+  | "visibility"
+  | "dueAt"
+  | "nextCheckAt"
+  | "expectedResponseAt"
+  | "lastProgressAt"
+  | "closedAt"
+>(
   entity: StateEntity,
   field: K,
   value: StateEntity[K],
@@ -1789,6 +2453,12 @@ function renderDigestTemplate(type: StateTypeDefinition, entity: StateEntity, no
     summary: entity.summary ?? "",
     updated_at: entity.updatedAt,
     last_event_at: entity.lastEventAt,
+    due_at: entity.dueAt,
+    next_check_at: entity.nextCheckAt,
+    expected_response_at: entity.expectedResponseAt,
+    last_progress_at: entity.lastProgressAt,
+    closed_at: entity.closedAt,
+    overdue: entity.overdue,
     updated_age: formatAge(entity.updatedAt, now),
     ...entity.attributes,
   };
@@ -1906,11 +2576,90 @@ function normalizeNullableText(value: string | null): string | null {
   return normalized || null;
 }
 
+function normalizeNullableTimestamp(value: string | null | undefined, field: string): string | null {
+  if (value === null || value === undefined || !value.trim()) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid ${field} timestamp '${value}'.`);
+  return toSqlTimestamp(date);
+}
+
 function normalizeTimestamp(value: string | null | undefined): string | null {
   if (!value?.trim()) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw new Error(`Invalid timestamp '${value}'.`);
   return toSqlTimestamp(date);
+}
+
+function normalizeMetadata(value: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value)) throw new Error("State link metadata must be an object or null.");
+  return structuredClone(value);
+}
+
+function relationPatchKey(kind: string, targetEntityId: string): string {
+  return `${RELATION_PATCH_PREFIX}${encodeURIComponent(kind)}:${encodeURIComponent(targetEntityId)}`;
+}
+
+function referencePatchKey(role: string, ref: string): string {
+  return `${REFERENCE_PATCH_PREFIX}${encodeURIComponent(role)}:${encodeURIComponent(ref)}`;
+}
+
+function parseRelationPatchKey(value: string): { kind: string; targetEntityId: string } {
+  const parts = value.slice(RELATION_PATCH_PREFIX.length).split(":");
+  if (parts.length !== 2) throw new Error(`Invalid relation patch key '${value}'.`);
+  return { kind: decodeURIComponent(parts[0]!), targetEntityId: decodeURIComponent(parts[1]!) };
+}
+
+function parseReferencePatchKey(value: string): { role: string; ref: string } {
+  const parts = value.slice(REFERENCE_PATCH_PREFIX.length).split(":");
+  if (parts.length !== 2) throw new Error(`Invalid reference patch key '${value}'.`);
+  return { role: decodeURIComponent(parts[0]!), ref: decodeURIComponent(parts[1]!) };
+}
+
+function isRelationPatchValue(value: unknown): value is RelationPatchValue {
+  return isRecord(value)
+    && typeof value.kind === "string"
+    && typeof value.targetEntityId === "string"
+    && (value.metadata === null || isRecord(value.metadata));
+}
+
+function isReferencePatchValue(value: unknown): value is ReferencePatchValue {
+  return isRecord(value)
+    && typeof value.role === "string"
+    && typeof value.ref === "string"
+    && (value.label === null || typeof value.label === "string")
+    && (value.metadata === null || isRecord(value.metadata))
+    && (value.supportsEventId === null || typeof value.supportsEventId === "number");
+}
+
+function addExactCondition(
+  conditions: string[],
+  values: Array<string | number>,
+  column: string,
+  value: string | undefined,
+): void {
+  if (!value?.trim()) return;
+  conditions.push(`${column} = ?`);
+  values.push(value.trim());
+}
+
+function addTimestampCondition(
+  conditions: string[],
+  values: Array<string | number>,
+  column: string,
+  operator: "<=" | ">=",
+  value: string | undefined,
+  field: string,
+): void {
+  if (!value?.trim()) return;
+  conditions.push(`${column} IS NOT NULL AND datetime(${column}) ${operator} datetime(?)`);
+  values.push(normalizeNullableTimestamp(value, field)!);
+}
+
+function truncateText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  if (maxChars <= 1) return value.slice(0, maxChars);
+  return `${value.slice(0, maxChars - 1)}…`;
 }
 
 function toSqlTimestamp(value: Date): string {
@@ -1961,6 +2710,13 @@ function stringValue(value: unknown): string | null {
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(Number.isFinite(value) ? value : min)));
+}
+
+function normalizeProgressDays(value: number, field: string): number {
+  if (!Number.isFinite(value) || value < 0 || value > 36_500) {
+    throw new Error(`${field} must be a finite number from 0 through 36500.`);
+  }
+  return value;
 }
 
 function withinHours(timestamp: string, now: Date, hours: number): boolean {

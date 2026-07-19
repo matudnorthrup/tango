@@ -21,6 +21,8 @@ import type {
   ProviderReasoningEffort,
   ProjectConfig,
   SessionConfig,
+  StateTypePackConfig,
+  StateViewConfig,
   ToolContractConfig,
   WorkflowConfig,
   WorkerConfig,
@@ -240,6 +242,80 @@ const intentContractSchema = z.object({
     quality_gate_required: z.boolean().optional(),
     safe_noop_allowed: z.boolean().optional(),
   }).optional(),
+});
+
+const stateViewScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
+const stateViewSelectorSchema = z.object({
+  types: z.array(z.string().min(1)).optional(),
+  statuses: z.array(z.string().min(1)).optional(),
+  include_archived: z.boolean().optional(),
+  where: z.record(stateViewScalarSchema).optional(),
+  relation: z.object({
+    kind: z.string().min(1).optional(),
+    target_entity_id: stateViewScalarSchema.optional(),
+  }).strict().optional(),
+  reference_roles: z.array(z.string().min(1)).optional(),
+}).strict();
+
+const stateViewSortSchema = z.object({
+  field: z.string().min(1),
+  direction: z.enum(["asc", "desc"]).default("asc"),
+}).strict();
+
+const stateViewSchema = z.object({
+  id: z.string().min(1),
+  enabled: z.boolean().default(false),
+  for_each: stateViewSelectorSchema,
+  output_path: z.string().min(1),
+  title_template: z.string().min(1),
+  sections: z.array(z.object({
+    heading: z.string().min(1),
+    source: z.enum(["state", "atlas"]).default("state"),
+    selector: stateViewSelectorSchema.optional(),
+    sort: z.array(stateViewSortSchema).optional(),
+    limit: z.number().int().positive().max(500).optional(),
+    item_template: z.string().min(1),
+    empty_text: z.string().optional(),
+  }).strict()).min(1),
+}).strict();
+
+const stateTypePackStatusSchema = z.object({
+  values: z.array(z.string().min(1)).min(1),
+  transitions: z.record(z.array(z.string().min(1))).optional(),
+  initial: z.string().min(1).optional(),
+  terminal: z.array(z.string().min(1)).optional(),
+}).strict();
+
+const stateTypePackTypeSchema = z.object({
+  id: z.string().min(1),
+  display_name: z.string().min(1),
+  description: z.string().nullable().optional(),
+  attributes_schema: z.record(z.unknown()),
+  statuses: stateTypePackStatusSchema.nullable().optional(),
+  staleness_policy: z.record(z.unknown()).nullable().optional(),
+  digest_template: z.string().nullable().optional(),
+  body_fields: z.array(z.string().min(1)).optional(),
+  visibility: z.string().min(1).optional(),
+}).strict();
+
+const stateTypePackSchema = z.object({
+  id: z.string().min(1),
+  enabled: z.boolean().default(false),
+  types: z.array(stateTypePackTypeSchema).min(1),
+}).strict().superRefine((pack, context) => {
+  const seen = new Set<string>();
+  for (const [index, type] of pack.types.entries()) {
+    const normalized = type.id.trim().toLowerCase();
+    if (seen.has(normalized)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["types", index, "id"],
+        message: `Duplicate type id '${type.id}' in state type pack`,
+      });
+    }
+    seen.add(normalized);
+  }
 });
 
 export function resolveConfigDir(explicitDir?: string): string {
@@ -635,6 +711,81 @@ export function loadIntentContractConfigs(configDir: string): IntentContractConf
         : undefined,
     } satisfies IntentContractConfig),
   });
+}
+
+export function loadStateViewConfigs(configDir?: string): StateViewConfig[] {
+  return loadLayeredConfigCategory({
+    category: "state-views",
+    configDir,
+    required: false,
+    schema: stateViewSchema,
+    map: (parsed) => ({
+      id: parsed.id,
+      enabled: parsed.enabled ?? false,
+      forEach: mapStateViewSelector(parsed.for_each),
+      outputPath: parsed.output_path,
+      titleTemplate: parsed.title_template,
+      sections: parsed.sections.map((section) => ({
+        heading: section.heading,
+        source: section.source ?? "state",
+        selector: section.selector ? mapStateViewSelector(section.selector) : undefined,
+        sort: section.sort?.map((sort) => ({
+          field: sort.field,
+          direction: sort.direction ?? "asc",
+        })),
+        limit: section.limit,
+        itemTemplate: section.item_template,
+        emptyText: section.empty_text,
+      })),
+    }),
+  });
+}
+
+export function loadStateTypePackConfigs(configDir?: string): StateTypePackConfig[] {
+  return loadLayeredConfigCategory({
+    category: "state-type-packs",
+    configDir,
+    required: false,
+    schema: stateTypePackSchema,
+    map: (parsed) => ({
+      id: parsed.id,
+      enabled: parsed.enabled ?? false,
+      types: parsed.types.map((type) => ({
+        id: type.id,
+        displayName: type.display_name,
+        description: type.description,
+        attributesSchema: type.attributes_schema,
+        statuses: type.statuses
+          ? {
+              values: type.statuses.values,
+              transitions: type.statuses.transitions,
+              initial: type.statuses.initial,
+              terminal: type.statuses.terminal,
+            }
+          : type.statuses,
+        stalenessPolicy: type.staleness_policy,
+        digestTemplate: type.digest_template,
+        bodyFields: type.body_fields,
+        visibility: type.visibility,
+      })),
+    }),
+  });
+}
+
+function mapStateViewSelector(input: z.infer<typeof stateViewSelectorSchema>): StateViewConfig["forEach"] {
+  return {
+    types: input.types,
+    statuses: input.statuses,
+    includeArchived: input.include_archived,
+    where: input.where,
+    relation: input.relation
+      ? {
+          kind: input.relation.kind,
+          targetEntityId: input.relation.target_entity_id,
+        }
+      : undefined,
+    referenceRoles: input.reference_roles,
+  };
 }
 
 // ============================================================

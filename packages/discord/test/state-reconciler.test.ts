@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ChatProvider, V2AgentConfig } from "@tango/core";
 import { StateService, TangoStorage } from "@tango/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseStateChangeset, resolveStateReconcilerSettings, runStateReconciler } from "../src/state-reconciler.js";
+import { buildStateReconcilerPrompt, parseStateChangeset, resolveStateReconcilerSettings, runStateReconciler } from "../src/state-reconciler.js";
 
 const dirs: string[] = [];
 
@@ -70,6 +70,47 @@ describe("State Reconciler fixture dataset", () => {
       .toThrow(/required action schema/u);
   });
 
+  it("normalizes generic operational fields and forbids inferred completion in the prompt", () => {
+    const { storage, service } = harness();
+    const snapshot = service.buildReconcilerSnapshot({ conversationKey: "thread:fixture" });
+    const prompt = buildStateReconcilerPrompt({ turn: turn(1, "Fixture narrative."), snapshot });
+    expect(prompt).toContain("NEVER infer completion from narrative");
+    expect(prompt).toContain("mark_progress=true only for meaningful forward movement");
+
+    expect(parseStateChangeset(JSON.stringify({
+      changes: [{
+        action: "update",
+        entity_id: "project:fixture",
+        project_entity_id: "project:root",
+        owner_user_id: "user:fixture",
+        owner_agent_id: "watson",
+        visibility: "shared",
+        due_at: "2026-07-20T12:00:00Z",
+        next_check_at: "2026-07-19T12:00:00Z",
+        expected_response_at: "2026-07-21T12:00:00Z",
+        last_progress_at: "2026-07-18T12:00:00Z",
+        mark_progress: true,
+        relations: [{ kind: "depends_on", target_entity_id: "project:root" }],
+        references: [{ role: "evidence", ref: "profile:logs/synthetic.md" }],
+        evidence: "Fixture narrative.",
+      }],
+      engaged_entity_ids: [],
+    })).changes[0]).toMatchObject({
+      projectEntityId: "project:root",
+      ownerUserId: "user:fixture",
+      ownerAgentId: "watson",
+      visibility: "shared",
+      dueAt: "2026-07-20T12:00:00Z",
+      nextCheckAt: "2026-07-19T12:00:00Z",
+      expectedResponseAt: "2026-07-21T12:00:00Z",
+      lastProgressAt: "2026-07-18T12:00:00Z",
+      markProgress: true,
+      relations: [{ kind: "depends_on", targetEntityId: "project:root" }],
+      references: [{ role: "evidence", ref: "profile:logs/synthetic.md" }],
+    });
+    storage.close();
+  });
+
   it("creates, corrects, aliases, focuses, no-ops idempotently, and undoes the preceding state turn", async () => {
     const { storage, service, config } = harness();
     const outputs = provider(
@@ -118,6 +159,77 @@ describe("State Reconciler fixture dataset", () => {
     expect(outputs.generate).toHaveBeenCalledTimes(2);
     expect(result.appliedEventIds).toHaveLength(1);
     expect(service.getEntity("project:retry-fixture")?.attributes.progress_pct).toBe(10);
+    storage.close();
+  });
+
+  it("applies project scope, temporal progress, relations, and evidence from a deterministic result", async () => {
+    const { storage, service, config } = harness();
+    service.defineType({
+      id: "activity",
+      displayName: "Activity",
+      origin: "seed",
+      attributesSchema: { type: "object", additionalProperties: false, properties: {} },
+      statuses: {
+        values: ["open", "done"],
+        transitions: { open: ["done"], done: ["open"] },
+        initial: "open",
+        terminal: ["done"],
+      },
+    }, { includePrivate: true });
+    const root = service.mutate({
+      typeId: "project",
+      title: "Synthetic Root",
+      status: "active",
+      attributes: {},
+    }, { actor: "test", source: "test", includePrivate: true }).entity;
+    const evidence = "verified_complete";
+    const outputs = provider(JSON.stringify({
+      changes: [{
+        action: "new_entity",
+        type_id: "activity",
+        title: "Verified checkpoint",
+        status: "done",
+        project_entity_id: root.id,
+        owner_agent_id: "watson",
+        due_at: "2026-07-16T12:00:00Z",
+        mark_progress: true,
+        relations: [{ kind: "belongs_to", target_entity_id: root.id }],
+        references: [{ role: "evidence", ref: "profile:logs/synthetic-check.md" }],
+        evidence,
+      }],
+      engaged_entity_ids: [],
+    }));
+    const result = await runStateReconciler({
+      service,
+      v2Config: config,
+      resolveProvider: () => outputs,
+      turn: {
+        ...turn(6, "Record the deterministic checkpoint result."),
+        toolCalls: [{
+          name: "fixture_check",
+          input: { fixture: true },
+          output: { status: evidence, log: "profile:logs/synthetic-check.md" },
+        }],
+      },
+    });
+    expect(result.rejected).toEqual([]);
+    expect(result.appliedEventIds).toHaveLength(1);
+    const [entity] = service.query({
+      type: "activity",
+      projectEntityId: root.id,
+      includeRelations: true,
+      includeReferences: true,
+      includePrivate: true,
+    }).entities;
+    expect(entity).toMatchObject({
+      status: "done",
+      projectEntityId: root.id,
+      ownerAgentId: "watson",
+      dueAt: "2026-07-16T12:00:00.000Z",
+      lastProgressAt: "2026-07-16T12:00:00.000Z",
+      relations: [{ kind: "belongs_to", targetEntityId: root.id }],
+      references: [{ role: "evidence", ref: "profile:logs/synthetic-check.md" }],
+    });
     storage.close();
   });
 

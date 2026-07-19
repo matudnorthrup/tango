@@ -4,12 +4,14 @@ import {
   deleteObsidianMemoriesBySourceRefPrefix,
   getAtlasConversationSummary,
   listAtlasMemoriesForContext,
+  listAtlasMemoriesForStateProjection,
   listAtlasPinnedFactsForContext,
   openAtlasMemoryDatabase,
   touchAtlasMemories,
   type AtlasContextMemoryRow,
   type AtlasContextPinnedFactRow,
   type AtlasContextSummaryRow,
+  type AtlasStateProjectionMemoryRow,
   type AtlasMemoryToolDefinition,
   type MemoryRecord,
   type ObsidianChunkUpsert,
@@ -85,6 +87,14 @@ export class AtlasMemoryClient {
   /** Candidate memories for warm-start ranking (agent-scoped + global, newest first). */
   listMemoriesForContext(input: { agentId?: string | null; agentIds?: string[]; limit?: number }): AtlasContextMemoryRow[] {
     return listAtlasMemoriesForContext(this.db, input);
+  }
+
+  /** Narrative associated with a state root; intentionally uncapped and embedding-free. */
+  listMemoriesForStateProjection(input: {
+    projectEntityId: string;
+    stateEntityId?: string | null;
+  }): AtlasStateProjectionMemoryRow[] {
+    return listAtlasMemoriesForStateProjection(this.db, input);
   }
 
   getConversationSummaryForContext(input: {

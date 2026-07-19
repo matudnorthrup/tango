@@ -51,6 +51,14 @@ describe("StateObsidianAdapter", () => {
     expect(service.getEntity(created.entity.id, {}, true)?.attributes.progress_pct).toBe(35);
     expect(service.listIssues("open").some((issue) => issue.entityId === created.entity.id && issue.kind === "body_validation")).toBe(true);
     expect(fs.readFileSync(file, "utf8")).toContain("progress_pct: 135");
+
+    fs.writeFileSync(
+      file,
+      "---\ntango_view: generic-overview\nread_only_projection: true\nsource_kind: generated\nprogress_pct: 90\n---\n# Generated\n",
+      "utf8",
+    );
+    expect(await adapter.ingestFile(file)).toBe("unchanged");
+    expect(service.getEntity(created.entity.id, {}, true)?.attributes.progress_pct).toBe(35);
     adapter.stop();
     storage.close();
   });

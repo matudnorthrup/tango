@@ -83,6 +83,38 @@ describe("obsidian governance (source protection + versioning)", () => {
     expect(await run("delete 'References/Statute' --vault main --force")).toContain("Deleted");
   });
 
+  it("never lets agent tools mutate generated read-only projections", async () => {
+    writeNote(
+      "Views/Synthetic Overview.md",
+      [
+        "---",
+        "tango_view: generic-overview",
+        "tango_root_entity_id: synthetic-root",
+        "read_only_projection: true",
+        "source_kind: generated",
+        "---",
+        "# Synthetic Overview",
+        "",
+        "## Current",
+        "Generated content.",
+        "",
+      ].join("\n"),
+    );
+
+    const commands = [
+      ["create 'Views/Synthetic Overview' --vault main --append --force", "extra"],
+      ["create 'Views/Synthetic Overview' --vault main --overwrite --force", "replacement"],
+      ["section 'Views/Synthetic Overview' --vault main --heading 'Current' --force", "replacement"],
+      ["frontmatter 'Views/Synthetic Overview' --vault main --edit --key 'status' --value 'done' --force", undefined],
+      ["move 'Views/Synthetic Overview' 'Views/Moved' --vault main --force", undefined],
+      ["delete 'Views/Synthetic Overview' --vault main --force", undefined],
+    ] as const;
+    for (const [command, content] of commands) {
+      expect(await run(command, content)).toContain("read_only_projection");
+    }
+    expect(readNote("Views/Synthetic Overview.md")).toContain("Generated content.");
+  });
+
   it("enforces required frontmatter on governed notes only", async () => {
     // A state-managed note missing types/areas is refused with an actionable error.
     const bad = await run(

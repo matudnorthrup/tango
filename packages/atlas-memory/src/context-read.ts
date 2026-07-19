@@ -21,6 +21,22 @@ export interface AtlasContextMemoryRow {
   metadata: Record<string, unknown> | null;
 }
 
+/**
+ * Lightweight narrative row used by generated state projections. Unlike the
+ * warm-start read surface, this intentionally omits embeddings and access
+ * tracking because projections only need deterministic narrative content.
+ */
+export interface AtlasStateProjectionMemoryRow {
+  id: string;
+  content: string;
+  source: string;
+  agentId: string | null;
+  importance: number;
+  tags: string[];
+  createdAt: string;
+  metadata: Record<string, unknown> | null;
+}
+
 export interface AtlasContextSummaryRow {
   id: string;
   sessionId: string;
@@ -49,6 +65,18 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+function parseJsonStringArray(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
   }
 }
 
@@ -126,6 +154,59 @@ export function listAtlasMemoriesForContext(
     createdAt: row.created_at,
     lastAccessedAt: row.last_accessed_at,
     accessCount: Number(row.access_count) || 0,
+    metadata: parseJsonObject(row.metadata),
+  }));
+}
+
+/**
+ * Unarchived narrative explicitly associated with one operational root.
+ *
+ * Association is read from the shared metadata contract. There is no global
+ * recency cap, so unrelated recent memories cannot crowd an older project
+ * entry out of its generated view.
+ */
+export function listAtlasMemoriesForStateProjection(
+  db: SqliteDatabase,
+  input: { projectEntityId: string; stateEntityId?: string | null },
+): AtlasStateProjectionMemoryRow[] {
+  const projectEntityId = input.projectEntityId.trim();
+  if (!projectEntityId) throw new Error("projectEntityId is required for a state projection read");
+  const stateEntityId = input.stateEntityId?.trim() || null;
+  const rows = db
+    .prepare(
+      `
+        SELECT id, content, source, agent_id, importance, tags, created_at, metadata
+        FROM memories
+        WHERE archived_at IS NULL
+          AND (
+            CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.project_entity_id') END = ?
+            OR (
+              ? IS NOT NULL
+              AND CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.state_entity_id') END = ?
+            )
+          )
+        ORDER BY created_at DESC, id ASC
+      `,
+    )
+    .all(projectEntityId, stateEntityId, stateEntityId) as Array<{
+      id: string;
+      content: string;
+      source: string;
+      agent_id: string | null;
+      importance: number;
+      tags: string | null;
+      created_at: string;
+      metadata: string | null;
+    }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    content: row.content,
+    source: row.source,
+    agentId: row.agent_id,
+    importance: Number.isFinite(row.importance) ? Math.min(Math.max(row.importance, 0), 1) : 0.5,
+    tags: parseJsonStringArray(row.tags),
+    createdAt: row.created_at,
     metadata: parseJsonObject(row.metadata),
   }));
 }

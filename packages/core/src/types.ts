@@ -24,6 +24,76 @@ export type MemorySource = "conversation" | "obsidian" | "reflection" | "manual"
 export type PinnedFactScope = "global" | "agent" | "session";
 export type OrchestratorContinuityMode = "provider" | "stateless";
 export type ProviderReasoningEffort = "low" | "medium" | "high" | "max" | "xhigh";
+export type StateViewSource = "state" | "atlas";
+export type StateViewSortDirection = "asc" | "desc";
+
+export type StateViewScalar = string | number | boolean | null;
+
+export interface StateViewSelectorConfig {
+  types?: string[];
+  statuses?: string[];
+  includeArchived?: boolean;
+  where?: Record<string, StateViewScalar>;
+  relation?: {
+    kind?: string;
+    targetEntityId?: StateViewScalar;
+  };
+  referenceRoles?: string[];
+}
+
+export interface StateViewSortConfig {
+  field: string;
+  direction: StateViewSortDirection;
+}
+
+export interface StateViewSectionConfig {
+  heading: string;
+  source: StateViewSource;
+  selector?: StateViewSelectorConfig;
+  sort?: StateViewSortConfig[];
+  limit?: number;
+  itemTemplate: string;
+  emptyText?: string;
+}
+
+/**
+ * A deterministic Markdown projection. Definitions are layered config so the
+ * engine remains use-case agnostic and profile-specific views stay private.
+ */
+export interface StateViewConfig {
+  id: string;
+  enabled: boolean;
+  forEach: StateViewSelectorConfig;
+  outputPath: string;
+  titleTemplate: string;
+  sections: StateViewSectionConfig[];
+}
+
+export interface StateTypePackStatusConfig {
+  values: string[];
+  transitions?: Record<string, string[]>;
+  initial?: string;
+  terminal?: string[];
+}
+
+export interface StateTypePackTypeConfig {
+  id: string;
+  displayName: string;
+  description?: string | null;
+  attributesSchema: Record<string, unknown>;
+  statuses?: StateTypePackStatusConfig | null;
+  stalenessPolicy?: Record<string, unknown> | null;
+  digestTemplate?: string | null;
+  bodyFields?: string[];
+  visibility?: string;
+}
+
+/** Config-only reusable schemas; packs never contain entity values. */
+export interface StateTypePackConfig {
+  id: string;
+  enabled: boolean;
+  types: StateTypePackTypeConfig[];
+}
 
 export interface DeterministicRoutingConfig {
   enabled?: boolean;

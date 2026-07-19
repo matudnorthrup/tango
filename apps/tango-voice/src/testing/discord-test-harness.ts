@@ -32,6 +32,7 @@ Options:
   --slot <1|2|3>        Apply the slot profile overlay before reading the DB and resolving slot threads.
   --message <text>      Message content to send through the harness webhook.
   --wait-response       Wait for a Tango reply and print the reply text to stdout.
+  --wait-state-receipt  Wait for a later Discord follow-up beginning with “⟢ state:”.
   --timeout <seconds>   Response timeout in seconds. Default: 30.
   --cleanup             Delete the harness input message and captured reply after verification.
   --thread-name <name>  When resolving --agent without --slot, create or reuse this smoke thread name.
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
       content: message,
       username: getArg("--user"),
       waitForResponse: hasFlag("--wait-response"),
+      followUpPrefix: hasFlag("--wait-state-receipt") ? "⟢ state:" : undefined,
       timeoutMs: timeoutSeconds * 1000,
       cleanup: hasFlag("--cleanup"),
     });
@@ -98,21 +100,31 @@ async function main(): Promise<void> {
       if ((hasFlag("--wait-response")) && !result.receivedResponse) {
         process.exitCode = 1;
       }
+      if (hasFlag("--wait-state-receipt") && !result.receivedFollowUp) {
+        process.exitCode = 1;
+      }
       return;
     }
 
-    if (!hasFlag("--wait-response")) {
+    if (!hasFlag("--wait-response") && !hasFlag("--wait-state-receipt")) {
       console.log(result.sentMessageId);
       return;
     }
 
-    if (!result.receivedResponse || !result.responseText) {
+    if (hasFlag("--wait-response") && (!result.receivedResponse || !result.responseText)) {
       throw new Error(
         `Timed out waiting for a Tango response in ${timeoutSeconds}s on ${formatHarnessTarget(target)}.`,
       );
     }
 
-    console.log(result.responseText);
+    if (hasFlag("--wait-state-receipt") && (!result.receivedFollowUp || !result.followUpText)) {
+      throw new Error(
+        `Timed out waiting for a state receipt in ${timeoutSeconds}s on ${formatHarnessTarget(target)}.`,
+      );
+    }
+
+    if (result.responseText) console.log(result.responseText);
+    if (result.followUpText) console.log(result.followUpText);
   } finally {
     await closeHarnessContext(context);
   }
