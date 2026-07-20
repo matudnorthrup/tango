@@ -36,6 +36,7 @@ export function createMemoryTools(overrides?: MemoryToolOptions): AgentTool[] {
       description: [
         "Search stored memories across conversation summaries, manual notes, and other memory sources.",
         "Supports optional session and agent scoping, and returns ranked results with score breakdowns.",
+        "Results are prior memory, not evidence from the current source; use created_at and origin metadata to attribute or verify them.",
         "",
         "Fields:",
         "  query (required) — natural-language query",

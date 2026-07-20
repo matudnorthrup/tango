@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { withMemoryOrigin } from "./origin.js";
 import { encodeEmbedding } from "./search.js";
 import type { SqliteDatabase } from "./types.js";
 
@@ -74,6 +75,19 @@ export function addObsidianMemories(
     if (chunk.content.trim().length === 0) continue;
     const id = uuidv4();
     const createdAt = chunk.createdAt?.trim() || timestamp;
+    const title = metadataString(chunk.metadata, "title");
+    const heading = metadataString(chunk.metadata, "heading");
+    const contextLabel = [title, heading].filter(Boolean).join(" / ") || null;
+    const metadata = withMemoryOrigin(
+      { ...(chunk.metadata ?? {}), source_ref: chunk.sourceRef },
+      {
+        source: "obsidian",
+        occurredAt: createdAt,
+        capturedAt: timestamp,
+        contextLabel,
+        sourceRef: chunk.sourceRef,
+      },
+    );
     insert.run(
       id,
       chunk.content,
@@ -83,10 +97,17 @@ export function addObsidianMemories(
       chunk.embedding && chunk.embedding.length > 0 ? chunk.embeddingModel ?? null : null,
       createdAt,
       createdAt,
-      JSON.stringify({ ...(chunk.metadata ?? {}), source_ref: chunk.sourceRef }),
+      JSON.stringify(metadata),
     );
     ids.push(id);
   }
 
   return ids;
+}
+
+function metadataString(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
 }

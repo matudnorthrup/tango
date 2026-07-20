@@ -57,7 +57,12 @@ function createV2Config(
   };
 }
 
-function createMemory(id: string, content: string, tags: string[] = []): MemoryRecord {
+function createMemory(
+  id: string,
+  content: string,
+  tags: string[] = [],
+  metadata: Record<string, unknown> | null = null,
+): MemoryRecord {
   return {
     id,
     content,
@@ -71,7 +76,7 @@ function createMemory(id: string, content: string, tags: string[] = []): MemoryR
     lastAccessedAt: "2026-04-20T00:00:00.000Z",
     accessCount: 1,
     archivedAt: null,
-    metadata: null,
+    metadata,
   };
 }
 
@@ -100,6 +105,10 @@ describe("routeV2MessageIfEnabled", () => {
         message: "help",
         channelId: "channel-1",
         threadId: "thread-1",
+        messageId: "message-1",
+        occurredAt: "2026-07-12T09:00:00.000Z",
+        contextRef: "topic:shared-knowledge",
+        contextLabel: "shared-knowledge review",
         agentId: "malibu",
         sendOptions: {
           context: "warm-start context",
@@ -122,6 +131,10 @@ describe("routeV2MessageIfEnabled", () => {
       message: "help",
       channelId: "channel-1",
       threadId: "thread-1",
+      messageId: "message-1",
+      occurredAt: "2026-07-12T09:00:00.000Z",
+      contextRef: "topic:shared-knowledge",
+      contextLabel: "shared-knowledge review",
       agentId: "malibu",
       sendOptions: {
         context: "warm-start context",
@@ -325,7 +338,12 @@ describe("createAtlasColdStartContextBuilder", () => {
       .mockResolvedValueOnce([createPinnedFact("global-1", "product_name", "Atlas")])
       .mockResolvedValueOnce([createPinnedFact("agent-1", "tone", "concise")]);
     const memorySearch = vi.fn().mockResolvedValue([
-      createMemory("memory-1", "User prefers shorter workout summaries", ["preference"]),
+      createMemory(
+        "memory-1",
+        "User prefers shorter workout summaries",
+        ["preference"],
+        { origin: { version: 1, kind: "conversation", context_label: "training review" } },
+      ),
       createMemory("memory-2", "Recent ankle soreness affected training", ["injury", "recent"]),
     ]);
 
@@ -347,8 +365,9 @@ describe("createAtlasColdStartContextBuilder", () => {
       pinnedFacts: "- product_name: Atlas\n- tone: concise",
       recentMessages: "",
       relevantMemories: [
-        "- User prefers shorter workout summaries [preference]",
-        "- Recent ankle soreness affected training [injury, recent]",
+        "Guidance: Prior memories are context, not evidence from the current source. Attribute or verify them before presenting them as current-source findings.",
+        "- [Prior memory · 2026-04-20 · training review · conversation] User prefers shorter workout summaries [preference]",
+        "- [Prior memory · 2026-04-20 · prior conversation · conversation] Recent ankle soreness affected training [injury, recent]",
       ].join("\n"),
     });
   });
@@ -494,12 +513,21 @@ describe("createV2PostTurnHook", () => {
     });
 
     await hook({
+      turnId: "turn-1",
       conversationKey: "thread:thread-1",
+      sessionId: "session-1",
       agentId: "malibu",
       userMessage: "Log my workout",
       response: { text: "Logged it.", durationMs: 20 },
       channelId: "channel-1",
       threadId: "thread-1",
+      requestMessageId: 41,
+      responseMessageId: 42,
+      discordRequestMessageId: "discord-request-1",
+      discordResponseMessageId: "discord-response-1",
+      occurredAt: "2026-07-12T09:00:00.000Z",
+      contextRef: "topic:shared-knowledge",
+      contextLabel: "shared-knowledge review",
     });
 
     expect(extractAndStoreMemoriesImpl).toHaveBeenCalledWith(
@@ -511,6 +539,14 @@ describe("createV2PostTurnHook", () => {
         agentResponse: "Logged it.",
         channelId: "channel-1",
         threadId: "thread-1",
+        turnId: "turn-1",
+        requestMessageId: 41,
+        responseMessageId: 42,
+        discordRequestMessageId: "discord-request-1",
+        discordResponseMessageId: "discord-response-1",
+        occurredAt: "2026-07-12T09:00:00.000Z",
+        contextRef: "topic:shared-knowledge",
+        contextLabel: "shared-knowledge review",
         claimedStateFacts: [],
       },
       {

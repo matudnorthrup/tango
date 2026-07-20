@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { readMemoryOriginString, withMemoryOrigin } from "./origin.js";
 import { createVoyageEmbeddingProviderFromEnv, decodeEmbedding, encodeEmbedding, rankMemories } from "./search.js";
 import type {
   AtlasMemoryToolContext,
@@ -69,6 +70,7 @@ export function createAtlasMemoryTools(
       description: [
         "Search stored memories by tag, text, or semantic similarity.",
         "When stored embeddings and Voyage credentials are available, semantic ranking is used.",
+        "Results are prior memory, not evidence from the current source; use createdAt and origin metadata to attribute or verify them.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -144,8 +146,28 @@ export function createAtlasMemoryTools(
         const sessionId = readOptionalString(input.session_id) ?? null;
         const importance = readNumber(input.importance, 0.5, 0, 1);
         const tags = normalizeTags(readOptionalStringArray(input.tags) ?? []);
-        const metadata = buildMemoryMetadata(input.metadata, sessionId);
         const timestamp = now().toISOString();
+        const baseMetadata = buildMemoryMetadata(input.metadata, sessionId);
+        const metadata = withMemoryOrigin(
+          baseMetadata,
+          {
+            source,
+            capturedAt: timestamp,
+            occurredAt:
+              readMemoryOriginString(baseMetadata, "occurred_at")
+              ?? readMetadataString(input.metadata, "occurred_at")
+              ?? timestamp,
+            contextLabel:
+              readMemoryOriginString(baseMetadata, "context_label")
+              ?? readMetadataString(input.metadata, "context_label"),
+            contextRef:
+              readMemoryOriginString(baseMetadata, "context_ref")
+              ?? readMetadataString(input.metadata, "context_ref"),
+            sourceRef:
+              readMemoryOriginString(baseMetadata, "source_ref")
+              ?? readMetadataString(input.metadata, "source_ref"),
+          },
+        );
         const id = uuidv4();
         const embedding =
           embeddingProvider && content.length > 0
@@ -223,19 +245,33 @@ export function createAtlasMemoryTools(
         const reflectionText = sourceMemories
           .map((memory, index) => `${index + 1}. ${memory.content}`)
           .join("\n");
-        const summary = `Session ${sessionId} reflection for ${agentId}:\n${reflectionText}`;
+        const summary = `Prior conversation reflection:\n${reflectionText}`;
         const timestamp = now().toISOString();
         const reflectionId = uuidv4();
         const embedding =
           embeddingProvider && summary.length > 0
             ? (await embeddingProvider.embed([summary], "document"))[0] ?? null
             : null;
-        const metadata = {
+        const contextLabel = commonMemoryContextLabel(sourceMemories);
+        const contextRef = commonMemoryOriginString(sourceMemories, "context_ref");
+        const sourceDates = sourceMemories
+          .map((memory) => readMemoryOriginString(memory.metadata, "occurred_at") ?? memory.createdAt)
+          .filter((value) => Number.isFinite(Date.parse(value)))
+          .sort(compareDates);
+        const metadata = withMemoryOrigin({
           generated_by: "memory_reflect",
           session_id: sessionId,
           source_memory_ids: sourceMemories.map((memory) => memory.id),
           reflection_filter: "v2_non_wellness_excludes_wellness_noise",
-        };
+          ...(sourceDates[0] ? { source_date_start: sourceDates[0] } : {}),
+          ...(sourceDates.at(-1) ? { source_date_end: sourceDates.at(-1) } : {}),
+        }, {
+          source: "reflection",
+          capturedAt: timestamp,
+          occurredAt: timestamp,
+          contextLabel,
+          contextRef,
+        });
 
         context.db.prepare(`
           INSERT INTO memories (
@@ -916,6 +952,43 @@ function buildMemoryMetadata(
   }
 
   return Object.keys(base).length > 0 ? base : null;
+}
+
+function readMetadataString(value: unknown, key: string): string | null {
+  if (!isRecord(value)) return null;
+  const candidate = value[key];
+  if (typeof candidate !== "string") return null;
+  const normalized = candidate.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function memoryContextLabel(memory: MemoryRecord): string | null {
+  const originLabel = readMemoryOriginString(memory.metadata, "context_label");
+  if (originLabel) return originLabel;
+
+  for (const key of ["context_label", "topic_title", "topicTitle", "project_title", "projectTitle", "title"] as const) {
+    const value = readMetadataString(memory.metadata, key);
+    if (value) return value;
+  }
+
+  return null;
+}
+
+function commonMemoryContextLabel(memories: MemoryRecord[]): string | null {
+  const labels = memories.map(memoryContextLabel);
+  if (labels.some((label) => label === null)) return null;
+  const unique = new Set(labels);
+  return unique.size === 1 ? labels[0] ?? null : null;
+}
+
+function commonMemoryOriginString(
+  memories: MemoryRecord[],
+  key: "context_ref" | "source_ref",
+): string | null {
+  const values = memories.map((memory) => readMemoryOriginString(memory.metadata, key));
+  if (values.some((value) => value === null)) return null;
+  const unique = new Set(values);
+  return unique.size === 1 ? values[0] ?? null : null;
 }
 
 function normalizeTags(tags: string[]): string[] {

@@ -1,3 +1,6 @@
+import { withMemoryOrigin } from "./origin.js";
+import type { MemorySource } from "./types.js";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -29,6 +32,31 @@ export function readDiscordProvenanceFromEnv(): Record<string, string> {
     result.thread_id = threadId;
   }
 
+  const turnId = process.env.TANGO_TURN_ID?.trim();
+  if (turnId) {
+    result.turn_id = turnId;
+  }
+
+  const messageId = process.env.TANGO_MESSAGE_ID?.trim();
+  if (messageId) {
+    result.message_id = messageId;
+  }
+
+  const occurredAt = process.env.TANGO_OCCURRED_AT?.trim();
+  if (occurredAt) {
+    result.occurred_at = occurredAt;
+  }
+
+  const contextRef = process.env.TANGO_CONTEXT_REF?.trim();
+  if (contextRef) {
+    result.context_ref = contextRef;
+  }
+
+  const contextLabel = process.env.TANGO_CONTEXT_LABEL?.trim();
+  if (contextLabel) {
+    result.context_label = contextLabel;
+  }
+
   return result;
 }
 
@@ -38,10 +66,19 @@ export function mergeDiscordProvenanceIntoMemoryAddArgs(
 ): Record<string, unknown> {
   const provenance = readDiscordProvenanceFromEnv();
   const existingMetadata = isRecord(args.metadata) ? args.metadata : {};
-  const mergedMetadata: Record<string, unknown> = {
+  const legacyMetadata: Record<string, unknown> = {
     ...provenance,
     ...existingMetadata,
   };
+  const source = normalizeMemorySource(args.source);
+  const mergedMetadata = source
+    ? withMemoryOrigin(legacyMetadata, {
+        source,
+        occurredAt: provenance.occurred_at,
+        contextLabel: provenance.context_label,
+        contextRef: provenance.context_ref,
+      })
+    : legacyMetadata;
 
   const runtimeId = runtimeAgentId?.trim();
   const canonicalAgentId = normalizeOptionalString(args.agent_id);
@@ -58,4 +95,18 @@ export function mergeDiscordProvenanceIntoMemoryAddArgs(
     ...(sessionId ? { session_id: sessionId } : {}),
     ...(Object.keys(mergedMetadata).length > 0 ? { metadata: mergedMetadata } : {}),
   };
+}
+
+function normalizeMemorySource(value: unknown): MemorySource | null {
+  switch (value) {
+    case "conversation":
+    case "reflection":
+    case "manual":
+    case "observation":
+    case "import":
+    case "obsidian":
+      return value;
+    default:
+      return null;
+  }
 }

@@ -108,7 +108,10 @@ export function mapAtlasContextRows(rows: AtlasContextMemoryRow[]): {
       lastAccessedAt: row.lastAccessedAt,
       accessCount: row.accessCount,
       archivedAt: null,
-      metadata: row.metadata,
+      metadata: {
+        ...(row.metadata ?? {}),
+        atlas_source: row.source,
+      },
     };
   });
   return { memories, idToAtlasId };

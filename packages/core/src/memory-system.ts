@@ -1,6 +1,12 @@
 import type { SessionMemoryConfig } from "./types.js";
 import { cosineSimilarity, deserializeEmbedding } from "./embeddings.js";
 import type { EmbeddingProvider } from "./embeddings.js";
+import {
+  formatRetrievedMemoryLine,
+  resolveMemoryProvenance,
+  RETRIEVED_MEMORY_GUIDANCE,
+  type ResolvedMemoryProvenance,
+} from "./memory-provenance.js";
 import { readProfileConfigStringList } from "./profile-config.js";
 import { parseStoredTimestampMs } from "./time.js";
 import type {
@@ -167,6 +173,8 @@ export interface PromptTraceMemory {
   content: string;
   importance: number;
   sourceRef: string | null;
+  createdAt: string;
+  provenance: ResolvedMemoryProvenance;
   score: number;
   relevanceScore: number;
   keywordScore: number;
@@ -727,12 +735,15 @@ function takeMemoriesWithinBudget(
 
   const selected: RetrievedMemoryRecord[] = [];
   const lines: string[] = [];
-  let usedTokens = 0;
+  let usedTokens = estimateTokenCount(RETRIEVED_MEMORY_GUIDANCE);
+  if (usedTokens >= tokenBudget) {
+    return { memories: [], lines: [] };
+  }
 
   for (const memory of memories) {
-    const line = `- [${memory.source}] ${truncateText(memory.content, 220)}`;
+    const line = formatRetrievedMemoryLine(memory, { maxContentChars: 220 });
     const lineTokens = estimateTokenCount(line);
-    if (selected.length > 0 && usedTokens + lineTokens > tokenBudget) {
+    if (usedTokens + lineTokens > tokenBudget) {
       continue;
     }
     selected.push(memory);
@@ -871,6 +882,7 @@ function renderMemoryPrompt(input: {
 
   if (input.memoryLines.length > 0) {
     lines.push("retrieved_memories:");
+    lines.push(`note=${RETRIEVED_MEMORY_GUIDANCE}`);
     lines.push(...input.memoryLines);
   }
 
@@ -1016,6 +1028,8 @@ function toPromptTraceMemory(memory: RetrievedMemoryRecord): PromptTraceMemory {
     content: memory.content,
     importance: memory.importance,
     sourceRef: memory.sourceRef,
+    createdAt: memory.createdAt,
+    provenance: resolveMemoryProvenance(memory),
     score: memory.score,
     relevanceScore: memory.relevanceScore,
     keywordScore: memory.keywordScore,
