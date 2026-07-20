@@ -38,6 +38,9 @@ export interface PostTurnContext {
   response: RuntimeResponse;
   channelId: string;
   threadId?: string;
+  occurredAt?: string;
+  contextRef?: string;
+  contextLabel?: string;
 }
 
 export interface RouteResult {
@@ -108,6 +111,9 @@ export class TangoRouter {
     channelId: string;
     threadId?: string;
     messageId?: string;
+    occurredAt?: string;
+    contextRef?: string;
+    contextLabel?: string;
     conversationKey?: string;
     agentId: string;
     sendOptions?: SendOptions;
@@ -124,6 +130,9 @@ export class TangoRouter {
         ...(params.threadId ? { threadId: params.threadId } : {}),
         turnId,
         ...(params.messageId ? { messageId: params.messageId } : {}),
+        ...(params.occurredAt ? { occurredAt: params.occurredAt } : {}),
+        ...(params.contextRef ? { contextRef: params.contextRef } : {}),
+        ...(params.contextLabel ? { contextLabel: params.contextLabel } : {}),
       },
     );
     const { config: agentConfig, selection: mcpSelection } = selectMcpServersForTurn(
@@ -155,6 +164,9 @@ export class TangoRouter {
       response,
       channelId: params.channelId,
       ...(params.threadId ? { threadId: params.threadId } : {}),
+      ...(params.occurredAt ? { occurredAt: params.occurredAt } : {}),
+      ...(params.contextRef ? { contextRef: params.contextRef } : {}),
+      ...(params.contextLabel ? { contextLabel: params.contextLabel } : {}),
     });
 
     return {

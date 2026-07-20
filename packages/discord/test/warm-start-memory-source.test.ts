@@ -53,6 +53,12 @@ describe("warm-start memory source", () => {
     // Session-null keeps atlas records visible to session-scoped filters.
     expect(memories.every((memory) => memory.sessionId === null)).toBe(true);
     expect(memories[3]?.sourceRef).toBe("obsidian:Trips/PE.md#1");
+    expect(memories[1]?.metadata).toMatchObject({ atlas_source: "observation" });
+    expect(memories[2]?.metadata).toMatchObject({ atlas_source: "import" });
+    expect(memories[3]?.metadata).toMatchObject({
+      atlas_source: "obsidian",
+      filePath: "/vault/Trips/PE.md",
+    });
     expect(idToAtlasId.get(memories[0]!.id)).toBe("a-1");
   });
 

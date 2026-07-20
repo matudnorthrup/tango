@@ -29,6 +29,7 @@ export * from "./memory-compaction.js";
 export * from "./memory-backfill.js";
 export * from "./memory-eval.js";
 export * from "./memory-reflection.js";
+export * from "./memory-provenance.js";
 export * from "./obsidian-indexer.js";
 export * from "./memory-system.js";
 export * from "./mcp-mounting.js";
