@@ -6,6 +6,7 @@ import { createObsidianTools } from "../src/personal-agent-tools.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.HOME;
+const originalObsidianVault = process.env.TANGO_OBSIDIAN_VAULT;
 
 function setupObsidianTool() {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-obsidian-home-"));
@@ -13,6 +14,7 @@ function setupObsidianTool() {
   const vaultDir = path.join(homeDir, "Documents", "main");
   fs.mkdirSync(vaultDir, { recursive: true });
   process.env.HOME = homeDir;
+  process.env.TANGO_OBSIDIAN_VAULT = vaultDir;
 
   const [tool] = createObsidianTools();
   if (!tool) {
@@ -25,6 +27,11 @@ function setupObsidianTool() {
 afterEach(() => {
   vi.restoreAllMocks();
   process.env.HOME = originalHome;
+  if (originalObsidianVault === undefined) {
+    delete process.env.TANGO_OBSIDIAN_VAULT;
+  } else {
+    process.env.TANGO_OBSIDIAN_VAULT = originalObsidianVault;
+  }
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (dir) {

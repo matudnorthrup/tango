@@ -51,7 +51,11 @@ function createAgentSchedule(overrides?: Partial<ScheduleConfig>): ScheduleConfi
 function createTempHome(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-scheduler-home-"));
   tempDirs.push(dir);
-  fs.mkdirSync(path.join(dir, "Documents", "main"), { recursive: true });
+  const vaultRoot = path.join(dir, "Documents", "main");
+  fs.mkdirSync(vaultRoot, { recursive: true });
+  // Keep the fixture hermetic when the developer or CI environment exports a
+  // real vault path. The scheduler correctly prefers this variable over HOME.
+  process.env.TANGO_OBSIDIAN_VAULT = vaultRoot;
   return dir;
 }
 
