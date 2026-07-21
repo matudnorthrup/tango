@@ -115,6 +115,7 @@ import {
   isV2RuntimeEnabled,
   shouldSendContextPressureAlert,
   extractResponderContextUsage,
+  type LastContextUsageSnapshot,
   type V2AgentConfig,
   type ProviderImageInput,
   findRepoLayerPersonalPromptFindings,
@@ -246,6 +247,11 @@ import {
   buildContextRotationInThreadAlert,
   buildContextSlashReply,
 } from "./context-visibility.js";
+import {
+  parseSnapshotTimestamp,
+  resolvePersistedContextReadings,
+  toLastContextUsageSnapshot,
+} from "./context-snapshots.js";
 import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
 import { buildModelScorecard, loadEvaluatedModels } from "./model-scorecard.js";
 import { AtlasMemoryClient } from "./atlas-memory-client.js";
@@ -663,6 +669,58 @@ const voiceV2AgentRuntimeConfigs = loadEnabledVoiceV2AgentRuntimeConfigs({
   configDir,
   timeoutMs: maxProviderTimeoutMs,
 });
+
+// T-I-035: persist every context-usage reading at the core write point, for
+// every session type on every router. RAM maps die on restart/rotation; this
+// row is what /tango context and the voice whisper fall back to. `storage` is
+// declared below — callbacks run at turn time, long after module init.
+function recordContextUsageSnapshot(
+  conversationKey: string,
+  agentId: string,
+  usage: LastContextUsageSnapshot,
+): void {
+  try {
+    storage.upsertContextUsageSnapshot({
+      conversationKey,
+      agentId,
+      fraction: usage.fraction,
+      usedTokens: usage.totalTokens,
+      contextWindow: usage.contextWindow,
+      recordedAt: usage.recordedAt.toISOString(),
+    });
+  } catch (error) {
+    console.warn(
+      `[context] snapshot persist failed conversation=${conversationKey} agent=${agentId}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+// T-I-035: core-lifecycle 70% pressure hook, shared by all three routers.
+// Typed keys return immediately — the existing post-turn text path
+// (maybePostContextPressureAlert) keeps its once-per-band delivery unchanged.
+// Anything else (voice, schedule, collaboration) has no in-thread delivery
+// surface here: log loudly, never silently, and mark sent so the log is once
+// per band. (Our fork consumes this hook to speak the warning in voice
+// sessions — that consumer is stack-specific and intentionally not included.)
+function handleCoreContextPressure(
+  router: TangoRouter | null,
+  conversationKey: string,
+  agentId: string,
+  usage: LastContextUsageSnapshot,
+): void {
+  if (conversationKey.startsWith("thread:") || conversationKey.startsWith("channel:")) {
+    return;
+  }
+
+  const percent = Math.round(usage.fraction * 100);
+  console.warn(
+    `[context] pressure at ${percent}% for agent=${agentId} conversation=${conversationKey} — no in-thread delivery surface for this session type (session will still auto-rotate at 80%)`,
+  );
+  router?.markContextPressureAlertSentByKey(conversationKey);
+}
+
 const voiceTangoRouter = voiceV2AgentRuntimeConfigs.size > 0
   ? new TangoRouter({
       agentConfigs: new Map(
@@ -671,6 +729,13 @@ const voiceTangoRouter = voiceV2AgentRuntimeConfigs.size > 0
           entry.runtimeConfig,
         ]),
       ),
+      // T-I-035: voice turns were the invisible family — separate router,
+      // agent:-shaped keys, no persistence. Same hooks as the text router.
+      lifecycleConfig: {
+        onContextUsageRecorded: recordContextUsageSnapshot,
+        onContextPressure: (conversationKey, agentId, usage) =>
+          handleCoreContextPressure(voiceTangoRouter, conversationKey, agentId, usage),
+      },
       ollamaProvider,
     })
   : null;
@@ -747,7 +812,14 @@ const memoryInertChannelIds = new Set(
 );
 const tangoRouter = new TangoRouter({
   agentConfigs: buildV2RuntimeConfigs(v2Configs),
-  lifecycleConfig: v2LifecycleConfig,
+  // T-I-035: persist usage + core pressure decision (typed keys still deliver
+  // through the existing post-turn alert path; the hook skips them).
+  lifecycleConfig: {
+    ...v2LifecycleConfig,
+    onContextUsageRecorded: recordContextUsageSnapshot,
+    onContextPressure: (conversationKey, agentId, usage) =>
+      handleCoreContextPressure(tangoRouter, conversationKey, agentId, usage),
+  },
   buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient, {
     projectStateProvider: (conversationKey) =>
       renderProjectStateBlock(storage, conversationKey, {
@@ -762,7 +834,14 @@ const tangoRouter = new TangoRouter({
 });
 const collaborationRouter = new TangoRouter({
   agentConfigs: buildV2RuntimeConfigs(v2Configs),
-  lifecycleConfig: v2LifecycleConfig,
+  // T-I-035: collaboration sessions persist their readings too (pressure has
+  // no in-thread surface here; the hook logs it loudly instead).
+  lifecycleConfig: {
+    ...v2LifecycleConfig,
+    onContextUsageRecorded: recordContextUsageSnapshot,
+    onContextPressure: (conversationKey, agentId, usage) =>
+      handleCoreContextPressure(collaborationRouter, conversationKey, agentId, usage),
+  },
   buildColdStartContext: createAtlasColdStartContextBuilder(atlasMemoryClient, {
     projectStateProvider: (conversationKey) =>
       renderProjectStateBlock(storage, conversationKey, { vaultRoot: resolveStateVaultRoot() }),
@@ -3868,6 +3947,37 @@ async function executeVoiceCompletion(
   };
 }
 
+/**
+ * T-I-035: whisper fallback — the voice session's own persisted reading, by
+ * its exact conversation key. Degrades to undefined on any storage failure
+ * (honest no-reading, never a crash mid-turn).
+ */
+function resolvePersistedVoiceWhisperContextUsage(
+  conversationKey: string,
+  agentId: string,
+): LastContextUsageSnapshot | undefined {
+  try {
+    const row = storage.getContextUsageSnapshot(conversationKey, agentId);
+    if (!row) {
+      return undefined;
+    }
+
+    return toLastContextUsageSnapshot({
+      fraction: row.fraction,
+      usedTokens: row.usedTokens,
+      contextWindow: row.contextWindow,
+      recordedAt: parseSnapshotTimestamp(row.recordedAt),
+    });
+  } catch (error) {
+    console.warn(
+      `[context] voice whisper snapshot read failed conversation=${conversationKey}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return undefined;
+  }
+}
+
 async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnResult> {
   const targetAgent = agentRegistry.get(turnInput.agentId);
   if (!targetAgent) {
@@ -4144,9 +4254,13 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
       discordChannelId: voiceRouterChannelId,
       discordThreadId: voiceRouterThreadId,
     });
-  const voiceLastContextUsage = voiceTangoRouter
-    ?.getSession(voiceRouterChannelId, voiceRouterThreadId)
-    ?.lastContextUsage;
+  // T-I-035: this read was blind against itself — it looked up a
+  // thread:/channel: key that voice turns never write (voice sessions key by
+  // `agent:…`, passed explicitly to routeMessage). Read the voice session's
+  // OWN key in RAM first, then its persisted snapshot (restart survival).
+  const voiceLastContextUsage =
+    voiceTangoRouter?.getSessionByKey(conversationKey)?.lastContextUsage
+    ?? resolvePersistedVoiceWhisperContextUsage(conversationKey, targetAgent.id);
   const currentTurnMetadataPrompt = buildCurrentTurnMetadataPrompt({
     timestamp: turnInput.messageTimestamp,
     timestampSource: turnInput.messageTimestampSource,
@@ -4202,6 +4316,8 @@ async function executeVoiceTurn(turnInput: VoiceTurnInput): Promise<VoiceTurnRes
             turnId,
             responseText: VOICE_V2_TTS_ERROR_MESSAGE,
           });
+
+
       const latencyMs = Date.now() - startedAt;
       const response = routeResult.response;
       const runtimeMetadata = asRecord(response.metadata);
@@ -7034,6 +7150,17 @@ async function handleContextCommand(interaction: ChatInputCommandInteraction): P
   const session = tangoRouter.getSession(routingChannelId, threadId);
   const agentConfig = v2Configs.get(route.agentId);
 
+  // T-I-035: RAM is one router's private map and dies on restart/rotation.
+  // Fall back to the persisted snapshots for THIS post — typed keys exactly,
+  // voice-shaped keys by embedded channel id — filtered to the routed agent,
+  // and show each live session type with its age instead of "unknown".
+  const persisted = resolvePersistedContextReadings({
+    query: (queryInput) => storage.queryContextUsageSnapshots(queryInput),
+    agentId: route.agentId,
+    routingChannelId,
+    ...(threadId ? { threadId } : {}),
+  });
+
   await interaction.reply({
     content: buildContextSlashReply({
       agentId: route.agentId,
@@ -7042,6 +7169,10 @@ async function handleContextCommand(interaction: ChatInputCommandInteraction): P
       contextPressureAlertSent: session?.contextPressureAlertSent,
       idleTimeoutHours: agentConfig?.runtime.idleTimeoutHours ?? v2LifecycleConfig.idleTimeoutHours,
       lifecycleIdleTimeoutHours: v2LifecycleConfig.idleTimeoutHours,
+      ...(persisted.typed ? { persistedTyped: persisted.typed } : {}),
+      ...(persisted.voice ? { persistedVoice: persisted.voice } : {}),
+      persistedUnavailable: persisted.unavailable,
+      ...(session?.createdAt ? { sessionCreatedAt: session.createdAt } : {}),
     }),
     ephemeral: true,
   });

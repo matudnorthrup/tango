@@ -864,6 +864,34 @@ export interface PinnedFactUpsertInput {
   value: string;
 }
 
+/** T-I-035: latest persisted context-usage reading for one conversation+agent. */
+export interface ContextUsageSnapshotRecord {
+  conversationKey: string;
+  agentId: string;
+  fraction: number;
+  usedTokens: number;
+  contextWindow: number;
+  /** ISO-8601 UTC timestamp (writers pass toISOString(); column default is datetime('now')). */
+  recordedAt: string;
+}
+
+export interface ContextUsageSnapshotUpsertInput {
+  conversationKey: string;
+  agentId: string;
+  fraction: number;
+  usedTokens: number;
+  contextWindow: number;
+  recordedAt?: string;
+}
+
+export interface ContextUsageSnapshotQueryInput {
+  agentId: string;
+  /** Conversation keys matched exactly (e.g. "thread:123", "channel:456"). */
+  exactKeys?: string[];
+  /** SQL LIKE patterns (e.g. "%discord:channel:456%" for voice-shaped keys). */
+  likePatterns?: string[];
+}
+
 interface Migration {
   version: number;
   sql: string;
@@ -3009,6 +3037,29 @@ const MIGRATIONS: Migration[] = [
           WHERE type.id = entity.type_id
             AND terminal.value = entity.status
         );
+    `,
+  },
+  {
+    // T-I-035 context visibility. Persist the last context-usage reading per
+    // conversation+agent at the lifecycle write point, so /tango context and
+    // the voice whisper survive RAM wipes (restarts, rotations, the voice
+    // router's separate store). Latest reading per (conversation_key, agent_id)
+    // is all the reader needs — upsert semantics, no history. Migration
+    // numbering follows this chain's tail (67 next free here).
+    version: 67,
+    sql: `
+      CREATE TABLE IF NOT EXISTS context_usage_snapshots (
+        conversation_key TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        fraction REAL NOT NULL,
+        used_tokens INTEGER NOT NULL,
+        context_window INTEGER NOT NULL,
+        recorded_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (conversation_key, agent_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_context_usage_snapshots_recorded
+        ON context_usage_snapshots(recorded_at);
     `,
   },
 ];
@@ -7680,6 +7731,99 @@ export class TangoStorage {
       .prepare(`SELECT COUNT(*) AS count FROM pending_session_saves`)
       .get() as { count: number | bigint } | undefined;
     return toSafeNumber(row?.count ?? 0);
+  }
+
+  /**
+   * T-I-035: persist the latest context-usage reading at the lifecycle write
+   * point. One row per (conversation_key, agent_id) — upsert keeps only the
+   * freshest reading; the [context] trail log is the per-turn history.
+   */
+  upsertContextUsageSnapshot(input: ContextUsageSnapshotUpsertInput): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO context_usage_snapshots (
+            conversation_key, agent_id, fraction, used_tokens, context_window, recorded_at
+          )
+          VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+          ON CONFLICT(conversation_key, agent_id) DO UPDATE SET
+            fraction = excluded.fraction,
+            used_tokens = excluded.used_tokens,
+            context_window = excluded.context_window,
+            recorded_at = excluded.recorded_at
+        `,
+      )
+      .run(
+        input.conversationKey.trim(),
+        input.agentId.trim(),
+        input.fraction,
+        Math.round(input.usedTokens),
+        Math.round(input.contextWindow),
+        input.recordedAt ?? null,
+      );
+  }
+
+  /** T-I-035: PK lookup — the voice whisper reads its own conversation key. */
+  getContextUsageSnapshot(conversationKey: string, agentId: string): ContextUsageSnapshotRecord | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            conversation_key AS conversationKey,
+            agent_id AS agentId,
+            fraction,
+            used_tokens AS usedTokens,
+            context_window AS contextWindow,
+            recorded_at AS recordedAt
+          FROM context_usage_snapshots
+          WHERE conversation_key = ? AND agent_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(conversationKey.trim(), agentId.trim()) as ContextUsageSnapshotRecord | undefined;
+
+    return row ?? null;
+  }
+
+  /**
+   * T-I-035: reader fallback for /tango context. Matches this post's key
+   * shapes — exact typed keys plus LIKE patterns for voice-shaped keys that
+   * embed the channel id — filtered to the routed agent, freshest first.
+   */
+  queryContextUsageSnapshots(input: ContextUsageSnapshotQueryInput): ContextUsageSnapshotRecord[] {
+    const exactKeys = (input.exactKeys ?? []).map((key) => key.trim()).filter((key) => key.length > 0);
+    const likePatterns = (input.likePatterns ?? []).map((pattern) => pattern.trim()).filter((pattern) => pattern.length > 0);
+    if (exactKeys.length === 0 && likePatterns.length === 0) {
+      return [];
+    }
+
+    const clauses: string[] = [];
+    const params: string[] = [input.agentId.trim()];
+    if (exactKeys.length > 0) {
+      clauses.push(`conversation_key IN (${exactKeys.map(() => "?").join(", ")})`);
+      params.push(...exactKeys);
+    }
+    for (const pattern of likePatterns) {
+      clauses.push("conversation_key LIKE ?");
+      params.push(pattern);
+    }
+
+    return this.db
+      .prepare(
+        `
+          SELECT
+            conversation_key AS conversationKey,
+            agent_id AS agentId,
+            fraction,
+            used_tokens AS usedTokens,
+            context_window AS contextWindow,
+            recorded_at AS recordedAt
+          FROM context_usage_snapshots
+          WHERE agent_id = ? AND (${clauses.join(" OR ")})
+          ORDER BY recorded_at DESC
+        `,
+      )
+      .all(...params) as unknown as ContextUsageSnapshotRecord[];
   }
 
   private getUserVersion(): number {
