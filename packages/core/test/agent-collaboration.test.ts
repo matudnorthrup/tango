@@ -27,7 +27,7 @@ function createTempDir(): string {
 }
 
 function createStorage(): TangoStorage {
-  return new TangoStorage(path.join(createTempDir(), "tango.sqlite"));
+  return new TangoStorage(path.join(createTempDir(), "tango.sqlite"), { seedExampleRoster: true });
 }
 
 function createAgentConfig(

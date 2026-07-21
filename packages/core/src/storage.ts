@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type { ActiveTaskStatus, MemorySource, PinnedFactScope, SessionConfig } from "./types.js";
 import type { SubAgentStatus } from "./sub-agent-runner.js";
-import { GOVERNANCE_DDL, GOVERNANCE_SEED } from "./governance-schema.js";
+import { GOVERNANCE_DDL, GOVERNANCE_SEED, GOVERNANCE_EXAMPLE_SEED } from "./governance-schema.js";
 
 export interface ProviderSessionRecord {
   conversationKey: string;
@@ -1173,10 +1173,15 @@ const MIGRATIONS: Migration[] = [
       DELETE FROM permissions WHERE tool_id IN ('atlas_ingredient_lookup', 'recipe_lookup');
       DELETE FROM governance_tools WHERE id IN ('atlas_ingredient_lookup', 'recipe_lookup');
 
-      -- Grant nutrition-logger access to the universal replacements
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:nutrition-logger', 'atlas_sql', 'write', 'replaced atlas_ingredient_lookup'),
-        ('worker:nutrition-logger', 'recipe_read', 'read', 'replaced recipe_lookup');
+      -- Grant nutrition-logger access to the universal replacements.
+      -- Roster-agnostic (T-I-071): only if the principal exists on this install
+      -- (a fresh DB is born ungranted; the example roster is opt-in).
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'atlas_sql', 'write', 'replaced atlas_ingredient_lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'recipe_read', 'read', 'replaced recipe_lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
     `,
   },
   {
@@ -1338,9 +1343,12 @@ const MIGRATIONS: Migration[] = [
         ('memory_search', 'shared', 'Memory Search', 'read'),
         ('memory_add', 'shared', 'Memory Add', 'write');
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('user:owner', 'memory_search', 'read', 'universal memory retrieval'),
-        ('user:owner', 'memory_add', 'write', 'universal memory storage');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'user:owner', 'memory_search', 'read', 'universal memory retrieval'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'user:owner');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'user:owner', 'memory_add', 'write', 'universal memory storage'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'user:owner');
     `,
   },
   {
@@ -1349,8 +1357,9 @@ const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
         ('memory_reflect', 'shared', 'Memory Reflect', 'write');
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('user:owner', 'memory_reflect', 'write', 'universal memory reflection');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'user:owner', 'memory_reflect', 'write', 'universal memory reflection'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'user:owner');
     `,
   },
   {
@@ -1408,13 +1417,11 @@ const MIGRATIONS: Migration[] = [
         AND tool_id = 'fatsecret_api'
         AND access_level != 'write';
 
+      -- Roster-agnostic (T-I-071): only if the principal exists on this install.
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      VALUES (
-        'worker:recipe-librarian',
-        'fatsecret_api',
-        'write',
-        'sync fatsecret_api access with recipe-librarian config'
-      );
+      SELECT 'worker:recipe-librarian', 'fatsecret_api', 'write',
+             'sync fatsecret_api access with recipe-librarian config'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
     `,
   },
   {
@@ -1752,7 +1759,8 @@ const MIGRATIONS: Migration[] = [
     version: 32,
     sql: `
       INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
-      VALUES ('worker:note-librarian', 'worker', NULL, 'Note Librarian');
+        SELECT 'worker:note-librarian', 'worker', NULL, 'Note Librarian'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
       SELECT 'worker:note-librarian', 'obsidian', 'write', 'shared Obsidian note access'
@@ -1779,7 +1787,8 @@ const MIGRATIONS: Migration[] = [
     version: 33,
     sql: `
       INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
-      VALUES ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant');
+        SELECT 'worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
       SELECT 'worker:operations-assistant', 'linear', 'write', 'operations project tracking'
@@ -1821,6 +1830,7 @@ const MIGRATIONS: Migration[] = [
       SELECT 'agent:porter', 'agent', id, 'Porter'
       FROM principals
       WHERE type = 'user'
+        AND EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson')
       ORDER BY
         CASE
           WHEN id = 'user:owner' THEN 0
@@ -2121,13 +2131,21 @@ const MIGRATIONS: Migration[] = [
       VALUES ('user:owner', 'user', 'Owner');
 
       INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
-      VALUES ('agent:wellness', 'agent', 'user:owner', 'Wellness');
+        SELECT 'agent:wellness', 'agent', 'user:owner', 'Wellness'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
-      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-        ('worker:nutrition-logger', 'worker', 'agent:wellness', 'Nutrition Logger'),
-        ('worker:health-analyst', 'worker', 'agent:wellness', 'Health Analyst'),
-        ('worker:recipe-librarian', 'worker', 'agent:wellness', 'Recipe Librarian'),
-        ('worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:nutrition-logger', 'worker', 'agent:wellness', 'Nutrition Logger'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:health-analyst', 'worker', 'agent:wellness', 'Health Analyst'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:recipe-librarian', 'worker', 'agent:wellness', 'Recipe Librarian'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
         ('wellnessdb_search_product', 'wellness-db', 'Wellness DB Product Search', 'read'),
@@ -2151,29 +2169,72 @@ const MIGRATIONS: Migration[] = [
         ('wellnessdb_add_day_note', 'wellness-db', 'Wellness DB Add Day Note', 'write'),
         ('wellnessdb_delete_meal_entry', 'wellness-db', 'Wellness DB Delete Meal Entry', 'write');
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:nutrition-logger', 'wellnessdb_search_product', 'read', 'Wellness wellness.db lookup'),
-        ('worker:nutrition-logger', 'wellnessdb_search_supplement', 'read', 'Wellness wellness.db lookup'),
-        ('worker:nutrition-logger', 'wellnessdb_day_summary', 'read', 'Wellness wellness.db day summary'),
-        ('worker:nutrition-logger', 'wellnessdb_recent_meals', 'read', 'Wellness wellness.db recent meals'),
-        ('worker:nutrition-logger', 'wellnessdb_active_supplements', 'read', 'Wellness wellness.db active supplements'),
-        ('worker:nutrition-logger', 'wellnessdb_active_products', 'read', 'Wellness wellness.db active products'),
-        ('worker:nutrition-logger', 'wellnessdb_log_meal', 'write', 'Wellness wellness.db meal logging'),
-        ('worker:nutrition-logger', 'wellnessdb_log_supplement', 'write', 'Wellness wellness.db supplement logging'),
-        ('worker:nutrition-logger', 'wellnessdb_add_product', 'write', 'Wellness wellness.db product creation'),
-        ('worker:nutrition-logger', 'wellnessdb_add_day_note', 'write', 'Wellness wellness.db day notes'),
-        ('worker:nutrition-logger', 'wellnessdb_delete_meal_entry', 'write', 'Wellness wellness.db meal corrections'),
-        ('worker:recipe-librarian', 'wellnessdb_search_recipe', 'read', 'Wellness wellness.db recipe lookup'),
-        ('worker:recipe-librarian', 'wellnessdb_get_recipe_detail', 'read', 'Wellness wellness.db recipe detail'),
-        ('worker:recipe-librarian', 'wellnessdb_active_products', 'read', 'Wellness wellness.db active products'),
-        ('worker:recipe-librarian', 'wellnessdb_add_recipe', 'write', 'Wellness wellness.db recipe creation'),
-        ('worker:recipe-librarian', 'wellnessdb_update_recipe', 'write', 'Wellness wellness.db recipe updates'),
-        ('worker:health-analyst', 'wellnessdb_day_summary', 'read', 'Wellness wellness.db day summary'),
-        ('worker:health-analyst', 'wellnessdb_day_range', 'read', 'Wellness wellness.db trend analysis'),
-        ('worker:activity-tracker', 'wellnessdb_log_weight', 'write', 'Wellness wellness.db weight logging'),
-        ('worker:activity-tracker', 'wellnessdb_log_activity', 'write', 'Wellness wellness.db activity logging'),
-        ('worker:activity-tracker', 'wellnessdb_log_hydration', 'write', 'Wellness wellness.db hydration logging'),
-        ('agent:wellness', 'wellnessdb_log_presence', 'write', 'Wellness direct presence check logging');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_search_product', 'read', 'Wellness wellness.db lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_search_supplement', 'read', 'Wellness wellness.db lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_day_summary', 'read', 'Wellness wellness.db day summary'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_recent_meals', 'read', 'Wellness wellness.db recent meals'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_active_supplements', 'read', 'Wellness wellness.db active supplements'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_active_products', 'read', 'Wellness wellness.db active products'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_log_meal', 'write', 'Wellness wellness.db meal logging'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_log_supplement', 'write', 'Wellness wellness.db supplement logging'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_add_product', 'write', 'Wellness wellness.db product creation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_add_day_note', 'write', 'Wellness wellness.db day notes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'wellnessdb_delete_meal_entry', 'write', 'Wellness wellness.db meal corrections'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:recipe-librarian', 'wellnessdb_search_recipe', 'read', 'Wellness wellness.db recipe lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:recipe-librarian', 'wellnessdb_get_recipe_detail', 'read', 'Wellness wellness.db recipe detail'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:recipe-librarian', 'wellnessdb_active_products', 'read', 'Wellness wellness.db active products'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:recipe-librarian', 'wellnessdb_add_recipe', 'write', 'Wellness wellness.db recipe creation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:recipe-librarian', 'wellnessdb_update_recipe', 'write', 'Wellness wellness.db recipe updates'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:health-analyst', 'wellnessdb_day_summary', 'read', 'Wellness wellness.db day summary'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:health-analyst');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:health-analyst', 'wellnessdb_day_range', 'read', 'Wellness wellness.db trend analysis'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:health-analyst');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:activity-tracker', 'wellnessdb_log_weight', 'write', 'Wellness wellness.db weight logging'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:activity-tracker');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:activity-tracker', 'wellnessdb_log_activity', 'write', 'Wellness wellness.db activity logging'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:activity-tracker');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:activity-tracker', 'wellnessdb_log_hydration', 'write', 'Wellness wellness.db hydration logging'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:activity-tracker');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:wellness', 'wellnessdb_log_presence', 'write', 'Wellness direct presence check logging'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:wellness');
     `,
   },
   {
@@ -2214,16 +2275,33 @@ const MIGRATIONS: Migration[] = [
         'worker:recipe-librarian'
       );
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:nutrition-logger', 'exa_search', 'read', 'Wellness worker macro and restaurant lookup'),
-        ('worker:nutrition-logger', 'exa_answer', 'read', 'Wellness worker macro and restaurant lookup'),
-        ('worker:nutrition-logger', 'browser', 'write', 'Wellness worker macro and restaurant lookup'),
-        ('worker:recipe-librarian', 'exa_search', 'read', 'Wellness worker recipe research'),
-        ('worker:recipe-librarian', 'exa_answer', 'read', 'Wellness worker recipe research'),
-        ('worker:recipe-librarian', 'browser', 'write', 'Wellness worker recipe research'),
-        ('worker:health-analyst', 'exa_search', 'read', 'Wellness worker health research'),
-        ('worker:health-analyst', 'exa_answer', 'read', 'Wellness worker health research'),
-        ('worker:health-analyst', 'browser', 'write', 'Wellness worker health research');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'exa_search', 'read', 'Wellness worker macro and restaurant lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'exa_answer', 'read', 'Wellness worker macro and restaurant lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:nutrition-logger', 'browser', 'write', 'Wellness worker macro and restaurant lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:nutrition-logger');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:recipe-librarian', 'exa_search', 'read', 'Wellness worker recipe research'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:recipe-librarian', 'exa_answer', 'read', 'Wellness worker recipe research'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:recipe-librarian', 'browser', 'write', 'Wellness worker recipe research'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:recipe-librarian');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:health-analyst', 'exa_search', 'read', 'Wellness worker health research'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:health-analyst');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:health-analyst', 'exa_answer', 'read', 'Wellness worker health research'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:health-analyst');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:health-analyst', 'browser', 'write', 'Wellness worker health research'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:health-analyst');
     `,
   },
   {
@@ -2232,60 +2310,134 @@ const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO principals (id, type, display_name)
         VALUES ('user:owner', 'user', 'Owner');
 
-      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-        ('agent:foxtrot', 'agent', 'user:owner', 'Foxtrot'),
-        ('agent:foxtrot-ollama', 'agent', 'user:owner', 'Foxtrot (Ollama)');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'agent:foxtrot', 'agent', 'user:owner', 'Foxtrot' WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'agent:foxtrot-ollama', 'agent', 'user:owner', 'Foxtrot (Ollama)' WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
-      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-        ('worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'),
-        ('worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
         ('kilo_ledger', 'personal', 'Kilo Ledger', 'write');
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:foxtrot', 'attachment_search', 'read', 'finance attachment lookup'),
-        ('worker:foxtrot', 'attachment_read', 'read', 'finance attachment lookup'),
-        ('worker:foxtrot', 'attachment_status', 'read', 'finance attachment lookup'),
-        ('worker:foxtrot', 'lunch_money', 'write', 'finance account and transaction operations'),
-        ('worker:foxtrot', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
-        ('worker:foxtrot', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
-        ('worker:foxtrot', 'browser', 'write', 'finance and shopping web automation'),
-        ('worker:foxtrot', 'obsidian', 'write', 'finance runbooks and notes'),
-        ('worker:foxtrot', 'onepassword', 'read', 'finance credential retrieval'),
-        ('worker:foxtrot', 'gog_email', 'write', 'finance email lookup and drafting'),
-        ('worker:foxtrot', 'agent_docs', 'write', 'agent documentation updates'),
-        ('worker:foxtrot', 'kilo_ledger', 'write', 'Kilo spending ledger operations'),
-        ('worker:foxtrot', 'memory_search', 'read', 'finance context retrieval'),
-        ('worker:foxtrot', 'memory_add', 'write', 'finance memory capture'),
-        ('worker:foxtrot', 'memory_reflect', 'write', 'finance memory reflection'),
-        ('worker:foxtrot-ollama', 'attachment_search', 'read', 'finance attachment lookup'),
-        ('worker:foxtrot-ollama', 'attachment_read', 'read', 'finance attachment lookup'),
-        ('worker:foxtrot-ollama', 'attachment_status', 'read', 'finance attachment lookup'),
-        ('worker:foxtrot-ollama', 'lunch_money', 'write', 'finance account and transaction operations'),
-        ('worker:foxtrot-ollama', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'),
-        ('worker:foxtrot-ollama', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'),
-        ('worker:foxtrot-ollama', 'browser', 'write', 'finance and shopping web automation'),
-        ('worker:foxtrot-ollama', 'obsidian', 'write', 'finance runbooks and notes'),
-        ('worker:foxtrot-ollama', 'onepassword', 'read', 'finance credential retrieval'),
-        ('worker:foxtrot-ollama', 'gog_email', 'write', 'finance email lookup and drafting'),
-        ('worker:foxtrot-ollama', 'agent_docs', 'write', 'agent documentation updates'),
-        ('worker:foxtrot-ollama', 'kilo_ledger', 'write', 'Kilo spending ledger operations'),
-        ('worker:foxtrot-ollama', 'memory_search', 'read', 'finance context retrieval'),
-        ('worker:foxtrot-ollama', 'memory_add', 'write', 'finance memory capture'),
-        ('worker:foxtrot-ollama', 'memory_reflect', 'write', 'finance memory reflection');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'attachment_search', 'read', 'finance attachment lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'attachment_read', 'read', 'finance attachment lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'attachment_status', 'read', 'finance attachment lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'lunch_money', 'write', 'finance account and transaction operations'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'browser', 'write', 'finance and shopping web automation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'obsidian', 'write', 'finance runbooks and notes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'onepassword', 'read', 'finance credential retrieval'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'gog_email', 'write', 'finance email lookup and drafting'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'agent_docs', 'write', 'agent documentation updates'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'kilo_ledger', 'write', 'Kilo spending ledger operations'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'memory_search', 'read', 'finance context retrieval'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'memory_add', 'write', 'finance memory capture'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'memory_reflect', 'write', 'finance memory reflection'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'attachment_search', 'read', 'finance attachment lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'attachment_read', 'read', 'finance attachment lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'attachment_status', 'read', 'finance attachment lookup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'lunch_money', 'write', 'finance account and transaction operations'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'receipt_registry', 'write', 'receipt cataloging and reconciliation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'ramp_reimbursement', 'write', 'Ramp reimbursement automation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'browser', 'write', 'finance and shopping web automation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'obsidian', 'write', 'finance runbooks and notes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'onepassword', 'read', 'finance credential retrieval'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'gog_email', 'write', 'finance email lookup and drafting'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'agent_docs', 'write', 'agent documentation updates'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'kilo_ledger', 'write', 'Kilo spending ledger operations'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'memory_search', 'read', 'finance context retrieval'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'memory_add', 'write', 'finance memory capture'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'memory_reflect', 'write', 'finance memory reflection'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
     `,
   },
   {
     version: 44,
     sql: `
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:foxtrot', 'memory_search', 'read', 'finance context retrieval'),
-        ('worker:foxtrot', 'memory_add', 'write', 'finance memory capture'),
-        ('worker:foxtrot', 'memory_reflect', 'write', 'finance memory reflection'),
-        ('worker:foxtrot-ollama', 'memory_search', 'read', 'finance context retrieval'),
-        ('worker:foxtrot-ollama', 'memory_add', 'write', 'finance memory capture'),
-        ('worker:foxtrot-ollama', 'memory_reflect', 'write', 'finance memory reflection');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'memory_search', 'read', 'finance context retrieval'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'memory_add', 'write', 'finance memory capture'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot', 'memory_reflect', 'write', 'finance memory reflection'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'memory_search', 'read', 'finance context retrieval'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'memory_add', 'write', 'finance memory capture'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:foxtrot-ollama', 'memory_reflect', 'write', 'finance memory reflection'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:foxtrot-ollama');
     `,
   },
   {
@@ -2294,15 +2446,19 @@ const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO principals (id, type, display_name)
         VALUES ('user:owner', 'user', 'Owner');
 
-      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-        ('agent:kilo', 'agent', 'user:owner', 'Kilo'),
-        ('worker:kilo', 'worker', 'agent:kilo', 'Kilo Runtime');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'agent:kilo', 'agent', 'user:owner', 'Kilo'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:kilo', 'worker', 'agent:kilo', 'Kilo Runtime'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
         ('kilo_ledger', 'personal', 'Kilo Ledger', 'write');
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:kilo', 'kilo_ledger', 'write', 'Kilo bucket ledger operations');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:kilo', 'kilo_ledger', 'write', 'Kilo bucket ledger operations'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:kilo');
     `,
   },
   {
@@ -2311,21 +2467,35 @@ const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO principals (id, type, display_name)
         VALUES ('user:owner', 'user', 'Owner');
 
-      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-        ('agent:sierra-ollama', 'agent', 'user:owner', 'Sierra (Ollama)'),
-        ('worker:sierra-ollama', 'worker', 'agent:sierra-ollama', 'Sierra Ollama Runtime');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'agent:sierra-ollama', 'agent', 'user:owner', 'Sierra (Ollama)' WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:sierra-ollama', 'worker', 'agent:sierra-ollama', 'Sierra Ollama Runtime' WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
         ('osrm_route', 'research', 'OSRM Route Planner', 'read');
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:sierra-ollama', 'exa_search', 'read', 'Sierra Ollama research parity'),
-        ('worker:sierra-ollama', 'exa_answer', 'read', 'Sierra Ollama research parity'),
-        ('worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'),
-        ('worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'),
-        ('worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for research and source review'),
-        ('worker:research-assistant', 'osrm_route', 'read', 'travel route planning and drive-time verification'),
-        ('worker:sierra-ollama', 'osrm_route', 'read', 'Sierra Ollama travel route planning and drive-time verification');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:sierra-ollama', 'exa_search', 'read', 'Sierra Ollama research parity'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:sierra-ollama', 'exa_answer', 'read', 'Sierra Ollama research parity'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:sierra-ollama', 'location_read', 'read', 'Sierra Ollama travel navigation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:sierra-ollama', 'find_diesel', 'read', 'Sierra Ollama travel navigation'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:sierra-ollama', 'browser', 'write', 'Sierra Ollama web automation for research and source review'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:research-assistant', 'osrm_route', 'read', 'travel route planning and drive-time verification'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-assistant');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:sierra-ollama', 'osrm_route', 'read', 'Sierra Ollama travel route planning and drive-time verification'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:sierra-ollama');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
       SELECT 'worker:research-coordinator', 'osrm_route', 'read', 'travel route planning and drive-time verification'
@@ -2339,22 +2509,34 @@ const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO principals (id, type, display_name)
         VALUES ('user:owner', 'user', 'Owner');
 
-      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-        ('agent:watson-ollama', 'agent', 'user:owner', 'Watson (Ollama)'),
-        ('worker:watson-ollama', 'worker', 'agent:watson-ollama', 'Watson Ollama Runtime');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'agent:watson-ollama', 'agent', 'user:owner', 'Watson (Ollama)' WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+        SELECT 'worker:watson-ollama', 'worker', 'agent:watson-ollama', 'Watson Ollama Runtime' WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:watson');
 
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
         ('email_inbox_scan', 'personal', 'Email Inbox Scan (read-only)', 'read'),
         ('email_search', 'personal', 'Email Search (read-only)', 'read'),
         ('email_thread_brief', 'personal', 'Email Thread Brief (read-only)', 'read');
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:personal-assistant', 'email_inbox_scan', 'read', 'email triage: read-only inbox scan'),
-        ('worker:personal-assistant', 'email_search', 'read', 'email triage: read-only search'),
-        ('worker:personal-assistant', 'email_thread_brief', 'read', 'email triage: read-only thread brief'),
-        ('worker:watson-ollama', 'email_inbox_scan', 'read', 'Watson Ollama email parity (read-only)'),
-        ('worker:watson-ollama', 'email_search', 'read', 'Watson Ollama email parity (read-only)'),
-        ('worker:watson-ollama', 'email_thread_brief', 'read', 'Watson Ollama email parity (read-only)');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:personal-assistant', 'email_inbox_scan', 'read', 'email triage: read-only inbox scan'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:personal-assistant');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:personal-assistant', 'email_search', 'read', 'email triage: read-only search'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:personal-assistant');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:personal-assistant', 'email_thread_brief', 'read', 'email triage: read-only thread brief'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:personal-assistant');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:watson-ollama', 'email_inbox_scan', 'read', 'Watson Ollama email parity (read-only)'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:watson-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:watson-ollama', 'email_search', 'read', 'Watson Ollama email parity (read-only)'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:watson-ollama');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:watson-ollama', 'email_thread_brief', 'read', 'Watson Ollama email parity (read-only)'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:watson-ollama');
     `,
   },
   {
@@ -2363,9 +2545,12 @@ const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
         ('notion', 'personal', 'Notion (direct API)', 'write');
 
-      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-        ('worker:research-assistant', 'notion', 'write', 'Sierra research filing: Notion read/create/update with cleanup'),
-        ('worker:personal-assistant', 'notion', 'write', 'Watson notes domain: Notion read/create/update');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:research-assistant', 'notion', 'write', 'Sierra research filing: Notion read/create/update with cleanup'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:research-assistant');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:personal-assistant', 'notion', 'write', 'Watson notes domain: Notion read/create/update'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:personal-assistant');
     `,
   },
   {
@@ -3015,10 +3200,21 @@ const MIGRATIONS: Migration[] = [
 
 export { resolveDatabasePath } from "./runtime-paths.js";
 
+export interface TangoStorageOptions {
+  /**
+   * Apply GOVERNANCE_EXAMPLE_SEED immediately after the base governance seed
+   * (migration 11). Default false: fresh databases are born ungranted (T-I-071);
+   * installs and tests that want the upstream example roster opt in explicitly.
+   */
+  seedExampleRoster?: boolean;
+}
+
 export class TangoStorage {
+  private options: TangoStorageOptions;
   private readonly db: DatabaseSync;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, options: TangoStorageOptions = {}) {
+    this.options = options;
     const resolvedPath = path.resolve(dbPath);
     fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
     this.db = new DatabaseSync(resolvedPath);
@@ -3061,6 +3257,13 @@ export class TangoStorage {
       try {
         if (migration.version === 65) this.ensureStateManagementV65Columns();
         this.db.exec(migration.sql);
+        // T-I-071: a fresh DB is born ungranted — the upstream example roster is
+        // opt-in. Applied here (inside migration 11's transaction, before any
+        // later migration that conditionally extends roster grants) so opted-in
+        // installs get the full historical behavior.
+        if (migration.version === 11 && this.options.seedExampleRoster) {
+          this.db.exec(GOVERNANCE_EXAMPLE_SEED);
+        }
         this.db.exec(`PRAGMA user_version = ${migration.version};`);
         this.db.exec("COMMIT;");
       } catch (error) {

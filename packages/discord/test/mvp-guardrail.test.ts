@@ -16,7 +16,7 @@ afterEach(() => {
 function createStorage(): TangoStorage {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-discord-guardrail-"));
   tempDirs.push(dir);
-  return new TangoStorage(path.join(dir, "tango.sqlite"));
+  return new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
 }
 
 describe("MVP guardrails e2e", () => {

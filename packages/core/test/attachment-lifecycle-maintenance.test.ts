@@ -21,7 +21,7 @@ function createHarness() {
   cleanups.push(cleanup);
   const dbPath = path.join(dir, "tango.sqlite");
 
-  const storage = new TangoStorage(dbPath);
+  const storage = new TangoStorage(dbPath, { seedExampleRoster: true });
   cleanup.storages.add(storage);
   return {
     storage,

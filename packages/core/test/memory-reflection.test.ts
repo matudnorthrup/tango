@@ -43,7 +43,7 @@ function memory(
 function createStorage(): TangoStorage {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-memory-reflection-"));
   tempDirs.push(dir);
-  const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
+  const storage = new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
   storage.bootstrapSessions([
     {
       id: "default",

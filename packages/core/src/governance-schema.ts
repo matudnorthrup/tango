@@ -215,38 +215,7 @@ export const GOVERNANCE_SEED = `
   INSERT OR IGNORE INTO principals (id, type, display_name)
     VALUES ('user:owner', 'user', 'Owner');
 
-  INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-    ('agent:watson', 'agent', 'user:owner', 'Watson'),
-    ('agent:malibu', 'agent', 'user:owner', 'Malibu'),
-    ('agent:sierra', 'agent', 'user:owner', 'Sierra'),
-    ('agent:charlie', 'agent', 'user:owner', 'Charlie'),
-    ('agent:dispatch', 'agent', 'user:owner', 'Tango'),
-    ('agent:victor', 'agent', 'user:owner', 'Victor'),
-    ('agent:porter', 'agent', 'user:owner', 'Porter'),
-    ('agent:wellness', 'agent', 'user:owner', 'Wellness'),
-    ('agent:foxtrot', 'agent', 'user:owner', 'Foxtrot'),
-    ('agent:foxtrot-ollama', 'agent', 'user:owner', 'Foxtrot (Ollama)'),
-    ('agent:sierra-ollama', 'agent', 'user:owner', 'Sierra (Ollama)'),
-    ('agent:kilo', 'agent', 'user:owner', 'Kilo');
 
-  INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
-    ('worker:nutrition-logger', 'worker', 'agent:wellness', 'Nutrition Logger'),
-    ('worker:health-analyst', 'worker', 'agent:wellness', 'Health Analyst'),
-    ('worker:workout-recorder', 'worker', 'agent:malibu', 'Workout Recorder'),
-    ('worker:recipe-librarian', 'worker', 'agent:wellness', 'Recipe Librarian'),
-    ('worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker'),
-    ('worker:personal-assistant', 'worker', 'agent:watson', 'Personal Assistant'),
-    ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
-    ('worker:charlie', 'worker', 'agent:charlie', 'Charlie Runtime'),
-    ('worker:charlie-ollama', 'worker', 'agent:charlie', 'Charlie Ollama Runtime'),
-    ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
-    ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'),
-    ('worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'),
-    ('worker:note-librarian', 'worker', NULL, 'Note Librarian'),
-    ('worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'),
-    ('worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime'),
-    ('worker:sierra-ollama', 'worker', 'agent:sierra-ollama', 'Sierra Ollama Runtime'),
-    ('worker:kilo', 'worker', 'agent:kilo', 'Kilo Runtime');
 
   -- Tools (from MCP server)
   INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
@@ -339,6 +308,62 @@ export const GOVERNANCE_SEED = `
     ('self', 'Self', 'personal', 'Owner and their own agents'),
     ('family', 'Family', 'shared', 'Family members with limited access'),
     ('team', 'Team', 'shared', 'Work team with project-scoped access');
+
+  -- Universal memory tools available to all agents/workers via inheritance from the owner
+  INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
+    ('user:owner', 'memory_search', 'read', 'universal memory retrieval'),
+    ('user:owner', 'memory_add', 'write', 'universal memory storage'),
+    ('user:owner', 'memory_reflect', 'write', 'universal memory reflection'),
+    ('user:owner', 'collaborate_with_agent', 'write', 'bounded agent-to-agent collaboration');
+`;
+
+// ============================================================
+// Example Roster Seed (NOT applied by any production path)
+// ============================================================
+// A governance database is born ungranted: GOVERNANCE_SEED above creates the
+// owner principal, the tool catalog, default groups, and owner-level universal
+// grants — and nothing else. Install-specific agents, workers, and their
+// permissions belong to each install's own profile/grant process, so no install
+// is born holding another install's roster or access.
+//
+// This example preserves the original upstream roster verbatim as opt-in
+// reference material: an install that wants it (or a test that asserts against
+// it) applies GOVERNANCE_DDL + GOVERNANCE_SEED + GOVERNANCE_EXAMPLE_SEED
+// explicitly. Nothing applies it implicitly.
+export const GOVERNANCE_EXAMPLE_SEED = `
+  -- Example principals: agents and their workers
+  INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+    ('agent:watson', 'agent', 'user:owner', 'Watson'),
+    ('agent:malibu', 'agent', 'user:owner', 'Malibu'),
+    ('agent:sierra', 'agent', 'user:owner', 'Sierra'),
+    ('agent:charlie', 'agent', 'user:owner', 'Charlie'),
+    ('agent:dispatch', 'agent', 'user:owner', 'Tango'),
+    ('agent:victor', 'agent', 'user:owner', 'Victor'),
+    ('agent:porter', 'agent', 'user:owner', 'Porter'),
+    ('agent:wellness', 'agent', 'user:owner', 'Wellness'),
+    ('agent:foxtrot', 'agent', 'user:owner', 'Foxtrot'),
+    ('agent:foxtrot-ollama', 'agent', 'user:owner', 'Foxtrot (Ollama)'),
+    ('agent:sierra-ollama', 'agent', 'user:owner', 'Sierra (Ollama)'),
+    ('agent:kilo', 'agent', 'user:owner', 'Kilo');
+
+  INSERT OR IGNORE INTO principals (id, type, parent_id, display_name) VALUES
+    ('worker:nutrition-logger', 'worker', 'agent:wellness', 'Nutrition Logger'),
+    ('worker:health-analyst', 'worker', 'agent:wellness', 'Health Analyst'),
+    ('worker:workout-recorder', 'worker', 'agent:malibu', 'Workout Recorder'),
+    ('worker:recipe-librarian', 'worker', 'agent:wellness', 'Recipe Librarian'),
+    ('worker:activity-tracker', 'worker', 'agent:wellness', 'Activity Tracker'),
+    ('worker:personal-assistant', 'worker', 'agent:watson', 'Personal Assistant'),
+    ('worker:research-assistant', 'worker', 'agent:sierra', 'Research Assistant'),
+    ('worker:charlie', 'worker', 'agent:charlie', 'Charlie Runtime'),
+    ('worker:charlie-ollama', 'worker', 'agent:charlie', 'Charlie Ollama Runtime'),
+    ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
+    ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'),
+    ('worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'),
+    ('worker:note-librarian', 'worker', NULL, 'Note Librarian'),
+    ('worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'),
+    ('worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime'),
+    ('worker:sierra-ollama', 'worker', 'agent:sierra-ollama', 'Sierra Ollama Runtime'),
+    ('worker:kilo', 'worker', 'agent:kilo', 'Kilo Runtime');
 
   -- Worker permissions (seeded from current tool assignments)
   -- nutrition-logger
@@ -585,12 +610,9 @@ export const GOVERNANCE_SEED = `
     ('worker:activity-tracker', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:note-librarian', 'discord_send_image', 'write', 'outbound Discord image sending');
 
-  -- Universal memory tools available to all agents/workers via inheritance from the owner
+  -- Example-roster agent collaboration grants
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-    ('user:owner', 'memory_search', 'read', 'universal memory retrieval'),
-    ('user:owner', 'memory_add', 'write', 'universal memory storage'),
-    ('user:owner', 'memory_reflect', 'write', 'universal memory reflection'),
-    ('user:owner', 'collaborate_with_agent', 'write', 'bounded agent-to-agent collaboration'),
     ('agent:watson', 'collaborate_with_agent', 'write', 'Watson bounded specialist collaboration'),
     ('agent:victor', 'collaborate_with_agent', 'write', 'Victor bounded specialist collaboration');
 `;
+
