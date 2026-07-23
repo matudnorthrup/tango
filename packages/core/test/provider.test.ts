@@ -123,6 +123,35 @@ describe("parseClaudePrintJson", () => {
     expect(parsed.metadata?.contextOccupancyTokens).toBe(91012);
     expect(parsed.metadata?.contextWindowTokens).toBe(200000);
   });
+
+  it("reports the context-carrying model when Claude Code includes auxiliary model usage", () => {
+    const parsed = parseClaudePrintJson(
+      JSON.stringify({
+        type: "result",
+        is_error: false,
+        result: "done",
+        session_id: "abc",
+        modelUsage: {
+          "claude-haiku-4-5-20251001": {
+            inputTokens: 3114,
+            outputTokens: 14,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+          },
+          "claude-opus-4-8": {
+            inputTokens: 2,
+            outputTokens: 25,
+            cacheReadInputTokens: 15112,
+            cacheCreationInputTokens: 21706,
+            contextWindow: 1000000,
+          },
+        },
+      }) + "\n",
+    );
+
+    expect(parsed.metadata?.model).toBe("claude-opus-4-8");
+    expect(parsed.metadata?.contextWindowTokens).toBe(1000000);
+  });
 });
 
 describe("buildClaudeCliArgs", () => {
