@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { DeterministicHandler } from "@tango/core";
 import { ensureDailyNote, getMorningFlowDate } from "./morning-flow.js";
+import { createGogCommandEnv } from "./gog-keyring-password.js";
 
 const DEFAULT_TIME_ZONE = "America/Los_Angeles";
 const DEFAULT_VAULT_ROOT = path.join(os.homedir(), "Documents", "main");
@@ -413,36 +414,8 @@ function renderOvernightJob(entry: JobLogEntry): string {
   return `- ${entry.input.displayName} -- ${status}${summary}`;
 }
 
-function parseEnvValue(raw: string): string {
-  const trimmed = raw.trim();
-  if (
-    (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function readGogKeyringPasswordFromEnvFile(): string | undefined {
-  try {
-    const envText = fs.readFileSync(path.resolve(process.cwd(), ".env"), "utf8");
-    const match = /^GOG_KEYRING_PASSWORD=(.+)$/mu.exec(envText);
-    return match?.[1] ? parseEnvValue(match[1]) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function calendarCommandEnv(timeZone: string): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, TZ: timeZone };
-  if (!env["GOG_KEYRING_PASSWORD"]) {
-    const password = readGogKeyringPasswordFromEnvFile();
-    if (password) {
-      env["GOG_KEYRING_PASSWORD"] = password;
-    }
-  }
-  return env;
+  return createGogCommandEnv({ ...process.env, TZ: timeZone });
 }
 
 function defaultFetchCalendarEvents(date: string, timeZone: string): DailyBriefCalendarEvent[] {
