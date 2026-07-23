@@ -620,8 +620,9 @@ export function parseClaudePrintJson(stdout: string): ProviderResponse {
       if (eventType === "result") {
         const modelUsage = asRecord(record.modelUsage);
         if (modelUsage) {
-          const firstModel = asRecord(Object.values(modelUsage)[0]);
-          const cw = firstModel?.contextWindow;
+          const primaryModel = selectPrimaryClaudeModel(modelUsage);
+          const primaryUsage = primaryModel ? asRecord(modelUsage[primaryModel]) : undefined;
+          const cw = primaryUsage?.contextWindow;
           if (typeof cw === "number" && cw > 0) contextWindowTokens = cw;
         }
       }
@@ -771,7 +772,7 @@ function extractClaudeMetadata(payload: Record<string, unknown>): ProviderRespon
 
   const usage = payload.usage as Record<string, unknown> | undefined;
   const modelUsage = payload.modelUsage as Record<string, unknown> | undefined;
-  const model = modelUsage ? Object.keys(modelUsage)[0] : undefined;
+  const model = selectPrimaryClaudeModel(modelUsage);
 
   return {
     model,
@@ -788,6 +789,41 @@ function extractClaudeMetadata(payload: Record<string, unknown>): ProviderRespon
         }
       : undefined
   };
+}
+
+/**
+ * Claude Code can report auxiliary models alongside the model that carries the
+ * conversation. Prefer the entry with cached context; otherwise fall back to
+ * the entry that accounted for the most tokens. Object-key order is not a
+ * meaningful signal here.
+ */
+function selectPrimaryClaudeModel(modelUsage: Record<string, unknown> | undefined): string | undefined {
+  if (!modelUsage) return undefined;
+
+  let selected: { name: string; cachedTokens: number; totalTokens: number } | undefined;
+  for (const [name, rawEntry] of Object.entries(modelUsage)) {
+    const entry = rawEntry && typeof rawEntry === "object" ? rawEntry as Record<string, unknown> : undefined;
+    if (!entry) continue;
+
+    const numberField = (value: unknown): number =>
+      typeof value === "number" && Number.isFinite(value) ? value : 0;
+    const cachedTokens =
+      numberField(entry.cacheReadInputTokens) + numberField(entry.cacheCreationInputTokens);
+    const totalTokens =
+      numberField(entry.inputTokens) +
+      numberField(entry.outputTokens) +
+      cachedTokens;
+
+    if (
+      !selected ||
+      cachedTokens > selected.cachedTokens ||
+      (cachedTokens === selected.cachedTokens && totalTokens > selected.totalTokens)
+    ) {
+      selected = { name, cachedTokens, totalTokens };
+    }
+  }
+
+  return selected?.name;
 }
 
 function normalizeToolMode(mode: ProviderToolMode | undefined): ProviderToolMode {
