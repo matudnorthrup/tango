@@ -10,6 +10,7 @@ set -o pipefail
 
 DEFAULT_SERVICES="gmail,calendar,docs,drive"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="$SCRIPT_DIR/../.env"
 GOG_BIN="${GOG_BIN:-gog}"
 SERVICES="$DEFAULT_SERVICES"
@@ -26,13 +27,12 @@ Options:
   -a, --account EMAIL      Account to refresh. Repeat for every account.
   -s, --services LIST      Comma-separated GOG services to request.
                             Default: gmail,calendar,docs,drive
-      --env-file PATH      Read GOG_KEYRING_PASSWORD from this dotenv file
-                            when it is not already set in the environment.
+      --env-file PATH      Read GOG_KEYRING_PASSWORD from this dotenv file.
   -h, --help               Show this help text.
 
-The script uses GOG_KEYRING_PASSWORD from the environment when available. If it
-is unset, it reads only that value from the dotenv file without sourcing or
-executing the file. The keyring password is never printed.
+The script reads GOG_KEYRING_PASSWORD from the dotenv file with Tango's normal
+dotenv semantics. The file value overrides an inherited launcher value. The
+keyring password is never printed.
 
 Examples:
   scripts/gog-reauth.sh --account user@example.com
@@ -55,40 +55,18 @@ has_service() {
 }
 
 read_keyring_password() {
-  local raw trimmed
-
   [ -r "$ENV_FILE" ] || return 1
 
-  # Deliberately parse only this one setting. Sourcing a dotenv file would run
-  # arbitrary shell syntax from a file that may contain other application data.
-  raw="$(awk '
-    /^[[:space:]]*(export[[:space:]]+)?GOG_KEYRING_PASSWORD=/ {
-      sub(/^[[:space:]]*(export[[:space:]]+)?GOG_KEYRING_PASSWORD=/, "")
-      sub(/\r$/, "")
-      print
-      exit
-    }
-  ' "$ENV_FILE")"
-  [ -n "$raw" ] || return 1
-
-  trimmed="$(printf '%s' "$raw" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
-  case "$trimmed" in
-    \"*\")
-      if [ "${trimmed#\"}" != "$trimmed" ] && [ "${trimmed%\"}" != "$trimmed" ]; then
-        trimmed="${trimmed#\"}"
-        trimmed="${trimmed%\"}"
-      fi
-      ;;
-    \'*\')
-      if [ "${trimmed#\'}" != "$trimmed" ] && [ "${trimmed%\'}" != "$trimmed" ]; then
-        trimmed="${trimmed#\'}"
-        trimmed="${trimmed%\'}"
-      fi
-      ;;
-  esac
-
-  [ -n "$trimmed" ] || return 1
-  printf '%s' "$trimmed"
+  node - "$ENV_FILE" "$REPO_ROOT" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const { createRequire } = require('module');
+const [envFile, repoRoot] = process.argv.slice(2);
+const requireFromDiscord = createRequire(path.join(repoRoot, 'packages/discord/package.json'));
+const dotenv = requireFromDiscord('dotenv');
+const password = dotenv.parse(fs.readFileSync(envFile, 'utf8')).GOG_KEYRING_PASSWORD;
+if (password) process.stdout.write(password);
+NODE
 }
 
 while [ "$#" -gt 0 ]; do
@@ -133,15 +111,12 @@ if ! command -v "$GOG_BIN" >/dev/null 2>&1; then
   exit 127
 fi
 
-if [ -z "${GOG_KEYRING_PASSWORD:-}" ]; then
-  if GOG_KEYRING_PASSWORD="$(read_keyring_password)"; then
-    export GOG_KEYRING_PASSWORD
-  else
-    echo "ERROR: GOG_KEYRING_PASSWORD is not set and could not be read from $ENV_FILE." >&2
-    echo "Set it in the environment or provide a readable dotenv file with --env-file." >&2
-    exit 1
-  fi
+if ! GOG_KEYRING_PASSWORD="$(read_keyring_password)" || [ -z "$GOG_KEYRING_PASSWORD" ]; then
+  echo "ERROR: GOG_KEYRING_PASSWORD could not be read from $ENV_FILE." >&2
+  echo "Provide a readable dotenv file with --env-file." >&2
+  exit 1
 fi
+export GOG_KEYRING_PASSWORD
 
 echo "Configuring GOG to use the file keyring backend..."
 if ! "$GOG_BIN" auth keyring file; then

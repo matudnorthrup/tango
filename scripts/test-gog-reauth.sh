@@ -23,7 +23,7 @@ printf '%s\n' \
   > "$TMP_DIR/gog"
 chmod +x "$TMP_DIR/gog"
 
-printf '%s\n' 'GOG_KEYRING_PASSWORD="synthetic password"' > "$TMP_DIR/test.env"
+printf '%s\n' 'GOG_KEYRING_PASSWORD=synthetic-password # comment' > "$TMP_DIR/test.env"
 
 help_output="$TMP_DIR/help.out"
 "$SCRIPT" --help > "$help_output"
@@ -38,17 +38,17 @@ fi
 assert_contains "At least one --account is required." "$missing_output"
 
 log="$TMP_DIR/gog.log"
-env -u GOG_KEYRING_PASSWORD \
+env GOG_KEYRING_PASSWORD=stale-launcher-password \
   GOG_BIN="$TMP_DIR/gog" \
   GOG_REAUTH_TEST_LOG="$log" \
   "$SCRIPT" --env-file "$TMP_DIR/test.env" \
   --account first@example.test --account second@example.test > "$TMP_DIR/run.out"
 
-assert_contains "synthetic password|auth keyring file" "$log"
-assert_contains "synthetic password|auth add first@example.test --services gmail,calendar,docs,drive --force-consent" "$log"
-assert_contains "synthetic password|drive ls --account first@example.test --max 1 --plain" "$log"
-assert_contains "synthetic password|auth add second@example.test --services gmail,calendar,docs,drive --force-consent" "$log"
-assert_contains "synthetic password|drive ls --account second@example.test --max 1 --plain" "$log"
+assert_contains "synthetic-password|auth keyring file" "$log"
+assert_contains "synthetic-password|auth add first@example.test --services gmail,calendar,docs,drive --force-consent" "$log"
+assert_contains "synthetic-password|drive ls --account first@example.test --max 1 --plain" "$log"
+assert_contains "synthetic-password|auth add second@example.test --services gmail,calendar,docs,drive --force-consent" "$log"
+assert_contains "synthetic-password|drive ls --account second@example.test --max 1 --plain" "$log"
 assert_contains "All 2 named account(s) refreshed and validated." "$TMP_DIR/run.out"
 
 echo "gog-reauth tests passed"

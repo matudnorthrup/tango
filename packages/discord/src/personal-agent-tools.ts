@@ -12,7 +12,6 @@
  */
 
 import * as fs from "node:fs/promises";
-import { readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
@@ -46,6 +45,7 @@ import {
 import { executeGoogleDocTabUpdate } from "./google-doc-update-executor.js";
 import { loadReimbursementEvidenceRecord } from "./reimbursement-evidence.js";
 import { extractRampReimbursementIdFromUrl } from "./reimbursement-automation.js";
+import { createGogCommandEnv } from "./gog-keyring-password.js";
 
 // ---------------------------------------------------------------------------
 // Command runner (shared)
@@ -137,36 +137,8 @@ function resolvePaths(overrides?: PersonalToolPaths) {
   };
 }
 
-function parseEnvValue(raw: string): string {
-  const trimmed = raw.trim();
-  if (
-    (trimmed.startsWith("\"") && trimmed.endsWith("\""))
-    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function readGogKeyringPasswordFromEnvFile(): string | undefined {
-  try {
-    const envText = readFileSync(path.resolve(process.cwd(), ".env"), "utf8");
-    const match = /^GOG_KEYRING_PASSWORD=(.+)$/mu.exec(envText);
-    return match?.[1] ? parseEnvValue(match[1]) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function gogCommandEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (!env["GOG_KEYRING_PASSWORD"]) {
-    const password = readGogKeyringPasswordFromEnvFile();
-    if (password) {
-      env["GOG_KEYRING_PASSWORD"] = password;
-    }
-  }
-  return env;
+  return createGogCommandEnv();
 }
 
 const GOG_EMAIL_ATTACHMENT_TEXT_MAX_CHARS = 12_000;
