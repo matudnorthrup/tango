@@ -1,0 +1,36 @@
+id: church-session-keepalive
+display_name: Church Session Keepalive
+description: >
+  Keep the churchofjesuschrist.org single sign-on session live for Gospel
+  Library (scripture marking) and Leader and Clerk Resources. Probes both
+  scopes, re-authenticates from the configured 1Password item when needed, and
+  rewrites the session-scoped auth cookies with a real expiry so a Brave restart
+  no longer throws away a valid login.
+enabled: true
+
+schedule:
+  # Every 45 minutes: shorter than the Church app token's one-hour life, and
+  # frequent enough that the Okta session never reaches its idle timeout.
+  cron: "*/45 * * * *"
+  timezone: America/Los_Angeles
+
+execution:
+  mode: deterministic
+  handler: church-session-keepalive
+  timeout_seconds: 180
+
+delivery:
+  mode: none
+
+policy:
+  max_consecutive_failures: 3
+  priority: 0
+  backoff:
+    enabled: true
+    initial_seconds: 300
+    max_seconds: 3600
+
+tags:
+  - church
+  - session
+  - maintenance

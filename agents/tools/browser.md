@@ -38,6 +38,10 @@ Interaction:
 - Use `launch` instead of `connect` — it handles starting Brave automatically.
 - `snapshot` returns page text plus numbered refs for elements.
 - Refs are not stable after navigation or page changes.
+- `open` on a churchofjesuschrist.org URL (Gospel Library, Leader and Clerk
+  Resources) restores that session first and reports the outcome under
+  `church_session`. Never type the Church password through `fill`/`type`; see
+  [`docs/guides/church-session.md`](../../docs/guides/church-session.md).
 
 ## Example
 

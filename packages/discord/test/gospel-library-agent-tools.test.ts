@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const manager = {
   launch: vi.fn(),
@@ -6,405 +6,180 @@ const manager = {
   open: vi.fn(),
   evaluate: vi.fn(),
   wait: vi.fn(),
+  ensureConnected: vi.fn(),
+  pageForOrigin: vi.fn(),
+  context: vi.fn(),
 };
 
-vi.mock("../src/op-secret.js", () => ({
-  getSecret: vi.fn(),
-  getOneTimePassword: vi.fn(),
-  isOpAvailable: vi.fn(),
+const churchSession = vi.hoisted(() => ({
+  ensureChurchSession: vi.fn(),
+  churchFetch: vi.fn(),
+  churchSessionDiagnostics: vi.fn(),
+  persistChurchSessionCookies: vi.fn(),
 }));
 
 vi.mock("../src/browser-manager.js", () => ({
   getBrowserManager: () => manager,
+  describeBrowserProfile: () => ({ expected: "/tmp/profile", actual: "/tmp/profile", matches: true }),
 }));
 
-import { getOneTimePassword, getSecret, isOpAvailable } from "../src/op-secret.js";
+vi.mock("../src/church-session.js", async (importOriginal) => {
+  // Keep the real pure helpers (URL/scope classification) and stub the parts
+  // that need a live browser.
+  const actual = await importOriginal<typeof import("../src/church-session.js")>();
+  return {
+    ...actual,
+    ensureChurchSession: churchSession.ensureChurchSession,
+    churchFetch: churchSession.churchFetch,
+    churchSessionDiagnostics: churchSession.churchSessionDiagnostics,
+    persistChurchSessionCookies: churchSession.persistChurchSessionCookies,
+  };
+});
+
 import {
   createGospelLibraryTools,
   gospelLibraryActionLooksMutating,
 } from "../src/gospel-library-agent-tools.js";
 
-const getSecretMock = vi.mocked(getSecret);
-const getOneTimePasswordMock = vi.mocked(getOneTimePassword);
-const isOpAvailableMock = vi.mocked(isOpAvailable);
+const authenticated = (scope: "study" | "lcr" = "study") => ({
+  scope,
+  authenticated: true,
+  needsLogin: false,
+  path: "already-authenticated" as const,
+  steps: [],
+  probe: { scope, authenticated: true, needsLogin: false, inconclusive: false, detail: "notes API returned 200" },
+  persisted: { converted: ["id.churchofjesuschrist.org/:idx"], alreadyPersistent: 3, expiresAt: "2026-08-25T00:00:00.000Z" },
+  profile: { expected: "/tmp/profile", actual: "/tmp/profile", matches: true },
+  message: `Church ${scope} session is authenticated.`,
+});
+
+const signedOut = (overrides: Record<string, unknown> = {}) => ({
+  scope: "study" as const,
+  authenticated: false,
+  needsLogin: true,
+  path: "failed" as const,
+  steps: [],
+  probe: { scope: "study", authenticated: false, needsLogin: true, inconclusive: false, detail: "notes API returned 401" },
+  profile: { expected: "/tmp/profile", actual: "/tmp/profile", matches: true },
+  message: "Church study sign-in did not complete.",
+  ...overrides,
+});
+
+const tool = () => {
+  const found = createGospelLibraryTools()[0];
+  if (!found) throw new Error("Missing gospel_library tool");
+  return found;
+};
 
 describe("gospel-library-agent-tools", () => {
-  const originalChurchVault = process.env.CHURCH_ACCOUNT_1PASSWORD_VAULT;
-  const originalChurchItem = process.env.CHURCH_ACCOUNT_1PASSWORD_ITEM;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.CHURCH_ACCOUNT_1PASSWORD_VAULT = "ChurchVault";
-    process.env.CHURCH_ACCOUNT_1PASSWORD_ITEM = "ChurchItem";
-    isOpAvailableMock.mockReturnValue(true);
-    getOneTimePasswordMock.mockResolvedValue(null);
-    getSecretMock.mockImplementation(async (_vault, _item, field) => {
-      if (field === "username") return "devin@example.test";
-      if (field === "password") return "correct horse battery staple";
-      return null;
-    });
+    churchSession.ensureChurchSession.mockResolvedValue(authenticated());
+    churchSession.churchSessionDiagnostics.mockResolvedValue({ sessionSurvivesRestart: true });
+    churchSession.churchFetch.mockResolvedValue({ ok: true, status: 200, statusText: "OK", url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations", body: [] });
   });
 
-  afterEach(() => {
-    if (originalChurchVault === undefined) {
-      delete process.env.CHURCH_ACCOUNT_1PASSWORD_VAULT;
-    } else {
-      process.env.CHURCH_ACCOUNT_1PASSWORD_VAULT = originalChurchVault;
-    }
-    if (originalChurchItem === undefined) {
-      delete process.env.CHURCH_ACCOUNT_1PASSWORD_ITEM;
-    } else {
-      process.env.CHURCH_ACCOUNT_1PASSWORD_ITEM = originalChurchItem;
-    }
-  });
+  it("reports session state on status without triggering a sign-in", async () => {
+    await tool().handler({ action: "status" });
 
-  it("launches and opens Gospel Library during status instead of asking for a browser tab", async () => {
-    manager.status
-      .mockResolvedValueOnce({ connected: false })
-      .mockResolvedValueOnce({ connected: true, url: "about:blank" })
-      .mockResolvedValueOnce({ connected: true, url: "https://www.churchofjesuschrist.org/study/scriptures?lang=eng" })
-      .mockResolvedValueOnce({ connected: true, url: "https://www.churchofjesuschrist.org/study/scriptures?lang=eng" });
-    manager.launch.mockResolvedValue("Connected.");
-    manager.open.mockResolvedValue("Opened.");
-    manager.evaluate.mockResolvedValue({
-      ok: true,
-      status: 200,
-      url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations?type=reference&locale=eng&docId=128394547",
-      body: [{ id: "private-annotation-id" }],
-    });
-
-    const tool = createGospelLibraryTools()[0];
-    if (!tool) throw new Error("Missing gospel_library tool");
-
-    const result = await tool.handler({ action: "status" });
-
-    expect(manager.launch).toHaveBeenCalledWith(9223);
-    expect(manager.open).toHaveBeenCalledWith("https://www.churchofjesuschrist.org/study/scriptures?lang=eng");
-    expect(manager.evaluate).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({
-      connected: true,
-      launched: true,
-      navigated: true,
-      onChurchSite: true,
-      authenticated: true,
-      needsLogin: false,
-      probe: {
-        ok: true,
-        status: 200,
-        bodySummary: {
-          type: "array",
-          count: 1,
-        },
-      },
-    });
-    expect(JSON.stringify(result)).not.toContain("private-annotation-id");
-  });
-
-  it("prepares the Church sign-in flow when annotations are unauthenticated", async () => {
-    manager.status
-      .mockResolvedValueOnce({ connected: true, url: "about:blank" })
-      .mockResolvedValueOnce({ connected: true, url: "about:blank" })
-      .mockResolvedValueOnce({ connected: true, url: "https://www.churchofjesuschrist.org/study/scriptures?lang=eng" })
-      .mockResolvedValueOnce({ connected: true, url: "https://id.churchofjesuschrist.org/login" });
-    manager.open.mockResolvedValue("Opened.");
-    manager.wait.mockResolvedValue("Waited.");
-    manager.evaluate
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations?type=reference&locale=eng&docId=128394547",
-        body: "Sign in required",
-      })
-      .mockResolvedValueOnce({
-        url: "https://www.churchofjesuschrist.org/study/scriptures?lang=eng",
-        hasPasswordField: false,
-        controls: [{ text: "Sign In", href: "https://id.churchofjesuschrist.org/login" }],
-      })
-      .mockResolvedValueOnce({
-        clicked: true,
-        text: "Sign In",
-        href: "https://id.churchofjesuschrist.org/login",
-      })
-      .mockResolvedValueOnce({
-        url: "https://id.churchofjesuschrist.org/login",
-        hasPasswordField: true,
-      });
-
-    const tool = createGospelLibraryTools()[0];
-    if (!tool) throw new Error("Missing gospel_library tool");
-
-    const result = await tool.handler({ action: "prepare_login" });
-
-    expect(manager.open).toHaveBeenCalledWith("https://www.churchofjesuschrist.org/study/scriptures?lang=eng");
-    expect(manager.wait).toHaveBeenCalledWith({ timeout: 2500 });
-    expect(result).toMatchObject({
-      connected: true,
-      authenticated: false,
-      needsLogin: true,
-      currentUrl: "https://id.churchofjesuschrist.org/login",
-      click: {
-        clicked: true,
-        text: "Sign In",
-      },
-    });
-  });
-
-  it("logs in with the configured 1Password Church item without returning secrets", async () => {
-    manager.status.mockResolvedValue({
-      connected: true,
-      url: "https://www.churchofjesuschrist.org/study/scriptures?lang=eng",
-    });
-    manager.wait.mockResolvedValue("Waited.");
-    let probeCount = 0;
-    manager.evaluate.mockImplementation(async (script: string) => {
-      if (script.includes("fetch(")) {
-        probeCount += 1;
-        return probeCount === 1
-          ? {
-              ok: false,
-              status: 401,
-              url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations?type=reference&locale=eng&docId=128394547",
-              body: "Sign in required",
-            }
-          : {
-              ok: true,
-              status: 200,
-              url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations?type=reference&locale=eng&docId=128394547",
-              body: [{ id: "private-annotation-id" }],
-            };
-      }
-      if (script.includes("suppliedUsername")) {
-        return {
-          url: "https://id.churchofjesuschrist.org/login",
-          usernameFieldFound: true,
-          passwordFieldFound: true,
-          filledUsername: true,
-          filledPassword: true,
-          clicked: true,
-          submittedViaForm: false,
-        };
-      }
-      if (script.includes("hasPasswordField")) {
-        return {
-          url: "https://id.churchofjesuschrist.org/login",
-          hasUsernameField: true,
-          hasPasswordField: true,
-          hasOtpField: false,
-          bodySignals: {},
-        };
-      }
-      return { clicked: true, text: "Sign In" };
-    });
-
-    const tool = createGospelLibraryTools()[0];
-    if (!tool) throw new Error("Missing gospel_library tool");
-
-    const result = await tool.handler({ action: "login" });
-
-    expect(getSecretMock).toHaveBeenCalledWith("ChurchVault", "ChurchItem", "username");
-    expect(getSecretMock).toHaveBeenCalledWith("ChurchVault", "ChurchItem", "password");
-    expect(result).toMatchObject({
-      authenticated: true,
-      needsLogin: false,
-      credentialSource: "onepassword",
-      credentialReady: true,
-      finalProbe: {
-        ok: true,
-        status: 200,
-        bodySummary: {
-          type: "array",
-          count: 1,
-        },
-      },
-    });
-    const serialized = JSON.stringify(result);
-    expect(serialized).not.toContain("devin@example.test");
-    expect(serialized).not.toContain("correct horse battery staple");
-    expect(serialized).not.toContain("private-annotation-id");
-  });
-
-  it("opens the Study login flow when the notes token is expired but no sign-in control is visible", async () => {
-    manager.status.mockResolvedValue({
-      connected: true,
-      url: "https://www.churchofjesuschrist.org/study/scriptures/bofm/2-ne/3?lang=eng",
-    });
-    manager.open.mockResolvedValue("Opened.");
-    manager.wait.mockResolvedValue("Waited.");
-    let probeCount = 0;
-    let pageStateCount = 0;
-    manager.evaluate.mockImplementation(async (script: string) => {
-      if (script.includes("fetch(")) {
-        probeCount += 1;
-        return probeCount === 1
-          ? {
-              ok: false,
-              status: 401,
-              url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations?type=reference&locale=eng&docId=128394547",
-              body: "Could not verify token",
-            }
-          : {
-              ok: true,
-              status: 200,
-              url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations?type=reference&locale=eng&docId=128394547",
-              body: [],
-            };
-      }
-      if (script.includes("hasPasswordField")) {
-        pageStateCount += 1;
-        return pageStateCount === 1
-          ? {
-              url: "https://www.churchofjesuschrist.org/study/scriptures/bofm/2-ne/3?lang=eng",
-              hasUsernameField: false,
-              hasPasswordField: false,
-              hasOtpField: false,
-              bodySignals: {},
-              controls: [],
-            }
-          : {
-              url: "https://id.churchofjesuschrist.org/oauth2/default/v1/authorize",
-              hasUsernameField: false,
-              hasPasswordField: true,
-              hasOtpField: false,
-              bodySignals: {},
-              controls: [],
-            };
-      }
-      if (script.includes("suppliedUsername")) {
-        return {
-          url: "https://id.churchofjesuschrist.org/oauth2/default/v1/authorize",
-          usernameFieldFound: false,
-          passwordFieldFound: true,
-          filledUsername: false,
-          filledPassword: true,
-          clicked: true,
-          submittedViaForm: false,
-        };
-      }
-      return { clicked: false, reason: "No visible sign-in control found" };
-    });
-
-    const tool = createGospelLibraryTools()[0];
-    if (!tool) throw new Error("Missing gospel_library tool");
-
-    const result = await tool.handler({
-      action: "login",
-      url: "/study/scriptures/bofm/2-ne/3?lang=eng",
-    });
-
-    expect(manager.open).toHaveBeenCalledWith(
-      "https://www.churchofjesuschrist.org/study/login?redirect_uri=%2Fstudy%2Fscriptures%2Fbofm%2F2-ne%2F3%3Flang%3Deng",
+    expect(churchSession.ensureChurchSession).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "study", allowLogin: false }),
     );
+  });
+
+  it("includes restart-survival diagnostics in status so a failure can be explained", async () => {
+    churchSession.ensureChurchSession.mockResolvedValue(signedOut());
+    churchSession.churchSessionDiagnostics.mockResolvedValue({
+      sessionSurvivesRestart: false,
+      browserProfile: { expected: "/a", actual: "/b", matches: false },
+    });
+
+    const result = await tool().handler({ action: "status" });
+
     expect(result).toMatchObject({
-      authenticated: true,
-      needsLogin: false,
-      credentialSource: "onepassword",
-      credentialReady: true,
+      authenticated: false,
+      diagnostics: { sessionSurvivesRestart: false },
     });
   });
 
-  it("returns a setup blocker when the Church 1Password item is not configured", async () => {
-    delete process.env.CHURCH_ACCOUNT_1PASSWORD_VAULT;
-    delete process.env.CHURCH_ACCOUNT_1PASSWORD_ITEM;
-    manager.status.mockResolvedValue({
-      connected: true,
-      url: "https://www.churchofjesuschrist.org/study/scriptures?lang=eng",
-    });
-    manager.evaluate.mockImplementation(async (script: string) => {
-      if (script.includes("fetch(")) {
-        return {
-          ok: false,
-          status: 401,
-          url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations?type=reference&locale=eng&docId=128394547",
-          body: "Sign in required",
-        };
-      }
-      if (script.includes("hasPasswordField")) {
-        return {
-          hasUsernameField: false,
-          hasPasswordField: false,
-          hasOtpField: false,
-          bodySignals: {},
-        };
-      }
-      return { clicked: true, text: "Sign In" };
-    });
+  it("routes ensure_session to the LCR scope for Leader and Clerk Resources work", async () => {
+    churchSession.ensureChurchSession.mockResolvedValue(authenticated("lcr"));
 
-    const tool = createGospelLibraryTools()[0];
-    if (!tool) throw new Error("Missing gospel_library tool");
+    const result = await tool().handler({ action: "ensure_session", scope: "lcr" });
 
-    const result = await tool.handler({ action: "login" });
-
-    expect(getSecretMock).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      authenticated: false,
-      needsLogin: true,
-      credentialSource: "onepassword",
-      credentialReady: false,
-      credentialConfigured: false,
-      missingConfig: [
-        "CHURCH_ACCOUNT_1PASSWORD_VAULT",
-        "CHURCH_ACCOUNT_1PASSWORD_ITEM",
-      ],
-    });
-    expect(String((result as { message?: unknown }).message)).toContain("Do not ask Devin for the password in chat");
+    expect(churchSession.ensureChurchSession).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "lcr" }),
+    );
+    expect(result).toMatchObject({ authenticated: true, scope: "lcr" });
   });
 
-  it("stops for user approval when Church login reaches second factor without TOTP", async () => {
-    manager.status.mockResolvedValue({
-      connected: true,
-      url: "https://www.churchofjesuschrist.org/study/scriptures?lang=eng",
-    });
-    manager.wait.mockResolvedValue("Waited.");
-    manager.evaluate.mockImplementation(async (script: string) => {
-      if (script.includes("fetch(")) {
-        return {
-          ok: false,
-          status: 401,
-          url: "https://www.churchofjesuschrist.org/notes/api/v3/annotations?type=reference&locale=eng&docId=128394547",
-          body: "Sign in required",
-        };
-      }
-      if (script.includes("suppliedUsername")) {
-        return {
-          usernameFieldFound: true,
-          passwordFieldFound: true,
-          filledUsername: true,
-          filledPassword: true,
-          clicked: true,
-          submittedViaForm: false,
-        };
-      }
-      if (script.includes("hasPasswordField")) {
-        return {
-          url: "https://id.churchofjesuschrist.org/login",
-          hasUsernameField: false,
-          hasPasswordField: false,
-          hasOtpField: true,
-          bodySignals: { twoFactorText: true },
-        };
-      }
-      return { clicked: true, text: "Sign In" };
+  it("infers the LCR scope from an LCR url", async () => {
+    churchSession.ensureChurchSession.mockResolvedValue(authenticated("lcr"));
+
+    await tool().handler({
+      action: "ensure_session",
+      url: "https://lcr.churchofjesuschrist.org/mlt/records/member-list?lang=eng",
     });
 
-    const tool = createGospelLibraryTools()[0];
-    if (!tool) throw new Error("Missing gospel_library tool");
+    expect(churchSession.ensureChurchSession).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "lcr" }),
+    );
+  });
 
-    const result = await tool.handler({ action: "login" });
+  it("keeps login and prepare_login working as aliases of ensure_session", async () => {
+    for (const action of ["login", "prepare_login"]) {
+      churchSession.ensureChurchSession.mockClear();
+      const result = await tool().handler({ action });
+      expect(churchSession.ensureChurchSession).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ authenticated: true });
+    }
+  });
 
-    expect(getOneTimePasswordMock).toHaveBeenCalledWith("ChurchVault", "ChurchItem");
+  it("heals the session before a read instead of returning a sign-in page as data", async () => {
+    await tool().handler({ action: "list_annotations", query: { docId: "1" } });
+
+    expect(churchSession.ensureChurchSession).toHaveBeenCalledWith({ scope: "study" });
+    expect(churchSession.churchFetch).toHaveBeenCalledWith(
+      "study",
+      expect.objectContaining({ url: expect.stringContaining("/notes/api/v3/annotations?docId=1") }),
+    );
+  });
+
+  it("refuses to write when the session could not be restored", async () => {
+    churchSession.ensureChurchSession.mockResolvedValue(signedOut());
+
+    const result = await tool().handler({
+      action: "create_highlight",
+      uri: "/scriptures/bofm/2-ne/23",
+      verse: 6,
+      phrase: "day of the Lord",
+    });
+
+    expect(churchSession.churchFetch).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      authenticated: false,
+      error: expect.stringContaining("not authenticated"),
       needsLogin: true,
-      needsSecondFactor: true,
-      credentialSource: "onepassword",
-      credentialReady: true,
     });
-    expect(JSON.stringify(result)).not.toContain("correct horse battery staple");
+  });
+
+  it("surfaces a second-factor block without leaking the password", async () => {
+    churchSession.ensureChurchSession.mockResolvedValue(
+      signedOut({
+        needsSecondFactor: true,
+        message: "The Church sign-in asked for a second factor and the 1Password item has no one-time password field.",
+      }),
+    );
+
+    const result = await tool().handler({ action: "login" });
+
+    expect(result).toMatchObject({ authenticated: false, needsSecondFactor: true });
+    expect(JSON.stringify(result)).not.toMatch(/password['"]?\s*:\s*['"][^'"]/i);
   });
 
   it("keeps only annotation create/delete actions classified as mutating", () => {
     expect(gospelLibraryActionLooksMutating("status")).toBe(false);
     expect(gospelLibraryActionLooksMutating("open")).toBe(false);
+    expect(gospelLibraryActionLooksMutating("ensure_session")).toBe(false);
     expect(gospelLibraryActionLooksMutating("prepare_login")).toBe(false);
     expect(gospelLibraryActionLooksMutating("login")).toBe(false);
     expect(gospelLibraryActionLooksMutating("list_annotations")).toBe(false);

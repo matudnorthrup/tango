@@ -19,15 +19,32 @@ const manager = {
   evaluate: vi.fn(),
 };
 
+const churchSession = vi.hoisted(() => ({ ensureChurchSession: vi.fn() }));
+
 vi.mock("../src/browser-manager.js", () => ({
   getBrowserManager: () => manager,
+  describeBrowserProfile: () => ({ expected: "/tmp/profile", actual: "/tmp/profile", matches: true }),
 }));
+
+vi.mock("../src/church-session.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/church-session.js")>();
+  return { ...actual, ensureChurchSession: churchSession.ensureChurchSession };
+});
 
 import { createBrowserTools } from "../src/browser-agent-tools.js";
 
 describe("browser-agent-tools", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    churchSession.ensureChurchSession.mockResolvedValue({
+      scope: "lcr",
+      authenticated: true,
+      needsLogin: false,
+      path: "silent-sso",
+      steps: [],
+      probe: { scope: "lcr", authenticated: true, needsLogin: false, inconclusive: false, detail: "ok" },
+      message: "Church lcr session was restored from the existing single sign-on session.",
+    });
   });
 
   it("auto-launches and connects before page actions when disconnected", async () => {
@@ -104,5 +121,39 @@ describe("browser-agent-tools", () => {
 
     expect(manager.upload).toHaveBeenCalledWith(23, ["/tmp/tango-screenshot-test.png"]);
     expect(result).toEqual({ result: "Uploaded 1 file(s) into [23]" });
+  });
+
+  it("signs in to Church sites before navigating so LCR work never lands on a sign-in page", async () => {
+    manager.status.mockResolvedValue({ connected: true, url: "about:blank" });
+    manager.open.mockResolvedValue("Opened.");
+
+    const tool = createBrowserTools()[0];
+    if (!tool) throw new Error("Missing browser tool");
+
+    const result = await tool.handler({
+      action: "open",
+      url: "https://lcr.churchofjesuschrist.org/mlt/records/member-list?lang=eng",
+    });
+
+    expect(churchSession.ensureChurchSession).toHaveBeenCalledWith({
+      url: "https://lcr.churchofjesuschrist.org/mlt/records/member-list?lang=eng",
+    });
+    expect(result).toMatchObject({
+      result: "Opened.",
+      church_session: { authenticated: true, path: "silent-sso" },
+    });
+  });
+
+  it("leaves non-Church navigation untouched", async () => {
+    manager.status.mockResolvedValue({ connected: true, url: "about:blank" });
+    manager.open.mockResolvedValue("Opened.");
+
+    const tool = createBrowserTools()[0];
+    if (!tool) throw new Error("Missing browser tool");
+
+    const result = await tool.handler({ action: "open", url: "https://www.walmart.com/" });
+
+    expect(churchSession.ensureChurchSession).not.toHaveBeenCalled();
+    expect(result).toEqual({ result: "Opened." });
   });
 });

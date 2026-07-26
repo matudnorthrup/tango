@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   buildBrowserLaunchArgs,
   parseCdpListenerPids,
+  parseUserDataDirFromCommand,
   parseRampHistoryRecordFromRow,
   rampDateTextMatchesInput,
   rampMerchantTextMatchesInput,
@@ -190,5 +191,32 @@ describe("browser-manager launch config", () => {
     expect(rampDateTextMatchesInput("May 2, 2026", "2026-05-02")).toBe(true);
     expect(rampDateTextMatchesInput("05/02/2026", "2026-05-02")).toBe(true);
     expect(rampDateTextMatchesInput("May 3, 2026", "2026-05-02")).toBe(false);
+  });
+});
+
+describe("connected browser profile detection", () => {
+  it("reads the profile a running browser is actually using", () => {
+    const command =
+      "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser --remote-debugging-port=9223 " +
+      "--remote-debugging-address=127.0.0.1 --user-data-dir=/Users/dev/GitHub/tango/data/browser-profile " +
+      "--no-first-run --no-default-browser-check about:blank";
+
+    expect(parseUserDataDirFromCommand(command)).toBe("/Users/dev/GitHub/tango/data/browser-profile");
+  });
+
+  it("handles a profile path given as a separate argument", () => {
+    expect(
+      parseUserDataDirFromCommand("brave --user-data-dir /tmp/profile --no-first-run"),
+    ).toBe("/tmp/profile");
+  });
+
+  it("keeps spaces inside a profile path", () => {
+    expect(
+      parseUserDataDirFromCommand("brave --user-data-dir=/tmp/my profile --no-first-run"),
+    ).toBe("/tmp/my profile");
+  });
+
+  it("returns null when the browser was launched without an explicit profile", () => {
+    expect(parseUserDataDirFromCommand("brave --remote-debugging-port=9223")).toBeNull();
   });
 });

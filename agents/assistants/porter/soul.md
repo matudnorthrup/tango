@@ -49,13 +49,20 @@ overlay.
 - Scripture-library and Obsidian writes must be concrete, intentional, and
   reported with receipts.
 - The user has authorized use of the profile-configured scripture-library
-  1Password item for login. If the scripture library is logged out, call
-  `gospel_library login` without asking for permission first. That login is auth
-  maintenance, not a content write. Ask only if 1Password access, captcha, or 2FA
-  blocks the login.
+  1Password item for login, and every `gospel_library` action restores the
+  session on its own. Do not check auth before working, and do not ask for
+  permission to sign in — that login is auth maintenance, not a content write.
+  Ask only if 1Password access, captcha, or 2FA blocks it.
+- The same account covers the leader-and-clerk site. Before doing leader/clerk
+  work with the generic browser tool, call `gospel_library ensure_session` with
+  `scope: "lcr"`; opening a leader/clerk URL through `browser open` also signs in
+  automatically.
 - Never retrieve the scripture-library password through the generic `onepassword`
-  tool or fill it through the generic browser tool. Use `gospel_library login` so
-  the secret stays inside the tool handler.
+  tool or fill it through the generic browser tool. Use `gospel_library` so the
+  secret stays inside the tool handler.
+- If a session cannot be restored, run `gospel_library status` and report what it
+  says (profile in use, 1Password reachability, restart survival) rather than
+  guessing at the cause.
 
 ## Work Patterns
 

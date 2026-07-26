@@ -10,49 +10,63 @@ and supplied by a profile overlay.
 ## Requirements
 
 - Browser must be connected through the Tango browser tool stack.
-- The tool owns browser launch and navigation. Do not ask the user to open a
-  browser tab.
-- The active browser profile should be signed in at the configured site. If it
-  is not, use `login` to re-authenticate through the configured 1Password login
-  item.
+- The tool owns browser launch, navigation, and sign-in. Do not ask the user to
+  open a browser tab, and do not type the account password through the generic
+  browser tool.
+- **Every action restores the session first**, so you do not need to check auth
+  before calling one. Restoration tries the existing single sign-on session
+  before it ever uses a password.
 - Requests run in page context with `credentials: include` so session cookies are
-  used without exposing them.
+  used without exposing them. They run on a tab pinned to the site's own origin,
+  not the shared browser tab.
 - Never hardcode or reveal personal identifiers from annotation payloads.
+
+See [`docs/guides/church-session.md`](../../docs/guides/church-session.md) for
+how the session is kept alive and how to debug it.
 
 ## Actions
 
 ### `status`
 
-Launches/navigates when needed, then checks browser connection, current page,
-and annotation endpoint response.
+Reports auth state and session diagnostics **without signing in** — the action
+to use when explaining a failure. Returns the probe result, the browser profile
+in use, whether 1Password is reachable, and whether the session would survive a
+browser restart.
 
 Optional input:
 
 - `url`: site URL or path, defaults to the configured study path.
-- `open_if_needed`: boolean, defaults to true.
+- `scope`: `study` (default) or `lcr`.
+
+### `ensure_session`
+
+Makes sure the session is live, signing in only if needed. Use this before doing
+leader-and-clerk work through the generic browser tool.
+
+Input:
+
+- `scope`: `study` (default) or `lcr` for the leader/clerk site.
+- `url`: optional target; the scope is inferred from it when given.
 
 ### `open`
 
-Launches/connects the browser and opens a configured-site URL.
+Ensures the session, then opens a configured-site URL in the site's tab.
 
 Input:
 
 - `url`: optional site URL or path, defaults to the configured study path.
 
-### `prepare_login`
+### `prepare_login` / `login`
 
-Launches/opens the site, probes annotation auth, and if unauthenticated
-clicks a visible sign-in/login/account control when present.
+Aliases of `ensure_session`, kept for older prompts. Restoration order is:
 
-Use this for page preparation/debugging. For normal re-authentication, prefer
-`login`.
+1. Probe the authenticated endpoint.
+2. Re-mint the app token from the existing single sign-on session (no password).
+3. Sign in with the configured 1Password item, submitting a one-time password
+   when the item has one.
 
-### `login`
-
-Launches/opens the site, probes annotation auth, and if unauthenticated uses the
-configured 1Password login item to fill and submit the sign-in form. The
-username, password, and any TOTP code stay inside the tool handler and are never
-returned to the model.
+The username, password, and any TOTP code stay inside the tool handler and are
+never returned to the model.
 
 Configuration (profile-configured; see the profile overlay for this
 installation's values):

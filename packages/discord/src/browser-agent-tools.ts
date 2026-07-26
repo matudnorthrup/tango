@@ -10,6 +10,7 @@
 
 import type { AgentTool } from "@tango/core";
 import { getBrowserManager } from "./browser-manager.js";
+import { ensureChurchSession, isChurchUrl } from "./church-session.js";
 
 export function createBrowserTools(): AgentTool[] {
   return [
@@ -95,6 +96,8 @@ export function createBrowserTools(): AgentTool[] {
         "  - Refs are NOT stable across navigations — always re-snapshot after open/click",
         "  - For sites with bot detection (Walmart), use launch to start a real browser",
         "  - For login-required sites, log in manually in Chrome first",
+        "  - churchofjesuschrist.org (Gospel Library, Leader and Clerk Resources) is the exception: 'open'",
+        "    signs in automatically from 1Password. Never type the Church password through fill/type.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -228,8 +231,24 @@ export function createBrowserTools(): AgentTool[] {
           case "open": {
             if (!input.url) return { error: "open requires 'url'" };
             await ensureConnectedForPageAction();
-            const msg = await bm.open(String(input.url));
-            return { result: msg };
+            const url = String(input.url);
+
+            // Church sites (Gospel Library, Leader and Clerk Resources) share one
+            // single sign-on session whose cookies expire on their own schedule.
+            // Heal it here so navigating never lands on a sign-in page.
+            let church: Record<string, unknown> | undefined;
+            if (isChurchUrl(url)) {
+              const session = await ensureChurchSession({ url });
+              church = {
+                authenticated: session.authenticated,
+                path: session.path,
+                message: session.message,
+                ...(session.needsSecondFactor ? { needsSecondFactor: true } : {}),
+              };
+            }
+
+            const msg = await bm.open(url);
+            return church ? { result: msg, church_session: church } : { result: msg };
           }
 
           case "snapshot": {

@@ -124,6 +124,7 @@ import {
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
+import { runChurchSessionKeepalive } from "./church-session.js";
 import {
   createDailyNoteBootstrapHandler,
   createMorningFlowSentinelHandler,
@@ -1258,6 +1259,30 @@ registerDeterministicHandler("state-sweep", async () => {
   };
 });
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
+registerDeterministicHandler("church-session-keepalive", async () => {
+  // The Church single sign-on session idles out server-side, and the cookies
+  // that carry it die with the browser unless they are given a real expiry.
+  // Touching both scopes on a schedule is what keeps Porter and Leader and
+  // Clerk Resources work from starting with a sign-in.
+  const result = await runChurchSessionKeepalive();
+  const scopes = [result.study, result.lcr];
+  const signedIn = scopes.filter((scope) => scope.authenticated).map((scope) => scope.scope);
+  const blocked = scopes.filter((scope) => !scope.authenticated);
+
+  return {
+    status: blocked.length === 0 ? "ok" : "error",
+    summary:
+      blocked.length === 0
+        ? `Church session live (${signedIn.join(", ")}); ${result.persisted.converted.length} session cookie(s) hardened.`
+        : `Church session needs attention: ${blocked.map((scope) => `${scope.scope} — ${scope.message}`).join(" | ")}`,
+    data: {
+      study: { authenticated: result.study.authenticated, path: result.study.path },
+      lcr: { authenticated: result.lcr.authenticated, path: result.lcr.path },
+      persistedCookies: result.persisted.converted.length,
+      needsSecondFactor: scopes.some((scope) => scope.needsSecondFactor === true),
+    },
+  };
+});
 registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
 registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
 registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
