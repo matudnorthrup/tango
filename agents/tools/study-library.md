@@ -1,6 +1,6 @@
-# Gospel Library Tool
+# Study Library Tool
 
-Tool ID: `gospel_library`
+Tool ID: `study_library`
 
 Authenticated wrapper for a web-annotations / notes API accessed through the
 current browser session. This repo doc describes the generic capability; the
@@ -21,7 +21,7 @@ and supplied by a profile overlay.
   not the shared browser tab.
 - Never hardcode or reveal personal identifiers from annotation payloads.
 
-See [`docs/guides/church-session.md`](../../docs/guides/church-session.md) for
+See [`docs/guides/browser-sessions.md`](../../docs/guides/browser-sessions.md) for
 how the session is kept alive and how to debug it.
 
 ## Actions

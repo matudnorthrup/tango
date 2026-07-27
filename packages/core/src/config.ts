@@ -966,3 +966,124 @@ export function loadScheduleConfigs(configDir: string): ScheduleConfig[] {
     } satisfies ScheduleConfig),
   });
 }
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Authenticated browser sites                                                */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * A site whose logged-in browser session Tango keeps alive.
+ *
+ * Which sites exist, their URLs, sign-in form selectors, and credential
+ * references are deliberately NOT in this repo: they describe one operator's
+ * accounts. Descriptors live in the profile layer
+ * (`<profile>/config/browser-sites/*.yaml`) and this repo ships only the
+ * machinery that reads them. See docs/guides/browser-sessions.md.
+ */
+const browserSiteProbeSchema = z.object({
+  mode: z.enum(["api", "page"]),
+  // api probes: a URL whose status distinguishes signed in from signed out.
+  url: z.string().min(1).optional(),
+  authenticated_status: z.array(z.number().int()).nonempty().optional(),
+  signed_out_status: z.array(z.number().int()).nonempty().optional(),
+  // page probes: navigate the anchor and look for the signed-in shell.
+  signed_in_pattern: z.string().min(1).optional(),
+  error_pattern: z.string().min(1).optional(),
+});
+
+const browserSiteScopeSchema = z.object({
+  id: z.string().min(1),
+  origin: z.string().url(),
+  anchor_url: z.string().url(),
+  probe: browserSiteProbeSchema,
+  silent_refresh_url_template: z.string().min(1).optional(),
+  default_redirect_path: z.string().min(1).optional(),
+});
+
+const browserSiteSchema = z.object({
+  id: z.string().min(1),
+  display_name: z.string().min(1).optional(),
+  enabled: z.boolean().optional(),
+  keepalive: z.boolean().optional(),
+  credential: z
+    .object({
+      vault_env: z.string().min(1),
+      item_env: z.string().min(1),
+    })
+    .optional(),
+  sign_in: z
+    .object({
+      identity_origin: z.string().url(),
+      username_selector: z.string().min(1),
+      password_selector: z.string().min(1),
+      submit_selector: z.string().min(1),
+      otp_selector: z.string().min(1).optional(),
+      second_factor_pattern: z.string().min(1).optional(),
+    })
+    .optional(),
+  persist_cookies: z
+    .object({
+      exact: z.array(z.string().min(1)).optional(),
+      patterns: z.array(z.string().min(1)).optional(),
+    })
+    .optional(),
+  scopes: z.array(browserSiteScopeSchema).nonempty(),
+  // Optional extras consumed by site-specific tools (e.g. an annotations API).
+  library: z.record(z.unknown()).optional(),
+});
+
+export type BrowserSiteProbeConfig = z.infer<typeof browserSiteProbeSchema>;
+export type BrowserSiteScopeConfig = z.infer<typeof browserSiteScopeSchema>;
+
+export interface BrowserSiteConfig {
+  id: string;
+  displayName?: string;
+  enabled: boolean;
+  keepalive: boolean;
+  credential?: { vaultEnv: string; itemEnv: string };
+  signIn?: {
+    identityOrigin: string;
+    usernameSelector: string;
+    passwordSelector: string;
+    submitSelector: string;
+    otpSelector?: string;
+    secondFactorPattern?: string;
+  };
+  persistCookies: { exact: string[]; patterns: string[] };
+  scopes: BrowserSiteScopeConfig[];
+  library?: Record<string, unknown>;
+}
+
+export function loadBrowserSiteConfigs(configDir?: string): BrowserSiteConfig[] {
+  return loadLayeredConfigCategory({
+    category: "browser-sites",
+    configDir,
+    required: false,
+    schema: browserSiteSchema,
+    map: (parsed): BrowserSiteConfig => ({
+      id: parsed.id,
+      displayName: parsed.display_name,
+      enabled: parsed.enabled ?? true,
+      keepalive: parsed.keepalive ?? false,
+      credential: parsed.credential
+        ? { vaultEnv: parsed.credential.vault_env, itemEnv: parsed.credential.item_env }
+        : undefined,
+      signIn: parsed.sign_in
+        ? {
+            identityOrigin: parsed.sign_in.identity_origin,
+            usernameSelector: parsed.sign_in.username_selector,
+            passwordSelector: parsed.sign_in.password_selector,
+            submitSelector: parsed.sign_in.submit_selector,
+            otpSelector: parsed.sign_in.otp_selector,
+            secondFactorPattern: parsed.sign_in.second_factor_pattern,
+          }
+        : undefined,
+      persistCookies: {
+        exact: parsed.persist_cookies?.exact ?? [],
+        patterns: parsed.persist_cookies?.patterns ?? [],
+      },
+      scopes: parsed.scopes,
+      library: parsed.library,
+    }),
+  }).filter((site) => site.enabled);
+}

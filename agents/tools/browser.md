@@ -41,10 +41,10 @@ Interaction:
   logins; worktrees and profiles do not get their own.
 - `snapshot` returns page text plus numbered refs for elements.
 - Refs are not stable after navigation or page changes.
-- `open` on a churchofjesuschrist.org URL (Gospel Library, Leader and Clerk
-  Resources) restores that session first and reports the outcome under
-  `church_session`. Never type the Church password through `fill`/`type`; see
-  [`docs/guides/church-session.md`](../../docs/guides/church-session.md).
+- `open` on a URL belonging to a configured browser-site descriptor restores
+  that site's session first and reports the outcome under `site_session`. Never
+  type those passwords through `fill`/`type`; see
+  [`docs/guides/browser-sessions.md`](../../docs/guides/browser-sessions.md).
 
 ## Example
 

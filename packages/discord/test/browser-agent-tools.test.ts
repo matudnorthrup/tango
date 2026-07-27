@@ -19,16 +19,20 @@ const manager = {
   evaluate: vi.fn(),
 };
 
-const churchSession = vi.hoisted(() => ({ ensureChurchSession: vi.fn() }));
+const siteSession = vi.hoisted(() => ({ ensureSiteSession: vi.fn(), siteScopeForUrl: vi.fn() }));
 
 vi.mock("../src/browser-manager.js", () => ({
   getBrowserManager: () => manager,
   describeBrowserProfile: () => ({ expected: "/tmp/profile", actual: "/tmp/profile", matches: true }),
 }));
 
-vi.mock("../src/church-session.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/church-session.js")>();
-  return { ...actual, ensureChurchSession: churchSession.ensureChurchSession };
+vi.mock("../src/site-session.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/site-session.js")>();
+  return {
+    ...actual,
+    ensureSiteSession: siteSession.ensureSiteSession,
+    siteScopeForUrl: siteSession.siteScopeForUrl,
+  };
 });
 
 import { createBrowserTools } from "../src/browser-agent-tools.js";
@@ -36,14 +40,16 @@ import { createBrowserTools } from "../src/browser-agent-tools.js";
 describe("browser-agent-tools", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    churchSession.ensureChurchSession.mockResolvedValue({
-      scope: "lcr",
+    siteSession.siteScopeForUrl.mockReturnValue(null);
+    siteSession.ensureSiteSession.mockResolvedValue({
+      site: "example-site",
+      scope: "records",
       authenticated: true,
       needsLogin: false,
       path: "silent-sso",
       steps: [],
-      probe: { scope: "lcr", authenticated: true, needsLogin: false, inconclusive: false, detail: "ok" },
-      message: "Church lcr session was restored from the existing single sign-on session.",
+      probe: { site: "example-site", scope: "records", authenticated: true, needsLogin: false, inconclusive: false, detail: "ok" },
+      message: "Session restored from the existing single sign-on session.",
     });
   });
 
@@ -123,37 +129,44 @@ describe("browser-agent-tools", () => {
     expect(result).toEqual({ result: "Uploaded 1 file(s) into [23]" });
   });
 
-  it("signs in to Church sites before navigating so LCR work never lands on a sign-in page", async () => {
+  it("restores a configured site's session before navigating, so it never lands on a sign-in page", async () => {
     manager.status.mockResolvedValue({ connected: true, url: "about:blank" });
     manager.open.mockResolvedValue("Opened.");
+    siteSession.siteScopeForUrl.mockReturnValue({
+      site: { id: "example-site" },
+      scope: { id: "records" },
+    });
 
     const tool = createBrowserTools()[0];
     if (!tool) throw new Error("Missing browser tool");
 
     const result = await tool.handler({
       action: "open",
-      url: "https://lcr.churchofjesuschrist.org/mlt/records/member-list?lang=eng",
+      url: "https://records.example.test/list",
     });
 
-    expect(churchSession.ensureChurchSession).toHaveBeenCalledWith({
-      url: "https://lcr.churchofjesuschrist.org/mlt/records/member-list?lang=eng",
+    expect(siteSession.ensureSiteSession).toHaveBeenCalledWith({
+      site: "example-site",
+      scope: "records",
+      url: "https://records.example.test/list",
     });
     expect(result).toMatchObject({
       result: "Opened.",
-      church_session: { authenticated: true, path: "silent-sso" },
+      site_session: { site: "example-site", authenticated: true, path: "silent-sso" },
     });
   });
 
-  it("leaves non-Church navigation untouched", async () => {
+  it("leaves navigation to unconfigured sites untouched", async () => {
     manager.status.mockResolvedValue({ connected: true, url: "about:blank" });
     manager.open.mockResolvedValue("Opened.");
+    siteSession.siteScopeForUrl.mockReturnValue(null);
 
     const tool = createBrowserTools()[0];
     if (!tool) throw new Error("Missing browser tool");
 
     const result = await tool.handler({ action: "open", url: "https://www.walmart.com/" });
 
-    expect(churchSession.ensureChurchSession).not.toHaveBeenCalled();
+    expect(siteSession.ensureSiteSession).not.toHaveBeenCalled();
     expect(result).toEqual({ result: "Opened." });
   });
 });

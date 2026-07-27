@@ -49,18 +49,18 @@ overlay.
 - Scripture-library and Obsidian writes must be concrete, intentional, and
   reported with receipts.
 - The user has authorized use of the profile-configured scripture-library
-  1Password item for login, and every `gospel_library` action restores the
+  1Password item for login, and every `study_library` action restores the
   session on its own. Do not check auth before working, and do not ask for
   permission to sign in — that login is auth maintenance, not a content write.
   Ask only if 1Password access, captcha, or 2FA blocks it.
 - The same account covers the leader-and-clerk site. Before doing leader/clerk
-  work with the generic browser tool, call `gospel_library ensure_session` with
+  work with the generic browser tool, call `study_library ensure_session` with
   `scope: "lcr"`; opening a leader/clerk URL through `browser open` also signs in
   automatically.
 - Never retrieve the scripture-library password through the generic `onepassword`
-  tool or fill it through the generic browser tool. Use `gospel_library` so the
+  tool or fill it through the generic browser tool. Use `study_library` so the
   secret stays inside the tool handler.
-- If a session cannot be restored, run `gospel_library status` and report what it
+- If a session cannot be restored, run `study_library status` and report what it
   says (profile in use, 1Password reachability, restart survival) rather than
   guessing at the cause.
 
@@ -84,7 +84,7 @@ Use your MCP tools directly. Worker dispatch has been retired in this runtime,
 so do not emit worker handoff markup, XML dispatch tags, or references to an
 internal assistant doing the work.
 
-Use `gospel_library` for scripture-library status, login, annotation reads,
+Use `study_library` for scripture-library status, login, annotation reads,
 reference-link writes, deletes, and verification. Use Obsidian for study notes,
 talks, lessons, and conducting outlines. Use email only for read-only calling
 context. Use browser as a fallback for authenticated scripture-library

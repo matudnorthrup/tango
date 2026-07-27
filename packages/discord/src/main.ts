@@ -124,7 +124,7 @@ import {
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
-import { runChurchSessionKeepalive } from "./church-session.js";
+import { runSiteSessionKeepalive } from "./site-session.js";
 import {
   createDailyNoteBootstrapHandler,
   createMorningFlowSentinelHandler,
@@ -1259,36 +1259,33 @@ registerDeterministicHandler("state-sweep", async () => {
   };
 });
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
-registerDeterministicHandler("church-session-keepalive", async () => {
-  // The Church single sign-on session idles out server-side, and the cookies
-  // that carry it die with the browser unless they are given a real expiry.
-  // Touching both scopes on a schedule is what keeps Porter and Leader and
-  // Clerk Resources work from starting with a sign-in.
-  const result = await runChurchSessionKeepalive();
-  const scopes = [result.study, result.lcr];
-  const signedIn = scopes.filter((scope) => scope.authenticated).map((scope) => scope.scope);
-  const blocked = scopes.filter((scope) => !scope.authenticated);
+registerDeterministicHandler("browser-session-keepalive", async () => {
+  // Identity-provider sessions idle out server-side, and the cookies that carry
+  // them die with the browser unless given a real expiry. Touching every
+  // configured site on a schedule is what keeps authenticated work from
+  // starting with a sign-in.
+  const report = await runSiteSessionKeepalive();
+  if (report.length === 0) {
+    return { status: "skipped", summary: "No browser-session descriptors have keepalive enabled." };
+  }
+
+  const all = report.flatMap((entry) => entry.results);
+  const blocked = all.filter((result) => !result.authenticated);
+  const persisted = report.reduce((sum, entry) => sum + entry.persisted.converted.length, 0);
 
   return {
     status: blocked.length === 0 ? "ok" : "error",
     summary:
       blocked.length === 0
-        ? `Church session live (${signedIn.join(", ")}); ${result.persisted.converted.length} session cookie(s) hardened.`
-        : `Church session needs attention: ${blocked.map((scope) => `${scope.scope} — ${scope.message}`).join(" | ")}`,
+        ? `Sessions live for ${all.map((r) => `${r.site}/${r.scope}`).join(", ")}; ${persisted} session cookie(s) hardened.`
+        : `Sessions needing attention: ${blocked.map((r) => `${r.site}/${r.scope} — ${r.message}`).join(" | ")}`,
     data: {
-      study: { authenticated: result.study.authenticated, path: result.study.path },
-      lcr: { authenticated: result.lcr.authenticated, path: result.lcr.path },
-      persistedCookies: result.persisted.converted.length,
-      needsSecondFactor: scopes.some((scope) => scope.needsSecondFactor === true),
+      sessions: all.map((r) => ({ site: r.site, scope: r.scope, authenticated: r.authenticated, path: r.path })),
+      persistedCookies: persisted,
+      needsSecondFactor: all.some((r) => r.needsSecondFactor === true),
     },
   };
 });
-registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
-registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
-registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
-registerDeterministicHandler("kilo-ledger-monitor", createKiloLedgerMonitorHandler({
-  getLunchMoneyAccessToken: getLunchMoneyApiKey,
-}));
 registerDeterministicHandler("attachment-retention-sweep", async (ctx) => {
   const store = new AttachmentStore(ctx.db);
   const report = runAttachmentRetentionSweep(store, {

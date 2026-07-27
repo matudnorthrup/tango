@@ -22,7 +22,7 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `email-review.md` | `email_review` | Watson / email | Email triage phases, drafting voice, reply conventions |
 | `evening-checkin.md` | `evening_checkin` | Malibu / nutrition | Pre-dinner calorie budget (TDEE + FatSecret intake) |
 | `health-baselines.md` | `health_baselines` | Malibu / Watson health summaries | Baseline comparisons for health summaries |
-| `lds-companion-workflows.md` | `lds_companion_workflows` | Porter / LDS companion | LDS study, Gospel Library marking/linking, talks, lessons, and calling support |
+| `faith-companion-workflows.md` | `faith_companion_workflows` | Porter / faith companion | LDS study, Study Library marking/linking, talks, lessons, and calling support |
 | `local-business-research.md` | `local_business_research` | Sierra / local research | Restaurants, local businesses, activities, classes, venues, events, and contact/detail verification |
 | `obsidian-note-conventions.md` | `obsidian_note_conventions` | Watson / notes | Vault note structure and task conventions |
 | `orientation-nudge-system.md` | `orientation_nudge_system` | Watson / planning | Runtime orientation nudges, task rotation contract, focus/vacation behavior |

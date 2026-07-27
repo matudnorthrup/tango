@@ -13,8 +13,8 @@
  *
  * --apply quits Brave (gracefully, so its cookie store is flushed), moves the
  * profile, relaunches, and reopens the tabs that were open. Browser-session
- * cookies do not survive any browser restart; run scripts/church-session.ts
- * ensure afterwards to restore and harden the Church session.
+ * cookies do not survive any browser restart; run scripts/browser-session.ts
+ * ensure afterwards to restore and harden each configured site's session.
  */
 
 import "dotenv/config";
@@ -336,7 +336,7 @@ async function main(): Promise<number> {
   console.log(
     `Tabs: ${restored.size} restored by Brave, ${missing.length} reopened (${tabs.length} were open before).`,
   );
-  console.log("\nDone. Now run: npx tsx scripts/church-session.ts ensure");
+  console.log("\nDone. Now run: npx tsx scripts/browser-session.ts ensure");
   return 0;
 }
 
