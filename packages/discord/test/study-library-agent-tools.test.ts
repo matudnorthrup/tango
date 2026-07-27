@@ -74,6 +74,7 @@ import {
   createStudyLibraryTools,
   resetLibraryContextCache,
   studyLibraryActionLooksMutating,
+  verseHighlightText,
 } from "../src/study-library-agent-tools.js";
 
 const authenticated = (scope: "study" | "records" = "study") => ({
@@ -228,5 +229,36 @@ describe("study-library-agent-tools", () => {
     expect(studyLibraryActionLooksMutating("list_annotations")).toBe(false);
     expect(studyLibraryActionLooksMutating("create_reference_link")).toBe(true);
     expect(studyLibraryActionLooksMutating("delete_annotation")).toBe(true);
+  });
+});
+
+describe("paragraph text used for highlight offsets", () => {
+  it("drops the leading paragraph number and surrounding markup", () => {
+    const text = verseHighlightText('<span class="verse-number">6 </span>And <em>behold</em>, the day');
+    expect(text).toBe("And behold, the day");
+  });
+
+  it("decodes each entity exactly once", () => {
+    // Decoding &amp; first would turn &amp;lt; into "<" — wrong text, and one
+    // character shorter, which silently shifts every offset after it.
+    expect(verseHighlightText("Alpha &amp;lt; Beta")).toBe("Alpha &lt; Beta");
+    expect(verseHighlightText("a &amp;amp; b")).toBe("a &amp; b");
+  });
+
+  it("decodes the entities that appear in body text", () => {
+    expect(verseHighlightText("&quot;peace&quot; &apos;n&apos; &lt;war&gt;&nbsp;now &#39;tis"))
+      .toBe('"peace" \'n\' <war> now \'tis');
+  });
+
+  it("removes nested markup", () => {
+    expect(verseHighlightText("<a><b>text</b></a>")).toBe("text");
+  });
+
+  it("reaches a fixed point, so no tag remains to shift an offset", () => {
+    const messy = "<sp<span>an>text<em>more</em>";
+    const once = verseHighlightText(messy);
+    expect(once).not.toMatch(/<[^>]+>/);
+    // Stripping again changes nothing: offsets computed from this are stable.
+    expect(verseHighlightText(once)).toBe(once);
   });
 });

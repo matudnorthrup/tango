@@ -195,28 +195,59 @@ function normalizeQuotes(value: string): string {
   return value.replace(/[‘’′]/g, "'").replace(/[“”″]/g, '"');
 }
 
-// Decode the small set of HTML entities that appear in body text. Each decodes to a
-// single character, keeping offsets aligned with what the highlight API expects.
+// Decode the small set of HTML entities that appear in body text, keeping offsets
+// aligned with what the highlight API expects.
+//
+// One pass, deliberately. Decoding `&amp;` before the others double-unescapes:
+// `&amp;lt;` would become `&lt;` and then `<`, which is both wrong and one
+// character short — and a wrong length silently shifts every offset after it.
+const CONTENT_ENTITY = /&(?:amp|quot|apos|lt|gt|nbsp|#(\d+));/g;
+
 function decodeContentEntities(value: string): string {
-  return value
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ");
+  return value.replace(CONTENT_ENTITY, (match, numeric?: string) => {
+    if (numeric !== undefined) {
+      return String.fromCharCode(Number(numeric));
+    }
+    switch (match) {
+      case "&amp;": return "&";
+      case "&quot;": return '"';
+      case "&apos;": return "'";
+      case "&lt;": return "<";
+      case "&gt;": return ">";
+      case "&nbsp;": return " ";
+      default: return match;
+    }
+  });
+}
+
+/**
+ * Strip markup until the result stops changing.
+ *
+ * This is offset math over first-party content, not sanitization for rendering:
+ * the goal is that what remains contains no tag the reader would have hidden,
+ * because a stray one shifts every offset after it. Looping to a fixed point is
+ * what makes that stable; a regex pass is not an HTML parser and malformed
+ * markup can still leave loose text behind.
+ */
+function stripMarkup(value: string): string {
+  let text = value;
+  for (let pass = 0; pass < 5; pass += 1) {
+    const next = text.replace(/<[^>]+>/g, "");
+    if (next === text) break;
+    text = next;
+  }
+  return text;
 }
 
 // Resolve a paragraph's highlight coordinate space exactly the way the site's reader
 // does: drop the leading paragraph-number span, strip remaining markup, decode
 // entities. The resulting plain text is what start/end offsets are measured against.
-function verseHighlightText(innerHtml: string): string {
+export function verseHighlightText(innerHtml: string): string {
   const withoutVerseNumber = innerHtml.replace(
     /^\s*<span[^>]*class="[^"]*verse-number[^"]*"[^>]*>[\s\S]*?<\/span>/i,
     "",
   );
-  return decodeContentEntities(withoutVerseNumber.replace(/<[^>]+>/g, ""));
+  return decodeContentEntities(stripMarkup(withoutVerseNumber));
 }
 
 type HighlightBuild =
