@@ -3053,6 +3053,31 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'study_library');
     `,
   },
+  {
+    // Ward Program tools for Porter (worker:study-assistant → agent:porter): let
+    // Porter drive the waldportward.org "apply weekly data → build → deploy" engine
+    // (ward-program-agent-tools + porter.yaml ward-program server). Appended after
+    // the v68 church→study rename, so it grants the current principal directly.
+    // Idempotent (INSERT OR IGNORE + EXISTS guard) — safe on fresh installs and on
+    // any database already past v68. Status is read-only; update commits to staging;
+    // promote publishes to production.
+    version: 69,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('ward_program_status', 'personal', 'Ward Program Status', 'read'),
+        ('ward_program_update', 'personal', 'Ward Program Update', 'write'),
+        ('ward_program_promote', 'personal', 'Ward Program Promote', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:study-assistant', tool_id, access_level, reason
+      FROM (
+        SELECT 'ward_program_status' AS tool_id, 'read' AS access_level, 'ward program updates via Porter' AS reason
+        UNION ALL SELECT 'ward_program_update', 'write', 'ward program updates via Porter'
+        UNION ALL SELECT 'ward_program_promote', 'write', 'ward program promote via Porter'
+      )
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
