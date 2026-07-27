@@ -468,18 +468,41 @@ const PERSIST_TTL_DAYS = 30;
  * Give the session-scoped Church auth cookies a real expiry so the login is not
  * discarded the next time Brave restarts. This does not extend the server-side
  * session — it stops us from throwing away one that is still valid.
+ *
+ * Runs more than one pass on purpose. A Church page that is still settling can
+ * re-issue its session cookie (Okta rotates `idx`) a second or two after we
+ * harden it, which silently puts the session back to "dies with the browser".
+ * Each pass re-reads the jar and converts whatever came back session-scoped,
+ * stopping as soon as a pass finds nothing left to do.
  */
 export async function persistChurchSessionCookies(
-  ttlDays = PERSIST_TTL_DAYS,
+  options: { ttlDays?: number; passes?: number; retryDelayMs?: number } = {},
 ): Promise<ChurchPersistResult> {
+  const ttlDays = options.ttlDays ?? PERSIST_TTL_DAYS;
+  const passes = options.passes ?? 3;
+  const retryDelayMs = options.retryDelayMs ?? 1_500;
   try {
     const ctx = await churchContext();
-    const cookies = (await ctx.cookies()) as PersistableCookie[];
-    const churchCookies = cookies.filter((c) => c.domain.includes("churchofjesuschrist.org"));
-    const expiresAtSeconds = Math.floor(Date.now() / 1000) + ttlDays * 24 * 3600;
-    const plan = planChurchCookiePersistence(churchCookies, expiresAtSeconds);
+    const converted = new Set<string>();
+    let expiresAtSeconds = 0;
+    let alreadyPersistent = 0;
 
-    if (plan.length > 0) {
+    for (let pass = 0; pass < passes; pass += 1) {
+      if (pass > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+      const cookies = (await ctx.cookies()) as PersistableCookie[];
+      const churchCookies = cookies.filter((c) => c.domain.includes("churchofjesuschrist.org"));
+      alreadyPersistent = churchCookies.filter(
+        (c) => c.expires !== -1 && shouldPersistChurchCookie(c.name),
+      ).length;
+
+      expiresAtSeconds = Math.floor(Date.now() / 1000) + ttlDays * 24 * 3600;
+      const plan = planChurchCookiePersistence(churchCookies, expiresAtSeconds);
+      if (plan.length === 0) {
+        break;
+      }
+
       await ctx.addCookies(
         plan.map((cookie) => ({
           name: cookie.name,
@@ -492,14 +515,15 @@ export async function persistChurchSessionCookies(
           sameSite: cookie.sameSite,
         })),
       );
+      for (const cookie of plan) {
+        converted.add(`${cookie.domain}${cookie.path}:${cookie.name}`);
+      }
     }
 
     return {
-      converted: plan.map((cookie) => `${cookie.domain}${cookie.path}:${cookie.name}`),
-      alreadyPersistent: churchCookies.filter(
-        (c) => c.expires !== -1 && shouldPersistChurchCookie(c.name),
-      ).length,
-      expiresAt: plan.length > 0 ? new Date(expiresAtSeconds * 1000).toISOString() : null,
+      converted: [...converted],
+      alreadyPersistent,
+      expiresAt: converted.size > 0 ? new Date(expiresAtSeconds * 1000).toISOString() : null,
     };
   } catch (err) {
     return {
@@ -659,8 +683,10 @@ async function performCredentialLogin(
           needsSecondFactor: true,
           steps,
           message:
-            "The Church sign-in asked for a second factor and the 1Password item has no one-time password field. " +
-            "Add the Church account's authenticator secret to that item (or approve the prompt once on this profile) to make this self-healing.",
+            "The Church sign-in asked for a second factor. This account signs in with username and password only, " +
+            "so this means the Church added a verification step (or flagged this device). Devin needs to complete it " +
+            "once in the automation browser; if he then enrolls an authenticator, adding that secret to the 1Password " +
+            "item makes it self-healing.",
         };
       }
       const codeField = page

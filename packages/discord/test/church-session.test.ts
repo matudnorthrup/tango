@@ -1,5 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const ctxStub = vi.hoisted(() => ({ cookies: vi.fn(), addCookies: vi.fn() }));
+
+vi.mock("../src/browser-manager.js", () => ({
+  getBrowserManager: () => ({
+    ensureConnected: vi.fn().mockResolvedValue(undefined),
+    context: () => ctxStub,
+  }),
+  describeBrowserProfile: () => ({ expected: "/tmp/profile", actual: "/tmp/profile", matches: true }),
+}));
+
 import {
+  persistChurchSessionCookies,
   churchScopeForUrl,
   classifyLcrLanding,
   classifyStudyProbe,
@@ -147,5 +159,52 @@ describe("second factor detection", () => {
 
   it("does not fire on the ordinary password step", () => {
     expect(looksLikeSecondFactor("Sign In Password Verify Back Can't sign in?", false)).toBe(false);
+  });
+});
+
+describe("persisting the session against cookie rotation", () => {
+  const sessionIdx = {
+    name: "idx", value: "v1", domain: "id.churchofjesuschrist.org", path: "/",
+    expires: -1, httpOnly: true, secure: true, sameSite: "None" as const,
+  };
+  const persistentIdx = { ...sessionIdx, expires: 1_800_000_000 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctxStub.addCookies.mockResolvedValue(undefined);
+  });
+
+  it("re-hardens a cookie the Church re-issues right after the first pass", async () => {
+    // Okta rotates `idx` while the page is still settling, which put the session
+    // back to "dies with the browser" after a single-pass persist.
+    ctxStub.cookies
+      .mockResolvedValueOnce([sessionIdx])
+      .mockResolvedValueOnce([{ ...sessionIdx, value: "rotated" }])
+      .mockResolvedValueOnce([persistentIdx]);
+
+    const result = await persistChurchSessionCookies({ retryDelayMs: 0 });
+
+    expect(ctxStub.addCookies).toHaveBeenCalledTimes(2);
+    expect(result.converted).toEqual(["id.churchofjesuschrist.org/:idx"]);
+    expect(result.expiresAt).not.toBeNull();
+  });
+
+  it("stops as soon as everything is already persistent", async () => {
+    ctxStub.cookies.mockResolvedValue([persistentIdx]);
+
+    const result = await persistChurchSessionCookies({ retryDelayMs: 0 });
+
+    expect(ctxStub.addCookies).not.toHaveBeenCalled();
+    expect(result.converted).toEqual([]);
+    expect(result.alreadyPersistent).toBe(1);
+  });
+
+  it("reports the failure instead of throwing when the browser is unreachable", async () => {
+    ctxStub.cookies.mockRejectedValue(new Error("browser gone"));
+
+    const result = await persistChurchSessionCookies({ retryDelayMs: 0 });
+
+    expect(result.error).toContain("browser gone");
+    expect(result.converted).toEqual([]);
   });
 });

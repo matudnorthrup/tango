@@ -47,9 +47,13 @@ describe("browser-manager launch config", () => {
     }
   });
 
-  it("uses a persistent default browser profile dir under data/browser-profile", () => {
+  it("keeps the browser profile under the Tango home, outside the repo", () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-browser-home-"));
+    tempDirs.push(homeDir);
     delete process.env.TANGO_BROWSER_PROFILE_DIR;
-    expect(resolveBrowserProfileDir()).toMatch(/data\/browser-profile$/);
+    process.env.TANGO_HOME = homeDir;
+
+    expect(resolveBrowserProfileDir()).toBe(path.join(homeDir, "browser-profile"));
   });
 
   it("honors TANGO_BROWSER_PROFILE_DIR override", () => {
@@ -57,17 +61,27 @@ describe("browser-manager launch config", () => {
     expect(resolveBrowserProfileDir()).toBe("/tmp/tango-browser-profile");
   });
 
-  it("uses the configured Tango data dir when no explicit browser profile override is set", () => {
+  it("resolves the same cookie jar regardless of data dir, profile, or cwd", () => {
+    // There is one browser on one CDP port. When this answer varied by
+    // TANGO_DATA_DIR/TANGO_PROFILE/cwd, a worktree or profile-scoped run
+    // attached to a second jar and every saved login appeared to be gone.
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-browser-home-"));
-    tempDirs.push(homeDir);
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-browser-cwd-"));
+    fs.mkdirSync(path.join(workDir, "data"), { recursive: true });
+    tempDirs.push(homeDir, workDir);
     delete process.env.TANGO_BROWSER_PROFILE_DIR;
     process.env.TANGO_HOME = homeDir;
-    process.env.TANGO_PROFILE = "default";
-    process.env.TANGO_DATA_DIR = path.join(homeDir, "profiles", "default", "data");
 
-    expect(resolveBrowserProfileDir()).toBe(
-      path.join(homeDir, "profiles", "default", "data", "browser-profile"),
-    );
+    const canonical = path.join(homeDir, "browser-profile");
+
+    process.env.TANGO_PROFILE = "wt-1";
+    process.env.TANGO_DATA_DIR = path.join(homeDir, "profiles", "wt-1", "data");
+    expect(resolveBrowserProfileDir()).toBe(canonical);
+
+    delete process.env.TANGO_DATA_DIR;
+    delete process.env.TANGO_PROFILE;
+    process.chdir(workDir);
+    expect(resolveBrowserProfileDir()).toBe(canonical);
   });
 
   it("builds launch args with remote debugging and dedicated profile", () => {

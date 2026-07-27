@@ -13,7 +13,7 @@ import { chromium, type Browser, type BrowserContext, type Locator, type Page } 
 import { spawn, execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readProfileConfigString, resolveLegacyDataDir, resolveTangoDataPath } from "@tango/core";
+import { readProfileConfigString, resolveTangoHome } from "@tango/core";
 import {
   buildEmailEvidenceHtml,
   buildRampReviewUrl,
@@ -271,22 +271,25 @@ function findBrowserPath(): string | null {
   ));
 }
 
+/**
+ * Where the automation browser keeps its cookies and logins.
+ *
+ * One machine-wide directory, deliberately: there is a single browser on a
+ * single CDP port, so a per-profile or per-worktree path only ever produced a
+ * second cookie jar that some runs used and others did not — logins saved in
+ * one were simply missing in the other. It lives under the Tango home rather
+ * than the repo so `git clean -xdf`, a worktree, or moving the checkout cannot
+ * delete every saved session.
+ *
+ * `TANGO_BROWSER_PROFILE_DIR` overrides it; nothing else does.
+ */
 export function resolveBrowserProfileDir(): string {
   const configured = process.env.TANGO_BROWSER_PROFILE_DIR?.trim();
   if (configured && configured.length > 0) {
     return path.resolve(configured);
   }
 
-  if (process.env.TANGO_DATA_DIR?.trim()) {
-    return resolveTangoDataPath("browser-profile");
-  }
-
-  const legacyProfileDir = path.join(resolveLegacyDataDir(), "browser-profile");
-  if (fs.existsSync(legacyProfileDir)) {
-    return legacyProfileDir;
-  }
-
-  return resolveTangoDataPath("browser-profile");
+  return path.join(resolveTangoHome(), "browser-profile");
 }
 
 export function buildBrowserLaunchArgs(port: number, profileDir: string): string[] {

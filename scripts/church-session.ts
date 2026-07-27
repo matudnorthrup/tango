@@ -51,6 +51,9 @@ async function runEnsure(): Promise<number> {
       console.log("  steps:", JSON.stringify(result.steps, null, 2));
     }
   }
+  // Harden last, once both scopes have finished navigating and any cookie the
+  // Church rotated on the way has settled.
+  await persistChurchSessionCookies();
   return failures;
 }
 
