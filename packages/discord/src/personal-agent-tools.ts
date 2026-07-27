@@ -12,7 +12,6 @@
  */
 
 import * as fs from "node:fs/promises";
-import { readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
@@ -46,6 +45,7 @@ import {
 import { executeGoogleDocTabUpdate } from "./google-doc-update-executor.js";
 import { loadReimbursementEvidenceRecord } from "./reimbursement-evidence.js";
 import { extractRampReimbursementIdFromUrl } from "./reimbursement-automation.js";
+import { createGogCommandEnv } from "./gog-keyring-password.js";
 
 // ---------------------------------------------------------------------------
 // Command runner (shared)
@@ -137,36 +137,8 @@ function resolvePaths(overrides?: PersonalToolPaths) {
   };
 }
 
-function parseEnvValue(raw: string): string {
-  const trimmed = raw.trim();
-  if (
-    (trimmed.startsWith("\"") && trimmed.endsWith("\""))
-    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function readGogKeyringPasswordFromEnvFile(): string | undefined {
-  try {
-    const envText = readFileSync(path.resolve(process.cwd(), ".env"), "utf8");
-    const match = /^GOG_KEYRING_PASSWORD=(.+)$/mu.exec(envText);
-    return match?.[1] ? parseEnvValue(match[1]) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function gogCommandEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (!env["GOG_KEYRING_PASSWORD"]) {
-    const password = readGogKeyringPasswordFromEnvFile();
-    if (password) {
-      env["GOG_KEYRING_PASSWORD"] = password;
-    }
-  }
-  return env;
+  return createGogCommandEnv();
 }
 
 const GOG_EMAIL_ATTACHMENT_TEXT_MAX_CHARS = 12_000;
@@ -2518,6 +2490,14 @@ export function createDocsTools(overrides?: PersonalToolPaths): AgentTool[] {
         "  gog docs cat <docId> [--account <email>]",
         "  gog docs read <docId> [--account <email>]",
         "    Read the full content of a document by ID.",
+        "  gog docs list-tabs <docId> [--account <email>]",
+        "    List every tab, including a tab's title and ID.",
+        "  gog docs cat <docId> --tab '<tab title or id>' [--account <email>]",
+        "    Read one explicitly selected tab. `cat` without --tab uses the document default and may not be the requested draft.",
+        "  gog docs cat <docId> --all-tabs [--account <email>]",
+        "    Read every tab only when the task genuinely needs all of them.",
+        "",
+        "Multi-tab documents: when the user names a draft, tab, version, or section, call `list-tabs` first and then use `cat --tab` with the matching title or ID. Do not claim a tab is unavailable before trying that targeted read.",
         "",
         "  gog docs create '<title>' [--account <email>]",
         "    Create a new empty Google Doc. <title> is POSITIONAL (not a --title flag).",
@@ -2542,7 +2522,7 @@ export function createDocsTools(overrides?: PersonalToolPaths): AgentTool[] {
         properties: {
           command: {
             type: "string",
-            description: "Full gog docs command (everything after 'gog'). Example: \"docs list --account work@example.com\" or \"docs cat <docId> --account personal@example.com\"",
+            description: "Full gog docs command (everything after 'gog'). Example: \"docs list-tabs <docId> --account work@example.com\" or \"docs cat <docId> --tab 'Draft 1' --account personal@example.com\"",
           },
         },
         required: ["command"],

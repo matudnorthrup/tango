@@ -56,6 +56,7 @@ import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { createOrientationNudgeTools, orientationNudgeToolLooksReadOnly } from "./orientation-nudge.js";
 import { createCollaborationTools } from "./collaboration-agent-tools.js";
 import { createStateTools } from "./state-agent-tools.js";
+import { isReadOnlyGogDocsCommand } from "./gog-docs-access.js";
 import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
@@ -226,11 +227,6 @@ function looksLikeLinearReadQuery(value: unknown): boolean {
 function isReadOnlyGogCalendarCommand(command: unknown): boolean {
   const head = getCommandHead(command);
   return head[0] === "calendar" && head[1] === "events";
-}
-
-function isReadOnlyGogDocsCommand(command: unknown): boolean {
-  const head = getCommandHead(command);
-  return head[0] === "docs" && ["list", "cat", "read", "export"].includes(head[1] ?? "");
 }
 
 function isReadOnlyObsidianCommand(command: unknown): boolean {

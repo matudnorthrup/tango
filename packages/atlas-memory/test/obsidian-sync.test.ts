@@ -53,7 +53,12 @@ describe("obsidian sync", () => {
 
     const rows = db
       .prepare(
-        `SELECT source, embedding, embedding_model, created_at, json_extract(metadata, '$.source_ref') AS source_ref FROM memories ORDER BY source_ref`,
+        `SELECT source, embedding, embedding_model, created_at,
+                json_extract(metadata, '$.source_ref') AS source_ref,
+                json_extract(metadata, '$.origin.kind') AS origin_kind,
+                json_extract(metadata, '$.origin.occurred_at') AS origin_occurred_at,
+                json_extract(metadata, '$.origin.context_label') AS origin_context_label
+         FROM memories ORDER BY source_ref`,
       )
       .all() as Array<{
       source: string;
@@ -61,6 +66,9 @@ describe("obsidian sync", () => {
       embedding_model: string | null;
       created_at: string;
       source_ref: string;
+      origin_kind: string;
+      origin_occurred_at: string;
+      origin_context_label: string | null;
     }>;
 
     expect(rows).toHaveLength(3);
@@ -70,6 +78,9 @@ describe("obsidian sync", () => {
     expect(embedded?.embedding_model).toBe("voyage-4-lite");
     // Content age is preserved — a bulk resync must not make the vault look brand-new.
     expect(embedded?.created_at).toBe("2026-05-15T08:00:00.000Z");
+    expect(embedded?.origin_kind).toBe("document");
+    expect(embedded?.origin_occurred_at).toBe("2026-05-15T08:00:00.000Z");
+    expect(embedded?.origin_context_label).toBe("Puerto Escondido");
     const unembedded = rows.find((row) => row.source_ref.endsWith("Puerto Escondido.md#2"));
     expect(unembedded?.embedding).toBeNull();
 

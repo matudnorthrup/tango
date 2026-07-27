@@ -1,4 +1,5 @@
 import type { ChatProvider } from "@tango/core";
+import { withMemoryOrigin } from "@tango/atlas-memory";
 import { AtlasMemoryClient } from "./atlas-memory-client.js";
 
 export interface MemoryCaptureConfig {
@@ -17,6 +18,14 @@ export interface MemoryCaptureContext {
   agentResponse: string;
   channelId: string;
   threadId?: string;
+  turnId?: string;
+  requestMessageId?: number | null;
+  responseMessageId?: number | null;
+  discordRequestMessageId?: string | null;
+  discordResponseMessageId?: string | null;
+  occurredAt?: string;
+  contextRef?: string;
+  contextLabel?: string;
   /** State-shaped facts already claimed by the first post-turn pass. */
   claimedStateFacts?: string[];
 }
@@ -79,17 +88,30 @@ export async function extractAndStoreMemories(
           session_id: context.conversationKey,
           importance: memory.importance,
           tags: memory.tags,
-          metadata: {
+          metadata: withMemoryOrigin({
             captured_by: "post_turn_extraction",
             conversation_key: context.conversationKey,
             channel_id: context.channelId,
+            ...(context.turnId ? { turn_id: context.turnId } : {}),
+            ...(context.requestMessageId !== undefined ? { request_message_id: context.requestMessageId } : {}),
+            ...(context.responseMessageId !== undefined ? { response_message_id: context.responseMessageId } : {}),
+            ...(context.discordRequestMessageId ? { message_id: context.discordRequestMessageId } : {}),
+            ...(context.discordResponseMessageId ? { discord_response_message_id: context.discordResponseMessageId } : {}),
+            ...(context.occurredAt ? { occurred_at: context.occurredAt } : {}),
+            ...(context.contextRef ? { context_ref: context.contextRef } : {}),
+            ...(context.contextLabel ? { context_label: context.contextLabel } : {}),
             ...(context.runtimeAgentId && context.runtimeAgentId !== context.agentId
               ? { runtime_agent_id: context.runtimeAgentId }
               : {}),
             ...(context.threadId ? { thread_id: context.threadId } : {}),
             extraction_provider: config.extractionProvider,
             extraction_model: config.extractionModel,
-          },
+          }, {
+            source: "conversation",
+            occurredAt: context.occurredAt,
+            contextLabel: context.contextLabel,
+            contextRef: context.contextRef,
+          }),
         });
       } catch (error) {
         console.warn(

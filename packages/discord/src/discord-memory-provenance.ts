@@ -6,6 +6,9 @@ export interface DiscordMemoryProvenance {
   threadId?: string;
   turnId?: string;
   messageId?: string;
+  occurredAt?: string;
+  contextRef?: string;
+  contextLabel?: string;
 }
 
 export function buildDiscordMemoryProvenanceEnv(
@@ -17,6 +20,9 @@ export function buildDiscordMemoryProvenanceEnv(
     ...(provenance.threadId ? { TANGO_DISCORD_THREAD_ID: provenance.threadId } : {}),
     ...(provenance.turnId ? { TANGO_TURN_ID: provenance.turnId } : {}),
     ...(provenance.messageId ? { TANGO_MESSAGE_ID: provenance.messageId } : {}),
+    ...(provenance.occurredAt ? { TANGO_OCCURRED_AT: provenance.occurredAt } : {}),
+    ...(provenance.contextRef ? { TANGO_CONTEXT_REF: provenance.contextRef } : {}),
+    ...(provenance.contextLabel ? { TANGO_CONTEXT_LABEL: provenance.contextLabel } : {}),
   };
 }
 

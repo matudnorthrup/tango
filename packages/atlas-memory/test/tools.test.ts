@@ -9,6 +9,7 @@ import {
 } from "../src/schema.js";
 import { createVoyageEmbeddingProviderFromEnv } from "../src/search.js";
 import { createAtlasMemoryTools } from "../src/tools.js";
+import { mergeDiscordProvenanceIntoMemoryAddArgs } from "../src/discord-provenance.js";
 
 const tempDirs: string[] = [];
 
@@ -153,12 +154,68 @@ describe("atlas-memory tools", () => {
     expect(results[0]?.id).toBe(created.id);
     expect(results[0]?.content).toContain("Weekly review");
 
+    const storedMetadata = db.prepare(
+      "SELECT metadata FROM memories WHERE id = ?",
+    ).get(created.id) as { metadata: string };
+    expect(JSON.parse(storedMetadata.metadata)).toMatchObject({
+      origin: {
+        version: 1,
+        kind: "manual",
+        captured_at: expect.any(String),
+        occurred_at: expect.any(String),
+      },
+    });
+
     const touched = db.prepare(`
       SELECT access_count
       FROM memories
       WHERE id = ?
     `).get(created.id) as { access_count: number } | undefined;
     expect(touched?.access_count).toBe(1);
+
+    db.close();
+  });
+
+  it("keeps system-stamped origin authoritative through the final write", async () => {
+    const { dbPath } = createTempDb();
+    const now = new Date("2026-07-20T12:00:00.000Z");
+    const { db, tools } = createTestTools({ dbPath, now });
+    const memoryAdd = getTool(tools, "memory_add");
+    vi.stubEnv("TANGO_OCCURRED_AT", "2026-07-12T09:00:00.000Z");
+    vi.stubEnv("TANGO_CONTEXT_LABEL", "system review context");
+    vi.stubEnv("TANGO_CONTEXT_REF", "topic:system-review");
+
+    const args = mergeDiscordProvenanceIntoMemoryAddArgs({
+      content: "A prior observation that needs an honest origin boundary.",
+      source: "manual",
+      metadata: {
+        occurred_at: "2099-01-01T00:00:00.000Z",
+        context_label: "caller top-level override",
+        origin: {
+          version: 1,
+          kind: "import",
+          occurred_at: "2099-01-01T00:00:00.000Z",
+          context_label: "caller nested override",
+          context_ref: "topic:caller-override",
+        },
+      },
+    });
+
+    const created = await memoryAdd.handler(args) as { id: string };
+    const stored = db.prepare(
+      "SELECT metadata FROM memories WHERE id = ?",
+    ).get(created.id) as { metadata: string };
+
+    expect(JSON.parse(stored.metadata)).toMatchObject({
+      origin: {
+        version: 1,
+        kind: "manual",
+        occurred_at: "2026-07-12T09:00:00.000Z",
+        captured_at: "2026-07-20T12:00:00.000Z",
+        context_label: "system review context",
+        context_ref: "topic:system-review",
+      },
+    });
 
     db.close();
   });
@@ -272,13 +329,19 @@ describe("atlas-memory tools", () => {
       id: "m-1",
       content: "The user wants Atlas responses to stay concise.",
       agent_id: "atlas",
-      metadata: { session_id: "session-42" },
+      metadata: {
+        session_id: "session-42",
+        origin: { version: 1, kind: "conversation", context_label: "weekly planning" },
+      },
     });
     contextInsertConversationMemory(db, {
       id: "m-2",
       content: "We agreed to keep the weekly review on Monday.",
       agent_id: "atlas",
-      metadata: { session_id: "session-42" },
+      metadata: {
+        session_id: "session-42",
+        origin: { version: 1, kind: "conversation", context_label: "weekly planning" },
+      },
     });
 
     const result = await memoryReflect.handler({
@@ -288,8 +351,9 @@ describe("atlas-memory tools", () => {
 
     expect(result).toEqual({
       memories_created: 1,
-      reflections: [expect.stringContaining("Session session-42 reflection")],
+      reflections: [expect.stringContaining("Prior conversation reflection")],
     });
+    expect(result.reflections[0]).not.toContain("session-42");
 
     const summaryRow = db.prepare(`
       SELECT session_id, agent_id, summary
@@ -301,6 +365,19 @@ describe("atlas-memory tools", () => {
       summary: string;
     } | undefined;
     expect(summaryRow?.summary).toContain("weekly review");
+
+    const reflectionMetadata = db.prepare(
+      "SELECT metadata FROM memories WHERE source = 'reflection' LIMIT 1",
+    ).get() as { metadata: string };
+    expect(JSON.parse(reflectionMetadata.metadata)).toMatchObject({
+      origin: {
+        version: 1,
+        kind: "reflection",
+        context_label: "weekly planning",
+      },
+      source_date_start: expect.any(String),
+      source_date_end: expect.any(String),
+    });
 
     db.close();
   });

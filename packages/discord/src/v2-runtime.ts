@@ -12,9 +12,11 @@ import type {
 import {
   assembleV2SystemPrompt,
   buildAttachmentDirectoryContext,
+  formatRetrievedMemoryLine,
   isV2RuntimeEnabled,
   resolveTangoProfileAgentPromptDirs,
   resolveV2MemoryScope,
+  RETRIEVED_MEMORY_GUIDANCE,
 } from "@tango/core";
 import type { MemoryRecord, PinnedFactRecord } from "@tango/atlas-memory";
 import type { AtlasMemoryClient } from "./atlas-memory-client.js";
@@ -35,6 +37,9 @@ export interface FeatureFlaggedRouteRequest {
   threadId?: string;
   agentId: string;
   messageId?: string;
+  occurredAt?: string;
+  contextRef?: string;
+  contextLabel?: string;
   sendOptions?: SendOptions;
 }
 
@@ -382,6 +387,14 @@ export function createV2PostTurnHook(input: {
             agentResponse: context.response.text,
             channelId: context.channelId,
             ...(context.threadId ? { threadId: context.threadId } : {}),
+            turnId: context.turnId,
+            ...(context.requestMessageId !== undefined ? { requestMessageId: context.requestMessageId } : {}),
+            ...(context.responseMessageId !== undefined ? { responseMessageId: context.responseMessageId } : {}),
+            ...(context.discordRequestMessageId !== undefined ? { discordRequestMessageId: context.discordRequestMessageId } : {}),
+            ...(context.discordResponseMessageId !== undefined ? { discordResponseMessageId: context.discordResponseMessageId } : {}),
+            ...(context.occurredAt ? { occurredAt: context.occurredAt } : {}),
+            ...(context.contextRef ? { contextRef: context.contextRef } : {}),
+            ...(context.contextLabel ? { contextLabel: context.contextLabel } : {}),
             claimedStateFacts: reconcilerOutcome?.status === "ok" ? reconcilerOutcome.claimedFacts : [],
           },
           captureConfig,
@@ -427,6 +440,8 @@ export interface V2PostTurnContext {
   discordRequestMessageId?: string | null;
   discordResponseMessageId?: string | null;
   occurredAt?: string;
+  contextRef?: string;
+  contextLabel?: string;
 }
 
 export async function routeV2MessageIfEnabled(
@@ -445,6 +460,9 @@ export async function routeV2MessageIfEnabled(
     channelId: params.channelId,
     ...(params.threadId ? { threadId: params.threadId } : {}),
     ...(params.messageId ? { messageId: params.messageId } : {}),
+    ...(params.occurredAt ? { occurredAt: params.occurredAt } : {}),
+    ...(params.contextRef ? { contextRef: params.contextRef } : {}),
+    ...(params.contextLabel ? { contextLabel: params.contextLabel } : {}),
     agentId: params.agentId,
     sendOptions: params.sendOptions,
   });
@@ -474,15 +492,13 @@ export function formatMemories(memories: readonly MemoryRecord[]): string {
     return "";
   }
 
-  return memories
-    .map((memory) => {
-      const tags = memory.tags.length > 0 ? ` [${memory.tags.join(", ")}]` : "";
-      const historical = memory.tags.some((tag) => tag.startsWith("state:"))
-        ? `historical as of ${memory.createdAt}: `
-        : "";
-      return `- ${historical}${memory.content}${tags}`;
-    })
-    .join("\n");
+  return [
+    `Guidance: ${RETRIEVED_MEMORY_GUIDANCE}`,
+    ...memories.map((memory) => formatRetrievedMemoryLine(memory, {
+      includeTags: true,
+      maxContentChars: 220,
+    })),
+  ].join("\n");
 }
 
 function normalizeRuntimeReasoningEffort(

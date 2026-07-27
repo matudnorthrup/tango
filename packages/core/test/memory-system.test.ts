@@ -311,10 +311,91 @@ describe("memory-system", () => {
     expect(result.usedFullHistory).toBe(false);
     expect(result.prompt).toContain("rolling_summary:");
     expect(result.prompt).toContain("retrieved_memories:");
+    expect(result.prompt).toContain("not evidence from the current source");
+    expect(result.prompt).toContain("[Prior memory · 2026-03-10 · prior conversation · conversation]");
     expect(result.prompt).toContain("recent_messages:");
     expect(result.trace.summaries).toHaveLength(1);
     expect(result.trace.memories).toHaveLength(1);
     expect(result.trace.recentMessages).toHaveLength(2);
+  });
+
+  it("keeps a prior same-topic memory visibly separate from a current document review", () => {
+    const result = assembleSessionMemoryPrompt({
+      sessionId: "review-session",
+      agentId: "reviewer",
+      currentUserPrompt: "Review the current governance and tools document for source-attribution findings.",
+      allowFullHistoryBypass: false,
+      memoryConfig: {
+        maxContextTokens: 400,
+        memoryLimit: 5,
+        zones: { pinned: 0, summary: 0, memories: 0.8, recent: 0.2 },
+      },
+      messages: [],
+      summaries: [],
+      pinnedFacts: [],
+      memories: [
+        memory({
+          id: 77,
+          sessionId: "review-session",
+          agentId: "reviewer",
+          source: "conversation",
+          content: "Governance reviews should distinguish user-visible messages from hidden tool activity.",
+          importance: 0.9,
+          createdAt: "2026-07-12T09:00:00.000Z",
+          metadata: {
+            origin: {
+              version: 1,
+              kind: "conversation",
+              occurred_at: "2026-07-12T09:00:00.000Z",
+              context_label: "shared-knowledge review",
+              context_ref: "thread:100000000000000003",
+            },
+          },
+        }),
+      ],
+      now: new Date("2026-07-19T20:00:00.000Z"),
+    });
+
+    expect(result.prompt).toContain(
+      "note=Prior memories are context, not evidence from the current source.",
+    );
+    expect(result.prompt).toContain(
+      "[Prior memory · 2026-07-12 · shared-knowledge review · conversation]",
+    );
+    expect(result.prompt).not.toContain("100000000000000003");
+    expect(result.trace.memories[0]?.provenance.context).toBe("shared-knowledge review");
+  });
+
+  it("omits retrieval when its provenance guidance and memory line do not fit the memory zone", () => {
+    const result = assembleSessionMemoryPrompt({
+      sessionId: "small-memory-zone",
+      agentId: "reviewer",
+      currentUserPrompt: "Review the current source.",
+      allowFullHistoryBypass: false,
+      memoryConfig: {
+        maxContextTokens: 20,
+        memoryLimit: 5,
+        zones: { pinned: 0, summary: 0, memories: 1, recent: 0 },
+      },
+      messages: [],
+      summaries: [],
+      pinnedFacts: [],
+      memories: [
+        memory({
+          id: 78,
+          sessionId: "small-memory-zone",
+          agentId: "reviewer",
+          source: "conversation",
+          content: "This memory should not appear without its origin boundary.",
+          importance: 0.9,
+        }),
+      ],
+      now: new Date("2026-07-20T20:00:00.000Z"),
+    });
+
+    expect(result.trace.memories).toHaveLength(0);
+    expect(result.prompt).not.toContain("retrieved_memories:");
+    expect(result.accessedMemoryIds).toEqual([]);
   });
 
   it("assembles summary, retrieved memories, and recent messages under constrained budget", () => {

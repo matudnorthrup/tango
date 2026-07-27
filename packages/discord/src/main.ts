@@ -7738,6 +7738,19 @@ async function handleMessage(
 
     try {
       const conversationKey = buildV2ConversationKey(routingChannelId, threadId);
+      const discordContextLabel = "name" in message.channel && typeof message.channel.name === "string"
+        ? message.channel.name.trim()
+        : "";
+      const memoryContextLabel =
+        promptRoute.topic?.title?.trim()
+        || promptRoute.project?.displayName?.trim()
+        || discordContextLabel
+        || channelKey;
+      const memoryContextRef = promptRoute.topic?.id
+        ? `topic:${promptRoute.topic.id}`
+        : promptRoute.project?.id
+          ? `project:${promptRoute.project.id}`
+          : conversationKey;
       const pendingSave = storage.getPendingSessionSave(conversationKey);
       const hasPendingSavePass = matchesPendingSessionSave(pendingSave, {
         agentId: targetAgent.id,
@@ -7812,6 +7825,9 @@ async function handleMessage(
           channelId: routingChannelId,
           ...(threadId ? { threadId } : {}),
           messageId: message.id,
+          occurredAt: message.createdAt.toISOString(),
+          contextRef: memoryContextRef,
+          contextLabel: memoryContextLabel,
           agentId: targetAgent.id,
           sendOptions: {
             ...(sendContext ? { context: sendContext } : {}),
@@ -7956,6 +7972,8 @@ async function handleMessage(
           discordRequestMessageId: message.id,
           discordResponseMessageId: replyDelivery.lastMessageId,
           occurredAt: message.createdAt.toISOString(),
+          contextRef: memoryContextRef,
+          contextLabel: memoryContextLabel,
         });
       }
 

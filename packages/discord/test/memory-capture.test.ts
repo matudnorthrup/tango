@@ -50,7 +50,17 @@ describe("extractAndStoreMemories", () => {
     const memoryAdd = vi.fn().mockResolvedValue({ id: "memory-1" });
 
     await extractAndStoreMemories(
-      baseContext,
+      {
+        ...baseContext,
+        turnId: "turn-1",
+        requestMessageId: 41,
+        responseMessageId: 42,
+        discordRequestMessageId: "discord-request-1",
+        discordResponseMessageId: "discord-response-1",
+        occurredAt: "2026-07-12T09:00:00.000Z",
+        contextRef: "topic:shared-knowledge",
+        contextLabel: "shared-knowledge review",
+      },
       baseConfig,
       { memoryAdd } as unknown as AtlasMemoryClient,
       mockProvider,
@@ -72,8 +82,23 @@ describe("extractAndStoreMemories", () => {
         conversation_key: "thread:thread-1",
         channel_id: "channel-1",
         thread_id: "thread-1",
+        turn_id: "turn-1",
+        request_message_id: 41,
+        response_message_id: 42,
+        message_id: "discord-request-1",
+        discord_response_message_id: "discord-response-1",
+        occurred_at: "2026-07-12T09:00:00.000Z",
+        context_ref: "topic:shared-knowledge",
+        context_label: "shared-knowledge review",
         extraction_provider: "claude-oauth",
         extraction_model: "claude-haiku-4-5",
+        origin: {
+          version: 1,
+          kind: "conversation",
+          occurred_at: "2026-07-12T09:00:00.000Z",
+          context_ref: "topic:shared-knowledge",
+          context_label: "shared-knowledge review",
+        },
       },
     });
   });

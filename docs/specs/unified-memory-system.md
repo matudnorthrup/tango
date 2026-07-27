@@ -358,6 +358,44 @@ handoffs and installation-specific notes stay outside tracked files.
 
 - **`/tango save`** exists on Discord v2 (`session-ops.ts`); fleet policy in profile skill.
 - **Fleet daily log (new):** `profile/memory/YYYY-MM-DD.md` — complements Obsidian `Planning/Daily/` and Atlas; channel-stamped append, all agents.
-- **`memory_add` provenance:** TangoRouter injects `TANGO_CONVERSATION_KEY`, `TANGO_DISCORD_CHANNEL_ID`, `TANGO_DISCORD_THREAD_ID` into atlas-memory MCP env (`discord-memory-provenance.ts`).
+- **`memory_add` provenance:** TangoRouter injects conversation/channel/thread,
+  turn/message, event-time, and human context fields into the atlas-memory MCP
+  environment (`discord-memory-provenance.ts`).
 - **Profile thread write guard (Phase 1b, 2026-06-27):** `profile-state-write-guard.ts` blocks full-file `write` on existing `profile/threads/**/*.md` (create-on-missing allowed), rejects empty content and missing frozen anchors on governed files; Claude Code `Write|Edit` guarded via PreToolUse hook (`scripts/claude/profile-state-pretooluse-hook.mjs`) wired in `ClaudeCodeAdapter`.
 - **Validation:** deterministic health script (30–60m) for breakages; Marion weekly for learnings only.
+
+## 14. Model-visible origin context (2026-07-20)
+
+Relevance retrieval deliberately brings prior experience into current work, but
+retrieved memory must never look like evidence found in the current source.
+Every automatic retrieval surface therefore presents a compact boundary and
+safe origin label:
+
+```text
+retrieved_memories:
+note=Prior memories are context, not evidence from the current source. Attribute or verify them before presenting them as current-source findings.
+- [Prior memory · 2026-07-12 · shared-knowledge review · conversation] ...
+```
+
+Atlas stores origin context additively in JSON metadata, so no table migration
+is required:
+
+```yaml
+origin:
+  version: 1
+  kind: conversation # conversation|document|reflection|manual|observation|import
+  occurred_at: 2026-07-12T09:00:00.000Z
+  captured_at: 2026-07-12T09:00:03.000Z
+  context_label: shared-knowledge review
+  context_ref: topic:shared-knowledge # internal; never rendered
+  source_ref: obsidian:<path>#<chunk> # internal; never rendered
+```
+
+The display resolver prefers the versioned envelope, then legacy topic/project
+or document-title metadata, then a generic source label. It never renders local
+paths, conversation/session keys, Discord IDs, turn/message IDs, UUIDs, or raw
+source references. Old rows degrade to date plus source; new Discord writes
+automatically capture the human context label, turn/message provenance, and
+event time. `created_at` retains its existing mixed semantics, so the display
+uses `origin.occurred_at` when available rather than calling every timestamp the
+time a fact occurred.

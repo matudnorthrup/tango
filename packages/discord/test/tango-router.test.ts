@@ -139,6 +139,10 @@ describe("TangoRouter", () => {
     const result = await router.routeMessage({
       message: "hello",
       channelId: "channel-1",
+      messageId: "message-1",
+      occurredAt: "2026-07-12T09:00:00.000Z",
+      contextRef: "topic:shared-knowledge",
+      contextLabel: "shared-knowledge review",
       agentId: "bravo",
       sendOptions,
     });
@@ -172,6 +176,10 @@ describe("TangoRouter", () => {
                 TANGO_CONVERSATION_KEY: "channel:channel-1",
                 TANGO_DISCORD_CHANNEL_ID: "channel-1",
                 TANGO_TURN_ID: expect.any(String),
+                TANGO_MESSAGE_ID: "message-1",
+                TANGO_OCCURRED_AT: "2026-07-12T09:00:00.000Z",
+                TANGO_CONTEXT_REF: "topic:shared-knowledge",
+                TANGO_CONTEXT_LABEL: "shared-knowledge review",
               }),
             },
           ],
