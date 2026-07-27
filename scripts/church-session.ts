@@ -5,8 +5,9 @@
  *   npx tsx scripts/church-session.ts ensure     # sign in if needed (study + LCR)
  *   npx tsx scripts/church-session.ts persist    # harden cookies against a restart
  *
- * Requires the repo .env (CHURCH_ACCOUNT_1PASSWORD_* and OP_SERVICE_ACCOUNT_TOKEN)
- * and the managed Brave on CDP 9223; it launches Brave if it is not running.
+ * Requires the repo .env (the Church 1Password item reference plus the
+ * 1Password service account) and the managed Brave on CDP 9223; it launches
+ * Brave if it is not running.
  */
 
 import "dotenv/config";

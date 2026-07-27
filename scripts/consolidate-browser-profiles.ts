@@ -23,16 +23,36 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { resolveBrowserProfileDir, buildBrowserLaunchArgs } from "../packages/discord/src/browser-manager.ts";
+import { resolveTangoHome } from "../packages/core/src/runtime-paths.ts";
 
 const CDP_PORT = 9223;
 const APPLY = process.argv.includes("--apply");
 const BRAVE = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser";
 
-const CANDIDATES = [
-  path.join(os.homedir(), "GitHub", "tango", "data", "browser-profile"),
-  path.join(os.homedir(), ".tango", "profiles", "default", "data", "browser-profile"),
-  path.join(os.homedir(), ".tango", "browser", "user-data"),
-];
+/**
+ * Every place a browser profile could have been created by an older path rule:
+ * the repo's own data dir, each Tango profile's data dir, and the pre-profile
+ * location. Derived rather than hardcoded so this works on any checkout.
+ */
+function candidateProfileDirs(): string[] {
+  const tangoHome = resolveTangoHome();
+  const candidates = [
+    path.join(process.cwd(), "data", "browser-profile"),
+    path.join(tangoHome, "browser", "user-data"),
+    resolveBrowserProfileDir(),
+  ];
+
+  const profilesRoot = path.join(tangoHome, "profiles");
+  if (fs.existsSync(profilesRoot)) {
+    for (const entry of fs.readdirSync(profilesRoot, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        candidates.push(path.join(profilesRoot, entry.name, "data", "browser-profile"));
+      }
+    }
+  }
+
+  return [...new Set(candidates.map((dir) => path.resolve(dir)))];
+}
 
 type ProfileFacts = {
   dir: string;
@@ -217,7 +237,7 @@ async function mergeCookiesFrom(staleDir: string, mergePort: number): Promise<nu
 async function main(): Promise<number> {
   const canonical = resolveBrowserProfileDir();
   const running = runningProfileDir();
-  const facts = CANDIDATES.map(inspect).filter((profile) => profile.exists);
+  const facts = candidateProfileDirs().map(inspect).filter((profile) => profile.exists);
 
   console.log(`canonical profile : ${canonical}`);
   console.log(`browser running on: ${running ?? "(not running)"}\n`);

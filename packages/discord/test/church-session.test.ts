@@ -123,7 +123,7 @@ describe("LCR auth probe", () => {
   it("detects the signed-in leader shell", () => {
     const probe = classifyLcrLanding(
       "https://lcr.churchofjesuschrist.org/mlt/records/member-list?lang=eng",
-      "Membership Callings Ministering and Welfare Finance Reports Waldport Ward",
+      "Membership Callings Ministering and Welfare Finance Reports Example Ward",
     );
     expect(probe).toMatchObject({ authenticated: true, needsLogin: false });
   });

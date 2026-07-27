@@ -212,10 +212,10 @@ describe("connected browser profile detection", () => {
   it("reads the profile a running browser is actually using", () => {
     const command =
       "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser --remote-debugging-port=9223 " +
-      "--remote-debugging-address=127.0.0.1 --user-data-dir=/Users/dev/GitHub/tango/data/browser-profile " +
+      "--remote-debugging-address=127.0.0.1 --user-data-dir=/opt/agent/tango-home/browser-profile " +
       "--no-first-run --no-default-browser-check about:blank";
 
-    expect(parseUserDataDirFromCommand(command)).toBe("/Users/dev/GitHub/tango/data/browser-profile");
+    expect(parseUserDataDirFromCommand(command)).toBe("/opt/agent/tango-home/browser-profile");
   });
 
   it("handles a profile path given as a separate argument", () => {

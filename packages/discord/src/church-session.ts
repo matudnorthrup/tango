@@ -314,7 +314,7 @@ async function loadChurchCredentials(): Promise<CredentialLoad> {
   if (!isOpAvailable()) {
     return {
       ok: false,
-      error: "OP_SERVICE_ACCOUNT_TOKEN is not available to this process, so the Church password cannot be read.",
+      error: "The 1Password service account is not available to this process, so the Church password cannot be read.",
       opAvailable: false,
     };
   }
