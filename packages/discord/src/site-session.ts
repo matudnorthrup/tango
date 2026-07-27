@@ -572,6 +572,57 @@ export async function persistSiteSessionCookies(
   }
 }
 
+/** Which of the site's cookies are scratch, per the descriptor's patterns. */
+export function selectPrunableCookies(
+  cookies: PersistableCookie[],
+  hosts: string[],
+  patterns: string[],
+): PersistableCookie[] {
+  if (patterns.length === 0) {
+    return [];
+  }
+  return cookies.filter(
+    (cookie) =>
+      cookieBelongsToSite(cookie.domain, hosts) &&
+      patterns.some((pattern) => {
+        try {
+          return new RegExp(pattern).test(cookie.name);
+        } catch {
+          return false;
+        }
+      }),
+  );
+}
+
+/**
+ * Drop the site's scratch cookies once a session is established.
+ *
+ * Some sign-in flows leave a per-transaction cookie behind whenever a round
+ * trip is abandoned. They are individually small and permanently useless, but
+ * they accumulate until the request header is large enough for the server to
+ * reject it outright (HTTP 431), which presents as the site suddenly refusing
+ * to load rather than as anything to do with auth.
+ */
+export async function pruneSiteScratchCookies(siteId: string): Promise<string[]> {
+  const site = getSiteDescriptor(siteId);
+  if (site.pruneCookies.patterns.length === 0) {
+    return [];
+  }
+  try {
+    const hosts = siteCookieHosts(site);
+    const ctx = await browserContext();
+    const cookies = (await ctx.cookies()) as PersistableCookie[];
+    const doomed = selectPrunableCookies(cookies, hosts, site.pruneCookies.patterns);
+    for (const cookie of doomed) {
+      await ctx.clearCookies({ name: cookie.name, domain: cookie.domain, path: cookie.path }).catch(() => undefined);
+    }
+    return doomed.map((cookie) => cookie.name);
+  } catch (err) {
+    debug("cookie prune failed", err);
+    return [];
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Sign-in                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -596,6 +647,21 @@ async function attemptSilentSso(
   });
   await page.waitForTimeout(2_500);
   return { step: "silent-sso", url, landedOn: page.url() };
+}
+
+/** Wait for whichever of two fields becomes visible first. */
+async function waitForEitherField(
+  first: ReturnType<Page["locator"]>,
+  second: ReturnType<Page["locator"]>,
+  timeoutMs: number,
+): Promise<"username" | "password" | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await first.isVisible().catch(() => false)) return "username";
+    if (await second.isVisible().catch(() => false)) return "password";
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  return null;
 }
 
 type LoginOutcome = {
@@ -640,14 +706,29 @@ async function performCredentialLogin(
     return { ok: true, needsSecondFactor: false, steps, message: "Session restored without entering credentials." };
   }
 
+  // Mark the tab on the identity origin too. Without this a later run cannot
+  // recognise its own tab while it sits mid-sign-in and opens another, leaving
+  // the first stranded partway through the flow.
+  await page
+    .evaluate(() => window.sessionStorage.setItem("tango:owned-tab", "1"))
+    .catch(() => undefined);
+
   const usernameField = page.locator(signIn.usernameSelector).first();
-  const appeared = await usernameField
-    .waitFor({ state: "visible", timeout: 20_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!appeared) {
-    steps.push({ step: "username-field", found: false, landedOn: page.url() });
-    return { ok: false, needsSecondFactor: false, steps, message: "The sign-in page did not present a username field." };
+  const passwordField = page.locator(signIn.passwordSelector).first();
+
+  // The identifier step may be skipped entirely: an identity provider that
+  // already knows the account resumes at the password step, and so does a flow
+  // a previous attempt left partway through. Wait for whichever appears.
+  const step = await waitForEitherField(usernameField, passwordField, 20_000);
+  if (step === null) {
+    steps.push({ step: "sign-in-form", found: false, landedOn: page.url() });
+    await returnToAnchor(page, scope);
+    return {
+      ok: false,
+      needsSecondFactor: false,
+      steps,
+      message: "The sign-in page presented neither a username nor a password field.",
+    };
   }
 
   const submit = async (field: ReturnType<Page["locator"]>) => {
@@ -659,18 +740,24 @@ async function performCredentialLogin(
     }
   };
 
-  await usernameField.fill(credentials.username);
-  await submit(usernameField);
-  steps.push({ step: "submit-username", ok: true });
+  if (step === "username") {
+    await usernameField.fill(credentials.username);
+    await submit(usernameField);
+    steps.push({ step: "submit-username", ok: true });
+  } else {
+    steps.push({ step: "submit-username", skipped: "resumed at the password step" });
+  }
 
-  const passwordField = page.locator(signIn.passwordSelector).first();
-  const passwordReady = await passwordField
-    .waitFor({ state: "visible", timeout: 25_000 })
-    .then(() => true)
-    .catch(() => false);
+  const passwordReady = step === "password"
+    ? true
+    : await passwordField
+        .waitFor({ state: "visible", timeout: 25_000 })
+        .then(() => true)
+        .catch(() => false);
   if (!passwordReady) {
     const body = await page.evaluate(() => (document.body?.innerText ?? "").slice(0, 1500)).catch(() => "");
     steps.push({ step: "password-field", found: false, landedOn: page.url() });
+    await returnToAnchor(page, scope);
     if (looksLikeSecondFactor(body, false, signIn.secondFactorPattern)) {
       return { ok: false, needsSecondFactor: true, steps, message: "The sign-in asked for a second factor before the password step." };
     }
@@ -721,7 +808,26 @@ async function performCredentialLogin(
     }
   }
 
+  await returnToAnchor(page, scope);
   return { ok: true, needsSecondFactor: false, steps, message: "Submitted credentials." };
+}
+
+/**
+ * Leave the tab on the scope's anchor. A tab abandoned mid-sign-in keeps the
+ * identity provider's flow open, and the next attempt then resumes into a form
+ * it did not expect.
+ */
+async function returnToAnchor(page: Page, scope: BrowserSiteScopeConfig): Promise<void> {
+  try {
+    if (new URL(page.url()).origin === scope.origin) {
+      return;
+    }
+  } catch {
+    /* fall through and navigate */
+  }
+  await page
+    .goto(scope.anchor_url, { waitUntil: "domcontentloaded", timeout: 45_000 })
+    .catch((err) => debug("returnToAnchor navigation failed", err));
 }
 
 /** Poll the probe until the session comes up (sign-in redirects settle async). */
@@ -738,6 +844,13 @@ async function waitForAuthenticated(siteId: string, scopeId: string, timeoutMs =
 /* -------------------------------------------------------------------------- */
 /* Public entry point                                                          */
 /* -------------------------------------------------------------------------- */
+
+/** Harden the session cookies and drop the scratch ones in one step. */
+async function persistAndPrune(siteId: string): Promise<SitePersistResult> {
+  const persisted = await persistSiteSessionCookies(siteId);
+  await pruneSiteScratchCookies(siteId);
+  return persisted;
+}
 
 // One sign-in at a time per site+scope. Two tools racing into the credential
 // flow log each other out mid-redirect, which reads as a flaky password.
@@ -796,7 +909,7 @@ async function ensureSiteSessionInner(
       path: "already-authenticated",
       steps,
       probe: first,
-      persisted: await persistSiteSessionCookies(site.id),
+      persisted: await persistAndPrune(site.id),
       message: `${site.displayName ?? site.id} ${scope.id} session is authenticated.`,
     };
   }
@@ -812,7 +925,7 @@ async function ensureSiteSessionInner(
       path: "silent-sso",
       steps,
       probe: afterSilent,
-      persisted: await persistSiteSessionCookies(site.id),
+      persisted: await persistAndPrune(site.id),
       message: `${site.displayName ?? site.id} ${scope.id} session was restored from the existing single sign-on session (no password needed).`,
     };
   }
@@ -859,7 +972,7 @@ async function ensureSiteSessionInner(
       path: "credential-login",
       steps,
       probe: finalProbe,
-      persisted: await persistSiteSessionCookies(site.id),
+      persisted: await persistAndPrune(site.id),
       message: `Signed in to the ${site.displayName ?? site.id} ${scope.id} session with the configured 1Password item.`,
     };
   }
@@ -944,7 +1057,7 @@ export async function runSiteSessionKeepalive(): Promise<
     for (const scope of site.scopes) {
       results.push(await ensureSiteSession({ site: site.id, scope: scope.id }));
     }
-    report.push({ site: site.id, results, persisted: await persistSiteSessionCookies(site.id) });
+    report.push({ site: site.id, results, persisted: await persistAndPrune(site.id) });
   }
   return report;
 }

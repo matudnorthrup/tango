@@ -1027,6 +1027,14 @@ const browserSiteSchema = z.object({
       patterns: z.array(z.string().min(1)).optional(),
     })
     .optional(),
+  // Scratch cookies the site leaves behind that must not accumulate; an
+  // abandoned auth round trip can drop one per attempt until the request
+  // header exceeds what the server accepts.
+  prune_cookies: z
+    .object({
+      patterns: z.array(z.string().min(1)).optional(),
+    })
+    .optional(),
   scopes: z.array(browserSiteScopeSchema).nonempty(),
   // Optional extras consumed by site-specific tools (e.g. an annotations API).
   library: z.record(z.unknown()).optional(),
@@ -1050,6 +1058,7 @@ export interface BrowserSiteConfig {
     secondFactorPattern?: string;
   };
   persistCookies: { exact: string[]; patterns: string[] };
+  pruneCookies: { patterns: string[] };
   scopes: BrowserSiteScopeConfig[];
   library?: Record<string, unknown>;
 }
@@ -1082,6 +1091,7 @@ export function loadBrowserSiteConfigs(configDir?: string): BrowserSiteConfig[] 
         exact: parsed.persist_cookies?.exact ?? [],
         patterns: parsed.persist_cookies?.patterns ?? [],
       },
+      pruneCookies: { patterns: parsed.prune_cookies?.patterns ?? [] },
       scopes: parsed.scopes,
       library: parsed.library,
     }),

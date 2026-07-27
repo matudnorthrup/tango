@@ -1273,12 +1273,19 @@ registerDeterministicHandler("browser-session-keepalive", async () => {
   const blocked = all.filter((result) => !result.authenticated);
   const persisted = report.reduce((sum, entry) => sum + entry.persisted.converted.length, 0);
 
+  const failureDetail = blocked
+    .map((result) => `${result.site}/${result.scope} — ${result.message}`)
+    .join(" | ");
+
   return {
     status: blocked.length === 0 ? "ok" : "error",
+    // The scheduler logs `error`; leaving it unset prints error="undefined" and
+    // hides the one line that says what actually went wrong.
+    ...(blocked.length === 0 ? {} : { error: failureDetail }),
     summary:
       blocked.length === 0
         ? `Sessions live for ${all.map((r) => `${r.site}/${r.scope}`).join(", ")}; ${persisted} session cookie(s) hardened.`
-        : `Sessions needing attention: ${blocked.map((r) => `${r.site}/${r.scope} — ${r.message}`).join(" | ")}`,
+        : `Sessions needing attention: ${failureDetail}`,
     data: {
       sessions: all.map((r) => ({ site: r.site, scope: r.scope, authenticated: r.authenticated, path: r.path })),
       persistedCookies: persisted,
