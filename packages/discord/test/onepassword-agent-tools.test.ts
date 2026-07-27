@@ -31,7 +31,7 @@ describe("onepassword-agent-tools", () => {
     }
   });
 
-  it("blocks direct Church credential retrieval so secrets stay inside gospel_library login", async () => {
+  it("blocks direct Church credential retrieval so secrets stay inside study_library login", async () => {
     const tool = createOnePasswordTools()[0];
     if (!tool) throw new Error("Missing onepassword tool");
 
@@ -49,10 +49,10 @@ describe("onepassword-agent-tools", () => {
     });
 
     expect(byTitle).toMatchObject({
-      error: expect.stringContaining("Use gospel_library login"),
+      error: expect.stringContaining("Use study_library login"),
     });
     expect(byConfiguredId).toMatchObject({
-      error: expect.stringContaining("Use gospel_library login"),
+      error: expect.stringContaining("Use study_library login"),
     });
     expect(spawnMock).not.toHaveBeenCalled();
   });

@@ -581,8 +581,24 @@ describe("loadScheduleConfigs", () => {
       stateTracking: { enabled: true, reviewChecklist: "finance" },
       completion: { checkBeforeRun: false, markOnSuccess: false },
     });
-    expect(schedules.find((schedule) => schedule.id === "nightly-transaction-categorizer")?.execution.taskTemplate)
-      .toContain("$TANGO_OBSIDIAN_VAULT/References/Finance/Lunch Money Rules.md");
+    for (const scheduleId of [
+      "nightly-transaction-categorizer",
+      "manual-test-nightly-transaction-categorizer",
+    ]) {
+      const task = schedules.find((schedule) => schedule.id === scheduleId)?.execution.taskTemplate ?? "";
+      expect(task).toContain("{{categorizationRulesPath}}");
+      expect(task).toContain("{{categorizationRules}}");
+      expect(task).toContain("{{budgetNeutralTransferDetails}}");
+      expect(task).toContain('category named exactly "Transfer"');
+      expect(task).toContain("Do not surface these transactions for spend/income review");
+      expect(task).not.toContain("$TANGO_OBSIDIAN_VAULT");
+    }
+    for (const scheduleId of ["receipt-cataloger", "manual-test-receipt-cataloger"]) {
+      const task = schedules.find((schedule) => schedule.id === scheduleId)?.execution.taskTemplate ?? "";
+      expect(task).toContain("{{categorizationRulesPath}}");
+      expect(task).toContain("{{categorizationRules}}");
+      expect(task).toMatch(/do\s+not attempt another path lookup or fall back to a default category/u);
+    }
   });
 
   it("runs the state lifecycle sweep on every cron interval", () => {

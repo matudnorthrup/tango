@@ -241,7 +241,7 @@ export const GOVERNANCE_SEED = `
     ('worker:charlie-ollama', 'worker', 'agent:charlie', 'Charlie Ollama Runtime'),
     ('worker:dev-assistant', 'worker', 'agent:victor', 'Dev Assistant'),
     ('worker:operations-assistant', 'worker', 'agent:victor', 'Operations Assistant'),
-    ('worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'),
+    ('worker:study-assistant', 'worker', 'agent:porter', 'Study Assistant'),
     ('worker:note-librarian', 'worker', NULL, 'Note Librarian'),
     ('worker:foxtrot', 'worker', 'agent:foxtrot', 'Foxtrot Runtime'),
     ('worker:foxtrot-ollama', 'worker', 'agent:foxtrot-ollama', 'Foxtrot Ollama Runtime'),
@@ -263,7 +263,7 @@ export const GOVERNANCE_SEED = `
     ('gog_docs', 'personal', 'Google Docs', 'write'),
     ('gog_docs_update_tab', 'personal', 'Google Docs Tab Updater', 'write'),
     ('obsidian', 'personal', 'Obsidian Vault', 'write'),
-    ('gospel_library', 'personal', 'Gospel Library', 'write'),
+    ('study_library', 'personal', 'Study Library', 'write'),
     ('health_morning', 'personal', 'Health Morning Briefing', 'read'),
     ('lunch_money', 'personal', 'Lunch Money Finance', 'write'),
     ('receipt_registry', 'personal', 'Receipt Registry', 'write'),
@@ -550,16 +550,16 @@ export const GOVERNANCE_SEED = `
     ('worker:operations-assistant', 'memory_add', 'write', 'memory capture for durable operations context'),
     ('worker:operations-assistant', 'memory_reflect', 'write', 'memory reflection for durable operations context');
 
-  -- church-assistant (Porter) — LDS study and calling support
+  -- study-assistant (Porter) — LDS study and calling support
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
-    ('worker:church-assistant', 'gospel_library', 'write', 'Gospel Library marking and linking'),
-    ('worker:church-assistant', 'obsidian', 'write', 'church study notes and calling outlines'),
-    ('worker:church-assistant', 'browser', 'write', 'authenticated Gospel Library marking and linking'),
-    ('worker:church-assistant', 'onepassword', 'read', 'credential retrieval for Church login if explicitly configured'),
-    ('worker:church-assistant', 'gog_email', 'read', 'read-only calling context from email'),
-    ('worker:church-assistant', 'memory_search', 'read', 'memory lookup for durable church context'),
-    ('worker:church-assistant', 'memory_add', 'write', 'memory capture for durable church context'),
-    ('worker:church-assistant', 'memory_reflect', 'write', 'memory reflection for durable church context');
+    ('worker:study-assistant', 'study_library', 'write', 'study library marking and linking'),
+    ('worker:study-assistant', 'obsidian', 'write', 'church study notes and calling outlines'),
+    ('worker:study-assistant', 'browser', 'write', 'authenticated Study Library marking and linking'),
+    ('worker:study-assistant', 'onepassword', 'read', 'credential retrieval for Church login if explicitly configured'),
+    ('worker:study-assistant', 'gog_email', 'read', 'read-only calling context from email'),
+    ('worker:study-assistant', 'memory_search', 'read', 'memory lookup for durable church context'),
+    ('worker:study-assistant', 'memory_add', 'write', 'memory capture for durable church context'),
+    ('worker:study-assistant', 'memory_reflect', 'write', 'memory reflection for durable church context');
 
   -- discord_send_image — outbound Discord images for every persona whose YAML carries
   -- the send-image MCP entry (all agents except kilo, which is excluded pending owner
@@ -570,7 +570,7 @@ export const GOVERNANCE_SEED = `
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:personal-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:research-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
-    ('worker:church-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
+    ('worker:study-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:dev-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:operations-assistant', 'discord_send_image', 'write', 'outbound Discord image sending'),
     ('worker:charlie', 'discord_send_image', 'write', 'outbound Discord image sending'),

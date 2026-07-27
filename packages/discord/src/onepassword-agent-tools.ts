@@ -215,7 +215,7 @@ export function createOnePasswordTools(): AgentTool[] {
             if (isChurchCredentialItem(item)) {
               debug(`BLOCKED: direct Church credential access for "${item}"`);
               return {
-                error: "Direct Church credential retrieval is blocked. Use gospel_library login so the credential stays inside the tool handler.",
+                error: "Direct Church credential retrieval is blocked. Use study_library login so the credential stays inside the tool handler.",
               };
             }
 

@@ -99,7 +99,7 @@ describe("resolveSpeakerAvatarURL", () => {
       resolveSpeakerAvatarURL(
         createAgent({
           id: "porter",
-          type: "lds-companion",
+          type: "faith-companion",
           avatarPath: "agents/assistants/porter/avatar.png"
         }),
         "https://example.com/fallback.webp"
@@ -114,7 +114,7 @@ describe("resolveSpeakerAvatarPath", () => {
       resolveSpeakerAvatarPath(
         createAgent({
           id: "porter",
-          type: "lds-companion",
+          type: "faith-companion",
           avatarPath: "agents/assistants/porter/avatar.png"
         })
       )
@@ -165,7 +165,7 @@ describe("createReplyPresenter", () => {
       const result = await presenter.sendChunked(channel, "steady now", {
         speaker: createAgent({
           id: "porter",
-          type: "lds-companion",
+          type: "faith-companion",
           displayName: "Porter",
           avatarPath,
         }),
@@ -200,7 +200,7 @@ describe("createReplyPresenter", () => {
       const result = await presenter.sendChunked(channel, "still here", {
         speaker: createAgent({
           id: "porter",
-          type: "lds-companion",
+          type: "faith-companion",
           displayName: "Porter",
           avatarPath,
         }),

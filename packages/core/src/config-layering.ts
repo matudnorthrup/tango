@@ -11,6 +11,7 @@ import {
 export type ConfigCategory =
   | "agents"
   | "attachment-retention-rules"
+  | "browser-sites"
   | "intent-contracts"
   | "projects"
   | "schedules"
