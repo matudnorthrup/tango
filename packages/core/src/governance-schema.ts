@@ -550,7 +550,7 @@ export const GOVERNANCE_SEED = `
     ('worker:operations-assistant', 'memory_add', 'write', 'memory capture for durable operations context'),
     ('worker:operations-assistant', 'memory_reflect', 'write', 'memory reflection for durable operations context');
 
-  -- study-assistant (Porter) — LDS study and calling support
+  -- study-assistant (Porter) — study and calling support
   INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason) VALUES
     ('worker:study-assistant', 'study_library', 'write', 'study library marking and linking'),
     ('worker:study-assistant', 'obsidian', 'write', 'church study notes and calling outlines'),
