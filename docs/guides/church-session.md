@@ -139,6 +139,6 @@ was verified end to end on 2026-07-26: 1Password sign-in completed in 12 seconds
 with no prompt.
 
 So a `needsSecondFactor` result is a signal, not routine: the Church has added a
-verification step or flagged the device. Devin completes it once in the
-automation browser; if he enrolls an authenticator at that point, putting the
-secret in the 1Password item makes the recovery self-healing again.
+verification step or flagged the device. The account owner completes it once in
+the automation browser; if an authenticator is enrolled at that point, putting
+its secret in the 1Password item makes the recovery self-healing again.

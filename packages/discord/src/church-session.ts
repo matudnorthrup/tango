@@ -684,9 +684,9 @@ async function performCredentialLogin(
           steps,
           message:
             "The Church sign-in asked for a second factor. This account signs in with username and password only, " +
-            "so this means the Church added a verification step (or flagged this device). Devin needs to complete it " +
-            "once in the automation browser; if he then enrolls an authenticator, adding that secret to the 1Password " +
-            "item makes it self-healing.",
+            "so this means the Church added a verification step (or flagged this device). The account owner needs to " +
+            "complete it once in the automation browser; if an authenticator is enrolled at that point, adding its " +
+            "secret to the 1Password item makes this self-healing again.",
         };
       }
       const codeField = page
