@@ -200,8 +200,9 @@ export function createAttachmentTools(options: AttachmentToolOptions = {}): Agen
         "  context_hint - optional operator context (max 500 chars, e.g. a venue or project name) fed into the",
         "                 directory builder's summary AND tags when strategy=directory. Recorded verbatim in the",
         "                 resulting directory payload (context_hint + hint_guided: true) so the human-guided",
-        "                 description stays distinguishable from unguided machine output. Only takes effect on",
-        "                 strategy=directory runs; other strategies accept it but do not thread it forward.",
+        "                 description stays distinguishable from unguided machine output. Refused (not silently",
+        "                 dropped) on any effective strategy other than directory, including the omitted-strategy",
+        "                 default (classify).",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -464,6 +465,22 @@ function attachmentReprocess(store: AttachmentStore, input: Record<string, unkno
     return { error: hint.error };
   }
 
+  const strategy = normalizeJobKind(input.strategy) ?? "classify";
+
+  // Fleet review consistency fix (T-I-125) — context_hint only threads
+  // forward on strategy=directory (see reprocessOneAttachment and
+  // agents/tools/attachments.md). Every other strategy used to accept the
+  // field and silently drop it, which contradicted attachment_update's own
+  // "never silently dropped" stance on fields it can't honor. Refuse instead
+  // of accepting-and-discarding. Default strategy is "classify", so an
+  // omitted strategy with a hint is refused too — only a blank/whitespace
+  // hint (normalizes to null) is exempt, matching "blank = absent".
+  if (hint.value !== null && strategy !== "directory") {
+    return {
+      error: `attachment_reprocess context_hint applies only to strategy=directory (received strategy: ${strategy})`,
+    };
+  }
+
   // Codex round-1 MEDIUM fix: cap the RAW submitted array before any
   // normalization runs — dedupe/discard previously let an arbitrarily large
   // array (duplicates, junk entries) through the post-normalize check and
@@ -475,7 +492,6 @@ function attachmentReprocess(store: AttachmentStore, input: Record<string, unkno
   }
   const idsInput = normalizeIdRefsArray(input.ids);
 
-  const strategy = normalizeJobKind(input.strategy) ?? "classify";
   const reason = normalizeOptionalString(input.reason);
 
   if (idsInput.length > 0) {

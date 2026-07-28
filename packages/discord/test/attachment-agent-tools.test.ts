@@ -547,6 +547,76 @@ describe("attachment agent tools", () => {
       "attachment_reprocess accepts at most 25 ids per call (received 40)",
     );
   });
+
+  // Fleet review consistency fix (T-I-125) — context_hint used to be
+  // silently accepted-and-dropped on non-directory strategies, unlike
+  // attachment_update's "never silently dropped" stance on fields it can't
+  // honor. It now refuses instead.
+  it("refuses a context_hint on an explicit non-directory strategy", async () => {
+    const harness = createHarness();
+    const seeded = seedReadyAttachment(harness.store);
+    const tools = createAttachmentTools({ storage: harness.storage, store: harness.store });
+    const reprocess = toolByName(tools, "attachment_reprocess");
+
+    const refused = await reprocess.handler({
+      id: `attachment:${seeded.attachmentId}`,
+      strategy: "apple_ocr",
+      context_hint: "Westin SFO banquet room",
+    }) as { error?: string };
+    expect(refused.error).toBe(
+      "attachment_reprocess context_hint applies only to strategy=directory (received strategy: apple_ocr)",
+    );
+    // Refused before any job was queued or attachment status touched.
+    expect(harness.store.listJobs({ attachmentId: seeded.attachmentId, kind: "apple_ocr" })).toEqual([]);
+  });
+
+  it("still accepts a context_hint on an explicit directory strategy", async () => {
+    const harness = createHarness();
+    const seeded = seedReadyAttachment(harness.store);
+    const tools = createAttachmentTools({ storage: harness.storage, store: harness.store });
+    const reprocess = toolByName(tools, "attachment_reprocess");
+
+    const queued = await reprocess.handler({
+      id: `attachment:${seeded.attachmentId}`,
+      strategy: "directory",
+      context_hint: "Westin SFO banquet room",
+    }) as { queued: boolean; job: { job_id: number } };
+    expect(queued.queued).toBe(true);
+    const job = harness.store.getJob(queued.job.job_id);
+    expect(job?.metadata).toMatchObject({ contextHint: "Westin SFO banquet room" });
+  });
+
+  it("refuses a context_hint with strategy omitted — the default resolves to classify, not directory", async () => {
+    const harness = createHarness();
+    const seeded = seedReadyAttachment(harness.store);
+    const tools = createAttachmentTools({ storage: harness.storage, store: harness.store });
+    const reprocess = toolByName(tools, "attachment_reprocess");
+
+    const refused = await reprocess.handler({
+      id: `attachment:${seeded.attachmentId}`,
+      context_hint: "Westin SFO banquet room",
+    }) as { error?: string };
+    expect(refused.error).toBe(
+      "attachment_reprocess context_hint applies only to strategy=directory (received strategy: classify)",
+    );
+    expect(harness.store.listJobs({ attachmentId: seeded.attachmentId, kind: "classify" })).toEqual([]);
+  });
+
+  it("does not refuse a blank/whitespace-only context_hint on a non-directory strategy (blank = absent)", async () => {
+    const harness = createHarness();
+    const seeded = seedReadyAttachment(harness.store);
+    const tools = createAttachmentTools({ storage: harness.storage, store: harness.store });
+    const reprocess = toolByName(tools, "attachment_reprocess");
+
+    const queued = await reprocess.handler({
+      id: `attachment:${seeded.attachmentId}`,
+      strategy: "apple_ocr",
+      context_hint: "   ",
+    }) as { queued: boolean; job: { job_id: number } };
+    expect(queued.queued).toBe(true);
+    const job = harness.store.getJob(queued.job.job_id);
+    expect(job?.metadata).not.toHaveProperty("contextHint");
+  });
 });
 
 // T-I-125 Phase 1 — attachment_update (v0, real columns only: title and
