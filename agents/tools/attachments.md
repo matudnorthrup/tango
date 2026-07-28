@@ -79,7 +79,7 @@ Optional `context_hint`: operator context (a venue name, project name, or correc
 
 Edits `attachments.title` and `attachments.project_id` only (v0: real columns, no schema change). This write/admin tool is intentionally not in the default agent allowlists.
 
-As shipped in the T-I-125 phase-1 build, this tool is also UNGRANTED in the governance catalog: the migration that registers its tool id inserts no permission rows, so it is not usable by any agent or worker until an operator applies a prepared grant script by hand. Seeing the tool id in a catalog/manual is not the same as being permitted to call it. Current grant status for this tool id is visible via `governance_permitted_tools` with `tool_id: "attachment_update"`; `exists-but-not-granted` means "not armed yet," not "does not exist."
+As shipped in the T-I-125 phase-1 build, this tool is also UNGRANTED in the governance catalog: the migration that registers its tool id inserts no permission rows, so it is not usable by any agent or worker until an operator grants it through their install's own grant mechanism. Seeing the tool id in a catalog/manual is not the same as being permitted to call it: a tool id can exist in the catalog while holding zero grants — that means "not armed yet," not "does not exist."
 
 Fields:
 - `id` or `attachment_id`: the attachment to update.
@@ -95,7 +95,7 @@ Any field outside `id`, `attachment_id`, `ids`, `title`, `project` is refused, n
 
 Exhaustive listing over the attachment library (Folio), the sibling to `attachment_search`: completeness-first, unlike `attachment_search`'s relevance ranking, returning the full matching set (e.g. every PDF, every image tagged a given label) with an exact total.
 
-Read-only, but as shipped in the T-I-125 phase-1 build it is UNGRANTED in the governance catalog for the same reason as `attachment_update` above: the migration registers the tool id, no permission rows are inserted, and it is not usable until an operator applies a prepared grant script. Grant status is visible via `governance_permitted_tools`; read-only does not mean pre-armed.
+Read-only, but as shipped in the T-I-125 phase-1 build it is UNGRANTED in the governance catalog for the same reason as `attachment_update` above: the migration registers the tool id, no permission rows are inserted, and it is not usable until an operator grants it. Read-only does not mean pre-armed.
 
 Fields:
 - `mode`: required - `list_projects`, `list_tags`, or `by_label`.

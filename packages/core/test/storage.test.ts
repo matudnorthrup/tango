@@ -2227,11 +2227,10 @@ describe("TangoStorage", () => {
   });
 });
 
-// T-I-125 Phase 1 — attachment_update (v0 operator write surface) registers
-// as a catalog-only write tool, same born-ungranted stance as migration 66
-// above: the who-holds ruling is the operator's, deferred per Gate 2 PARTIAL GO.
-// scripts/grant-attachment-update.sql is prepared, never applied by a
-// migration. (Renumbered from the source chain's 74 onto this chain's tail.)
+// attachment_update (v0 operator write surface) registers as a catalog-only
+// write tool, born ungranted: who holds it is the operator's decision, made
+// per install, never applied by a migration.
+// (Renumbered from the source chain's 74 onto this chain's tail.)
 describe("attachment_update governance registration (migration 70)", () => {
   it("registers the tool as write-access and grants it to no one", () => {
     const { storage } = createStorage();
@@ -2252,12 +2251,10 @@ describe("attachment_update governance registration (migration 70)", () => {
   });
 });
 
-// T-I-125 Phase 1 — attachment_enumerate (exhaustive-by-label read tool).
-// Born UNGRANTED (F2 adjudication 2026-07-27: the operator's ruling defers ALL of
-// this build's grants to their arming word; the all-workers grant sits ready
-// in scripts/grant-attachment-enumerate.sql). This test PINS the ungranted
-// state so a future edit cannot silently arm it in the migration.
-// (Renumbered from the source chain's 75 onto this chain's tail.)
+// attachment_enumerate (exhaustive-by-label read tool). Born UNGRANTED:
+// grants are operator decisions, applied per install on the operator's word.
+// This test PINS the ungranted state so a future edit cannot silently arm it
+// in the migration. (Renumbered from the source chain's 75 onto this chain's tail.)
 describe("attachment_enumerate governance registration (migration 71)", () => {
   it("registers the tool as read-access with ZERO grants (born ungranted)", () => {
     const { storage } = createStorage();

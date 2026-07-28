@@ -143,13 +143,13 @@ describe("AttachmentStore", () => {
       )
       .all();
     expect(attachmentTools).toEqual([
-      // registered by migration 71 (T-I-125 Phase 1), born ungranted (F2 adjudication; grant is prepared SQL)
+      // registered by migration 71, born ungranted (grants are operator decisions, applied per install)
       { id: "attachment_enumerate", domain: "attachments", accessType: "read" },
       { id: "attachment_read", domain: "attachments", accessType: "read" },
       { id: "attachment_reprocess", domain: "attachments", accessType: "write" },
       { id: "attachment_search", domain: "attachments", accessType: "read" },
       { id: "attachment_status", domain: "attachments", accessType: "read" },
-      // registered by migration 70 (T-I-125 Phase 1), born ungranted (grant-attachment-update.sql, prepared not applied)
+      // registered by migration 70, born ungranted (grants are operator decisions, applied per install)
       { id: "attachment_update", domain: "attachments", accessType: "write" },
     ]);
 
