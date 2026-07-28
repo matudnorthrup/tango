@@ -210,7 +210,7 @@ export function createAttachmentTools(options: AttachmentToolOptions = {}): Agen
           attachment_id: { type: "number" },
           ids: {
             type: "array",
-            items: { type: "string" },
+            items: { type: ["string", "number"] },
             description: "Attachment ids or attachment:<id> refs, max 25, batch alternative to id/attachment_id",
           },
           strategy: {
@@ -261,7 +261,7 @@ export function createAttachmentTools(options: AttachmentToolOptions = {}): Agen
           attachment_id: { type: "number" },
           ids: {
             type: "array",
-            items: { type: "string" },
+            items: { type: ["string", "number"] },
             description: "Attachment ids or attachment:<id> refs, max 25, batch alternative to id/attachment_id",
           },
           title: { type: "string" },
@@ -464,12 +464,16 @@ function attachmentReprocess(store: AttachmentStore, input: Record<string, unkno
     return { error: hint.error };
   }
 
-  const idsInput = normalizeIdRefsArray(input.ids);
-  if (idsInput.length > MAX_REPROCESS_BATCH_IDS) {
+  // Codex round-1 MEDIUM fix: cap the RAW submitted array before any
+  // normalization runs — dedupe/discard previously let an arbitrarily large
+  // array (duplicates, junk entries) through the post-normalize check and
+  // left the normalization loop itself unbounded.
+  if (Array.isArray(input.ids) && input.ids.length > MAX_REPROCESS_BATCH_IDS) {
     return {
-      error: `attachment_reprocess accepts at most ${MAX_REPROCESS_BATCH_IDS} ids per call (received ${idsInput.length})`,
+      error: `attachment_reprocess accepts at most ${MAX_REPROCESS_BATCH_IDS} ids per call (received ${input.ids.length})`,
     };
   }
+  const idsInput = normalizeIdRefsArray(input.ids);
 
   const strategy = normalizeJobKind(input.strategy) ?? "classify";
   const reason = normalizeOptionalString(input.reason);
@@ -571,12 +575,14 @@ function attachmentUpdate(store: AttachmentStore, input: Record<string, unknown>
   if (hasTitle) fields.title = typeof input.title === "string" ? input.title.trim() : null;
   if (hasProject) fields.projectId = typeof input.project === "string" ? input.project.trim() : null;
 
-  const idsInput = normalizeIdRefsArray(input.ids);
-  if (idsInput.length > MAX_UPDATE_BATCH_IDS) {
+  // Codex round-1 MEDIUM fix: raw-array cap before normalization (see
+  // attachmentReprocess for the class rationale — same defect, same fix).
+  if (Array.isArray(input.ids) && input.ids.length > MAX_UPDATE_BATCH_IDS) {
     return {
-      error: `attachment_update accepts at most ${MAX_UPDATE_BATCH_IDS} ids per call (received ${idsInput.length})`,
+      error: `attachment_update accepts at most ${MAX_UPDATE_BATCH_IDS} ids per call (received ${input.ids.length})`,
     };
   }
+  const idsInput = normalizeIdRefsArray(input.ids);
 
   const ids = idsInput.length > 0 ? idsInput : resolveIdAsArray(input);
   if (ids.length === 0) {

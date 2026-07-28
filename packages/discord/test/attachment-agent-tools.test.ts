@@ -533,6 +533,19 @@ describe("attachment agent tools", () => {
     expect(overCap.error).toBe(
       "attachment_reprocess accepts at most 25 ids per call (received 26)",
     );
+
+    // Codex round-1 MEDIUM pin: the cap applies to the RAW submitted array,
+    // BEFORE normalization dedupes/discards — a 40-entry array of one
+    // repeated valid id (normalizes to length 1) must still refuse, naming
+    // the raw length. Closes the unbounded-normalization bypass.
+    const seededForDup = seedReadyAttachment(harness.store);
+    const duplicateHeavy = Array.from({ length: 40 }, () => seededForDup.attachmentId);
+    const rawCap = await reprocess.handler({ ids: duplicateHeavy, strategy: "directory" }) as {
+      error?: string;
+    };
+    expect(rawCap.error).toBe(
+      "attachment_reprocess accepts at most 25 ids per call (received 40)",
+    );
   });
 });
 
@@ -606,6 +619,15 @@ describe("attachment_update", () => {
 
     const distinctOverCapIds = Array.from({ length: 26 }, (_, index) => 9_100 + index);
     const overCap = await update.handler({ ids: distinctOverCapIds, title: "x" }) as { error?: string };
+
+    // Codex round-1 MEDIUM pin, update-side twin: raw-array cap before
+    // normalization (see the reprocess test for the class rationale).
+    const dupSeed = seedReadyAttachment(harness.store);
+    const duplicateHeavy = Array.from({ length: 40 }, () => dupSeed.attachmentId);
+    const rawCap = await update.handler({ ids: duplicateHeavy, title: "x" }) as { error?: string };
+    expect(rawCap.error).toBe(
+      "attachment_update accepts at most 25 ids per call (received 40)",
+    );
     expect(overCap.error).toBe("attachment_update accepts at most 25 ids per call (received 26)");
   });
 
