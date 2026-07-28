@@ -51,6 +51,21 @@ const DEFAULT_READ_LIMIT = 5;
 const MAX_READ_LIMIT = 20;
 const DEFAULT_TEXT_CHARS = 4_000;
 const MAX_TEXT_CHARS = 12_000;
+// T-I-125 Phase 1 — attachment_reprocess context_hint + batch ids, and
+// attachment_update's batch ids. Same cap for both; not exported (no other
+// caller needs it yet, unlike the DEFAULT_TEXT_CHARS-class constants above).
+const MAX_CONTEXT_HINT_CHARS = 500;
+const MAX_REPROCESS_BATCH_IDS = 25;
+const MAX_UPDATE_BATCH_IDS = 25;
+const DEFAULT_LABEL_PAGE_LIMIT = 50;
+const MAX_LABEL_PAGE_LIMIT = 200;
+// attachment_update v0 (T-I-125 Phase 1): real columns only. Any other key —
+// including description/tags/role, the fields Devin's storage-schema answer
+// gates — is refused in-band with this exact message, never silently
+// dropped. Keep this string and ATTACHMENT_UPDATE_ALLOWED_KEYS in sync.
+const ATTACHMENT_UPDATE_ALLOWED_KEYS = new Set(["id", "attachment_id", "ids", "title", "project"]);
+const ATTACHMENT_UPDATE_GATED_MESSAGE =
+  "attachment_update v0 edits title and project only; description/tags/roles are gated on the upstream design conversation (T-I-125)";
 const DEFAULT_SNIPPET_CHARS = 600;
 const MAX_SNIPPET_CHARS = 1_500;
 
@@ -178,14 +193,26 @@ export function createAttachmentTools(options: AttachmentToolOptions = {}): Agen
         "",
         "Fields:",
         "  id or attachment_id - attachment id, numeric string, or attachment:<id> ref.",
+        "  ids - optional array of attachment ids/attachment:<id> refs (max 25); batch alternative to id/attachment_id.",
+        "        The same strategy, reason, and context_hint apply to every id in the batch.",
         "  strategy - classify, embedded_text, apple_ocr, chunk, directory, llm_fallback, retention_review.",
         "  reason - optional audit reason.",
+        "  context_hint - optional operator context (max 500 chars, e.g. a venue or project name) fed into the",
+        "                 directory builder's summary AND tags when strategy=directory. Recorded verbatim in the",
+        "                 resulting directory payload (context_hint + hint_guided: true) so the human-guided",
+        "                 description stays distinguishable from unguided machine output. Only takes effect on",
+        "                 strategy=directory runs; other strategies accept it but do not thread it forward.",
       ].join("\n"),
       inputSchema: {
         type: "object",
         properties: {
           id: { type: "string" },
           attachment_id: { type: "number" },
+          ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "Attachment ids or attachment:<id> refs, max 25, batch alternative to id/attachment_id",
+          },
           strategy: {
             type: "string",
             enum: [
@@ -199,9 +226,80 @@ export function createAttachmentTools(options: AttachmentToolOptions = {}): Agen
             ],
           },
           reason: { type: "string" },
+          context_hint: {
+            type: "string",
+            description: "Operator context fed into the directory builder (max 500 chars); see attachment-reprocess.md",
+          },
         },
       },
       handler: async (input) => attachmentReprocess(context.store, input),
+    },
+    {
+      name: "attachment_update",
+      description: [
+        "Update operator-editable fields on an attachment: title and project only (v0, real columns, no schema change).",
+        "This is a write/admin tool and is not in default agent allowlists.",
+        "Use this to correct a filename-derived title, or to file/re-file an attachment into a project after upload",
+        "(the late-arrival case: 'connect this to the right project').",
+        "",
+        "Fields:",
+        "  id or attachment_id - attachment id, numeric string, or attachment:<id> ref.",
+        "  ids - optional array of attachment ids/attachment:<id> refs (max 25); batch alternative to id/attachment_id.",
+        "        The same title/project apply to every id in the batch.",
+        "  title - optional new title (sets attachments.title).",
+        "  project - optional new project id (sets attachments.project_id). Use attachment_enumerate mode=list_projects",
+        "            to see existing projects before minting a new one (avoids near-duplicate project names).",
+        "",
+        "v0 scope is intentionally narrow: description, tags, and lifecycle role are NOT accepted here and are",
+        "refused in-band, never silently dropped — they are gated on the upstream storage-schema design conversation",
+        "(T-I-125). Use attachment_reprocess's context_hint for description/tag repair in the meantime.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          attachment_id: { type: "number" },
+          ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "Attachment ids or attachment:<id> refs, max 25, batch alternative to id/attachment_id",
+          },
+          title: { type: "string" },
+          project: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+      handler: async (input) => attachmentUpdate(context.store, input),
+    },
+    {
+      name: "attachment_enumerate",
+      description: [
+        "Enumerate Folio attachments by label — EXHAUSTIVE listing, never ranked/similarity search.",
+        "Use this when the ask is completeness ('every PDF, every image tagged X'), not relevance ('find something about X');",
+        "for relevance use attachment_search instead.",
+        "",
+        "Fields:",
+        "  mode - required: list_projects, list_tags, or by_label.",
+        "  list_projects - returns every distinct project_id with its attachment count. No other fields needed.",
+        "  list_tags - returns every distinct tag (case-insensitive, from each attachment's LATEST directory row)",
+        "              with its count. Optional project_id narrows to one project.",
+        "  by_label - returns ALL attachments matching tag and/or project_id (id, title, content_type, created_at),",
+        "             with an exact `total` count that holds across pages. Fields: tag (case-insensitive exact",
+        "             match), project_id, limit (default 50, max 200), offset (default 0). At least one of",
+        "             tag/project_id is required.",
+      ].join("\n"),
+      inputSchema: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["list_projects", "list_tags", "by_label"] },
+          tag: { type: "string" },
+          project_id: { type: "string" },
+          limit: { type: "number", description: "by_label page size, default 50, max 200" },
+          offset: { type: "number", description: "by_label page offset, default 0" },
+        },
+        required: ["mode"],
+      },
+      handler: async (input) => attachmentEnumerate(context.store, input),
     },
   ];
 }
@@ -361,16 +459,54 @@ function attachmentStatus(store: AttachmentStore, input: Record<string, unknown>
 }
 
 function attachmentReprocess(store: AttachmentStore, input: Record<string, unknown>) {
+  const hint = normalizeContextHint(input.context_hint);
+  if (hint.error) {
+    return { error: hint.error };
+  }
+
+  const idsInput = normalizeIdRefsArray(input.ids);
+  if (idsInput.length > MAX_REPROCESS_BATCH_IDS) {
+    return {
+      error: `attachment_reprocess accepts at most ${MAX_REPROCESS_BATCH_IDS} ids per call (received ${idsInput.length})`,
+    };
+  }
+
+  const strategy = normalizeJobKind(input.strategy) ?? "classify";
+  const reason = normalizeOptionalString(input.reason);
+
+  if (idsInput.length > 0) {
+    const results = idsInput.map((attachmentId) =>
+      reprocessOneAttachment(store, attachmentId, strategy, reason, hint.value),
+    );
+    return {
+      batch: true,
+      context_hint: hint.value,
+      count: results.length,
+      results,
+    };
+  }
+
+  // Single-id path — no `ids` given. Kept byte-identical to pre-T-I-125
+  // behavior when context_hint is also absent (hard bar, see spec Gate 2).
   const attachmentId = resolveAttachmentId(input);
   if (attachmentId === null) {
     return { error: "attachment_reprocess requires id or attachment_id" };
   }
+  return reprocessOneAttachment(store, attachmentId, strategy, reason, hint.value);
+}
+
+function reprocessOneAttachment(
+  store: AttachmentStore,
+  attachmentId: number,
+  strategy: AttachmentJobKind,
+  reason: string | null,
+  contextHint: string | null,
+): Record<string, unknown> {
   const attachment = store.getAttachment(attachmentId);
   if (!attachment) {
     return { error: `Attachment ${attachmentId} not found` };
   }
 
-  const strategy = normalizeJobKind(input.strategy) ?? "classify";
   const existing = store
     .listJobs({ attachmentId, kind: strategy, limit: 25 })
     .find((job) => job.status === "pending" || job.status === "running");
@@ -392,7 +528,10 @@ function attachmentReprocess(store: AttachmentStore, input: Record<string, unkno
     kind: strategy,
     metadata: {
       queuedBy: "attachment_reprocess_tool",
-      reason: normalizeOptionalString(input.reason),
+      reason,
+      // Only present when a hint was given — keeps job metadata shape
+      // identical to pre-T-I-125 output on the default (no-hint) path.
+      ...(contextHint ? { contextHint } : {}),
     },
   });
   store.updateAttachmentStatus(attachmentId, "processing");
@@ -407,6 +546,171 @@ function attachmentReprocess(store: AttachmentStore, input: Record<string, unkno
       run_after: job.runAfter,
     },
   };
+}
+
+function attachmentUpdate(store: AttachmentStore, input: Record<string, unknown>) {
+  const unknownKeys = Object.keys(input).filter((key) => !ATTACHMENT_UPDATE_ALLOWED_KEYS.has(key));
+  if (unknownKeys.length > 0) {
+    return { error: ATTACHMENT_UPDATE_GATED_MESSAGE };
+  }
+
+  const hasTitle = Object.prototype.hasOwnProperty.call(input, "title");
+  const hasProject = Object.prototype.hasOwnProperty.call(input, "project");
+  if (!hasTitle && !hasProject) {
+    return { error: "attachment_update requires title and/or project" };
+  }
+
+  if (hasTitle && input.title !== null && typeof input.title !== "string") {
+    return { error: "attachment_update title must be a string" };
+  }
+  if (hasProject && input.project !== null && typeof input.project !== "string") {
+    return { error: "attachment_update project must be a string" };
+  }
+
+  const fields: { title?: string | null; projectId?: string | null } = {};
+  if (hasTitle) fields.title = typeof input.title === "string" ? input.title.trim() : null;
+  if (hasProject) fields.projectId = typeof input.project === "string" ? input.project.trim() : null;
+
+  const idsInput = normalizeIdRefsArray(input.ids);
+  if (idsInput.length > MAX_UPDATE_BATCH_IDS) {
+    return {
+      error: `attachment_update accepts at most ${MAX_UPDATE_BATCH_IDS} ids per call (received ${idsInput.length})`,
+    };
+  }
+
+  const ids = idsInput.length > 0 ? idsInput : resolveIdAsArray(input);
+  if (ids.length === 0) {
+    return { error: "attachment_update requires id, attachment_id, or ids" };
+  }
+
+  const results = ids.map((attachmentId) => updateOneAttachment(store, attachmentId, fields));
+
+  if (idsInput.length > 0) {
+    return { batch: true, count: results.length, results };
+  }
+  return results[0];
+}
+
+function updateOneAttachment(
+  store: AttachmentStore,
+  attachmentId: number,
+  fields: { title?: string | null; projectId?: string | null },
+): Record<string, unknown> {
+  const attachment = store.getAttachment(attachmentId);
+  if (!attachment) {
+    return { attachment_id: attachmentId, error: `Attachment ${attachmentId} not found` };
+  }
+  const updated = store.updateAttachmentOperatorFields(attachmentId, fields);
+  return {
+    attachment_id: attachmentId,
+    updated: true,
+    title: updated?.title ?? null,
+    project_id: updated?.projectId ?? null,
+  };
+}
+
+function attachmentEnumerate(store: AttachmentStore, input: Record<string, unknown>) {
+  const mode = normalizeOptionalString(input.mode);
+  switch (mode) {
+    case "list_projects":
+      return attachmentEnumerateListProjects(store);
+    case "list_tags":
+      return attachmentEnumerateListTags(store, input);
+    case "by_label":
+      return attachmentEnumerateByLabel(store, input);
+    default:
+      return { error: "attachment_enumerate requires mode: list_projects, list_tags, or by_label" };
+  }
+}
+
+function attachmentEnumerateListProjects(store: AttachmentStore) {
+  const attachments = store.listAllAttachments({});
+  const counts = new Map<string, number>();
+  for (const attachment of attachments) {
+    if (!attachment.projectId) continue;
+    counts.set(attachment.projectId, (counts.get(attachment.projectId) ?? 0) + 1);
+  }
+  const projects = [...counts.entries()]
+    .map(([projectId, count]) => ({ project_id: projectId, count }))
+    .sort((left, right) => left.project_id.localeCompare(right.project_id));
+
+  return {
+    mode: "list_projects",
+    total: projects.length,
+    projects,
+  };
+}
+
+function attachmentEnumerateListTags(store: AttachmentStore, input: Record<string, unknown>) {
+  const projectId = normalizeScopeFilter(input.project_id);
+  const attachments = store.listAllAttachments({ projectId });
+  const counts = new Map<string, { tag: string; count: number }>();
+  for (const attachment of attachments) {
+    const tags = latestDirectoryTags(store, attachment.id);
+    for (const tag of tags) {
+      const key = tag.toLowerCase();
+      const entry = counts.get(key);
+      if (entry) {
+        entry.count += 1;
+      } else {
+        counts.set(key, { tag, count: 1 });
+      }
+    }
+  }
+  const tags = [...counts.values()].sort((left, right) => left.tag.localeCompare(right.tag));
+
+  return {
+    mode: "list_tags",
+    project_id: projectId ?? null,
+    total: tags.length,
+    tags,
+  };
+}
+
+function attachmentEnumerateByLabel(store: AttachmentStore, input: Record<string, unknown>) {
+  const tag = normalizeOptionalString(input.tag);
+  const projectId = normalizeScopeFilter(input.project_id);
+  if (!tag && !projectId) {
+    return { error: "attachment_enumerate mode=by_label requires tag and/or project_id" };
+  }
+
+  const limit = clampLimit(input.limit, DEFAULT_LABEL_PAGE_LIMIT, MAX_LABEL_PAGE_LIMIT);
+  const offset = Math.max(0, normalizeInteger(input.offset) ?? 0);
+  const tagLower = tag ? tag.toLowerCase() : null;
+
+  const attachments = store.listAllAttachments({ projectId });
+  const matches = attachments.filter((attachment) => {
+    if (!tagLower) return true;
+    const tags = latestDirectoryTags(store, attachment.id).map((value) => value.toLowerCase());
+    return tags.includes(tagLower);
+  });
+
+  const total = matches.length;
+  const page = matches.slice(offset, offset + limit).map((attachment) => {
+    const directory = asDirectoryPayload(latestDirectory(store, attachment.id)?.directory);
+    return {
+      attachment_id: attachment.id,
+      title: titleForAttachment(attachment, directory),
+      content_type: attachment.contentType,
+      created_at: attachment.createdAt,
+    };
+  });
+
+  return {
+    mode: "by_label",
+    tag: tag ?? null,
+    project_id: projectId ?? null,
+    total,
+    limit,
+    offset,
+    result_count: page.length,
+    items: page,
+  };
+}
+
+function latestDirectoryTags(store: AttachmentStore, attachmentId: number): string[] {
+  const directory = asDirectoryPayload(latestDirectory(store, attachmentId)?.directory);
+  return asStringArray(directory?.tags);
 }
 
 function buildSearchCandidate(
@@ -721,6 +1025,57 @@ function resolveAttachmentId(input: Record<string, unknown>): number | null {
   if (!id) return null;
   const match = /^attachment:(\d+)$/iu.exec(id) ?? /^(\d+)$/u.exec(id);
   return match ? Number.parseInt(match[1]!, 10) : null;
+}
+
+// T-I-125 Phase 1 — shared by attachment_reprocess and attachment_update.
+// Each array item may be a numeric id, a numeric string, or an
+// "attachment:<id>" ref — the same shapes resolveAttachmentId accepts for a
+// single id, applied per-item. Invalid/unparseable items are silently
+// dropped (a malformed id inside an otherwise-valid batch does not abort the
+// whole call); duplicates are deduped, order preserved.
+function normalizeIdRefsArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<number>();
+  const ids: number[] = [];
+  for (const item of value) {
+    let id: number | null = null;
+    if (typeof item === "number") {
+      id = normalizeInteger(item);
+    } else if (typeof item === "string") {
+      const match = /^attachment:(\d+)$/iu.exec(item) ?? /^(\d+)$/u.exec(item.trim());
+      id = match ? Number.parseInt(match[1]!, 10) : null;
+    }
+    if (id !== null && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function resolveIdAsArray(input: Record<string, unknown>): number[] {
+  const id = resolveAttachmentId(input);
+  return id === null ? [] : [id];
+}
+
+// T-I-125 Phase 1 — attachment_reprocess's context_hint. Trims, caps at
+// MAX_CONTEXT_HINT_CHARS, and refuses (rather than silently truncating) over
+// the cap so the operator knows to shorten it. Absent/blank input yields
+// `value: null` with no error — the default, hint-free path.
+function normalizeContextHint(value: unknown): { value: string | null; error?: string } {
+  if (value === undefined || value === null) return { value: null };
+  if (typeof value !== "string") {
+    return { value: null, error: "attachment_reprocess context_hint must be a string" };
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return { value: null };
+  if (trimmed.length > MAX_CONTEXT_HINT_CHARS) {
+    return {
+      value: null,
+      error: `attachment_reprocess context_hint must be ${MAX_CONTEXT_HINT_CHARS} characters or fewer (received ${trimmed.length})`,
+    };
+  }
+  return { value: trimmed };
 }
 
 function normalizeReadMode(value: unknown):

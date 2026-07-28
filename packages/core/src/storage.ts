@@ -3078,6 +3078,37 @@ const MIGRATIONS: Migration[] = [
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant');
     `,
   },
+  {
+    // T-I-125 Phase 1 — attachment_update (v0 operator write surface: title
+    // and project_id only, real columns, no schema migration). CATALOG ONLY:
+    // register the tool so fresh databases and the governance-manual
+    // completeness tripwire (T-I-119) know it exists, but insert NO
+    // permission rows here. Her Gate 2 PARTIAL GO explicitly deferred the
+    // who-holds ruling — scripts/grant-attachment-update.sql is prepared,
+    // not applied; it arms only on Darla's explicit word. (Renumbered from
+    // the source chain's migration 74 onto this chain's tail.)
+    version: 70,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('attachment_update', 'attachments', 'Attachment Update', 'write');
+    `,
+  },
+  {
+    // T-I-125 Phase 1 — attachment_enumerate (read-only, exhaustive-by-label
+    // listing: list_projects, list_tags, by_label). Born UNGRANTED, catalog
+    // only — F2 adjudication 2026-07-27 overriding the builder's all-workers
+    // grant: Darla's standing ruling for this build is that grants are
+    // PREPARED, NOT APPLIED (her explicit word arms them), and read-vs-write
+    // does not change whose word arms a grant. The all-workers grant lives
+    // ready in scripts/grant-attachment-enumerate.sql (Cod-E's worker-pool
+    // rationale preserved there). (Renumbered from the source chain's
+    // migration 75 onto this chain's tail.)
+    version: 71,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('attachment_enumerate', 'attachments', 'Attachment Enumerate', 'read');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

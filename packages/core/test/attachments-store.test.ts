@@ -143,10 +143,14 @@ describe("AttachmentStore", () => {
       )
       .all();
     expect(attachmentTools).toEqual([
+      // registered by migration 71 (T-I-125 Phase 1), born ungranted (F2 adjudication; grant is prepared SQL)
+      { id: "attachment_enumerate", domain: "attachments", accessType: "read" },
       { id: "attachment_read", domain: "attachments", accessType: "read" },
       { id: "attachment_reprocess", domain: "attachments", accessType: "write" },
       { id: "attachment_search", domain: "attachments", accessType: "read" },
       { id: "attachment_status", domain: "attachments", accessType: "read" },
+      // registered by migration 70 (T-I-125 Phase 1), born ungranted (grant-attachment-update.sql, prepared not applied)
+      { id: "attachment_update", domain: "attachments", accessType: "write" },
     ]);
 
     const readPermission = storage
@@ -480,5 +484,62 @@ describe("AttachmentStore", () => {
     expect(records[0]?.directory.directory).toMatchObject({
       title: "Receipt directory",
     });
+  });
+});
+
+// T-I-125 Phase 1 — enumeration support. listAttachments() caps at 500
+// (normalizeLimit); listAllAttachments() must not, since attachment_enumerate
+// promises an EXACT total ("every PDF, every image") across the whole
+// library, not a capped sample.
+describe("AttachmentStore.listAllAttachments", () => {
+  it("returns every matching row, unbounded by the 500-row cap listAttachments() applies", () => {
+    const { open } = createHarness();
+    const { store } = open();
+
+    const rowCount = 505;
+    for (let index = 0; index < rowCount; index += 1) {
+      createAttachment(store, { suffix: `unbounded-${index}`, channelId: "channel-x", threadId: "thread-x" });
+    }
+
+    const capped = store.listAttachments({ channelId: "channel-x", limit: 10_000 });
+    expect(capped.length).toBe(500);
+
+    const all = store.listAllAttachments({ channelId: "channel-x" });
+    expect(all.length).toBe(rowCount);
+  });
+});
+
+// T-I-125 Phase 1 (v0) — the operator write surface's store method: real
+// columns only, no schema migration.
+describe("AttachmentStore.updateAttachmentOperatorFields", () => {
+  it("writes only title/project_id (+ updated_at); an empty fields object is a no-op read-back", () => {
+    const { open } = createHarness();
+    const { store } = open();
+    const attachment = createAttachment(store, { suffix: "operator-fields" });
+    const before = store.getAttachment(attachment.id)!;
+
+    const noop = store.updateAttachmentOperatorFields(attachment.id, {});
+    expect(noop).toEqual(before);
+
+    const titled = store.updateAttachmentOperatorFields(attachment.id, { title: "Westin Banquet Room" });
+    expect(titled?.title).toBe("Westin Banquet Room");
+    expect(titled?.projectId).toBe(before.projectId);
+    expect(titled?.contentType).toBe(before.contentType);
+    expect(titled?.bytes).toBe(before.bytes);
+    expect(titled?.status).toBe(before.status);
+    expect(titled?.metadata).toEqual(before.metadata);
+    expect(titled?.createdAt).toBe(before.createdAt);
+
+    const both = store.updateAttachmentOperatorFields(attachment.id, {
+      title: "Final Title",
+      projectId: "creator-conference",
+    });
+    expect(both?.title).toBe("Final Title");
+    expect(both?.projectId).toBe("creator-conference");
+
+    // Explicit null clears a field rather than leaving it untouched.
+    const cleared = store.updateAttachmentOperatorFields(attachment.id, { projectId: null });
+    expect(cleared?.projectId).toBeNull();
+    expect(cleared?.title).toBe("Final Title");
   });
 });

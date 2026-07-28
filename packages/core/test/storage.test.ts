@@ -2226,3 +2226,54 @@ describe("TangoStorage", () => {
     storage.close();
   });
 });
+
+// T-I-125 Phase 1 — attachment_update (v0 operator write surface) registers
+// as a catalog-only write tool, same born-ungranted stance as migration 66
+// above: the who-holds ruling is Darla's, deferred per Gate 2 PARTIAL GO.
+// scripts/grant-attachment-update.sql is prepared, never applied by a
+// migration. (Renumbered from the source chain's 74 onto this chain's tail.)
+describe("attachment_update governance registration (migration 70)", () => {
+  it("registers the tool as write-access and grants it to no one", () => {
+    const { storage } = createStorage();
+
+    const tool = storage
+      .getDatabase()
+      .prepare("SELECT id, domain, access_type FROM governance_tools WHERE id = 'attachment_update'")
+      .get() as { id?: string; domain?: string; access_type?: string } | undefined;
+    expect(tool?.id).toBe("attachment_update");
+    expect(tool?.domain).toBe("attachments");
+    expect(tool?.access_type).toBe("write");
+
+    const grants = storage
+      .getDatabase()
+      .prepare("SELECT COUNT(*) AS count FROM permissions WHERE tool_id = 'attachment_update'")
+      .get() as { count: number };
+    expect(grants.count).toBe(0);
+  });
+});
+
+// T-I-125 Phase 1 — attachment_enumerate (exhaustive-by-label read tool).
+// Born UNGRANTED (F2 adjudication 2026-07-27: Darla's ruling defers ALL of
+// this build's grants to her arming word; the all-workers grant sits ready
+// in scripts/grant-attachment-enumerate.sql). This test PINS the ungranted
+// state so a future edit cannot silently arm it in the migration.
+// (Renumbered from the source chain's 75 onto this chain's tail.)
+describe("attachment_enumerate governance registration (migration 71)", () => {
+  it("registers the tool as read-access with ZERO grants (born ungranted)", () => {
+    const { storage } = createStorage();
+
+    const tool = storage
+      .getDatabase()
+      .prepare("SELECT id, domain, access_type FROM governance_tools WHERE id = 'attachment_enumerate'")
+      .get() as { id?: string; domain?: string; access_type?: string } | undefined;
+    expect(tool?.id).toBe("attachment_enumerate");
+    expect(tool?.domain).toBe("attachments");
+    expect(tool?.access_type).toBe("read");
+
+    const grantCount = storage
+      .getDatabase()
+      .prepare("SELECT COUNT(*) AS count FROM permissions WHERE tool_id = 'attachment_enumerate'")
+      .get() as { count: number };
+    expect(grantCount.count).toBe(0);
+  });
+});
