@@ -581,7 +581,7 @@ export class AttachmentStore {
   /**
    * T-I-125 Phase 1 — enumeration support (attachment_enumerate). Unlike
    * listAttachments(), this is deliberately UNBOUNDED (no LIMIT clause,
-   * normalizeLimit's 500 cap does not apply): Darla's acceptance test
+   * normalizeLimit's 500 cap does not apply): the acceptance test
    * ("every PDF, every image... 100% recall") requires an exact total across
    * the whole library, not a capped sample. Callers that want paging apply
    * limit/offset themselves after filtering — see attachment-enumeration in

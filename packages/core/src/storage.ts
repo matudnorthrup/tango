@@ -3083,9 +3083,9 @@ const MIGRATIONS: Migration[] = [
     // and project_id only, real columns, no schema migration). CATALOG ONLY:
     // register the tool so fresh databases and the governance-manual
     // completeness tripwire (T-I-119) know it exists, but insert NO
-    // permission rows here. Her Gate 2 PARTIAL GO explicitly deferred the
+    // permission rows here. The operator's Gate 2 PARTIAL GO explicitly deferred the
     // who-holds ruling — scripts/grant-attachment-update.sql is prepared,
-    // not applied; it arms only on Darla's explicit word. (Renumbered from
+    // not applied; it arms only on the operator's explicit word. (Renumbered from
     // the source chain's migration 74 onto this chain's tail.)
     version: 70,
     sql: `
@@ -3097,8 +3097,8 @@ const MIGRATIONS: Migration[] = [
     // T-I-125 Phase 1 — attachment_enumerate (read-only, exhaustive-by-label
     // listing: list_projects, list_tags, by_label). Born UNGRANTED, catalog
     // only — F2 adjudication 2026-07-27 overriding the builder's all-workers
-    // grant: Darla's standing ruling for this build is that grants are
-    // PREPARED, NOT APPLIED (her explicit word arms them), and read-vs-write
+    // grant: the operator's standing ruling for this build is that grants are
+    // PREPARED, NOT APPLIED (their explicit word arms them), and read-vs-write
     // does not change whose word arms a grant. The all-workers grant lives
     // ready in scripts/grant-attachment-enumerate.sql (Cod-E's worker-pool
     // rationale preserved there). (Renumbered from the source chain's

@@ -275,9 +275,9 @@ function buildDirectoryTags(
   if (extraction?.method) tags.add(extraction.method);
   if (contextHint) {
     // The FULL hint as one combined tag — this is the one that matters for
-    // Darla's acceptance test ("we're going with the Traverse Mountain
-    // Lodge" pulls every item under ONE venue tag, selection at the tag
-    // level, not word-fragment matching). Individual word tokens ride
+    // the acceptance test ("we're going with the Cedar Ridge Lodge" pulls
+    // every item under ONE venue tag, selection at the tag level, not
+    // word-fragment matching). Individual word tokens ride
     // alongside it so a shorter/partial phrase still finds the item via
     // attachment_search's ranked matching.
     tags.add(normalizeComparable(contextHint));

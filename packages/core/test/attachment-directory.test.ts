@@ -108,8 +108,8 @@ describe("buildAttachmentDirectory — T-I-125 Phase 1 context_hint", () => {
     expect(String(directory.summary)).toContain("Westin SFO banquet room. ");
     expect(directory.context_hint).toBe("Westin SFO banquet room");
     expect(directory.hint_guided).toBe(true);
-    // The whole hint lands as ONE combined tag (Darla's acceptance test:
-    // "we're going with the Traverse Mountain Lodge" pulls everything under
+    // The whole hint lands as ONE combined tag (the acceptance test:
+    // "we're going with the Cedar Ridge Lodge" pulls everything under
     // one venue tag, not word-fragment matching) — plus individual word
     // tokens for partial/ranked-search matching.
     expect(directory.tags).toEqual(
