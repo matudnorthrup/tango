@@ -872,6 +872,29 @@ describe("attachment_enumerate", () => {
     expect(noMatch).toMatchObject({ total: 0, items: [] });
   });
 
+  // Review-round fix: a hint-derived tag is whitespace-collapsed
+  // (normalizeComparable) when it's stored, but by_label's query was only
+  // ever lowercased — a query with doubled internal spaces could never
+  // match its own stored tag. Align the query-side normalization.
+  it("by_label matches a stored tag when the query has doubled internal whitespace", async () => {
+    const harness = createHarness();
+    const attachmentId = seedTaggedAttachment(harness.store, {
+      suffix: "lodge-normalize",
+      projectId: "creator-conference",
+      tags: ["traverse mountain lodge"],
+    });
+    const tools = createAttachmentTools({ storage: harness.storage, store: harness.store });
+    const enumerate = toolByName(tools, "attachment_enumerate");
+
+    const result = await enumerate.handler({
+      mode: "by_label",
+      tag: "Traverse  Mountain   Lodge",
+    }) as { total: number; items: Array<{ attachment_id: number }> };
+
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.attachment_id).toBe(attachmentId);
+  });
+
   it("by_label requires tag and/or project_id", async () => {
     const harness = createHarness();
     const tools = createAttachmentTools({ storage: harness.storage, store: harness.store });

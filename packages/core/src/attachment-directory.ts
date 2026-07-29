@@ -663,7 +663,11 @@ function dedupeDirectoryEntries(entries: DirectoryEntry[]): DirectoryEntry[] {
   return output;
 }
 
-function normalizeComparable(value: string): string {
+// Exported so read tools outside this module (attachment_enumerate's
+// by_label lookup, in particular) can normalize a query the same way a
+// hint-derived tag was normalized when it was stored — see
+// attachment-agent-tools.ts's attachmentEnumerateByLabel.
+export function normalizeComparable(value: string): string {
   return value.toLowerCase().replace(/\s+/gu, " ").trim();
 }
 

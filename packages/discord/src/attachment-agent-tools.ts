@@ -2,6 +2,7 @@ import type { AgentTool } from "@tango/core";
 import {
   AttachmentStore,
   TangoStorage,
+  normalizeComparable,
   resolveDatabasePath,
   type AttachmentChunkRecord,
   type AttachmentDirectoryRecord,
@@ -706,12 +707,16 @@ function attachmentEnumerateByLabel(store: AttachmentStore, input: Record<string
 
   const limit = clampLimit(input.limit, DEFAULT_LABEL_PAGE_LIMIT, MAX_LABEL_PAGE_LIMIT);
   const offset = Math.max(0, normalizeInteger(input.offset) ?? 0);
-  const tagLower = tag ? tag.toLowerCase() : null;
+  // Stored hint-derived tags are whitespace-collapsed via normalizeComparable
+  // at directory-build time (see buildDirectoryTags in attachment-directory.ts).
+  // Normalize the query the same way, or a tag with doubled internal spaces
+  // could never match its own stored form.
+  const tagLower = tag ? normalizeComparable(tag) : null;
 
   const attachments = store.listAllAttachments({ projectId });
   const matches = attachments.filter((attachment) => {
     if (!tagLower) return true;
-    const tags = latestDirectoryTags(store, attachment.id).map((value) => value.toLowerCase());
+    const tags = latestDirectoryTags(store, attachment.id).map((value) => normalizeComparable(value));
     return tags.includes(tagLower);
   });
 
