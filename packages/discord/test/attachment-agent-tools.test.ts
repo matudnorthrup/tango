@@ -890,3 +890,95 @@ describe("attachment_enumerate", () => {
     expect(result.error).toBe("attachment_enumerate requires mode: list_projects, list_tags, or by_label");
   });
 });
+
+// Review-round fix: attachment_update writes attachments.title, but every
+// read surface renders titles through titleForAttachment, which used to
+// prefer the directory record's title — baked at directory-build time —
+// over the live attachment title. A rename would land in the database and
+// simply never show up anywhere. These tests pin the fixed precedence
+// (live attachment.title first, directory title only as fallback) across
+// two independent read tools, and the whitespace-only-title edge that a
+// naive fix would still get wrong.
+describe("attachment_update title visibility across read surfaces", () => {
+  it("a title change is immediately visible via attachment_search and attachment_enumerate by_label, even though the directory record still carries the old title", async () => {
+    const harness = createHarness();
+    const attachmentId = seedTaggedAttachment(harness.store, {
+      suffix: "cross-tool",
+      projectId: "creator-conference",
+      tags: ["cross-tool-check"],
+      title: "Original Title",
+    });
+    const tools = createAttachmentTools({ storage: harness.storage, store: harness.store });
+    const update = toolByName(tools, "attachment_update");
+    const search = toolByName(tools, "attachment_search");
+    const enumerate = toolByName(tools, "attachment_enumerate");
+
+    const updateResult = await update.handler({
+      id: `attachment:${attachmentId}`,
+      title: "Renamed Title",
+    }) as { title: string | null };
+    expect(updateResult.title).toBe("Renamed Title");
+
+    // The trap: the directory record is never rewritten by attachment_update
+    // and must still carry the stale title.
+    const directoryRecord = harness.store.listDirectories(attachmentId).at(-1);
+    expect((directoryRecord?.directory as { title?: string })?.title).toBe("Original Title");
+
+    const searchResult = await search.handler({
+      query: "Renamed",
+      project_id: "creator-conference",
+    }) as { result_count: number; results: Array<{ attachment_id: number; title: string }> };
+    expect(searchResult.result_count).toBe(1);
+    expect(searchResult.results[0]).toMatchObject({
+      attachment_id: attachmentId,
+      title: "Renamed Title",
+    });
+
+    const enumerateResult = await enumerate.handler({
+      mode: "by_label",
+      tag: "cross-tool-check",
+    }) as { items: Array<{ attachment_id: number; title: string }> };
+    expect(enumerateResult.items).toHaveLength(1);
+    expect(enumerateResult.items[0]).toMatchObject({
+      attachment_id: attachmentId,
+      title: "Renamed Title",
+    });
+  });
+
+  it("coerces a whitespace-only title/project update to null, never an empty string, and reads fall back to the directory title", async () => {
+    const harness = createHarness();
+    const attachmentId = seedTaggedAttachment(harness.store, {
+      suffix: "blank-title",
+      projectId: "creator-conference",
+      tags: ["blank-title-check"],
+      title: "Original Title",
+    });
+    const tools = createAttachmentTools({ storage: harness.storage, store: harness.store });
+    const update = toolByName(tools, "attachment_update");
+    const search = toolByName(tools, "attachment_search");
+
+    const updateResult = await update.handler({
+      id: `attachment:${attachmentId}`,
+      title: "   ",
+      project: "   ",
+    }) as { title: string | null; project_id: string | null };
+    expect(updateResult.title).toBeNull();
+    expect(updateResult.project_id).toBeNull();
+
+    const stored = harness.store.getAttachment(attachmentId)!;
+    expect(stored.title).toBeNull();
+    expect(stored.projectId).toBeNull();
+
+    // titleForAttachment must skip the now-null attachment.title and fall
+    // back to the (still non-empty) directory title, not render a blank.
+    const searchResult = await search.handler({ query: "Original" }) as {
+      result_count: number;
+      results: Array<{ attachment_id: number; title: string }>;
+    };
+    expect(searchResult.result_count).toBe(1);
+    expect(searchResult.results[0]).toMatchObject({
+      attachment_id: attachmentId,
+      title: "Original Title",
+    });
+  });
+});

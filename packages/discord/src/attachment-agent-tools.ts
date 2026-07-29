@@ -587,9 +587,17 @@ function attachmentUpdate(store: AttachmentStore, input: Record<string, unknown>
     return { error: "attachment_update project must be a string" };
   }
 
+  // A trim-to-empty (whitespace-only) value means "no value" — coerce it to
+  // null rather than writing/displaying an empty-string title or project.
   const fields: { title?: string | null; projectId?: string | null } = {};
-  if (hasTitle) fields.title = typeof input.title === "string" ? input.title.trim() : null;
-  if (hasProject) fields.projectId = typeof input.project === "string" ? input.project.trim() : null;
+  if (hasTitle) {
+    const trimmedTitle = typeof input.title === "string" ? input.title.trim() : null;
+    fields.title = trimmedTitle || null;
+  }
+  if (hasProject) {
+    const trimmedProject = typeof input.project === "string" ? input.project.trim() : null;
+    fields.projectId = trimmedProject || null;
+  }
 
   // Codex round-1 MEDIUM fix: raw-array cap before normalization (see
   // attachmentReprocess for the class rationale — same defect, same fix).
@@ -1169,8 +1177,9 @@ function titleForAttachment(
   attachment: AttachmentRecord,
   directory: DirectoryPayload | null,
 ): string {
-  return stringValue(directory?.title)
-    ?? attachment.title
+  const attachmentTitle = attachment.title && attachment.title.length > 0 ? attachment.title : null;
+  return attachmentTitle
+    ?? stringValue(directory?.title)
     ?? attachment.originalFilename
     ?? `Attachment ${attachment.id}`;
 }
