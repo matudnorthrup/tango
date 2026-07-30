@@ -396,6 +396,14 @@ export class ClaudeCodeAdapter implements AgentRuntime {
           this.stateValue = "idle";
           throw error;
         }
+        // A secondary Claude CLI may have an independent session or credential
+        // path. Use it when the primary process stops making progress rather
+        // than leaving the turn as a dead letter after the full timeout.
+        if (hasFallbackAttempt && isClaudeTimeoutError(error)) {
+          this.sessionId = undefined;
+          this.sessionCommand = undefined;
+          continue;
+        }
         this.sessionId = undefined;
         this.sessionCommand = undefined;
         this.stateValue = "error";
@@ -729,4 +737,8 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       child.stdin.end(prompt, "utf8");
     });
   }
+}
+
+function isClaudeTimeoutError(error: unknown): boolean {
+  return error instanceof Error && /^Claude Code request timed out after \d+ms\.$/u.test(error.message);
 }
