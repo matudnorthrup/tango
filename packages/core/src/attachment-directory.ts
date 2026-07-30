@@ -18,6 +18,17 @@ export interface BuildAttachmentDirectoryInput {
   extraction: AttachmentExtractionRecord | null;
   chunks: AttachmentChunkRecord[];
   status: AttachmentDirectoryBuildStatus;
+  /**
+   * T-I-125 Phase 1 — optional operator-supplied context (from
+   * attachment_reprocess's context_hint), threaded in when the reprocess
+   * job re-runs the `directory` strategy. When present it influences both
+   * `summary` and `tags` below, and is recorded verbatim in the output
+   * payload (`context_hint` + `hint_guided: true`) so human-guided
+   * descriptions stay permanently distinguishable from unguided machine
+   * output. Absent/null: the payload carries neither field — byte-identical
+   * to pre-T-I-125 output (hard bar, see spec Gate 2 PARTIAL GO).
+   */
+  contextHint?: string | null;
 }
 
 interface TextSpan {
@@ -64,12 +75,13 @@ export function buildAttachmentDirectory(
   input: BuildAttachmentDirectoryInput,
 ): Record<string, unknown> {
   const { attachment, file, extraction, chunks, status } = input;
+  const contextHint = normalizeContextHintInput(input.contextHint);
   const text = extraction?.text.trim() ?? "";
   const spans = buildTextSpans(text);
   const textLength = text.length;
   const lineCount = spans.length;
   const types = buildDirectoryTypes(attachment, extraction);
-  const tags = buildDirectoryTags(attachment, extraction);
+  const tags = buildDirectoryTags(attachment, extraction, contextHint);
   const chunkSummaries = chunks.slice(0, MAX_CHUNK_PREVIEWS).map((chunk) =>
     buildChunkSummary(chunk, extraction),
   );
@@ -91,7 +103,7 @@ export function buildAttachmentDirectory(
     attachment_id: attachment.id,
     title: attachment.title ?? attachment.originalFilename ?? `Attachment ${attachment.id}`,
     status: directoryStatus,
-    summary: buildSummary(text, attachment, extraction),
+    summary: buildSummary(text, attachment, extraction, contextHint),
     types,
     content_type: attachment.contentType,
     bytes: attachment.bytes,
@@ -140,7 +152,18 @@ export function buildAttachmentDirectory(
       hasOcrLines: Boolean(extraction?.metadata?.lines),
     }),
     open_questions: [],
+    // T-I-125 Phase 1 provenance (non-negotiable): only present when a
+    // context_hint guided this build. Appended LAST so the no-hint payload
+    // shape is byte-identical to pre-T-I-125 output — no new keys at all,
+    // not even null-valued ones.
+    ...(contextHint ? { context_hint: contextHint, hint_guided: true } : {}),
   };
+}
+
+function normalizeContextHintInput(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 export function buildTextSourceRef(
@@ -195,9 +218,11 @@ function buildSummary(
   text: string,
   attachment: AttachmentRecord,
   extraction: AttachmentExtractionRecord | null,
+  contextHint: string | null,
 ): string {
   if (text.length === 0) {
-    return "Attachment was stored, but no usable text has been extracted yet.";
+    const base = "Attachment was stored, but no usable text has been extracted yet.";
+    return contextHint ? truncate(`${contextHint}. ${base}`, MAX_SUMMARY_LENGTH) : base;
   }
 
   const firstParagraph = text
@@ -210,7 +235,10 @@ function buildSummary(
     .join(" / ");
   const base = firstParagraph && firstParagraph.length >= 80 ? firstParagraph : linePreview;
   const prefix = isImageLike(attachment, extraction) ? "OCR text: " : "";
-  return truncate(`${prefix}${base}`, MAX_SUMMARY_LENGTH);
+  const composed = `${prefix}${base}`;
+  return contextHint
+    ? truncate(`${contextHint}. ${composed}`, MAX_SUMMARY_LENGTH)
+    : truncate(composed, MAX_SUMMARY_LENGTH);
 }
 
 function buildDirectoryTypes(
@@ -234,6 +262,7 @@ function buildDirectoryTypes(
 function buildDirectoryTags(
   attachment: AttachmentRecord,
   extraction: AttachmentExtractionRecord | null,
+  contextHint: string | null,
 ): string[] {
   const tags = new Set<string>();
   if (attachment.contentType) tags.add(attachment.contentType);
@@ -244,7 +273,35 @@ function buildDirectoryTags(
   if (attachment.agentId) tags.add(`agent:${attachment.agentId}`);
   if (attachment.projectId) tags.add(`project:${attachment.projectId}`);
   if (extraction?.method) tags.add(extraction.method);
+  if (contextHint) {
+    // The FULL hint as one combined tag — this is the one that matters for
+    // the acceptance test ("we're going with the Cedar Ridge Lodge" pulls
+    // every item under ONE venue tag, selection at the tag level, not
+    // word-fragment matching). Individual word tokens ride
+    // alongside it so a shorter/partial phrase still finds the item via
+    // attachment_search's ranked matching.
+    tags.add(normalizeComparable(contextHint));
+    for (const token of tokenizeContextHint(contextHint)) {
+      tags.add(token);
+    }
+  }
   return [...tags];
+}
+
+// Mirrors the tokenizer in packages/discord/src/attachment-agent-tools.ts
+// (tokenizeQuery) closely enough to keep hint-derived tags matchable by the
+// same case-insensitive convention the enumeration read tools use, without
+// importing across the core/discord package boundary.
+function tokenizeContextHint(hint: string): string[] {
+  return [
+    ...new Set(
+      hint
+        .toLowerCase()
+        .split(/[^a-z0-9]+/u)
+        .map((part) => part.trim())
+        .filter((part) => part.length >= 2),
+    ),
+  ];
 }
 
 function buildKeyFacts(
@@ -606,7 +663,11 @@ function dedupeDirectoryEntries(entries: DirectoryEntry[]): DirectoryEntry[] {
   return output;
 }
 
-function normalizeComparable(value: string): string {
+// Exported so read tools outside this module (attachment_enumerate's
+// by_label lookup, in particular) can normalize a query the same way a
+// hint-derived tag was normalized when it was stored — see
+// attachment-agent-tools.ts's attachmentEnumerateByLabel.
+export function normalizeComparable(value: string): string {
   return value.toLowerCase().replace(/\s+/gu, " ").trim();
 }
 

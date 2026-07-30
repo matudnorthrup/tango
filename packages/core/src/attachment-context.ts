@@ -381,8 +381,8 @@ function resolveScopes(
 }
 
 function titleForCandidate(candidate: Candidate): string {
-  return stringValue(candidate.directory?.title)
-    ?? candidate.record.attachment.title
+  return stringValue(candidate.record.attachment.title)
+    ?? stringValue(candidate.directory?.title)
     ?? candidate.record.attachment.originalFilename
     ?? `Attachment ${candidate.record.attachment.id}`;
 }
