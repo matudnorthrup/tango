@@ -112,6 +112,6 @@
     "@mapbox/polyline": "^1.2.1",
     "better-sqlite3": "^12.9.0",
     "geolib": "^3.3.4",
-    "js-yaml": "^4.2.0"
+    "js-yaml": "^5.2.2"
   }
 }
