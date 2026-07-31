@@ -101,7 +101,7 @@ export interface CalendarBlocker {
 }
 
 export type OrientationNudgeDecision =
-  | { action: "send"; task: string }
+  | { action: "send"; task: string | null }
   | { action: "skip"; reason: string };
 
 export interface OrientationNudgeHandlerOptions {
@@ -115,7 +115,7 @@ export interface OrientationNudgeHandlerOptions {
     channelId: string;
     content: string;
     nudgeId: string;
-    task: string;
+    task: string | null;
   }) => void;
 }
 
@@ -333,7 +333,7 @@ export class OrientationNudgeStore {
     nudgeId: string;
     messageId: string;
     channelId: string;
-    task: string;
+    task: string | null;
     now: Date;
   }): void {
     const nowIso = input.now.toISOString();
@@ -729,11 +729,12 @@ export function evaluateOrientationNudge(input: {
     return { action: "skip", reason: "recent daily note activity" };
   }
 
-  const task = observation.currentTask
-    ? `Task rotation: ${observation.currentTask}`
-    : observation.latestInterstitial?.text
-      ? observation.latestInterstitial.text
-      : "No current task detected";
+  // The interstitial log is the only source of truth for what he's doing now.
+  // Rotation contents are deliberately ignored: "Task rotation" is itself a
+  // mode that gets logged like any other, so the nudge asks about the mode and
+  // never names an individual item inside the rotation. No log entry means we
+  // don't know, and the nudge asks rather than guesses.
+  const task = observation.latestInterstitial?.text ?? null;
   return { action: "send", task };
 }
 
@@ -966,13 +967,16 @@ export function createOrientationNudgeHandler(
 
     return {
       status: "ok",
-      summary: `Sent orientation nudge for ${decision.task}`,
+      summary: `Sent orientation nudge for ${decision.task ?? "an unlogged task"}`,
       data: { nudgeId, channelId, task: decision.task },
     };
   };
 }
 
-function buildNudgeMessage(task: string): string {
+function buildNudgeMessage(task: string | null): string {
+  if (!task) {
+    return "What are you working on right now?";
+  }
   return `Are you still working on **${escapeDiscordMarkdown(task)}**?`;
 }
 

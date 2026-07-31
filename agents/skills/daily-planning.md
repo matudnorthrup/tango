@@ -115,7 +115,12 @@ File: `Planning/Daily/YYYY-MM-DD.md`
 
 Sections in order: Current Task Rotation, Today's Priorities, Other Work, Notes, Interstitial Log. Ends with `![[Daily.base]]` when the template includes it.
 
-`Current Task Rotation` is the orientation nudge source of truth. Use top-level task checkboxes only; the first unchecked *unblocked* item is treated as the current task. Nested checkboxes are ignored by the parser.
+`Interstitial Log` — not the rotation — is the orientation nudge's source of truth for
+what the user is doing right now. The nudge asks about the latest log entry and never
+names an item inside the rotation. See "Rotation Is a Mode, Not a Task" below.
+
+`Current Task Rotation` uses top-level task checkboxes only; nested checkboxes are ignored
+by the parser.
 
 The rotation is **multi-day work that carries across days**, not a daily list. When a
 new daily note is created, all rotation items carry forward from the most recent
@@ -152,14 +157,28 @@ Rules:
   "needs the integration fixed first"), not just "blocked".
 - **Sort blocked items to the bottom** of the rotation, relative order preserved. Carry-forward
   does this automatically; do the same when editing by hand.
-- **Blocked items are skipped by the orientation nudge** — it never offers one as the
-  current task. If every unchecked item is blocked, the nudge reports no current task,
-  which is accurate: the rotation has nothing actionable left.
+- **Blocked items sink to the bottom and are skipped when picking what to work next.** The
+  nudge never names rotation items at all (see below), so blocking one has no effect on it.
 - **Unblocking is the user's call**, same as completion. When they say it's unstuck, strip the
   🚧 and the blocked note and move the line back up with the live work. Don't infer that a
   blocker cleared.
 - Blocked items still carry forward and still keep checkbox state. Never drop one.
 - If nothing is blocked, nothing changes — no marker, no empty subsection.
+
+### Rotation Is a Mode, Not a Task
+
+The user works the rotation by cycling through every item in one pass — each one is a
+short hand-off to an AI agent, so no single item is "what he's working on." **Moving
+between rotation items is not a task transition and must not produce log entries.**
+
+- Starting a pass logs **one** entry: `Task rotation`. That is what the nudge asks about
+  for as long as the pass runs.
+- The orientation nudge reads only the latest `Interstitial Log` entry. It must never
+  name a rotation item, and it does not care what the rotation currently contains.
+- Flipping into focused work on one thing **is** a transition: log that work by name. From
+  then on assume the rotation is over until a new `Task rotation` entry appears.
+- When the user indicates a rotation pass is underway and there's no current `Task
+  rotation` entry, append one (`HH:MM — Task rotation`).
 
 ## What Belongs in Today's Priorities
 
