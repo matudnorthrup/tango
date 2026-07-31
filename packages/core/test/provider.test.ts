@@ -152,6 +152,32 @@ describe("parseClaudePrintJson", () => {
     expect(parsed.metadata?.model).toBe("claude-opus-4-8");
     expect(parsed.metadata?.contextWindowTokens).toBe(1000000);
   });
+
+  it("reports the OBSERVED primary model, not whichever modelUsage key comes first", () => {
+    // The CLI lists every model it touched this turn in arbitrary order,
+    // internal helper models included, so key order is not a meaningful
+    // signal. Primary = highest costUSD, with output tokens breaking exact
+    // cost ties only. This fixture is deliberately discriminating: the
+    // helper model is first-listed, holds the most CACHED tokens (so a
+    // cached-context selector picks it, wrongly) and the most OUTPUT tokens
+    // (so a weighted cost+tokens score picks it, wrongly). Only a true
+    // cost-first comparison names the model that did the work.
+    const parsed = parseClaudePrintJson(
+      JSON.stringify({
+        type: "result",
+        is_error: false,
+        result: "done",
+        session_id: "abc",
+        num_turns: 1,
+        modelUsage: {
+          "claude-haiku-4-5-20251001": { inputTokens: 521, outputTokens: 60000, cacheReadInputTokens: 90000, costUSD: 0.0008 },
+          "claude-sonnet-5": { inputTokens: 10, outputTokens: 390, costUSD: 0.05 },
+        },
+      }) + "\n",
+    );
+
+    expect(parsed.metadata?.model).toBe("claude-sonnet-5");
+  });
 });
 
 describe("buildClaudeCliArgs", () => {
