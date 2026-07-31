@@ -93,6 +93,16 @@ describe("gog_email attachment extraction", () => {
     expect(payload.keyringPassword).toBe("canonical-password");
   });
 
+  it("normalizes Gmail shorthand before invoking gog", async () => {
+    const root = await makeTempRoot();
+    const gogCommand = await writeEnvEchoGog(root);
+
+    const result = await runGogEmail("messages search 'is:unread' --max 1", gogCommand);
+    const payload = JSON.parse(String(result.result)) as { args: string[] };
+
+    expect(payload.args.slice(0, 3)).toEqual(["gmail", "messages", "search"]);
+  });
+
   it("adds bounded extracted text for safe PDF downloads into temp", async () => {
     const root = await makeTempRoot();
     const gogCommand = await writeFakeGog(root);
