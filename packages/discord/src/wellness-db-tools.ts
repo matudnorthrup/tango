@@ -97,7 +97,12 @@ function defaultWellnessDbPath(): string {
 }
 
 export function resolveWellnessDbPath(override?: string): string {
-  const configured = override?.trim() || process.env.WELLNESS_DB_PATH?.trim();
+  // JULES_WELLNESS_DB_PATH is the canonical env var; WELLNESS_DB_PATH is
+  // honored as a fallback so existing .env files and cod-e's config keep
+  // working across the wellness→Jules transition.
+  const configured = override?.trim()
+    || process.env.JULES_WELLNESS_DB_PATH?.trim()
+    || process.env.WELLNESS_DB_PATH?.trim();
   if (configured) {
     return resolveConfiguredPath(configured);
   }
