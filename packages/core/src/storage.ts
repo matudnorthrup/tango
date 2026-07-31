@@ -3078,6 +3078,32 @@ const MIGRATIONS: Migration[] = [
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant');
     `,
   },
+  {
+    // attachment_update (v0 operator write surface: title and project_id
+    // only, real columns, no schema migration). CATALOG ONLY: register the
+    // tool so fresh databases know it exists, but insert NO permission rows
+    // here — who holds a tool is an operator decision, made per install
+    // through its own grant mechanism, never seeded by a migration.
+    // (Renumbered from the source chain's migration 74 onto this chain's tail.)
+    version: 70,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('attachment_update', 'attachments', 'Attachment Update', 'write');
+    `,
+  },
+  {
+    // attachment_enumerate (read-only, exhaustive-by-label listing:
+    // list_projects, list_tags, by_label). Born UNGRANTED, catalog only —
+    // read-vs-write does not change whose word arms a grant: permissions are
+    // operator decisions, inserted per install by the operator, never by a
+    // migration. (Renumbered from the source chain's migration 75 onto this
+    // chain's tail.)
+    version: 71,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('attachment_enumerate', 'attachments', 'Attachment Enumerate', 'read');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

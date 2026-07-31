@@ -2226,3 +2226,51 @@ describe("TangoStorage", () => {
     storage.close();
   });
 });
+
+// attachment_update (v0 operator write surface) registers as a catalog-only
+// write tool, born ungranted: who holds it is the operator's decision, made
+// per install, never applied by a migration.
+// (Renumbered from the source chain's 74 onto this chain's tail.)
+describe("attachment_update governance registration (migration 70)", () => {
+  it("registers the tool as write-access and grants it to no one", () => {
+    const { storage } = createStorage();
+
+    const tool = storage
+      .getDatabase()
+      .prepare("SELECT id, domain, access_type FROM governance_tools WHERE id = 'attachment_update'")
+      .get() as { id?: string; domain?: string; access_type?: string } | undefined;
+    expect(tool?.id).toBe("attachment_update");
+    expect(tool?.domain).toBe("attachments");
+    expect(tool?.access_type).toBe("write");
+
+    const grants = storage
+      .getDatabase()
+      .prepare("SELECT COUNT(*) AS count FROM permissions WHERE tool_id = 'attachment_update'")
+      .get() as { count: number };
+    expect(grants.count).toBe(0);
+  });
+});
+
+// attachment_enumerate (exhaustive-by-label read tool). Born UNGRANTED:
+// grants are operator decisions, applied per install on the operator's word.
+// This test PINS the ungranted state so a future edit cannot silently arm it
+// in the migration. (Renumbered from the source chain's 75 onto this chain's tail.)
+describe("attachment_enumerate governance registration (migration 71)", () => {
+  it("registers the tool as read-access with ZERO grants (born ungranted)", () => {
+    const { storage } = createStorage();
+
+    const tool = storage
+      .getDatabase()
+      .prepare("SELECT id, domain, access_type FROM governance_tools WHERE id = 'attachment_enumerate'")
+      .get() as { id?: string; domain?: string; access_type?: string } | undefined;
+    expect(tool?.id).toBe("attachment_enumerate");
+    expect(tool?.domain).toBe("attachments");
+    expect(tool?.access_type).toBe("read");
+
+    const grantCount = storage
+      .getDatabase()
+      .prepare("SELECT COUNT(*) AS count FROM permissions WHERE tool_id = 'attachment_enumerate'")
+      .get() as { count: number };
+    expect(grantCount.count).toBe(0);
+  });
+});
