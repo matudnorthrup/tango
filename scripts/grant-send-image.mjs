@@ -30,7 +30,7 @@ const PRINCIPALS = [
   "worker:personal-assistant",   // watson
   "worker:research-assistant",   // sierra
   "worker:research-coordinator", // sierra (live-created, not in seed)
-  "worker:church-assistant",     // porter
+  "worker:study-assistant",     // porter
   "worker:dev-assistant",        // victor
   "worker:operations-assistant", // victor
   "worker:foxtrot",              // foxtrot

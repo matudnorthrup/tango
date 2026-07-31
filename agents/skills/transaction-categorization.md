@@ -28,13 +28,38 @@ category from a Lunch Money rule; still verify it against the finance rules.
 
 ## Step 2: Apply automatic rules
 
-Read the categorization rules from the path provided in the task context. When
-invoked by the nightly job, that path is
-`References/Finance/Lunch Money Rules.md`. For background jobs, resolve that
-vault-relative path beneath the configured `TANGO_OBSIDIAN_VAULT` and read it
-with direct filesystem I/O. Never treat it as relative to the Tango repository;
-that produces a false ENOENT and silently bypasses the rules. If no path or
-configured vault root is provided, stop and report the block — do not guess.
+For background jobs, the deterministic pre-check reads
+`References/Finance/Lunch Money Rules.md` beneath the configured vault and
+places the verified content directly in the task context. Use that supplied
+content; do not perform a second path lookup. If the verified content is absent,
+stop without updating or clearing transactions and report the run as blocked.
+Never guess or silently fall back to a default category.
+
+For an interactive categorization request without supplied rules, read the note
+through the Obsidian tool with the vault-relative path exactly once:
+`print 'References/Finance/Lunch Money Rules.md' --vault main`. The tool adds
+`.md` only when it is absent, so do not append another extension.
+
+### Budget-neutral transfer guard
+
+Apply this guard before ordinary payee rules or an existing auto-applied
+category. Transactions explicitly identified in task context as internal bank
+transfers must use the live Lunch Money category named exactly `Transfer` and
+must not retain a spend, income, or sinking-fund category. Clear successfully
+classified transfers and omit them from spend/income review.
+
+When no deterministic transfer list is supplied, treat a transaction as an
+internal bank transfer only when both signals agree:
+
+- Plaid metadata identifies an account transfer (`TRANSFER_IN` or
+  `TRANSFER_OUT` with an `ACCOUNT_TRANSFER` or `SAVINGS` detail); and
+- the payee explicitly describes a transfer to/from a named bank account, or
+  the counterparty is a financial institution and the payee says transfer
+  to/from.
+
+This includes ALLY internal account legs and equivalent bank-account transfers.
+It does not include Venmo payments, ATM cash withdrawals, or ambiguous merchant
+transfers solely because Plaid uses a broad transfer label.
 
 For each uncategorized transaction, check payee against rules (first match wins). Auto-categorizable transactions can be updated directly:
 

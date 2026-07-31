@@ -30,15 +30,26 @@ execution:
        the finance rules.
     2. If the follow-up fetch unexpectedly returns zero transactions,
        return EXACTLY the text "__NO_OUTPUT__" and nothing else.
-    3. Read the categorization rules with direct filesystem I/O from
-       $TANGO_OBSIDIAN_VAULT/References/Finance/Lunch Money Rules.md.
-       Do not resolve this path relative to the Tango repository. If the
-       configured file cannot be read, stop and report the run as blocked.
-    4. Follow the transaction_categorization skill to apply rules,
+    3. The deterministic pre-check successfully read the categorization rules
+       from the vault-relative path {{categorizationRulesPath}}. Use the exact
+       verified content below; do not attempt another path lookup and do not
+       fall back to a default category.
+
+       <finance-categorization-rules>
+       {{categorizationRules}}
+       </finance-categorization-rules>
+    4. Mandatory budget-neutral transfer guard: the pre-check identified
+       {{budgetNeutralTransferCount}} internal bank transfer(s):
+       {{budgetNeutralTransferDetails}}
+       Before ordinary payee rules, assign every listed transaction to the live
+       Lunch Money category named exactly "Transfer" and clear it. This guard
+       overrides any spend, income, or sinking-fund category already attached
+       by an auto-rule. Do not surface these transactions for spend/income review.
+    5. Follow the transaction_categorization skill to apply rules,
        handle splits, and flag ambiguous vendors for review.
-    5. Apply categories via the Lunch Money API (PUT with category_id
+    6. Apply categories via the Lunch Money API (PUT with category_id
        and status: "cleared").
-    6. Return a concise summary for the finance thread:
+    7. Return a concise summary for the finance thread:
        "Categorized N transactions tonight — here's what I did.
        Reply to correct anything."
        Then list each transaction: payee, amount, applied category.

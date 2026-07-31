@@ -584,3 +584,77 @@ describe("createAttachmentProcessingHandlers", () => {
     });
   });
 });
+
+// T-I-125 Phase 1 — end-to-end context_hint threading: attachment_reprocess
+// (packages/discord) writes contextHint onto the `directory` job's own
+// metadata; createDirectoryHandler here must read it back and pass it to
+// buildAttachmentDirectory. This proves the JOB-METADATA leg of that path
+// (the tool-layer leg — cap enforcement, batch ids — is covered in
+// packages/discord/test/attachment-agent-tools.test.ts; the pure-builder
+// leg is covered in attachment-directory.test.ts).
+describe("createDirectoryHandler — T-I-125 Phase 1 context_hint threading", () => {
+  it("a directory job with no contextHint in metadata produces a payload byte-identical to before (no hint fields)", async () => {
+    const harness = createHarness();
+    const attachment = createAttachment({
+      harness,
+      filename: "notes.txt",
+      contentType: "text/plain",
+      bytes: Buffer.from("Owner: User\nTotal $12.34", "utf8"),
+    });
+    harness.store.addExtraction({
+      attachmentId: attachment.id,
+      method: "utf8_text",
+      text: "Owner: User\nTotal $12.34",
+      confidence: 0.9,
+    });
+    harness.store.enqueueJob({
+      attachmentId: attachment.id,
+      kind: "directory",
+      metadata: { queuedByJobId: 0, reason: "extraction_text_available" },
+    });
+
+    const worker = new AttachmentJobWorker(
+      harness.store,
+      "attachment-processing-hint-test",
+      createAttachmentProcessingHandlers(),
+    );
+    await drainUntilIdle(worker);
+
+    const directory = latestDirectory(harness, attachment);
+    expect(directory).not.toHaveProperty("context_hint");
+    expect(directory).not.toHaveProperty("hint_guided");
+    expect(JSON.stringify(directory)).not.toContain("hint_guided");
+  });
+
+  it("a directory job carrying job.metadata.contextHint threads it into summary, tags, and provenance", async () => {
+    const harness = createHarness();
+    const attachment = createAttachment({
+      harness,
+      filename: "IMG_0002.png",
+      contentType: "image/png",
+      bytes: Buffer.from("fake-image-bytes", "utf8"),
+    });
+    // Signage-less photo: no extraction at all (the founding use case —
+    // Piper's Westin banquet room, generic-description-only).
+    harness.store.enqueueJob({
+      attachmentId: attachment.id,
+      kind: "directory",
+      metadata: { queuedByJobId: 0, contextHint: "Westin SFO banquet room" },
+    });
+
+    const worker = new AttachmentJobWorker(
+      harness.store,
+      "attachment-processing-hint-test-2",
+      createAttachmentProcessingHandlers(),
+    );
+    await drainUntilIdle(worker);
+
+    const directory = latestDirectory(harness, attachment);
+    expect(directory.context_hint).toBe("Westin SFO banquet room");
+    expect(directory.hint_guided).toBe(true);
+    expect(String(directory.summary)).toContain("Westin SFO banquet room");
+    expect(directory.tags).toEqual(
+      expect.arrayContaining(["westin", "sfo", "banquet", "room"]),
+    );
+  });
+});

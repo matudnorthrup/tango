@@ -74,8 +74,14 @@ execution:
        note must include frontmatter with `date`, `types: ["[[Receipt]]"]`,
        and `areas: ["[[Finance]]"]`. Do not write frontmatter `categories`
        or scalar `type`/`types`/`areas` fields.
-    4. Use the transaction_categorization skill rules to suggest
-       categories for non-grocery items.
+    4. The deterministic pre-check successfully read the categorization rules
+       from the vault-relative path {{categorizationRulesPath}}. Use the exact
+       verified content below to suggest categories for non-grocery items; do
+       not attempt another path lookup or fall back to a default category.
+
+       <finance-categorization-rules>
+       {{categorizationRules}}
+       </finance-categorization-rules>
     5. For any reimbursable vendor receipt created, add or repair the
        frontmatter plus ## Reimbursement Tracking section using the
        receipt_registry upsert_reimbursement action.

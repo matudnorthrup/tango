@@ -9,11 +9,11 @@
  * real Chrome/Brave instance avoids automated-browser fingerprint detection.
  */
 
-import { chromium, type Browser, type Locator, type Page } from "playwright-core";
+import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright-core";
 import { spawn, execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readProfileConfigString, resolveLegacyDataDir, resolveTangoDataPath } from "@tango/core";
+import { readProfileConfigString, resolveTangoHome } from "@tango/core";
 import {
   buildEmailEvidenceHtml,
   buildRampReviewUrl,
@@ -43,6 +43,13 @@ import type { RampReimbursementHistoryRecord } from "./receipt-reimbursement-reg
 const debug = (...args: unknown[]) => {
   console.error("[browser-manager]", ...args);
 };
+
+/**
+ * Marks a tab as Tango's own. Stored in per-tab sessionStorage so it survives
+ * navigation inside the tab and disappears when the tab does, which lets a new
+ * process re-adopt its own tabs without ever grabbing a person's.
+ */
+const TANGO_OWNED_TAB_KEY = "tango:owned-tab";
 
 const CDP_CONNECT_TIMEOUT_MS = 15_000;
 const PAGE_READY_TIMEOUT_MS = 10_000;
@@ -264,22 +271,25 @@ function findBrowserPath(): string | null {
   ));
 }
 
+/**
+ * Where the automation browser keeps its cookies and logins.
+ *
+ * One machine-wide directory, deliberately: there is a single browser on a
+ * single CDP port, so a per-profile or per-worktree path only ever produced a
+ * second cookie jar that some runs used and others did not — logins saved in
+ * one were simply missing in the other. It lives under the Tango home rather
+ * than the repo so `git clean -xdf`, a worktree, or moving the checkout cannot
+ * delete every saved session.
+ *
+ * `TANGO_BROWSER_PROFILE_DIR` overrides it; nothing else does.
+ */
 export function resolveBrowserProfileDir(): string {
   const configured = process.env.TANGO_BROWSER_PROFILE_DIR?.trim();
   if (configured && configured.length > 0) {
     return path.resolve(configured);
   }
 
-  if (process.env.TANGO_DATA_DIR?.trim()) {
-    return resolveTangoDataPath("browser-profile");
-  }
-
-  const legacyProfileDir = path.join(resolveLegacyDataDir(), "browser-profile");
-  if (fs.existsSync(legacyProfileDir)) {
-    return legacyProfileDir;
-  }
-
-  return resolveTangoDataPath("browser-profile");
+  return path.join(resolveTangoHome(), "browser-profile");
 }
 
 export function buildBrowserLaunchArgs(port: number, profileDir: string): string[] {
@@ -315,6 +325,61 @@ export function parseCdpListenerPids(
     }
   }
   return [...seen];
+}
+
+/**
+ * Pull `--user-data-dir` out of a browser process command line. Exported for tests.
+ * Handles both `--user-data-dir=/path` and `--user-data-dir /path` forms.
+ */
+export function parseUserDataDirFromCommand(command: string): string | null {
+  const inline = command.match(/--user-data-dir=(.+?)(?=\s+--|\s*$)/u);
+  if (inline?.[1]) {
+    return inline[1].trim();
+  }
+  const spaced = command.match(/--user-data-dir\s+(.+?)(?=\s+--|\s*$)/u);
+  return spaced?.[1]?.trim() ?? null;
+}
+
+/**
+ * Which profile is the browser on `port` actually running? A CDP client gets
+ * whichever browser claimed the port first, which may not be the profile this
+ * process would have launched — the difference is invisible except that every
+ * saved login is missing. Returns null when the profile cannot be determined.
+ */
+export function readRunningBrowserProfileDir(port: number): string | null {
+  for (const pid of findCdpListenerPids(port)) {
+    try {
+      const command = execSync(`ps -p ${pid} -o command=`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const dir = parseUserDataDirFromCommand(command);
+      if (dir) {
+        return dir;
+      }
+    } catch {
+      /* ignore and try the next listener */
+    }
+  }
+  return null;
+}
+
+/**
+ * Compare the profile a connected browser is actually using against the one this
+ * process resolves. A mismatch means cookies/logins live somewhere else.
+ */
+export function describeBrowserProfile(port = 9223): {
+  expected: string;
+  actual: string | null;
+  matches: boolean | null;
+} {
+  const expected = resolveBrowserProfileDir();
+  const actual = readRunningBrowserProfileDir(port);
+  return {
+    expected,
+    actual,
+    matches: actual === null ? null : path.resolve(actual) === path.resolve(expected),
+  };
 }
 
 function findCdpListenerPids(port: number): number[] {
@@ -390,6 +455,8 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 export class BrowserManager {
   private browser: Browser | null = null;
   private page: Page | null = null;
+  /** Tabs this manager owns per origin, so it never navigates a person's tab. */
+  private originPages = new Map<string, Page>();
 
   /**
    * Launch Brave with remote debugging enabled.
@@ -447,6 +514,86 @@ export class BrowserManager {
     );
   }
 
+  /** Connect (launching Brave if needed) without disturbing the active page. */
+  async ensureConnected(port = 9223): Promise<void> {
+    if (this.browser?.isConnected()) {
+      return;
+    }
+    await this.launch(port);
+  }
+
+  /** The Playwright context backing the connected browser. */
+  context(): BrowserContext {
+    if (!this.browser) {
+      throw new Error(
+        "No browser connected. Use action 'launch' first, or 'connect' with a CDP URL.",
+      );
+    }
+    const ctx = this.browser.contexts()[0];
+    if (!ctx) {
+      throw new Error("No browser context found");
+    }
+    return ctx;
+  }
+
+  /**
+   * Get a tab dedicated to `origin`, isolated from the shared active page.
+   *
+   * The single shared `page` is whatever the last tool navigated it to, so
+   * running an origin's API calls through it silently makes them cross-origin
+   * (no cookies, CORS failures that read like auth failures) and steals that
+   * workflow's tab.
+   *
+   * The tab returned here is Tango's own: one this process created, or one a
+   * previous process created and marked (the marker is per-tab sessionStorage,
+   * which survives navigation within the tab). A person's own tab on the same
+   * site is never reused — that would navigate the page out from under them
+   * mid-read, even when the URL happens to match.
+   */
+  async pageForOrigin(origin: string, startUrl: string): Promise<Page> {
+    const ctx = this.context();
+
+    const owned = this.originPages.get(origin);
+    if (owned && !owned.isClosed()) {
+      return owned;
+    }
+
+    for (const candidate of ctx.pages()) {
+      if (candidate.isClosed()) continue;
+      try {
+        if (new URL(candidate.url()).origin !== origin) continue;
+      } catch {
+        continue;
+      }
+      const marked = await candidate
+        .evaluate((key) => window.sessionStorage.getItem(key) === "1", TANGO_OWNED_TAB_KEY)
+        .catch(() => false);
+      if (marked) {
+        this.trackOriginPage(origin, candidate);
+        return candidate;
+      }
+    }
+
+    const page = await ctx.newPage();
+    this.trackOriginPage(origin, page);
+    await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch((err) => {
+      debug(`pageForOrigin(${origin}) initial navigation failed`, err);
+    });
+    await page
+      .evaluate((key) => window.sessionStorage.setItem(key, "1"), TANGO_OWNED_TAB_KEY)
+      .catch(() => undefined);
+    return page;
+  }
+
+  private trackOriginPage(origin: string, page: Page): void {
+    this.originPages.set(origin, page);
+    page.once("close", () => {
+      if (this.originPages.get(origin) === page) {
+        this.originPages.delete(origin);
+      }
+    });
+  }
+
   /** Connect to an existing browser via Chrome DevTools Protocol. */
   async connect(cdpUrl: string): Promise<string> {
     if (this.browser && this.page) {
@@ -482,6 +629,7 @@ export class BrowserManager {
       debug("Browser disconnected");
       this.browser = null;
       this.page = null;
+      this.originPages.clear();
     });
 
     const contexts = this.browser.contexts();
@@ -3032,6 +3180,7 @@ export class BrowserManager {
       }
       this.browser = null;
       this.page = null;
+      this.originPages.clear();
     }
     return "Browser disconnected";
   }

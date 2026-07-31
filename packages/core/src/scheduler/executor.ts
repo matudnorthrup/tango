@@ -18,6 +18,7 @@ import type {
 } from "./types.js";
 import type { SchedulerStore } from "./store.js";
 import { getDeterministicHandler, getPreCheckHandler } from "./handlers.js";
+import { resolveDefaultObsidianVaultPath } from "../obsidian-indexer.js";
 
 export interface ExecutionResult {
   status: RunStatus;
@@ -35,7 +36,11 @@ export interface ExecutorDeps {
   db: import("node:sqlite").DatabaseSync;
 }
 
-function writeObsidianLog(config: ScheduleConfig, summary: string): void {
+function writeObsidianLog(
+  config: ScheduleConfig,
+  summary: string,
+  status: "Done" | "Failed" = "Done",
+): void {
   if (!config.obsidianLog) return;
 
   const { domain, jobName } = config.obsidianLog;
@@ -47,10 +52,14 @@ function writeObsidianLog(config: ScheduleConfig, summary: string): void {
   const hh = String(now.getHours()).padStart(2, "0");
   const min = String(now.getMinutes()).padStart(2, "0");
 
+  const configuredVaultRoot = resolveDefaultObsidianVaultPath();
+  const vaultRoot = path.resolve(configuredVaultRoot === "~"
+    ? os.homedir()
+    : configuredVaultRoot.startsWith(`~${path.sep}`)
+      ? path.join(os.homedir(), configuredVaultRoot.slice(2))
+      : configuredVaultRoot);
   const jobsDir = path.join(
-    os.homedir(),
-    "Documents",
-    "main",
+    vaultRoot,
     "Records",
     "Jobs",
     domain,
@@ -67,7 +76,7 @@ function writeObsidianLog(config: ScheduleConfig, summary: string): void {
     "",
     `## ${yyyy}-${mm}-${dd} ${hh}:${min} — ${jobName}`,
     "",
-    "**Status:** Done",
+    `**Status:** ${status}`,
     `**Summary:** ${truncatedSummary}`,
     "",
     flaggedSection ?? "No flagged items.",
@@ -299,10 +308,18 @@ export async function executeSchedule(
         };
     }
   } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    if (config.obsidianLog) {
+      try {
+        writeObsidianLog(config, `Error: ${error}`, "Failed");
+      } catch (logError) {
+        console.error(`[scheduler] obsidian-log error for failed ${config.id}:`, logError);
+      }
+    }
     return {
       status: "error",
       durationMs: Date.now() - startTime,
-      error: err instanceof Error ? err.message : String(err),
+      error,
     };
   }
 }

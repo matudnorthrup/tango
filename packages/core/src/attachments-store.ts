@@ -578,6 +578,60 @@ export class AttachmentStore {
     return rows.map(toAttachmentRecord);
   }
 
+  /**
+   * T-I-125 Phase 1 — enumeration support (attachment_enumerate). Unlike
+   * listAttachments(), this is deliberately UNBOUNDED (no LIMIT clause,
+   * normalizeLimit's 500 cap does not apply): the acceptance test
+   * ("every PDF, every image... 100% recall") requires an exact total across
+   * the whole library, not a capped sample. Callers that want paging apply
+   * limit/offset themselves after filtering — see attachment-enumeration in
+   * packages/discord for the tool-level page slice.
+   */
+  listAllAttachments(filters: Omit<AttachmentListFilters, "limit"> = {}): AttachmentRecord[] {
+    const { where, values } = buildAttachmentWhere(filters);
+    const rows = this.db
+      .prepare(
+        `SELECT ${ATTACHMENT_COLUMNS}
+         FROM attachments
+         ${where}
+         ORDER BY id ASC`
+      )
+      .all(...values) as unknown as AttachmentRow[];
+    return rows.map(toAttachmentRecord);
+  }
+
+  /**
+   * T-I-125 Phase 1 (v0) — operator write surface, REAL COLUMNS ONLY.
+   * Touches title and/or project_id (plus updated_at); never writes
+   * directory_json, tags, or any other column. Only the fields present as
+   * own keys of `fields` are updated — `{}` is a no-op read-back, not a
+   * blanket NULL-out.
+   */
+  updateAttachmentOperatorFields(
+    id: number,
+    fields: { title?: string | null; projectId?: string | null },
+  ): AttachmentRecord | null {
+    const sets: string[] = [];
+    const values: SqliteValue[] = [];
+    if ("title" in fields) {
+      sets.push("title = ?");
+      values.push(fields.title ?? null);
+    }
+    if ("projectId" in fields) {
+      sets.push("project_id = ?");
+      values.push(fields.projectId ?? null);
+    }
+    if (sets.length === 0) {
+      return this.getAttachment(id);
+    }
+    sets.push("updated_at = datetime('now')");
+    values.push(id);
+    this.db
+      .prepare(`UPDATE attachments SET ${sets.join(", ")} WHERE id = ?`)
+      .run(...values);
+    return this.getAttachment(id);
+  }
+
   enqueueJob(input: AttachmentJobEnqueueInput): AttachmentJobRecord {
     const result = this.db
       .prepare(

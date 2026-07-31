@@ -247,4 +247,45 @@ describe("buildAttachmentDirectoryContext", () => {
       expect(result.prompt).toContain(`attachment:${entry.attachmentId}`);
     }
   });
+
+  // Review-round fix: titleForCandidate used to prefer the directory
+  // record's title over the live attachment title, so a rename applied
+  // after the directory was built would never show up in the rendered
+  // prompt or trace — the directory record is never rewritten by an
+  // attachment title update. Pin the corrected precedence: the live
+  // attachment.title wins once it's non-empty.
+  it("renders and traces the live attachment title once it's updated, even though the directory record still carries the old title", () => {
+    const { store } = createHarness().open();
+    const seeded = seedDirectory(store, {
+      suffix: "renamed",
+      title: "Original Directory Title",
+      summary: "A directory whose attachment title gets updated after the directory was built.",
+      channelId: "channel-1",
+      threadId: "thread-1",
+    });
+
+    store.updateAttachmentOperatorFields(seeded.attachment.id, { title: "Renamed Attachment Title" });
+
+    // The trap: the directory record is untouched by the title update and
+    // must still carry the stale title.
+    const directoryRecord = store.listDirectories(seeded.attachment.id).at(-1);
+    expect((directoryRecord?.directory as { title?: string } | undefined)?.title).toBe(
+      "Original Directory Title",
+    );
+
+    const result = buildAttachmentDirectoryContext({
+      store,
+      conversationKey: "thread:thread-1",
+      discordChannelId: "channel-1",
+      agentId: "watson",
+      currentUserPrompt: "Review the renamed directory",
+    });
+
+    expect(result.prompt).toContain("Renamed Attachment Title");
+    expect(result.prompt).not.toContain("Original Directory Title");
+    expect(result.trace.selected[0]).toMatchObject({
+      attachmentId: seeded.attachment.id,
+      title: "Renamed Attachment Title",
+    });
+  });
 });

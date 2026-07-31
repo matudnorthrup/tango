@@ -359,7 +359,7 @@ describe("TangoRouter", () => {
   it("suppresses v2 internal worker-dispatch tags before delivery and post-turn hooks", async () => {
     const response = createResponse([
       "Dispatching to fetch sources.",
-      '<worker-dispatch worker="church-assistant">Fetch Alma 32:21.</worker-dispatch>',
+      '<worker-dispatch worker="study-assistant">Fetch Alma 32:21.</worker-dispatch>',
     ].join("\n\n"));
     const onPostTurn = vi.fn(async () => {});
 
