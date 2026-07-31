@@ -1,6 +1,8 @@
 # Voice State Machine — V2 Design
 
-> **Status: RETIRED (July 2026) — never implemented past Phase 2.**
+> **Status: scaffolding landed (state machine + interrupt layer + transition
+> tests, unwired); production pipeline remains V1 — see
+> [`../architecture/voice-pipeline-state-machine.md`](../architecture/voice-pipeline-state-machine.md).**
 >
 > Phases 1–2 landed as code (`V2PipelineStateMachine`, `InterruptLayer`, a V2
 > test harness), but Phases 3–8 never ran and `VoicePipeline` never consumed
