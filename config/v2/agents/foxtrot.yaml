@@ -60,6 +60,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
     env:
       ALLOWED_TOOL_IDS: "agent_docs"
+  - name: collaboration
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "collaboration"]
+    env:
+      ALLOWED_TOOL_IDS: "collaborate_with_agent"
   - name: kilo-ledger
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "kilo-ledger"]
@@ -111,6 +116,9 @@ responsibilities:
       writes_require_confirmation: true
       purchase_or_payment: never
     collaboration:
+      can_request:
+        - agent: kilo
+          purposes: ["kilo-spending-support"]
       can_fulfill:
         - purpose: receipt-status-check
           max_turns: 1

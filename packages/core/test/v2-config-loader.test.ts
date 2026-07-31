@@ -165,6 +165,9 @@ describe("loadV2AgentConfig", () => {
   it("loads generic responsibility and collaboration policy config", () => {
     const victor = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "victor.yaml"));
     const sierra = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "sierra.yaml"));
+    const foxtrot = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "foxtrot.yaml"));
+    const foxtrotOllama = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "foxtrot-ollama.yaml"));
+    const kilo = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "kilo.yaml"));
 
     expect(victor.responsibilities?.[0]).toMatchObject({
       id: "operations_coordination",
@@ -189,6 +192,28 @@ describe("loadV2AgentConfig", () => {
       maxDurationSeconds: 180,
       maxToolCalls: 6,
       visibilityModes: ["summary", "digest", "thread", "transcript", "silent"],
+    });
+
+    for (const config of [foxtrot, foxtrotOllama]) {
+      expect(config.mcpServers.find((server) => server.name === "collaboration")).toMatchObject({
+        args: ["packages/core/dist/mcp-proxy.js", "collaboration"],
+        env: { ALLOWED_TOOL_IDS: "collaborate_with_agent" },
+      });
+      expect(config.responsibilities?.[0]?.collaboration?.canRequest).toEqual([
+        { agent: "kilo", purposes: ["kilo-spending-support"] },
+      ]);
+    }
+
+    expect(kilo.responsibilities?.[0]).toMatchObject({
+      id: "kid_spending_support",
+      collaboration: {
+        canFulfill: [{
+          purpose: "kilo-spending-support",
+          maxTurns: 1,
+          maxDurationSeconds: 180,
+          maxToolCalls: 4,
+        }],
+      },
     });
   });
 

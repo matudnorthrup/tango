@@ -31,6 +31,24 @@ memory:
   importance_threshold: 0.9
   scheduled_reflection: disabled
 
+responsibilities:
+  - id: kid_spending_support
+    description: Provide child-facing spending information, questions, and instructions using only the Kilo ledger.
+    objectives:
+      - Explain Kilo spending information clearly and age-appropriately.
+      - Keep household finance outside the Kilo boundary.
+    autonomy:
+      default: supervised
+      writes_require_confirmation: true
+      purchase_or_payment: never
+    collaboration:
+      can_fulfill:
+        - purpose: kilo-spending-support
+          max_turns: 1
+          max_duration_seconds: 180
+          max_tool_calls: 4
+          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
+
 voice:
   call_signs:
     - Kilo

@@ -60,6 +60,11 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "agent-docs"]
     env:
       ALLOWED_TOOL_IDS: "agent_docs"
+  - name: collaboration
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "collaboration"]
+    env:
+      ALLOWED_TOOL_IDS: "collaborate_with_agent"
   - name: kilo-ledger
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "kilo-ledger"]
@@ -97,6 +102,32 @@ state:
     - automation-job
     - finance-review
   focus_ttl_days: 7
+
+responsibilities:
+  - id: finance_support
+    description: Provide bounded finance, receipt, and reimbursement status support for other agents.
+    objectives:
+      - Verify finance status from configured source-of-record tools.
+      - Preserve confirmation requirements for writes, submissions, purchases, and payments.
+    autonomy:
+      default: supervised
+      writes_require_confirmation: true
+      purchase_or_payment: never
+    collaboration:
+      can_request:
+        - agent: kilo
+          purposes: ["kilo-spending-support"]
+      can_fulfill:
+        - purpose: receipt-status-check
+          max_turns: 1
+          max_duration_seconds: 180
+          max_tool_calls: 6
+          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
+        - purpose: finance-summary
+          max_turns: 1
+          max_duration_seconds: 180
+          max_tool_calls: 6
+          visibility_modes: ["summary", "digest", "thread", "transcript", "silent"]
 
 discord:
   default_channel_id: "100000000000000005"
