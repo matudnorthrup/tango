@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.45.0",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@tango/atlas-memory": "0.1.0",
     "@tango/core": "0.1.0",
     "@tango/voice": "0.1.0",
