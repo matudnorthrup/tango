@@ -139,7 +139,7 @@ describe("governance seed", () => {
     for (const principal of [
       "worker:personal-assistant",
       "worker:research-assistant",
-      "worker:church-assistant",
+      "worker:study-assistant",
       "worker:dev-assistant",
       "worker:workout-recorder",
       "worker:foxtrot",

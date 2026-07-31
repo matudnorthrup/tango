@@ -99,7 +99,10 @@ describe("state management schema and governance", () => {
 
     storage = new TangoStorage(dbPath);
     service = new StateService(storage.getDatabase(), { now: () => new Date("2026-07-18T12:00:00Z") });
-    expect((storage.getDatabase().prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(66);
+    // The point is that the v65/v66 substrate migrated, not that 66 is the head;
+    // later migrations keep landing above it.
+    expect((storage.getDatabase().prepare("PRAGMA user_version").get() as { user_version: number }).user_version)
+      .toBeGreaterThanOrEqual(66);
     expect(service.getEntity(created.entity.id)).toMatchObject({
       title: "Migration Fixture",
       attributes: { progress_pct: 25 },

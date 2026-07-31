@@ -235,13 +235,13 @@ describe("loadV2AgentConfig", () => {
     }
   });
 
-  it("loads Porter as an LDS companion with direct governed tool access", () => {
+  it("loads Porter as an faith companion with direct governed tool access", () => {
     const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", "porter.yaml"));
 
     expect(config).toMatchObject({
       id: "porter",
       displayName: "Porter",
-      type: "lds-companion",
+      type: "faith-companion",
       avatarPath: "agents/assistants/porter/avatar.png",
       systemPromptFile: "agents/assistants/porter/soul.md",
       runtime: {
@@ -262,16 +262,16 @@ describe("loadV2AgentConfig", () => {
     });
 
     const serverNames = config.mcpServers.map((server) => server.name);
-    expect(serverNames).toEqual(expect.arrayContaining(["memory", "google", "obsidian", "browser", "gospel-library", "onepassword"]));
+    expect(serverNames).toEqual(expect.arrayContaining(["memory", "google", "obsidian", "browser", "study-library", "onepassword"]));
     expect(serverNames).not.toContain("agent-docs");
 
-    const gospelLibraryServer = config.mcpServers.find((server) => server.name === "gospel-library");
+    const gospelLibraryServer = config.mcpServers.find((server) => server.name === "study-library");
     expect(gospelLibraryServer).toMatchObject({
       command: "node",
-      args: ["packages/core/dist/mcp-proxy.js", "gospel-library"],
+      args: ["packages/core/dist/mcp-proxy.js", "study-library"],
       env: {
-        ALLOWED_TOOL_IDS: "gospel_library",
-        WORKER_ID: "church-assistant",
+        ALLOWED_TOOL_IDS: "study_library",
+        WORKER_ID: "study-assistant",
       },
     });
 
@@ -281,7 +281,7 @@ describe("loadV2AgentConfig", () => {
       args: ["packages/core/dist/mcp-proxy.js", "onepassword"],
       env: {
         ALLOWED_TOOL_IDS: "onepassword",
-        WORKER_ID: "church-assistant",
+        WORKER_ID: "study-assistant",
       },
     });
   });

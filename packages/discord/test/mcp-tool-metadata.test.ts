@@ -29,8 +29,8 @@ describe("mcp tool metadata", () => {
     });
   });
 
-  it("marks Gospel Library as an open-world tool", () => {
-    expect(getMcpToolAnnotations("gospel_library", "write")).toMatchObject({
+  it("marks Study Library as an open-world tool", () => {
+    expect(getMcpToolAnnotations("study_library", "write")).toMatchObject({
       readOnlyHint: false,
       openWorldHint: true,
     });

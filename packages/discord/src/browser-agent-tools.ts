@@ -10,6 +10,7 @@
 
 import type { AgentTool } from "@tango/core";
 import { getBrowserManager } from "./browser-manager.js";
+import { ensureSiteSession, siteScopeForUrl } from "./site-session.js";
 
 export function createBrowserTools(): AgentTool[] {
   return [
@@ -95,6 +96,8 @@ export function createBrowserTools(): AgentTool[] {
         "  - Refs are NOT stable across navigations — always re-snapshot after open/click",
         "  - For sites with bot detection (Walmart), use launch to start a real browser",
         "  - For login-required sites, log in manually in Chrome first",
+        "  - Sites with a configured browser-session descriptor are the exception: 'open' restores their",
+        "    login automatically from 1Password. Never type those passwords through fill/type.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -228,8 +231,31 @@ export function createBrowserTools(): AgentTool[] {
           case "open": {
             if (!input.url) return { error: "open requires 'url'" };
             await ensureConnectedForPageAction();
-            const msg = await bm.open(String(input.url));
-            return { result: msg };
+            const url = String(input.url);
+
+            // A site with a configured browser-session descriptor keeps a
+            // logged-in session whose cookies expire on their own schedule.
+            // Heal it here so navigating never lands on a sign-in page.
+            let session: Record<string, unknown> | undefined;
+            const target = siteScopeForUrl(url);
+            if (target) {
+              const restored = await ensureSiteSession({
+                site: target.site.id,
+                scope: target.scope.id,
+                url,
+              });
+              session = {
+                site: restored.site,
+                scope: restored.scope,
+                authenticated: restored.authenticated,
+                path: restored.path,
+                message: restored.message,
+                ...(restored.needsSecondFactor ? { needsSecondFactor: true } : {}),
+              };
+            }
+
+            const msg = await bm.open(url);
+            return session ? { result: msg, site_session: session } : { result: msg };
           }
 
           case "snapshot": {

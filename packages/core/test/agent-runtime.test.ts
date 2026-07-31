@@ -415,6 +415,58 @@ describe("ClaudeCodeAdapter", () => {
     expect(thirdArgs).toEqual(expect.arrayContaining(["--resume", "secondary-session"]));
   });
 
+  it("falls back to secondary Claude when the primary request times out", async () => {
+    vi.useFakeTimers();
+
+    const primaryChild = new MockChildProcess();
+    primaryChild.closeOnSignal = new Set<NodeJS.Signals>(["SIGTERM"]);
+    const secondaryChild = new MockChildProcess();
+    spawnMock
+      .mockImplementationOnce(() => primaryChild)
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          secondaryChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: false,
+              result: "Recovered after primary timeout",
+              session_id: "secondary-session",
+            }) + "\n",
+          );
+          secondaryChild.close(0, null);
+        });
+        return secondaryChild;
+      });
+
+    const adapter = new ClaudeCodeAdapter({
+      command: "claude",
+      fallbackCommand: "/tmp/claude-secondary",
+    });
+    await adapter.initialize(createConfig({
+      runtimePreferences: { timeout: 50 },
+    }));
+
+    const sendPromise = adapter.send("This will stall on primary");
+    await vi.waitFor(() => {
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+    });
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(sendPromise).resolves.toMatchObject({
+      text: "Recovered after primary timeout",
+    });
+    expect(primaryChild.killMock).toHaveBeenCalledWith("SIGTERM");
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+
+    const [primaryCommand] = spawnMock.mock.calls[0] as [string, string[]];
+    const [secondaryCommand, secondaryArgs] = spawnMock.mock.calls[1] as [string, string[]];
+    expect(primaryCommand).toBe("claude");
+    expect(secondaryCommand).toBe("/tmp/claude-secondary");
+    expect(secondaryArgs).not.toContain("--resume");
+
+    await adapter.teardown();
+  });
+
   it("surfaces Claude authentication details when no fallback command is configured", async () => {
     const child = new MockChildProcess();
     spawnMock.mockImplementation(() => {

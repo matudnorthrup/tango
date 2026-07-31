@@ -125,7 +125,7 @@ Export `looksLikeNarratedDispatch`, `looksLikeIncompleteWorkerSynthesis`, and `g
 - [ ] False-positive narration guard: reproduce with confirmed-write receipt + narration text containing "checking"/"reading"/etc → should pass through
 - [ ] Regression: genuine narrated dispatch (narrator says "waiting on worker results") with no confirmed write → should still block
 - [ ] Regression: literal `<worker-dispatch>` tags → should strip and handle correctly
-- [ ] Duplicate Obsidian notes: manual cleanup needed for "LDS Talk - How We Live and Disagree.md" vs "LDS Talk - Living and Disagreeing.md" — flag to stakeholder
+- [ ] Duplicate Obsidian notes: manual cleanup needed for the two duplicate talk notes — flag to stakeholder
 - [ ] Intent classifier: verify "check the doc again" routes to tool after a recent tool use (may be fixed incidentally by this project or may need separate work)
 
 ## Key Files

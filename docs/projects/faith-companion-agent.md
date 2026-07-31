@@ -1,14 +1,14 @@
-# LDS Companion Agent
+# Faith Companion Agent
 
-**Linear:** [LDS Companion Agent](https://linear.app/seaside-hq/project/lds-companion-agent-afd463f5e5c0)
+**Linear:** [Faith Companion Agent](https://linear.app/seaside-hq/project/faith-companion-agent-afd463f5e5c0)
 **Status:** Ship
 **Date:** 2026-05-25
 
 ## Brief
 
-Build a new Tango companion agent for LDS scripture study, talk and lesson preparation, reflective exploration, and bishopric-counselor workflows.
+Build a new Tango companion agent for scripture study, talk and lesson preparation, reflective exploration, and lay-leadership workflows.
 
-The agent should be grounded in the doctrine, scriptures, and language of The Church of Jesus Christ of Latter-day Saints while still allowing clearly labeled outside ideas when they help the user's study or thinking.
+The agent should be grounded in the doctrine, scriptures, and language of the operator's own tradition — supplied by a profile overlay, not by this repo — while still allowing clearly labeled outside ideas when they help the user's study or thinking.
 
 ## Product Shape
 
@@ -38,12 +38,12 @@ Porter is now configured through the v2 runtime, and the live Discord bot has be
 
 Relevant private vault references exist (kept in the user's private/profile layer, not the repo):
 
-- Gospel Library scripture-linking API notes
+- Study Library scripture-linking API notes
 - scripture marking system notes
 - meeting-conducting template notes
 - a current lesson-prep note
 
-The scripture-linking note documents an authenticated Gospel Library notes API flow for creating reference annotations between scripture verses and lesson content. Tango now wraps that flow in a dedicated `gospel_library` MCP tool.
+The scripture-linking note documents an authenticated Study Library notes API flow for creating reference annotations between scripture verses and lesson content. Tango now wraps that flow in a dedicated `study_library` MCP tool.
 
 The scripture-marking note defines a useful marking taxonomy:
 
@@ -67,9 +67,9 @@ The meeting-conducting template is usable but sparse. The conducting protocol no
 
 Primary sources:
 
-- Standard works of The Church of Jesus Christ of Latter-day Saints
+- The tradition's canonical works (profile-configured)
 - General Conference
-- Official Church manuals and Gospel Library content
+- Official Church manuals and Study Library content
 - Official Church Handbook where applicable and accessible
 
 Secondary sources:
@@ -91,36 +91,36 @@ MVP tools:
 
 - Obsidian for notes, outlines, lesson plans, and scripture-study artifacts.
 - Gmail via `gog_email` for church/calling email read/review only.
-- `gospel_library` for authenticated Gospel Library annotation reads, reference-link writes, deletes, and verification through the Church browser session.
-- Browser as a fallback for authenticated Gospel Library page/session inspection.
+- `study_library` for authenticated Study Library annotation reads, reference-link writes, deletes, and verification through the Church browser session.
+- Browser as a fallback for authenticated Study Library page/session inspection.
 - `onepassword` as a read-only credential fallback if Church credentials are
   explicitly added there later.
 - Memory search for durable user preferences and prior study patterns.
 
 Likely new implementation work:
 
-Implementation now includes a dedicated `gospel_library` MCP tool. It exposes `status`, `list_annotations`, `create_reference_link`, and `delete_annotation`, and uses page-context fetch against `/notes/api/v3/annotations` so the authenticated Church session supplies cookies without exposing them.
+Implementation now includes a dedicated `study_library` MCP tool. It exposes `status`, `list_annotations`, `create_reference_link`, and `delete_annotation`, and uses page-context fetch against `/notes/api/v3/annotations` so the authenticated Church session supplies cookies without exposing them.
 
-Authentication improvement: `gospel_library status` now launches/navigates the
-managed browser instead of asking the user to open a tab. `gospel_library login`
+Authentication improvement: `study_library status` now launches/navigates the
+managed browser instead of asking the user to open a tab. `study_library login`
 opens the Church site, checks annotation auth, and uses the configured
 1Password Church login item to fill the sign-in form without returning
 credentials to the model. Porter should ask the user only when
 1Password access, captcha, or 2FA is actually blocking the browser.
 
-Implementation also includes reusable skill guidance for LDS study, talk prep, lesson prep, sacrament conducting, scripture marking, Obsidian notes, and read-only email review.
+Implementation also includes reusable skill guidance for study, talk prep, lesson prep, service conducting, passage marking, Obsidian notes, and read-only email review.
 
-Porter uses direct v2 MCP tools for scripture, Gospel Library, Obsidian church notes, read-only email review, and browser-backed Church session inspection. The old worker-dispatch runtime has been retired, so Porter should not emit worker handoff markup or depend on `dispatch_worker`.
+Porter uses direct v2 MCP tools for scripture, Study Library, Obsidian church notes, read-only email review, and browser-backed Church session inspection. The old worker-dispatch runtime has been retired, so Porter should not emit worker handoff markup or depend on `dispatch_worker`.
 
 ## Implementation Files
 
 - `agents/assistants/porter/soul.md`
 - `agents/assistants/porter/knowledge.md`
-- `agents/skills/lds-companion-workflows.md`
-- `agents/tools/gospel-library.md`
+- `agents/skills/faith-companion-workflows.md`
+- `agents/tools/study-library.md`
 - `config/v2/agents/porter.yaml`
 - `config/defaults/sessions/porter.yaml`
-- `config/defaults/tool-contracts/gospel-library.yaml`
+- `config/defaults/tool-contracts/study-library.yaml`
 
 ## Naming And Persona
 
@@ -129,7 +129,7 @@ Decision: **Porter**.
 Why Porter:
 
 - It should be STT-friendly because it is a common English word with clear consonants.
-- It has an LDS-history connection through Porter Rockwell without sounding like the agent is claiming prophetic or ecclesiastical weight.
+- The name carries a tradition-history connection without sounding like the agent is claiming prophetic or ecclesiastical weight.
 - It feels companionable and practical, which fits a calling-support/study aide.
 
 Persona direction:
@@ -138,7 +138,7 @@ Persona direction:
 - Full of care, but allergic to syrupy church-small-talk and passive-aggressive niceness.
 - Opinionated when useful, especially about clarity, preparation, doctrine vs. speculation, and what actually helps.
 - Grounded, plainspoken, and warm in the way a trusted mentor is warm: by telling the truth, helping with the work, and not wasting words.
-- Faithful to LDS doctrine and practice without sounding like a committee-written ward newsletter.
+- Faithful to the tradition's doctrine and practice without sounding like a committee-written newsletter.
 - Not an impersonation of any fictional character; the useful reference point is "ruggedly practical, loving, and direct."
 
 ## Avatar
@@ -173,29 +173,29 @@ Discovery should produce a final agent-name decision and implementation work ord
 
 ## Open Questions
 
-- Exact implementation shape for scripture text lookup remains open: for MVP Porter can reason from known citations and use browser or Gospel Library context, but a dedicated read-only scripture text API would make citation-heavy workflows sturdier.
+- Exact implementation shape for scripture text lookup remains open: for MVP Porter can reason from known citations and use browser or Study Library context, but a dedicated read-only scripture text API would make citation-heavy workflows sturdier.
 - A dedicated read-only scripture text API would make citation-heavy workflows
-  sturdier, but MVP scripture, Gospel Library, Obsidian, and read-only email
+  sturdier, but MVP scripture, Study Library, Obsidian, and read-only email
   workflows are live-tested.
 
 ## Linear Plan
 
-- `TGO-493` Discover LDS companion requirements and existing scripture patterns
+- `TGO-493` Discover faith companion requirements and existing scripture patterns
 - `TGO-494` Choose companion agent name and voice call signs
 - `TGO-495` Implement companion agent config, prompts, and routing
-- `TGO-496` Add LDS scripture access and study workflows - Done
+- `TGO-496` Add authenticated library access and study workflows - Done
 - `TGO-497` Wire email and Obsidian workflows for calling support - Done
 - `TGO-498` Build, deploy, and restart main Tango with companion agent - Done
 - `TGO-499` Live-test scripture study, talk prep, lesson prep, and sacrament outline flows - Done
 - `TGO-500` Finalize docs and ship report - Done
-- `TGO-527` Live-test Gospel Library reference-link creation and cleanup - Done
+- `TGO-527` Live-test Study Library reference-link creation and cleanup - Done
 
 ## Validation Gate
 
 This project is not shippable until the main bot has been live-tested after deploy with at least:
 
 - Scripture lookup/study
-- Gospel Library scripture marking/linking
+- Study Library scripture marking/linking
 - Talk outline or draft
 - Lesson plan
 - Obsidian note create/update
@@ -209,28 +209,28 @@ Current validation results:
 - Passed: focused Discord regression suite: MCP tool metadata, v2 runtime, Tango router, and voice runtime routing tests.
 - Passed: Porter routed in a `#porter-test` thread.
 - Passed: scripture-study response on Alma 32:21.
-- Passed: talk outline using Alma 32:21 plus an additional LDS source.
+- Passed: talk outline using a canonical passage plus an additional in-tradition source.
 - Passed: sacrament meeting conducting outline using the Obsidian sacrament meeting template.
-- Passed: `gospel_library status` read-only check; the tool reached the browser context and did not modify annotations.
-- Passed: updated Gospel Library auth/read smoke. Porter launched/used the
+- Passed: `study_library status` read-only check; the tool reached the browser context and did not modify annotations.
+- Passed: updated Study Library auth/read smoke. Porter launched/used the
   managed browser without asking the user to open a tab, corrected the annotation
   auth probe, confirmed authenticated status, ran `prepare_login` as an
   authenticated no-op, and read 595 highlight annotations with `list_annotations`
   without exposing private IDs. Passing records: `5570`, `5572`, `5574`.
-- Passed: authenticated Gospel Library marking write/update. Porter found the
-  most recent annotation on `1 Nephi 14:14`, recommended a marking color,
+- Passed: authenticated Study Library marking write/update. Porter found the
+  most recent annotation on a specific verse, recommended a marking color,
   received confirmation, and updated the verse marking to orange. Passing record:
   `5582`.
-- Passed: hardened Gospel Library status/auth probe after Porter exposed an
+- Passed: hardened Study Library status/auth probe after Porter exposed an
   oversized status-response/session fault. The probe now uses a narrow reference
   query and returns only a sanitized summary. Focused regression:
-  `packages/discord/test/gospel-library-agent-tools.test.ts`.
-- Passed: dedicated Gospel Library reference-link validation. Porter confirmed
+  `packages/discord/test/study-library-agent-tools.test.ts`.
+- Passed: dedicated Study Library reference-link validation. Porter confirmed
   authenticated status and existing John 3 reference counts in record `5646`,
-  then created a temporary reference annotation on `1 Nephi 14:14`, verified
+  then created a temporary reference annotation on that verse, verified
   readback, deleted only the newly created annotation, and verified deletion in
   record `5648`.
-- Corrected: 2 Nephi 3 partial underline validation exposed that Gospel
+- Corrected: a partial-underline validation exposed that the study
   Library partial mark offsets are word-token offsets, not character offsets.
   The bad phrase annotations were replaced with rendered-DOM-verified marks, and
   Porter/tool docs now require rendered phrase verification for partial marks.

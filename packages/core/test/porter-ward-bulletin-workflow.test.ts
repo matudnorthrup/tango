@@ -98,7 +98,7 @@ describe("Porter ward bulletin workflow", () => {
       args: ["packages/core/dist/mcp-proxy.js", "google"],
       env: {
         ALLOWED_TOOL_IDS: "gog_email",
-        WORKER_ID: "church-assistant",
+        WORKER_ID: "study-assistant",
       },
     });
 
@@ -110,8 +110,8 @@ describe("Porter ward bulletin workflow", () => {
     const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
     const checker = new GovernanceChecker(db);
 
-    expect(checker.hasPermission("worker:church-assistant", "gog_email", "read")).toBe(true);
-    expect(checker.hasPermission("worker:church-assistant", "gog_email", "write")).toBe(false);
+    expect(checker.hasPermission("worker:study-assistant", "gog_email", "read")).toBe(true);
+    expect(checker.hasPermission("worker:study-assistant", "gog_email", "write")).toBe(false);
 
     db.close();
   });
