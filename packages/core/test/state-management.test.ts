@@ -194,6 +194,35 @@ describe("StateService", () => {
     storage.close();
   });
 
+  it("keeps state receipts compact without echoing long narrative fields", () => {
+    const { storage, service, context } = harness();
+    const created = service.mutate({
+      typeId: "project",
+      title: "Receipt Fixture",
+      status: "active",
+      summary: "Earlier project summary",
+      attributes: { progress_pct: 64 },
+    }, context);
+    const longSummary = `Updated project summary ${"x".repeat(2_000)}`;
+    service.mutate({
+      entityId: created.entity.id,
+      summary: longSummary,
+      attributes: { progress_pct: 91, next_action: `Complete ${"y".repeat(500)}` },
+      markProgress: true,
+    }, { ...context, turnId: "turn-compact-receipt", occurredAt: "2026-07-17T12:01:00.000Z" });
+
+    const receipt = service.renderTurnReceipt("turn-compact-receipt");
+    expect(receipt).toContain("summary updated");
+    expect(receipt).toContain("next action updated");
+    expect(receipt).toContain("progress pct 64 → 91");
+    expect(receipt).toContain("progress recorded");
+    expect(receipt).not.toContain("Earlier project summary");
+    expect(receipt).not.toContain(longSummary);
+    expect(receipt).not.toContain(`Complete ${"y".repeat(500)}`);
+    expect(receipt!.length).toBeLessThanOrEqual(480);
+    storage.close();
+  });
+
   it("supports exact matching for distinct machine-owned projections", () => {
     const { storage, service, context } = harness();
     const production = service.mutate({
