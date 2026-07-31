@@ -296,6 +296,7 @@ export type AgentCollaborationStatus =
 export type AgentCollaborationVisibilityMode = "summary" | "digest" | "thread" | "transcript" | "silent";
 export type AgentCollaborationInitiatorKind = "user" | "agent" | "schedule" | "system";
 export type AgentCollaborationTurnType = "request" | "clarification" | "result" | "status" | "escalation" | "error";
+export type AgentCollaborationDeliveryStatus = "delivered" | "failed";
 
 export interface AgentCollaborationSessionRecord {
   id: string;
@@ -378,6 +379,29 @@ export interface AgentCollaborationTurnInsertInput {
   structured?: Record<string, unknown> | null;
   modelRunId?: number | null;
   visibleMessageRef?: string | null;
+}
+
+export interface AgentCollaborationDeliveryRecord {
+  id: string;
+  collaborationId: string;
+  eventKind: string;
+  destinationChannelId: string | null;
+  destinationThreadId: string | null;
+  discordMessageId: string | null;
+  status: AgentCollaborationDeliveryStatus;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface AgentCollaborationDeliveryInsertInput {
+  id?: string;
+  collaborationId: string;
+  eventKind: string;
+  destinationChannelId?: string | null;
+  destinationThreadId?: string | null;
+  discordMessageId?: string | null;
+  status: AgentCollaborationDeliveryStatus;
+  error?: string | null;
 }
 
 export interface ActiveTaskRecord {
@@ -3340,6 +3364,29 @@ const MIGRATIONS: Migration[] = [
         ON context_usage_snapshots(recorded_at);
     `,
   },
+  {
+    // Collaboration visibility is a best-effort projection. Keep an immutable
+    // delivery audit separate from the collaboration result so a Discord send
+    // failure never changes an otherwise successful agent exchange.
+    version: 73,
+    sql: `
+      CREATE TABLE IF NOT EXISTS agent_collaboration_deliveries (
+        id TEXT PRIMARY KEY,
+        collaboration_id TEXT NOT NULL,
+        event_kind TEXT NOT NULL,
+        destination_channel_id TEXT,
+        destination_thread_id TEXT,
+        discord_message_id TEXT,
+        status TEXT NOT NULL CHECK(status IN ('delivered', 'failed')),
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (collaboration_id) REFERENCES agent_collaboration_sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_collab_deliveries_session
+        ON agent_collaboration_deliveries(collaboration_id, created_at);
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
@@ -5618,6 +5665,59 @@ export class TangoStorage {
       .all(collaborationId) as AgentCollaborationTurnRow[];
 
     return rows.map(mapAgentCollaborationTurnRow);
+  }
+
+  insertAgentCollaborationDelivery(input: AgentCollaborationDeliveryInsertInput): string {
+    const id = input.id?.trim() || randomUUID();
+    this.db
+      .prepare(
+        `
+          INSERT INTO agent_collaboration_deliveries (
+            id,
+            collaboration_id,
+            event_kind,
+            destination_channel_id,
+            destination_thread_id,
+            discord_message_id,
+            status,
+            error
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        id,
+        input.collaborationId,
+        input.eventKind,
+        input.destinationChannelId ?? null,
+        input.destinationThreadId ?? null,
+        input.discordMessageId ?? null,
+        input.status,
+        input.error ?? null,
+      );
+    return id;
+  }
+
+  listAgentCollaborationDeliveries(collaborationId: string): AgentCollaborationDeliveryRecord[] {
+    return this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            collaboration_id AS collaborationId,
+            event_kind AS eventKind,
+            destination_channel_id AS destinationChannelId,
+            destination_thread_id AS destinationThreadId,
+            discord_message_id AS discordMessageId,
+            status,
+            error,
+            created_at AS createdAt
+          FROM agent_collaboration_deliveries
+          WHERE collaboration_id = ?
+          ORDER BY created_at ASC, id ASC
+        `,
+      )
+      .all(collaborationId) as unknown as AgentCollaborationDeliveryRecord[];
   }
 
   upsertActiveTask(input: ActiveTaskUpsertInput): string {

@@ -75,6 +75,27 @@ export interface AgentCollaborationTargetInvocation {
 export type AgentCollaborationTargetInvoker =
   (input: AgentCollaborationTargetInvocation) => Promise<RuntimeResponse>;
 
+export type AgentCollaborationPresentationEventKind =
+  | "started"
+  | "completed"
+  | "waiting_on_user"
+  | "failed";
+
+/**
+ * A runtime-specific observer for collaboration lifecycle presentation. Core
+ * owns the durable collaboration record; a surface adapter may publish a
+ * bounded, user-visible trace without coupling this service to Discord.
+ */
+export interface AgentCollaborationPresentationEvent {
+  kind: AgentCollaborationPresentationEventKind;
+  session: AgentCollaborationSessionRecord;
+  answer?: string;
+  error?: string;
+}
+
+export type AgentCollaborationPresentationObserver =
+  (event: AgentCollaborationPresentationEvent) => Promise<void> | void;
+
 export interface AgentCollaborationServiceOptions {
   storage: Pick<
     TangoStorage,
@@ -87,6 +108,7 @@ export interface AgentCollaborationServiceOptions {
   >;
   v2Configs: ReadonlyMap<string, V2AgentConfig>;
   invokeTarget?: AgentCollaborationTargetInvoker;
+  presentationObserver?: AgentCollaborationPresentationObserver;
   now?: () => Date;
 }
 
@@ -496,12 +518,14 @@ export class AgentCollaborationService {
   private readonly storage: AgentCollaborationServiceOptions["storage"];
   private readonly v2Configs: ReadonlyMap<string, V2AgentConfig>;
   private readonly invokeTarget?: AgentCollaborationTargetInvoker;
+  private readonly presentationObserver?: AgentCollaborationPresentationObserver;
   private readonly now: () => Date;
 
   constructor(options: AgentCollaborationServiceOptions) {
     this.storage = options.storage;
     this.v2Configs = options.v2Configs;
     this.invokeTarget = options.invokeTarget;
+    this.presentationObserver = options.presentationObserver;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -586,11 +610,20 @@ export class AgentCollaborationService {
         constraints: request.constraints ?? [],
       },
     });
+    await this.notifyPresentation({
+      kind: "started",
+      session: this.requireSession(collaborationId),
+    });
 
     if (!this.invokeTarget) {
       const error = "collaboration_target_invoker_unavailable";
       this.storage.updateAgentCollaborationSession(collaborationId, {
         status: "failed",
+        error,
+      });
+      await this.notifyPresentation({
+        kind: "failed",
+        session: this.requireSession(collaborationId),
         error,
       });
       return {
@@ -640,6 +673,16 @@ export class AgentCollaborationService {
         resultSummary: normalized.answer,
         error: normalized.status === "failed" ? normalized.answer : null,
       });
+      await this.notifyPresentation({
+        kind: normalized.status === "waiting_on_user"
+          ? "waiting_on_user"
+          : normalized.status === "failed"
+            ? "failed"
+            : "completed",
+        session: this.requireSession(collaborationId),
+        answer: normalized.answer,
+        ...(normalized.status === "failed" ? { error: normalized.answer } : {}),
+      });
 
       return {
         collaborationId,
@@ -665,6 +708,11 @@ export class AgentCollaborationService {
         status: "failed",
         error: message,
       });
+      await this.notifyPresentation({
+        kind: "failed",
+        session: this.requireSession(collaborationId),
+        error: message,
+      });
       return {
         collaborationId,
         status: "failed",
@@ -676,6 +724,26 @@ export class AgentCollaborationService {
 
   getSession(id: string): AgentCollaborationSessionRecord | null {
     return this.storage.getAgentCollaborationSession(id);
+  }
+
+  private requireSession(id: string): AgentCollaborationSessionRecord {
+    const session = this.storage.getAgentCollaborationSession(id);
+    if (!session) {
+      throw new Error(`collaboration session disappeared: ${id}`);
+    }
+    return session;
+  }
+
+  private async notifyPresentation(event: AgentCollaborationPresentationEvent): Promise<void> {
+    if (!this.presentationObserver) return;
+    try {
+      await this.presentationObserver(event);
+    } catch (error) {
+      // Presentation is a best-effort projection. A Discord failure must never
+      // alter the durable collaboration result or cause the requester to retry.
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[agent-collaboration] presentation observer failed: ${message}`);
+    }
   }
 
   private resolveParentDepth(parentCollaborationId: string): number | null {

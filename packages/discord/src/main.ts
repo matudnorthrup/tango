@@ -198,6 +198,7 @@ import {
   resolveSpeakerDisplayName,
   type PresentedReplyResult,
 } from "./reply-presentation.js";
+import { createAgentCollaborationDiscordPresenter } from "./collaboration-presentation.js";
 import {
   createAgentTypingPresenter,
   resolveAgentTypingToken,
@@ -860,6 +861,16 @@ const collaborationRouter = new TangoRouter({
 const agentCollaborationService = new AgentCollaborationService({
   storage,
   v2Configs,
+  presentationObserver: createAgentCollaborationDiscordPresenter({
+    storage,
+    fetchChannel: (channelId) => client.channels.fetch(channelId),
+    sendReply: (channel, text, speaker) => sendPresentedReply(
+      channel as Message["channel"],
+      text,
+      speaker,
+    ),
+    resolveSpeaker: (agentId) => agentRegistry.get(agentId) ?? null,
+  }),
   invokeTarget: async (input) => {
     const routeResult = await collaborationRouter.routeMessage({
       message: input.message,
