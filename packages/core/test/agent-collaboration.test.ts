@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AgentCollaborationService,
   evaluateAgentCollaborationPolicy,
+  listAgentCollaborationRoutes,
   normalizeCollaborationObjective,
   renderAgentCollaborationTargetPrompt,
   TangoStorage,
@@ -244,6 +245,25 @@ describe("agent collaboration policy", () => {
     });
   });
 
+  it("lists concrete routes so callers do not need to invent purpose labels", () => {
+    const configs = createConfigMap();
+    configs.set("foxtrot", createAgentConfig("foxtrot", [
+      {
+        id: "finance_support",
+        description: "Coordinate bounded Kilo spending support.",
+        collaboration: {
+          canRequest: [
+            { agent: "kilo", purposes: ["kilo-spending-support"] },
+          ],
+        },
+      },
+    ]));
+
+    expect(listAgentCollaborationRoutes("foxtrot", configs)).toEqual([
+      { targetAgentId: "kilo", purposes: ["kilo-spending-support"] },
+    ]);
+  });
+
   it("fails closed for unconfigured purposes and self-collaboration", () => {
     expect(evaluateAgentCollaborationPolicy({
       ...baseRequest,
@@ -381,6 +401,9 @@ describe("AgentCollaborationService", () => {
       expect(result).toMatchObject({
         status: "denied",
         error: "requester_not_allowed",
+        availableRoutes: [
+          { targetAgentId: "research", purposes: ["source-check"] },
+        ],
       });
       expect(invokeTarget).not.toHaveBeenCalled();
       expect(storage.getAgentCollaborationSession(result.collaborationId)?.status).toBe("denied");

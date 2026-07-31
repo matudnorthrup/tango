@@ -54,7 +54,7 @@ import { createKiloLedgerTools, kiloLedgerToolLooksReadOnly } from "./kilo-ledge
 import { createNotionTools } from "./notion-agent-tools.js";
 import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { createOrientationNudgeTools, orientationNudgeToolLooksReadOnly } from "./orientation-nudge.js";
-import { createCollaborationTools } from "./collaboration-agent-tools.js";
+import { buildCollaborationToolPresentation, createCollaborationTools } from "./collaboration-agent-tools.js";
 import { createStateTools } from "./state-agent-tools.js";
 import { createWardProgramTools } from "./ward-program-agent-tools.js";
 import { isReadOnlyGogDocsCommand } from "./gog-docs-access.js";
@@ -68,7 +68,7 @@ import {
   resolveDatabasePath,
   resolveV2MemoryScope,
 } from "@tango/core";
-import type { AgentTool, AccessLevel, V2MemoryScope } from "@tango/core";
+import type { AgentTool, AccessLevel, V2AgentConfig, V2MemoryScope } from "@tango/core";
 
 // Debug logging via stderr (safe — MCP protocol uses stdout only)
 const debug = (...args: unknown[]) => {
@@ -78,6 +78,23 @@ const debug = (...args: unknown[]) => {
 const EMPTY_ALLOWED_TOOL_IDS = "__none__";
 
 let memoryScopeByWorkerId: Map<string, V2MemoryScope> | null = null;
+let v2Configs: ReadonlyMap<string, V2AgentConfig> | null = null;
+
+function getV2Configs(): ReadonlyMap<string, V2AgentConfig> {
+  if (v2Configs) {
+    return v2Configs;
+  }
+
+  try {
+    const configDir = resolveConfigDir(process.env.TANGO_CONFIG_DIR);
+    v2Configs = loadLayeredV2AgentConfigs(configDir);
+  } catch (error) {
+    debug("V2 configuration loading failed:", error instanceof Error ? error.message : String(error));
+    v2Configs = new Map();
+  }
+
+  return v2Configs;
+}
 
 function getMemoryScopeByWorkerId(): Map<string, V2MemoryScope> {
   if (memoryScopeByWorkerId) {
@@ -85,8 +102,7 @@ function getMemoryScopeByWorkerId(): Map<string, V2MemoryScope> {
   }
 
   try {
-    const configDir = resolveConfigDir(process.env.TANGO_CONFIG_DIR);
-    const configs = loadLayeredV2AgentConfigs(configDir);
+    const configs = getV2Configs();
     memoryScopeByWorkerId = new Map(
       [...configs.entries()].map(([agentId, config]) => [
         agentId,
@@ -99,6 +115,15 @@ function getMemoryScopeByWorkerId(): Map<string, V2MemoryScope> {
   }
 
   return memoryScopeByWorkerId;
+}
+
+function resolveWorkerId(principalId: string | null): string | null {
+  const prefix = "worker:";
+  if (!principalId?.startsWith(prefix)) {
+    return null;
+  }
+  const workerId = principalId.slice(prefix.length).trim();
+  return workerId || null;
 }
 
 function resolveWorkerMemoryScope(principalId: string | null): {
@@ -328,6 +353,23 @@ function getToolsForWorker(
   }
 
   return governanceTools.filter((tool) => allowedToolIds.has(tool.name));
+}
+
+function buildListedToolForWorker(
+  tool: AgentTool,
+  governance: GovernanceChecker | null,
+  accessOverride: "read" | "write" | null | undefined,
+  principalId: string | null,
+): ReturnType<typeof buildMcpListedTool> {
+  const listed = buildMcpListedTool(tool, governance, accessOverride);
+  if (tool.name !== "collaborate_with_agent") {
+    return listed;
+  }
+
+  return {
+    ...listed,
+    ...buildCollaborationToolPresentation(listed, resolveWorkerId(principalId), getV2Configs()),
+  };
 }
 
 function isToolExplicitlyAllowed(name: string, allowedToolIds: Set<string> | null): boolean {
@@ -623,13 +665,12 @@ if (isHttpMode) {
             jsonrpc: "2.0",
             id: message.id,
             result: {
-              tools: tools.map((t) => ({
-                ...buildMcpListedTool(
-                  t,
-                  governance,
-                  readOnlyStep ? "read" : getListedToolAccessLevel(governance, principalId, t.name),
-                ),
-              })),
+              tools: tools.map((t) => buildListedToolForWorker(
+                t,
+                governance,
+                readOnlyStep ? "read" : getListedToolAccessLevel(governance, principalId, t.name),
+                principalId,
+              )),
             },
           };
           break;
@@ -752,10 +793,11 @@ if (isHttpMode) {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     debug(`tools/list requested — returning ${visibleTools.length} tools (readOnly=${readOnlyStep ? "yes" : "no"})`);
     return {
-      tools: visibleTools.map((t) => buildMcpListedTool(
+      tools: visibleTools.map((t) => buildListedToolForWorker(
         t,
         governance,
         readOnlyStep ? "read" : getListedToolAccessLevel(governance, principalId, t.name),
+        principalId,
       )),
     };
   });

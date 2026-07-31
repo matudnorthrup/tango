@@ -1,4 +1,9 @@
-import type { AgentTool } from "@tango/core";
+import {
+  listAgentCollaborationRoutes,
+  type AgentCollaborationRoute,
+  type AgentTool,
+  type V2AgentConfig,
+} from "@tango/core";
 
 const DEFAULT_COLLABORATION_BRIDGE_URL = "http://127.0.0.1:9200/collaboration/request";
 
@@ -8,9 +13,97 @@ export interface CollaborationToolOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface CollaborationToolPresentation {
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
 function resolveRequesterAgentId(input: Record<string, unknown>): string | null {
   const hidden = typeof input._requester_agent_id === "string" ? input._requester_agent_id.trim() : "";
   return hidden || null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function renderConfiguredRoutes(routes: readonly AgentCollaborationRoute[]): string[] {
+  return routes.flatMap((route) =>
+    route.purposes.map((purpose) => `- target_agent_id=${route.targetAgentId}; purpose=${purpose}`),
+  );
+}
+
+/**
+ * Tailor the generic collaboration tool contract to the caller's configured
+ * routes. This keeps the model from inventing plausible but invalid purposes.
+ */
+export function buildCollaborationToolPresentation(
+  tool: Pick<AgentTool, "description" | "inputSchema">,
+  requesterAgentId: string | null,
+  v2Configs: ReadonlyMap<string, V2AgentConfig>,
+): CollaborationToolPresentation {
+  const routes = requesterAgentId
+    ? listAgentCollaborationRoutes(requesterAgentId, v2Configs)
+    : [];
+  if (routes.length === 0) {
+    return {
+      description: [
+        tool.description,
+        "No concrete outbound collaboration routes are configured for this caller. Do not invoke this tool.",
+      ].join("\n"),
+      inputSchema: tool.inputSchema,
+    };
+  }
+
+  const exactRoutes = routes.flatMap((route) =>
+    route.purposes.map((purpose) => ({ targetAgentId: route.targetAgentId, purpose })),
+  );
+  const targetAgentIds = [...new Set(routes.map((route) => route.targetAgentId))];
+  const purposes = [...new Set(exactRoutes.map((route) => route.purpose))].sort();
+  const inputSchema = asRecord(tool.inputSchema);
+  const properties = asRecord(inputSchema.properties);
+  const targetSchema = asRecord(properties.target_agent_id);
+  const purposeSchema = asRecord(properties.purpose);
+  const existingAllOf = Array.isArray(inputSchema.allOf) ? inputSchema.allOf : [];
+
+  return {
+    description: [
+      tool.description,
+      "Configured outbound collaboration routes for this caller (enforced):",
+      ...renderConfiguredRoutes(routes),
+      "Use a listed target/purpose pair exactly. Do not invent a purpose label.",
+    ].join("\n"),
+    inputSchema: {
+      ...inputSchema,
+      properties: {
+        ...properties,
+        target_agent_id: {
+          ...targetSchema,
+          enum: targetAgentIds,
+          description: `${typeof targetSchema.description === "string" ? `${targetSchema.description} ` : ""}Use a configured target agent.`,
+        },
+        purpose: {
+          ...purposeSchema,
+          enum: purposes,
+          description: `${typeof purposeSchema.description === "string" ? `${purposeSchema.description} ` : ""}Use a configured purpose exactly as listed.`,
+        },
+      },
+      allOf: [
+        ...existingAllOf,
+        {
+          oneOf: exactRoutes.map((route) => ({
+            properties: {
+              target_agent_id: { const: route.targetAgentId },
+              purpose: { const: route.purpose },
+            },
+            required: ["target_agent_id", "purpose"],
+          })),
+        },
+      ],
+    },
+  };
 }
 
 export function createCollaborationTools(options: CollaborationToolOptions = {}): AgentTool[] {
@@ -111,9 +204,15 @@ export function createCollaborationTools(options: CollaborationToolOptions = {})
         }
 
         if (!response.ok) {
+          const detail = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed as Record<string, unknown>
+            : undefined;
           return {
-            status: "failed",
-            error: `collaboration bridge HTTP ${response.status}`,
+            status: detail?.status === "denied" ? "denied" : "failed",
+            error: detail?.error
+              ? `Collaboration denied: ${String(detail.error)}. Use one of the available_routes and retry.`
+              : `collaboration bridge HTTP ${response.status}`,
+            ...(Array.isArray(detail?.availableRoutes) ? { available_routes: detail.availableRoutes } : {}),
             detail: parsed,
           };
         }
