@@ -1,7 +1,55 @@
 import { describe, expect, it, vi } from "vitest";
-import { createCollaborationTools } from "../src/collaboration-agent-tools.js";
+import {
+  buildCollaborationToolPresentation,
+  createCollaborationTools,
+} from "../src/collaboration-agent-tools.js";
+import type { V2AgentConfig } from "@tango/core";
 
 describe("collaboration-agent-tools", () => {
+  it("constrains the listed tool to the caller's configured route pairs", () => {
+    const [tool] = createCollaborationTools();
+    const configs = new Map<string, V2AgentConfig>([
+      [
+        "foxtrot",
+        {
+          id: "foxtrot",
+          enabled: true,
+          responsibilities: [
+            {
+              id: "finance_support",
+              description: "Coordinate bounded Kilo spending support.",
+              collaboration: {
+                canRequest: [
+                  { agent: "kilo", purposes: ["kilo-spending-support"] },
+                ],
+              },
+            },
+          ],
+        } as V2AgentConfig,
+      ],
+    ]);
+
+    const presentation = buildCollaborationToolPresentation(tool!, "foxtrot", configs);
+    const schema = presentation.inputSchema as Record<string, unknown>;
+    const properties = schema.properties as Record<string, Record<string, unknown>>;
+
+    expect(presentation.description).toContain("target_agent_id=kilo; purpose=kilo-spending-support");
+    expect(properties.target_agent_id?.enum).toEqual(["kilo"]);
+    expect(properties.purpose?.enum).toEqual(["kilo-spending-support"]);
+    expect(schema.allOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        oneOf: [
+          expect.objectContaining({
+            properties: {
+              target_agent_id: { const: "kilo" },
+              purpose: { const: "kilo-spending-support" },
+            },
+          }),
+        ],
+      }),
+    ]));
+  });
+
   it("posts bounded collaboration requests to the bridge with the governed requester id", async () => {
     const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({
       collaborationId: "collab-1",
@@ -85,8 +133,12 @@ describe("collaboration-agent-tools", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("reports bridge HTTP failures without throwing", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: "denied" }), { status: 403 }));
+  it("returns actionable permitted routes when the bridge denies a request", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      status: "denied",
+      error: "requester_not_allowed",
+      availableRoutes: [{ targetAgentId: "research", purposes: ["source-check"] }],
+    }), { status: 403 }));
     const [tool] = createCollaborationTools({
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
@@ -99,10 +151,11 @@ describe("collaboration-agent-tools", () => {
     });
 
     expect(result).toMatchObject({
-      status: "failed",
-      error: "collaboration bridge HTTP 403",
+      status: "denied",
+      error: "Collaboration denied: requester_not_allowed. Use one of the available_routes and retry.",
+      available_routes: [{ targetAgentId: "research", purposes: ["source-check"] }],
       detail: {
-        error: "denied",
+        error: "requester_not_allowed",
       },
     });
   });

@@ -54,6 +54,12 @@ export interface AgentCollaborationPolicyDecision {
   targetResponsibilityId?: string;
 }
 
+/** A concrete outbound collaboration route declared by an agent. */
+export interface AgentCollaborationRoute {
+  targetAgentId: string;
+  purposes: string[];
+}
+
 export interface AgentCollaborationTargetInvocation {
   collaborationId: string;
   requesterAgentId: string;
@@ -94,6 +100,8 @@ export interface AgentCollaborationResult {
   actionsNotTaken?: string[];
   needsUser?: boolean;
   error?: string;
+  /** Concrete routes the requester may use when a request is denied. */
+  availableRoutes?: AgentCollaborationRoute[];
   policyDecision: AgentCollaborationPolicyDecision;
 }
 
@@ -195,6 +203,51 @@ function findFulfillmentGrant(
     }
   }
   return null;
+}
+
+/**
+ * Return the requester's concrete configured destinations and purposes. This
+ * is intentionally a view of the configuration, not an authorization result:
+ * the collaboration service remains the final policy gate for every request.
+ */
+export function listAgentCollaborationRoutes(
+  requesterAgentId: string,
+  v2Configs: ReadonlyMap<string, V2AgentConfig>,
+): AgentCollaborationRoute[] {
+  const requesterConfig = v2Configs.get(normalizeIdentifier(requesterAgentId));
+  if (!requesterConfig || requesterConfig.enabled === false) {
+    return [];
+  }
+
+  const purposesByTarget = new Map<string, Set<string>>();
+  for (const responsibility of requesterConfig.responsibilities ?? []) {
+    for (const grant of responsibility.collaboration?.canRequest ?? []) {
+      const targetAgentId = normalizeIdentifier(grant.agent);
+      const purposes = (grant.purposes ?? [])
+        .map(normalizeIdentifier)
+        .filter((purpose) => purpose.length > 0);
+      if (!targetAgentId || targetAgentId === "*" || purposes.length === 0) {
+        continue;
+      }
+
+      const targetPurposes = purposesByTarget.get(targetAgentId) ?? new Set<string>();
+      for (const purpose of purposes) {
+        if (purpose !== "*") {
+          targetPurposes.add(purpose);
+        }
+      }
+      if (targetPurposes.size > 0) {
+        purposesByTarget.set(targetAgentId, targetPurposes);
+      }
+    }
+  }
+
+  return [...purposesByTarget.entries()]
+    .map(([targetAgentId, purposes]) => ({
+      targetAgentId,
+      purposes: [...purposes].sort(),
+    }))
+    .sort((left, right) => left.targetAgentId.localeCompare(right.targetAgentId));
 }
 
 function resolveBudget(
@@ -701,6 +754,7 @@ export class AgentCollaborationService {
       collaborationId,
       status: "denied",
       error: policyDecision.reason,
+      availableRoutes: listAgentCollaborationRoutes(request.requesterAgentId, this.v2Configs),
       policyDecision,
     };
   }
