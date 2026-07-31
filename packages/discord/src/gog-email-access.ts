@@ -1,8 +1,25 @@
-function getCommandHead(value: unknown): string[] {
-  if (typeof value !== "string") {
-    return [];
+/**
+ * The email MCP tool is Gmail-specific. Accept both the documented
+ * `gmail ...` form and the natural shorthand agents often emit (`messages ...`).
+ */
+export function normalizeGogEmailCommand(command: unknown): string {
+  if (typeof command !== "string") {
+    return "";
   }
-  return value.trim().toLowerCase().split(/\s+/u).filter((part) => part.length > 0);
+  const withoutExecutable = command.trim().replace(/^gog\s+/iu, "");
+  if (!withoutExecutable) {
+    return "";
+  }
+  return /^gmail\b/iu.test(withoutExecutable)
+    ? withoutExecutable
+    : `gmail ${withoutExecutable}`;
+}
+
+function getCommandHead(value: unknown): string[] {
+  return normalizeGogEmailCommand(value)
+    .toLowerCase()
+    .split(/\s+/u)
+    .filter((part) => part.length > 0);
 }
 
 export function isReadOnlyGogEmailCommand(command: unknown): boolean {

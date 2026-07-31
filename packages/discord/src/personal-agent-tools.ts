@@ -46,6 +46,7 @@ import { executeGoogleDocTabUpdate } from "./google-doc-update-executor.js";
 import { loadReimbursementEvidenceRecord } from "./reimbursement-evidence.js";
 import { extractRampReimbursementIdFromUrl } from "./reimbursement-automation.js";
 import { createGogCommandEnv } from "./gog-keyring-password.js";
+import { normalizeGogEmailCommand } from "./gog-email-access.js";
 
 // ---------------------------------------------------------------------------
 // Command runner (shared)
@@ -262,6 +263,7 @@ export function createEmailTools(overrides?: PersonalToolPaths): AgentTool[] {
       name: "gog_email",
       description: [
         "Run Gmail operations via the gog CLI. Supports search, message fetch, attachment download, thread fetch, archive, and draft creation.",
+        "Pass a Gmail command with or without the optional `gog` or `gmail` prefix; it is normalized before execution.",
         "",
         "Commands:",
         "  gog gmail messages search '<query>' [--max N] [--account <email>]",
@@ -293,13 +295,13 @@ export function createEmailTools(overrides?: PersonalToolPaths): AgentTool[] {
         properties: {
           command: {
             type: "string",
-            description: "Full gog gmail command (everything after 'gog'). Example: \"gmail messages search 'is:unread newer_than:1d' --max 20\"",
+            description: "Gmail command. The `gog` and `gmail` prefixes are optional. Example: \"messages search 'is:unread newer_than:1d' --max 20\"",
           },
         },
         required: ["command"],
       },
       handler: async (input) => {
-        const cmdStr = String(input.command).trim();
+        const cmdStr = normalizeGogEmailCommand(input.command);
         // Parse the command string into args, respecting quotes
         const args = parseShellArgs(cmdStr);
         const stdout = await runCommand(paths.gogCommand, args, 60_000, gogCommandEnv());
