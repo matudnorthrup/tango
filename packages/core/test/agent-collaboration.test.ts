@@ -192,6 +192,58 @@ describe("agent collaboration policy", () => {
     });
   });
 
+  it("grants Foxtrot bounded Kilo spending support", () => {
+    const configs = createConfigMap();
+    configs.set("foxtrot", createAgentConfig("foxtrot", [
+      {
+        id: "finance_support",
+        description: "Coordinate bounded Kilo spending support.",
+        collaboration: {
+          canRequest: [
+            { agent: "kilo", purposes: ["kilo-spending-support"] },
+          ],
+        },
+      },
+    ]));
+    configs.set("kilo", createAgentConfig("kilo", [
+      {
+        id: "kid_spending_support",
+        description: "Provide child-facing spending information.",
+        collaboration: {
+          canFulfill: [
+            {
+              purpose: "kilo-spending-support",
+              maxTurns: 1,
+              maxDurationSeconds: 180,
+              maxToolCalls: 4,
+              visibilityModes: ["summary", "thread"],
+            },
+          ],
+        },
+      },
+    ]));
+
+    const decision = evaluateAgentCollaborationPolicy({
+      ...baseRequest,
+      requesterAgentId: "foxtrot",
+      targetAgentId: "kilo",
+      purpose: "kilo-spending-support",
+      objective: "Answer a child-facing question about Kilo spending.",
+      budget: {
+        maxTurns: 1,
+        maxDurationSeconds: 180,
+        maxToolCalls: 4,
+      },
+    }, configs);
+
+    expect(decision).toMatchObject({
+      granted: true,
+      reason: "granted",
+      requesterResponsibilityId: "finance_support",
+      targetResponsibilityId: "kid_spending_support",
+    });
+  });
+
   it("fails closed for unconfigured purposes and self-collaboration", () => {
     expect(evaluateAgentCollaborationPolicy({
       ...baseRequest,
