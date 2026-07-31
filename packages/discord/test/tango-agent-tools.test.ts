@@ -61,7 +61,10 @@ describe("agent_docs tool", () => {
     fs.writeFileSync(path.join(assistantDir, "soul.md"), "watson soul");
     fs.writeFileSync(path.join(assistantDir, "knowledge.md"), "watson knowledge");
 
-    const tool = createTangoTools({ agentsDir }).find((entry) => entry.name === "agent_docs");
+    // Hermetic: always pass an explicit profileAgentsDir so the test never
+    // reads the developer's real ~/.tango profile overlays.
+    const tool = createTangoTools({ agentsDir, profileAgentsDir: createOverlayDir() })
+      .find((entry) => entry.name === "agent_docs");
     const result = await tool?.handler({
       operation: "list",
       path: "assistants/watson",
@@ -78,7 +81,8 @@ describe("agent_docs tool", () => {
     fs.mkdirSync(workerDir, { recursive: true });
     fs.writeFileSync(path.join(workerDir, "soul.md"), "research assistant soul");
 
-    const tool = createTangoTools({ agentsDir }).find((entry) => entry.name === "agent_docs");
+    const tool = createTangoTools({ agentsDir, profileAgentsDir: createOverlayDir() })
+      .find((entry) => entry.name === "agent_docs");
     const result = await tool?.handler({
       operation: "list",
       agent: "research-assistant",
@@ -89,6 +93,78 @@ describe("agent_docs tool", () => {
     });
   });
 
+  // Regression coverage for the per-file-overlay union (#177): a profile dir
+  // that only overrides knowledge.md must not hide soul.md from the repo
+  // fallback — via BOTH list entry points. The agent: branch previously
+  // substituted the profile directory wholesale and dropped repo-only files.
+  it("unions profile and repo entries when listing by explicit path", async () => {
+    const agentsDir = createAgentsDir();
+    const assistantDir = path.join(agentsDir, "assistants", "watson");
+    fs.mkdirSync(assistantDir, { recursive: true });
+    fs.writeFileSync(path.join(assistantDir, "soul.md"), "repo soul");
+    fs.writeFileSync(path.join(assistantDir, "knowledge.md"), "repo knowledge");
+
+    const profileAgentsDir = createOverlayDir();
+    const profileAssistantDir = path.join(profileAgentsDir, "assistants", "watson");
+    fs.mkdirSync(profileAssistantDir, { recursive: true });
+    fs.writeFileSync(path.join(profileAssistantDir, "knowledge.md"), "profile knowledge");
+    fs.writeFileSync(path.join(profileAssistantDir, "private-notes.md"), "profile only");
+
+    const tool = createTangoTools({ agentsDir, profileAgentsDir })
+      .find((entry) => entry.name === "agent_docs");
+    const result = await tool?.handler({ operation: "list", path: "assistants/watson" }) as {
+      files: string[];
+    };
+
+    expect([...result.files].sort()).toEqual(["knowledge.md", "private-notes.md", "soul.md"]);
+  });
+
+  it("unions profile and repo entries when listing by agent id", async () => {
+    const agentsDir = createAgentsDir();
+    const assistantDir = path.join(agentsDir, "assistants", "watson");
+    fs.mkdirSync(assistantDir, { recursive: true });
+    fs.writeFileSync(path.join(assistantDir, "soul.md"), "repo soul");
+    fs.writeFileSync(path.join(assistantDir, "knowledge.md"), "repo knowledge");
+
+    const profileAgentsDir = createOverlayDir();
+    const profileAssistantDir = path.join(profileAgentsDir, "assistants", "watson");
+    fs.mkdirSync(profileAssistantDir, { recursive: true });
+    fs.writeFileSync(path.join(profileAssistantDir, "knowledge.md"), "profile knowledge");
+    fs.writeFileSync(path.join(profileAssistantDir, "private-notes.md"), "profile only");
+
+    const tool = createTangoTools({ agentsDir, profileAgentsDir })
+      .find((entry) => entry.name === "agent_docs");
+    const result = await tool?.handler({ operation: "list", agent: "watson" }) as {
+      files: string[];
+    };
+
+    expect([...result.files].sort()).toEqual(["knowledge.md", "private-notes.md", "soul.md"]);
+  });
+
+  it("keeps profile and repo candidates on the same agent subtree when unioning", async () => {
+    const agentsDir = createAgentsDir();
+    // Repo knows "scout" only as a WORKER; the profile overlays an ASSISTANT
+    // dir of the same name. The union must not merge the two different trees:
+    // assistants/ wins (first candidate present in either root) and the repo
+    // workers/scout files must not leak into the listing.
+    const workerDir = path.join(agentsDir, "workers", "scout");
+    fs.mkdirSync(workerDir, { recursive: true });
+    fs.writeFileSync(path.join(workerDir, "soul.md"), "worker soul");
+
+    const profileAgentsDir = createOverlayDir();
+    const profileAssistantDir = path.join(profileAgentsDir, "assistants", "scout");
+    fs.mkdirSync(profileAssistantDir, { recursive: true });
+    fs.writeFileSync(path.join(profileAssistantDir, "knowledge.md"), "assistant knowledge");
+
+    const tool = createTangoTools({ agentsDir, profileAgentsDir })
+      .find((entry) => entry.name === "agent_docs");
+    const result = await tool?.handler({ operation: "list", agent: "scout" }) as {
+      files: string[];
+    };
+
+    expect(result.files).toEqual(["knowledge.md"]);
+  });
+
   it("reads shared USER.md from profile when profile override exists", async () => {
     const agentsDir = createAgentsDir();
     fs.writeFileSync(path.join(agentsDir, "shared", "USER.md"), "repo template user");
@@ -97,6 +173,7 @@ describe("agent_docs tool", () => {
 
     const tool = createTangoTools({
       agentsDir,
+      profileAgentsDir: createOverlayDir(),
       profileSharedDirs: [profileSharedDir],
     }).find((entry) => entry.name === "agent_docs");
 
@@ -119,6 +196,7 @@ describe("agent_docs tool", () => {
 
     const tool = createTangoTools({
       agentsDir,
+      profileAgentsDir: createOverlayDir(),
       profileSharedDirs: [profileSharedDir],
     }).find((entry) => entry.name === "agent_docs");
 
