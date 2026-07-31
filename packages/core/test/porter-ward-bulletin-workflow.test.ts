@@ -104,7 +104,7 @@ describe("Porter ward bulletin workflow", () => {
 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-porter-bulletin-"));
     tempDirs.push(dir);
-    const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
+    const storage = new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
     storage.close();
 
     const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });

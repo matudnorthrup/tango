@@ -18,7 +18,7 @@ function createFixture(): { storage: TangoStorage; dir: string; vaultDir: string
   tempDirs.push(dir);
   const vaultDir = path.join(dir, "vault");
   fs.mkdirSync(vaultDir, { recursive: true });
-  const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
+  const storage = new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
   return { storage, dir, vaultDir };
 }
 

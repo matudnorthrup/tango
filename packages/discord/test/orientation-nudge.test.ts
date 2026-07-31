@@ -31,7 +31,7 @@ function tempDir(prefix = "tango-orientation-"): string {
 
 function createStorage(): { storage: TangoStorage; store: OrientationNudgeStore } {
   const dir = tempDir();
-  const storage = new TangoStorage(path.join(dir, "tango.sqlite"));
+  const storage = new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
   return {
     storage,
     store: new OrientationNudgeStore(storage.getDatabase()),
