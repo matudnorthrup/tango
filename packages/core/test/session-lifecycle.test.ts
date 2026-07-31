@@ -892,3 +892,150 @@ describe("SessionLifecycleManager", () => {
     });
   });
 });
+
+// T-I-035: context snapshots persist at the write point and the 70% pressure
+// decision lives in the core lifecycle, so EVERY session type (typed, voice,
+// schedule, collaboration) gets both — voice sessions used to compact silently.
+describe("SessionLifecycleManager context hooks (T-I-035)", () => {
+  const VOICE_KEY = "agent:alpha:discord:channel:1385000000000000000:alpha";
+
+  function occupancyResponse(text: string, occupancy: number, window = 200_000): RuntimeResponse {
+    return createResponse(text, {
+      sessionId: "session-1",
+      metadata: {
+        providerMetadata: {
+          contextOccupancyTokens: occupancy,
+          contextWindowTokens: window,
+        },
+      },
+    });
+  }
+
+  it("fires onContextUsageRecorded at the write point for an agent:-keyed session", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(occupancyResponse("Reply", 62_000));
+
+    const recorded: Array<{ conversationKey: string; agentId: string; fraction: number; totalTokens: number; contextWindow: number }> = [];
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      {
+        onContextUsageRecorded: (conversationKey, agentId, usage) => {
+          recorded.push({
+            conversationKey,
+            agentId,
+            fraction: usage.fraction,
+            totalTokens: usage.totalTokens,
+            contextWindow: usage.contextWindow,
+          });
+        },
+      },
+    );
+
+    await manager.sendMessage(VOICE_KEY, createConfig(), "hello");
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      conversationKey: VOICE_KEY,
+      agentId: "agent-1",
+      totalTokens: 62_000,
+      contextWindow: 200_000,
+    });
+    expect(recorded[0]!.fraction).toBeCloseTo(0.31, 4);
+  });
+
+  it("fires onContextPressure at 0.70 for an agent:-keyed (voice) session", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(occupancyResponse("Reply", 140_000)); // exactly 0.70
+
+    const pressureEvents: Array<{ conversationKey: string; fraction: number }> = [];
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      {
+        onContextPressure: (conversationKey, _agentId, usage) => {
+          pressureEvents.push({ conversationKey, fraction: usage.fraction });
+        },
+      },
+    );
+
+    await manager.sendMessage(VOICE_KEY, createConfig(), "hello");
+
+    expect(pressureEvents).toHaveLength(1);
+    expect(pressureEvents[0]!.conversationKey).toBe(VOICE_KEY);
+    expect(pressureEvents[0]!.fraction).toBeCloseTo(0.70, 4);
+  });
+
+  it("does not fire onContextPressure below the threshold", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(occupancyResponse("Reply", 120_000)); // 0.60
+
+    const pressureEvents: string[] = [];
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      { onContextPressure: (conversationKey) => pressureEvents.push(conversationKey) },
+    );
+
+    await manager.sendMessage(VOICE_KEY, createConfig(), "hello");
+
+    expect(pressureEvents).toHaveLength(0);
+  });
+
+  it("keeps once-per-band semantics: marked sent means no re-fire; retries when unmarked", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(occupancyResponse("Turn 1", 142_000)); // 0.71
+    runtime.queueResponse(occupancyResponse("Turn 2", 144_000)); // 0.72 — retry (delivery not marked)
+    runtime.queueResponse(occupancyResponse("Turn 3", 146_000)); // 0.73 — marked, no fire
+
+    const pressureEvents: number[] = [];
+    const manager = new SessionLifecycleManager(
+      pool as unknown as RuntimePool,
+      { onContextPressure: (_key, _agent, usage) => pressureEvents.push(usage.fraction) },
+    );
+
+    await manager.sendMessage(VOICE_KEY, createConfig(), "one");
+    // Delivery failed (not marked) → the decision fires again next turn.
+    await manager.sendMessage(VOICE_KEY, createConfig(), "two");
+    // Delivery owner marks sent → no further fire within the band.
+    manager.markContextPressureAlertSent(VOICE_KEY);
+    await manager.sendMessage(VOICE_KEY, createConfig(), "three");
+
+    expect(pressureEvents).toHaveLength(2);
+    expect(pressureEvents[0]).toBeCloseTo(0.71, 4);
+    expect(pressureEvents[1]).toBeCloseTo(0.72, 4);
+  });
+
+  it("a throwing hook never breaks the turn", async () => {
+    const pool = new MockRuntimePool();
+    const runtime = pool.enqueueRuntime(new MockRuntime("runtime-1"));
+    runtime.queueResponse(occupancyResponse("Reply", 150_000)); // 0.75 — both hooks fire
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const manager = new SessionLifecycleManager(
+        pool as unknown as RuntimePool,
+        {
+          onContextUsageRecorded: () => {
+            throw new Error("snapshot store exploded");
+          },
+          onContextPressure: () => {
+            throw new Error("pressure delivery exploded");
+          },
+        },
+      );
+
+      const response = await manager.sendMessage(VOICE_KEY, createConfig(), "hello");
+
+      expect(response.text).toBe("Reply");
+      expect(manager.getSession(VOICE_KEY)?.lastContextUsage?.fraction).toBeCloseTo(0.75, 4);
+      const warnings = warnSpy.mock.calls.map((call) => String(call[0]));
+      expect(warnings.some((line) => line.includes("snapshot hook failed"))).toBe(true);
+      expect(warnings.some((line) => line.includes("pressure hook failed"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+});

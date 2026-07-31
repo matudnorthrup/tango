@@ -13,6 +13,7 @@ import {
   extractContextUsageFraction,
   extractResponderContextUsage,
   shouldResetContextPressureAlert,
+  shouldSendContextPressureAlert,
   type LastContextUsageSnapshot,
 } from "./context-usage.js";
 
@@ -36,6 +37,31 @@ export interface SessionLifecycleConfig {
   contextResetThreshold: number;
   /** Interval in ms to check for idle sessions (default: 60000 = 1 min) */
   idleCheckIntervalMs: number;
+  /**
+   * T-I-035: fires at the single write point whenever a turn records a real
+   * context-usage reading, for EVERY session type (typed, voice, schedule,
+   * collaboration). Wire to durable persistence so readers survive RAM wipes.
+   * Errors are caught and logged — a snapshot failure never breaks the turn.
+   */
+  onContextUsageRecorded?: (
+    conversationKey: string,
+    agentId: string,
+    usage: LastContextUsageSnapshot,
+  ) => void;
+  /**
+   * T-I-035: the 70% pressure DECISION lives here in the core lifecycle,
+   * beside the 80% rotation, so it fires for EVERY session type — voice
+   * sessions used to compact silently because the alert's only call site was
+   * the typed-message path. Fires once per provider-session band (gated on
+   * contextPressureAlertSent, reset below threshold−5% by the existing
+   * logic); the DELIVERY owner marks sent on success via
+   * markContextPressureAlertSent, so undelivered warnings retry next turn.
+   */
+  onContextPressure?: (
+    conversationKey: string,
+    agentId: string,
+    usage: LastContextUsageSnapshot,
+  ) => void;
 }
 
 export interface ConversationSession {
@@ -222,6 +248,10 @@ export class SessionLifecycleManager {
   >;
   private idleTimer?: NodeJS.Timeout;
   private idleCheckInFlight?: Promise<void>;
+  private readonly contextHooks: Pick<
+    SessionLifecycleConfig,
+    "onContextUsageRecorded" | "onContextPressure"
+  >;
 
   constructor(
     private readonly pool: RuntimePool,
@@ -234,6 +264,12 @@ export class SessionLifecycleManager {
         config.contextResetThreshold ?? DEFAULT_SESSION_LIFECYCLE_CONFIG.contextResetThreshold,
       idleCheckIntervalMs:
         config.idleCheckIntervalMs ?? DEFAULT_SESSION_LIFECYCLE_CONFIG.idleCheckIntervalMs,
+    };
+    this.contextHooks = {
+      ...(config.onContextUsageRecorded
+        ? { onContextUsageRecorded: config.onContextUsageRecorded }
+        : {}),
+      ...(config.onContextPressure ? { onContextPressure: config.onContextPressure } : {}),
     };
   }
 
@@ -350,6 +386,23 @@ export class SessionLifecycleManager {
         contextWindow: responderUsage.contextWindow,
         recordedAt: now,
       };
+      // T-I-035: persist at the write point — the ONE place every session
+      // type (typed, voice, schedule, collaboration) records real usage.
+      if (this.contextHooks.onContextUsageRecorded) {
+        try {
+          this.contextHooks.onContextUsageRecorded(
+            conversationKey,
+            session.agentId,
+            session.lastContextUsage,
+          );
+        } catch (error) {
+          console.warn(
+            `[context] snapshot hook failed for ${conversationKey}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
     } else if (contextUsage !== undefined) {
       session.lastContextUsage = {
         fraction: contextUsage,
@@ -361,6 +414,32 @@ export class SessionLifecycleManager {
 
     if (shouldResetContextPressureAlert(session.lastContextUsage)) {
       session.contextPressureAlertSent = false;
+    }
+
+    // T-I-035: 70% pressure decision beside the 80% rotation, so EVERY session
+    // type gets a warning path — not just typed Discord turns. Once-per-band:
+    // the delivery owner calls markContextPressureAlertSent on success.
+    if (
+      this.contextHooks.onContextPressure
+      && shouldSendContextPressureAlert(
+        session.lastContextUsage,
+        session.contextPressureAlertSent === true,
+      )
+      && session.lastContextUsage
+    ) {
+      try {
+        this.contextHooks.onContextPressure(
+          conversationKey,
+          session.agentId,
+          session.lastContextUsage,
+        );
+      } catch (error) {
+        console.warn(
+          `[context] pressure hook failed for ${conversationKey}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     if (
