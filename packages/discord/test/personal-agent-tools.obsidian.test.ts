@@ -147,7 +147,7 @@ describe("personal-agent-tools obsidian", () => {
         "## Today's Priorities",
         "- [ ] Old generated priority",
         "",
-        "## Stretch (if capacity)",
+        "## Other Work",
         "-",
         "",
         "## Notes",

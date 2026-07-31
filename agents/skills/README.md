@@ -16,6 +16,8 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `amazon-orders.md` | `amazon_orders` | Foxtrot / shopping and receipts | Browser navigation for Amazon order lookup |
 | `chipotle-ordering.md` | `chipotle_ordering` | Foxtrot / shopping | Browser navigation for Chipotle ordering (favorites, location selection) |
 | `daily-planning.md` | `daily_planning` | Watson / planning | Morning planning, evening check-in, weekly planning workflows |
+| `marketplace-listing.md` | `marketplace_listing` | Foxtrot / selling | Create Facebook Marketplace for-sale listings; photo ordering and description conventions; never publishes without user confirmation |
+| `craigslist-listing.md` | `craigslist_listing` | Foxtrot / selling | Craigslist posting flow; category-selection trap, paid categories, post-publish verification |
 | `open-meteo-weather.md` | `open_meteo_weather` | Sierra / research | Open-Meteo free weather API (current + forecast) |
 | `osrm-routing.md` | `osrm_routing` | Sierra / routing | Driving routes via the `driving_route` tool (HERE traffic-aware primary, OSRM fallback) — never estimate distances; raw OSRM ETAs run high |
 | `email-subscription-cleanup.md` | `email_subscription_cleanup` | Watson / email | Nightly unsubscribe recommendations and confirmed unsubscribe execution |

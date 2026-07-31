@@ -35,7 +35,7 @@ For writes, use the separate `content` parameter for note body text:
 - **Read before writing.** Use `print` first so you have the current note content.
 - For existing daily notes, **do not use `create --overwrite`**. Use `section` for generated sections and `frontmatter` for frontmatter fields.
 - For non-daily notes, use `create --overwrite` only after reading the note and preserving all current content that should remain.
-- Protected daily-note sections (`Notes`, `Interstitial Log`, `Unscheduled Work I Did Today`, `Energy Reflection`, `Notes from Last Night`) are human-owned. Do not replace them; append only when explicitly asked to add a new entry.
+- Protected daily-note sections (`Notes`, `Interstitial Log`, `Other Work`, `Energy Reflection`, `Notes from Last Night`) are human-owned. Do not replace them; append only when explicitly asked to add a new entry.
 - **Always pass note body via the `content` parameter**, not `--content` in the command string. This avoids quoting issues with apostrophes and special characters.
 - If a note write includes raw `&` characters, verify the saved file immediately after writing. In this environment some Obsidian writes can truncate at `&`; prefer `and` when wording allows.
 - Note-writing conventions live in `agents/skills/obsidian-note-conventions.md`.

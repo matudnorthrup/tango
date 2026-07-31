@@ -271,6 +271,94 @@ describe("executeSchedule", () => {
     expect(executeV2Turn.mock.calls[0]?.[0].task).toContain("Found 2 unreviewed transactions");
   });
 
+  it("drains conditional-agent batches until the pre-check reports nothing left", async () => {
+    // Pre-check reports a shrinking backlog: 3 batches then skip.
+    const backlogs = [9, 6, 3];
+    let call = 0;
+    registerPreCheckHandler("test-drain-shrinking", async () => {
+      const remaining = backlogs[call];
+      call++;
+      if (remaining === undefined) {
+        return { action: "skip", reason: "No candidates left." };
+      }
+      return {
+        action: "proceed",
+        context: {
+          totalRetailerCandidateCount: remaining,
+          reimbursementGapCandidateCount: 0,
+          retailerCandidateCount: Math.min(remaining, 3),
+        },
+      };
+    });
+
+    const executeV2Turn = vi.fn(async () => ({
+      text: "cataloged a batch",
+      durationMs: 25,
+      model: "claude-sonnet-4-6",
+      metadata: {},
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        runtime: "v2",
+        execution: {
+          mode: "conditional-agent",
+          preCheck: { handler: "test-drain-shrinking" },
+          workerId: "personal-assistant",
+          taskTemplate: "Process {{retailerCandidateCount}} candidates.",
+          drainBatches: true,
+          timeoutSeconds: 30,
+        },
+      }),
+      { store: { getState: () => null } as never, executeV2Turn, db: {} as never },
+    );
+
+    expect(result.status).toBe("ok");
+    // 3 proceed batches, then the 4th pre-check returns skip and stops the loop.
+    expect(executeV2Turn).toHaveBeenCalledTimes(3);
+    expect(result.metadata?.batchesRun).toBe(3);
+  });
+
+  it("halts draining when the backlog stops shrinking (stuck candidate)", async () => {
+    // Backlog never decreases — a receipt the agent can't clear.
+    registerPreCheckHandler("test-drain-stuck", async () => ({
+      action: "proceed",
+      context: {
+        totalRetailerCandidateCount: 4,
+        reimbursementGapCandidateCount: 0,
+        retailerCandidateCount: 3,
+      },
+    }));
+
+    const executeV2Turn = vi.fn(async () => ({
+      text: "tried a batch",
+      durationMs: 25,
+      model: "claude-sonnet-4-6",
+      metadata: {},
+    }));
+
+    const result = await executeSchedule(
+      createAgentSchedule({
+        runtime: "v2",
+        execution: {
+          mode: "conditional-agent",
+          preCheck: { handler: "test-drain-stuck" },
+          workerId: "personal-assistant",
+          taskTemplate: "Process {{retailerCandidateCount}} candidates.",
+          drainBatches: true,
+          drainMaxBatches: 15,
+          timeoutSeconds: 30,
+        },
+      }),
+      { store: { getState: () => null } as never, executeV2Turn, db: {} as never },
+    );
+
+    expect(result.status).toBe("ok");
+    // First batch runs; second pre-check shows no progress, so it stops.
+    expect(executeV2Turn).toHaveBeenCalledTimes(1);
+    expect(result.summary).toContain("backlog not decreasing");
+  });
+
   it("logs and flags a failed finance pre-check instead of running the worker", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-19T12:34:00Z"));

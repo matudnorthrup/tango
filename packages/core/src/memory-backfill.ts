@@ -791,6 +791,7 @@ function estimateMarkdownImportance(document: MarkdownDocument, chunk: MarkdownC
       (chunk.heading?.toLowerCase() ?? "") === "in progress" ||
       (chunk.heading?.toLowerCase() ?? "") === "primary tasks" ||
       (chunk.heading?.toLowerCase() ?? "") === "stretch tasks" ||
+      (chunk.heading?.toLowerCase() ?? "") === "other work" ||
       (chunk.heading?.toLowerCase() ?? "") === "unscheduled work i did today");
   if (isDailyPlanningChunk) {
     score -= 0.3;

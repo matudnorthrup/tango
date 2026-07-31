@@ -45,7 +45,7 @@ Wait for response before continuing.
 
 After response, propose a time-blocked agenda filling gaps around existing events. Present as a **time-blocked table** showing existing events + proposed task blocks.
 
-- **Weekdays:** Work gets the primary block of focused time. Remaining time is for personal, family, home, and project work. Small tasks (<1hr) are stretch goals — list separately.
+- **Weekdays:** Work gets the primary block of focused time. Remaining time is for personal, family, home, and project work. Small tasks (<1hr) go under `Other Work`, not `Today's Priorities`.
 - **Weekends:** Family and personal priorities come first. Work only if urgent.
 
 ### Phase 4: Confirm & Create
@@ -53,13 +53,13 @@ After response, propose a time-blocked agenda filling gaps around existing event
 1. Present the COMPLETE time-blocked agenda for confirmation.
 2. Check for conflicts using the Calendar Classification and Conflict Check rules below.
 3. Create calendar blocks for ALL agreed tasks (personal tasks → personal account, work tasks → work account). **Time blocks live on the calendar, not the daily note.**
-4. Update the daily note using targeted `section` writes only: `Today's Priorities` and `Stretch (if capacity)` — task names with estimates and area tags, no time-of-day information. Do NOT use `create --overwrite`, and do NOT add a time block table or schedule grid to the daily note.
+4. Update the daily note using targeted `section` writes only: `Today's Priorities` (replace) and `Other Work` (`--append` only — it is human-owned) — task names with estimates and area tags, no time-of-day information. Do NOT use `create --overwrite`, and do NOT add a time block table or schedule grid to the daily note.
 5. Handle deferrals — if tasks are pushed to a specific future day, create or update that day's daily note with the task under `Today's Priorities`.
 
 ## Evening Check-in
 
 1. **Status check** — "What got done today? Anything to check off?" Update daily note completions.
-2. **Unscheduled work** — "What did you work on that wasn't on the plan?" Capture under "Unscheduled work I did today" with rough time if known. Reveals where time actually goes vs. plan.
+2. **Unscheduled work** — "What did you work on that wasn't on the plan?" Append under "Other Work" with rough time if known. Reveals where time actually goes vs. plan.
 3. **Energy reflection** — "How did today feel — overloaded, sustainable, or light?" Log under "Energy Reflection" for capacity calibration over time.
 4. **Carryover review** — List incomplete tasks. "These didn't get done. Move to tomorrow, defer to later this week, or drop?" Don't lock in — morning may shift priorities. Just capture intent.
 5. **Tomorrow preview** — Fetch tomorrow's calendar. "Tomorrow you have [meetings]. [X hours] available." Ask: "Anything you already know needs to happen tomorrow?"
@@ -113,13 +113,109 @@ Time estimate in parentheses, area link at end. Consistent across daily notes, w
 
 File: `Planning/Daily/YYYY-MM-DD.md`
 
-Sections in order: Today's Priorities, Current Task Rotation, Stretch (if capacity), Routines, Unscheduled Work I Did Today, Notes, Interstitial Log. Ends with `![[Daily.base]]` when the template includes it.
+Sections in order: Current Task Rotation, Today's Priorities, Other Work, Notes, Interstitial Log. Ends with `![[Daily.base]]` when the template includes it.
 
-`Current Task Rotation` is the orientation nudge source of truth. Use top-level task checkboxes only; the first unchecked item is treated as the current task. Nested checkboxes are ignored by the parser.
+`Current Task Rotation` is the orientation nudge source of truth. Use top-level task checkboxes only; the first unchecked *unblocked* item is treated as the current task. Nested checkboxes are ignored by the parser.
+
+The rotation is **multi-day work that carries across days**, not a daily list. When a
+new daily note is created, all rotation items carry forward from the most recent
+prior note automatically, checkbox state preserved. Never reset it, and never re-derive it from scratch.
+
+**A checked box in the rotation does NOT mean the item is done.** The user may use the checkbox
+as a "I've nudged this one this pass" marker. They can work down the list checking things off,
+then uncheck the whole list and start another pass. So:
+
+- **Never move a rotation item into `Other Work`, mark it complete, or drop it from the
+  rotation on the strength of a checkmark.** Only do it when the user says explicitly that
+  the item is finished.
+- **But when they do say it's done, move it — immediately, without asking.** "X is done",
+  "X is finished", "you can close X" all mean: strip it out of the rotation and append it
+  to `Other Work` as a checked `- [x]` line. No sub-headings — the checkmark *is* the
+  record. Do not leave it in the
+  rotation and offer to move it; the say-so *is* the instruction. This applies whether the
+  box was checked or not, and whether or not it was marked blocked.
+- Checked rotation items carry forward like any other rotation item. Don't "clean them up."
+- Don't uncheck the list for the user either — the reset is their move, not yours.
+
+### Blocked Rotation Items
+
+Blocked work stays in the rotation — it is not a separate section. Mark it inline:
+
+```
+- [ ] 🚧 Refine discovery controls — blocked: waiting on a collaborator to answer open questions
+```
+
+Rules:
+
+- **Format:** leading `🚧 `, then the normal item text, then ` — blocked: <why>`. The
+  reason must say what would unstick it ("waiting for a collaborator to reply",
+  "needs the integration fixed first"), not just "blocked".
+- **Sort blocked items to the bottom** of the rotation, relative order preserved. Carry-forward
+  does this automatically; do the same when editing by hand.
+- **Blocked items are skipped by the orientation nudge** — it never offers one as the
+  current task. If every unchecked item is blocked, the nudge reports no current task,
+  which is accurate: the rotation has nothing actionable left.
+- **Unblocking is the user's call**, same as completion. When they say it's unstuck, strip the
+  🚧 and the blocked note and move the line back up with the live work. Don't infer that a
+  blocker cleared.
+- Blocked items still carry forward and still keep checkbox state. Never drop one.
+- If nothing is blocked, nothing changes — no marker, no empty subsection.
+
+## What Belongs in Today's Priorities
+
+`Today's Priorities` is for things that need a decision or a nudge *today* and would
+otherwise be missed. Keep it to 3-5 items. Do NOT pad it.
+
+**Never list as a priority:**
+- **Current Task Rotation items.** The rotation already tracks them and the orientation
+  nudge already surfaces them. Duplicating them into priorities is noise. If a rotation
+  item genuinely must land today, say so on the rotation line, don't copy it up.
+- **Recurring meetings** of any kind. They're on the calendar; the calendar already provides the reminder.
+- **Work meetings**, recurring or not. Same reason.
+- **Standing review habits** — "Review open Linear issues", "check Slack saved items",
+  "groom the backlogs" and the like. They're ongoing hygiene, not a decision that has to
+  happen today, and they carry forward forever without ever getting done. Never surface
+  them as a priority, including as a carryover. A *specific* Linear issue with a real
+  deadline is fine; "review the issues" is not.
+- Anything already excluded by the email triage rules.
+
+**Fine to list as a priority:**
+- **Non-recurring personal or family calendar events** — a doctor's appointment, a school
+  thing, a one-off appointment they could plausibly forget.
+- Genuine one-off work that isn't already in the rotation, with a real deadline today.
+- Flagged items from the brief that require the user personally to act.
+
+When in doubt, leave it out — a short accurate priority list beats a padded one.
+
+## What Belongs in Other Work
+
+`Other Work` is the single catch-all shelf below the rotation. It replaced the old
+`Stretch (if capacity)` and `Unscheduled Work I Did Today` sections. It holds three things:
+
+- **Spare-capacity tasks** — small or optional work worth doing if the day opens up.
+- **Unscheduled work actually done** — captured at the evening check-in, checked off.
+- **Finished rotation items** — but *only* when the user explicitly says the item is done.
+  A checkmark in the rotation is a nudge marker, not completion (see above). On their say-so,
+  move the line down here immediately: remove it from the rotation and append it as a
+  checked line, e.g. `- [x] Fix Chrome (Claude)`. **No sub-headings** — `Other Work` is one
+  flat list. A checked box here means done; that's the whole record. (Unlike the rotation,
+  where a checkmark only means "nudged this pass.")
+
+**Never list here:**
+- **Current Task Rotation items the user hasn't declared finished.** Same rule as priorities —
+  the rotation tracks them and the nudge surfaces them; copying them down is duplication.
+  This includes *checked* rotation items: checked ≠ done.
+- Recurring or work meetings.
+
+The section is human-owned: append to it, never replace it wholesale.
+
+**Feedback loop:** when the user says a given item or category isn't helpful, don't just drop
+it from today's note. Update this section (or the email triage rules, if it's email-sourced)
+so the rule sticks, and tell the user what was changed.
 
 Frontmatter must include `morning_review_completed` and `evening_review_completed` booleans. Set the appropriate one to `true` when starting the corresponding workflow.
 
-The daily-note sections `Notes`, `Interstitial Log`, `Unscheduled Work I Did Today`, `Energy Reflection`, and `Notes from Last Night` are human-owned. Never replace them with a full-note rewrite. Append only when explicitly asked to add an entry.
+The daily-note sections `Notes`, `Interstitial Log`, `Other Work`, `Energy Reflection`, and `Notes from Last Night` are human-owned. Never replace them with a full-note rewrite. Append only when explicitly asked to add an entry.
 
 ## Philosophy
 

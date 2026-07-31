@@ -96,6 +96,94 @@ describe("morning flow deterministic helpers", () => {
     expect(note).toContain("## Interstitial Log");
   });
 
+  it("carries unchecked task rotation items forward into a new daily note", () => {
+    const vaultRoot = createVault();
+    const priorPath = path.join(vaultRoot, "Planning", "Daily", "2026-05-23.md");
+    fs.mkdirSync(path.dirname(priorPath), { recursive: true });
+    fs.writeFileSync(
+      priorPath,
+      [
+        "---",
+        "date: 2026-05-23",
+        "---",
+        "",
+        "## Current Task Rotation",
+        "- [ ] Blog post outline",
+        "- [x] Review pull request",
+        "- [ ] Feedback form filtering",
+        "- [ ]",
+        "",
+        "## Today's Priorities",
+        "- [ ] Something else entirely",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = ensureDailyNote({
+      vaultRoot,
+      now: new Date("2026-05-25T12:01:00.000Z"),
+    });
+
+    expect(result.createdNote).toBe(true);
+    expect(result.carriedRotation).toEqual([
+      "Blog post outline",
+      "Review pull request",
+      "Feedback form filtering",
+    ]);
+
+    const note = fs.readFileSync(result.notePath, "utf8");
+    expect(note).toContain("- [ ] Blog post outline");
+    expect(note).toContain("- [ ] Feedback form filtering");
+    // Checked means "nudged this pass", not done — it carries forward with its state.
+    expect(note).toContain("- [x] Review pull request");
+    expect(note).not.toContain("Something else entirely");
+    expect(note).toContain("## Today's Priorities");
+    expect(note).toContain("## Interstitial Log");
+  });
+
+  it("sorts blocked rotation items to the bottom when carrying forward", () => {
+    const vaultRoot = createVault();
+    const priorPath = path.join(vaultRoot, "Planning", "Daily", "2026-05-23.md");
+    fs.mkdirSync(path.dirname(priorPath), { recursive: true });
+    fs.writeFileSync(
+      priorPath,
+      [
+        "---",
+        "date: 2026-05-23",
+        "---",
+        "",
+        "## Current Task Rotation",
+        "- [ ] 🚧 Refine discovery controls — blocked: waiting on a collaborator",
+        "- [ ] Blog post outline",
+        "- [x] 🚧 Review financial report — blocked: needs the integration fixed",
+        "- [x] Review pull request",
+        "",
+        "## Today's Priorities",
+        "- [ ]",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = ensureDailyNote({
+      vaultRoot,
+      now: new Date("2026-05-25T12:01:00.000Z"),
+    });
+
+    expect(result.carriedRotation).toEqual([
+      "Blog post outline",
+      "Review pull request",
+      "🚧 Refine discovery controls — blocked: waiting on a collaborator",
+      "🚧 Review financial report — blocked: needs the integration fixed",
+    ]);
+
+    const note = fs.readFileSync(result.notePath, "utf8");
+    // Checkbox state survives the re-sort.
+    expect(note).toContain("- [x] 🚧 Review financial report — blocked: needs the integration fixed");
+    expect(note).toContain("- [ ] 🚧 Refine discovery controls — blocked: waiting on a collaborator");
+  });
+
   it("repairs an existing daily note missing the brief frontmatter and expected sections", () => {
     const vaultRoot = createVault();
     const notePath = path.join(vaultRoot, "Planning", "Daily", "2026-05-25.md");

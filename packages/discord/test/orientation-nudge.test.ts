@@ -99,6 +99,31 @@ describe("orientation nudge daily-note parsing", () => {
     expect(parsed.latestInterstitial?.text).toBe("later task");
   });
 
+  it("skips blocked rotation items when picking the current task", () => {
+    const parsed = parseDailyNote([
+      "## Current Task Rotation",
+      "- [x] Done thing",
+      "- [ ] 🚧 Stuck thing — blocked: waiting on a collaborator",
+      "- [ ] Current thing",
+      "",
+    ].join("\n"), "2026-06-25");
+
+    expect(parsed.currentTask).toBe("Current thing");
+    // Blocked items still appear in the rotation, they just aren't nudged.
+    expect(parsed.rotationItems).toHaveLength(3);
+  });
+
+  it("reports no current task when every unchecked rotation item is blocked", () => {
+    const parsed = parseDailyNote([
+      "## Current Task Rotation",
+      "- [x] Done thing",
+      "- [ ] 🚧 Stuck thing — blocked: waiting on a collaborator",
+      "",
+    ].join("\n"), "2026-06-25");
+
+    expect(parsed.currentTask).toBeNull();
+  });
+
   it("appends interstitial lines without replacing human-owned section content", () => {
     const before = [
       "## Notes",

@@ -72,6 +72,36 @@ describe("receipt catalog precheck", () => {
     expect(ids).toEqual(new Set(["1000000290", "2376496784"]));
   });
 
+  it("extracts linked transaction ids from receipt frontmatter", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-receipt-precheck-fm-"));
+    cleanupDirs.push(dir);
+    const amazonDir = path.join(dir, "Amazon");
+    fs.mkdirSync(amazonDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(amazonDir, "Amazon Order TEST-ORDER-001.md"),
+      [
+        "---",
+        "store: Amazon",
+        "order_id: TEST-ORDER-001",
+        'lunch_money_ids: ["900000001", "900000002"]',
+        "lunch_money_transactions:",
+        "  - id: 900000001",
+        "    amount: 109.99",
+        "  - id: 900000002",
+        "    amount: 109.99",
+        "metadata:",
+        "  id: 700000001",
+        "---",
+        "",
+        "# Amazon Order TEST-ORDER-001",
+      ].join("\n"),
+    );
+
+    const ids = collectLinkedReceiptTransactionIds(dir);
+    // Order metadata must not be treated as a linked financial transaction id.
+    expect(ids).toEqual(new Set(["900000001", "900000002"]));
+  });
+
   it("returns retailer transactions that are still missing linked receipt notes", () => {
     const tangoHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-precheck-retailers-"));
     cleanupDirs.push(tangoHome);

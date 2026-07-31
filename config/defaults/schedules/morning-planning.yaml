@@ -43,7 +43,7 @@ execution:
     - Read Records/Briefs/YYYY-MM-DD.md for today's
       brief (flagged items, calendar, overnight job summaries)
     - Read References/Email Triage Rules.md before
-      selecting any email-derived priorities or stretch tasks. These rules
+      selecting any email-derived priorities or Other Work tasks. These rules
       define Ignore, Delegate, and Flag behavior for email sources.
     - Read yesterday's daily note for carryover tasks (unchecked items)
     - Get today's calendar events from both accounts (--all for
@@ -53,28 +53,36 @@ execution:
     Read Planning/Daily/YYYY-MM-DD.md immediately before writing.
     Before writing, filter every email-sourced item from the brief or email
     logs through the triage rules. Do not add ignored or delegated email items
-    to "Today's Priorities", "Stretch (if capacity)", or action
+    to "Today's Priorities", "Other Work", or action
     recommendations.
     Use the Obsidian `section` command to update only these sections:
-    - "Today's Priorities" — top 3-5 tasks based on brief flags,
-      carryovers, and calendar. Include dates in format: task—YYYY-MM-DD
-    - "Stretch (if capacity)" — lower priority items
-    - "Routines" — keep exactly as template:
-      - [ ] Slack saved items (Morning)
-      - [ ] Check/Update Linear (Afternoon)
-      - [ ] Discord and Reddit (Afternoon)
-    - If the brief has flagged/urgent items, note them in priorities
-      with action recommendation
+    - "Today's Priorities" — 3-5 items max, per the "What Belongs in Today's
+      Priorities" rules in the daily_planning skill. Include dates in format:
+      task—YYYY-MM-DD. Fewer accurate items beats a padded list.
+    - "Other Work" — lower-priority / spare-capacity items. APPEND only
+      (`section ... --append`); this section is human-owned and also holds
+      unscheduled work and completed rotation items. Never list an OPEN
+      Current Task Rotation item here.
+    - If the brief has flagged/urgent items that require the user personally,
+      note them in priorities with an action recommendation
+    - Leave "Current Task Rotation" alone. It carries forward automatically and
+      is human-owned.
 
     Do NOT use `create --overwrite` on an existing daily note. Preserve
-    these human-owned sections exactly: "Unscheduled Work I Did Today",
+    these human-owned sections exactly: "Other Work",
     "Notes", "Interstitial Log", "Energy Reflection", and "Notes from
     Last Night".
 
     **Filtering rules — do NOT surface these as priorities:**
+    - Current Task Rotation items. The rotation and the orientation nudge
+      already cover them; copying them into priorities is duplicate noise.
+    - Recurring meetings of any kind.
+    - Work meetings, recurring or not. Non-recurring PERSONAL or family
+      calendar events (doctor's appointment, school event, one-off
+      appointment) ARE allowed and often useful.
     - Email items marked Ignore or Delegate by
       References/Email Triage Rules.md. This applies to
-      both priorities and stretch tasks. For example, emails from
+      both priorities and Other Work tasks. For example, emails from
       alerts@example.com must not become daily-note tasks when the triage rules
       say to ignore that source.
     - Domain renewals: these are handled through other monitoring channels
@@ -85,6 +93,11 @@ execution:
     - Vault Audit "Known Review" items: these stay in the brief/log as
       maintenance context. Only add Vault Audit items to today's priorities
       when they appear under the brief's Flagged section.
+    - Role-addressed, delegated, or system-owned notices defined in the
+      profile's email triage rules. Do not turn them into personal priorities.
+    - Finance review work that is already routed to a finance specialist. Do
+      not duplicate it into the daily plan; receipt or reimbursement tasks that
+      require the user to act are still allowed.
 
     Do NOT modify the frontmatter fields other than adding `brief:` if
     missing. Do NOT add a Morning Brief section to the daily note — that

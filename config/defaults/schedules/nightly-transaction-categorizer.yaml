@@ -73,7 +73,9 @@ provider:
   model: claude-sonnet-4-6
 
 delivery:
-  mode: none
+  channel_id: "100000000000000005"
+  agent_id: foxtrot
+  mode: message  # Transaction review lands with Foxtrot in finance, not in daily priorities
 
 policy:
   max_consecutive_failures: 3

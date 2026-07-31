@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import yaml from "js-yaml";
 import {
   buildReimbursementRetailerPattern,
   detectReimbursementGaps,
@@ -49,6 +50,60 @@ export interface BuildReimbursementGapCandidatesInput {
 export const RECEIPT_CATALOG_LOOKBACK_DAYS = 14;
 
 const LINKED_TRANSACTION_ID_PATTERN = /\b(?:Lunch Money\s+)?TXN\s+(\d+)\b/gu;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function numericTransactionId(value: unknown): string | undefined {
+  const id = String(value ?? "").trim();
+  return /^\d+$/u.test(id) ? id : undefined;
+}
+
+function parseReceiptFrontmatter(content: string): Record<string, unknown> | undefined {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(content)?.[1];
+  if (!frontmatter) {
+    return undefined;
+  }
+
+  try {
+    const parsed = yaml.load(frontmatter, { schema: yaml.JSON_SCHEMA });
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function collectFrontmatterLinkedTransactionIds(content: string): string[] {
+  const frontmatter = parseReceiptFrontmatter(content);
+  if (!frontmatter) {
+    return [];
+  }
+
+  const ids = new Set<string>();
+  const add = (value: unknown) => {
+    const id = numericTransactionId(value);
+    if (id) {
+      ids.add(id);
+    }
+  };
+
+  if (Array.isArray(frontmatter.lunch_money_ids)) {
+    for (const value of frontmatter.lunch_money_ids) {
+      add(value);
+    }
+  }
+
+  if (Array.isArray(frontmatter.lunch_money_transactions)) {
+    for (const transaction of frontmatter.lunch_money_transactions) {
+      if (isRecord(transaction)) {
+        add(transaction.id);
+      }
+    }
+  }
+
+  return [...ids];
+}
 const REIMBURSEMENT_GAP_TYPE_ORDER: Record<ReimbursementGapCandidate["type"], number> = {
   missing_tracking_section: 0,
   stale_tracking: 1,
@@ -91,6 +146,9 @@ export function collectLinkedReceiptTransactionIds(receiptsRoot: string): Set<st
       const content = fs.readFileSync(fullPath, "utf8");
       for (const match of content.matchAll(LINKED_TRANSACTION_ID_PATTERN)) {
         linkedIds.add(match[1]!);
+      }
+      for (const id of collectFrontmatterLinkedTransactionIds(content)) {
+        linkedIds.add(id);
       }
     }
   }

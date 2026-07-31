@@ -440,7 +440,7 @@ const OBSIDIAN_LIST_WIKILINK_FRONTMATTER_KEYS = new Set(["types", "areas", "coll
 const DAILY_NOTE_PROTECTED_SECTIONS = [
   "Notes",
   "Interstitial Log",
-  "Unscheduled Work I Did Today",
+  "Other Work",
   "Energy Reflection",
   "Notes from Last Night",
 ] as const;
@@ -955,9 +955,9 @@ export function createObsidianTools(overrides?: PersonalToolPaths): AgentTool[] 
         "",
         "  section '<note name>' --vault main --heading '<heading>' [--append]",
         "    Replace one markdown ## section body, preserving the rest of the note.",
-        "    Use this for generated daily-note sections like Today's Priorities, Stretch (if capacity), and Routines.",
+        "    Use this for generated daily-note sections like Today's Priorities.",
         "    --append            Append content inside the section instead of replacing the section body.",
-        "    Protected daily-note sections (Notes, Interstitial Log, Unscheduled Work I Did Today) cannot be replaced once they contain meaningful content.",
+        "    Protected daily-note sections (Notes, Interstitial Log, Other Work) cannot be replaced once they contain meaningful content. Use --append to add to Other Work.",
         "",
         "  frontmatter '<note name>' --vault main --edit --key '<key>' --value '<value>'",
         "    Modify a single frontmatter key. Also supports --print and --delete --key '<key>'.",
