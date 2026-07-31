@@ -23,6 +23,34 @@ function resolveRequesterAgentId(input: Record<string, unknown>): string | null 
   return hidden || null;
 }
 
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * The MCP server overwrites these reserved fields with Discord turn metadata.
+ * Never accept a model-supplied user_surface: it could redirect visible output
+ * into an arbitrary channel or thread.
+ */
+function resolveTrustedDiscordSurface(input: Record<string, unknown>): Record<string, string> | null {
+  const channelId = nonEmptyString(input._channel_id);
+  if (!channelId) return null;
+
+  const surface: Record<string, string> = {
+    kind: "discord",
+    channel_id: channelId,
+  };
+  const threadId = nonEmptyString(input._thread_id);
+  const messageId = nonEmptyString(input._message_id);
+  const turnId = nonEmptyString(input._turn_id);
+  const conversationKey = nonEmptyString(input._conversation_key);
+  if (threadId) surface.thread_id = threadId;
+  if (messageId) surface.message_id = messageId;
+  if (turnId) surface.turn_id = turnId;
+  if (conversationKey) surface.conversation_key = conversationKey;
+  return surface;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -177,13 +205,28 @@ export function createCollaborationTools(options: CollaborationToolOptions = {})
         }
 
         const publicInput: Record<string, unknown> = { ...input };
-        delete publicInput._requester_agent_id;
-        delete publicInput.requester_agent_id;
-        delete publicInput.requesterAgentId;
+        for (const key of [
+          "_requester_agent_id",
+          "_conversation_key",
+          "_turn_id",
+          "_message_id",
+          "_channel_id",
+          "_thread_id",
+          "requester_agent_id",
+          "requesterAgentId",
+          "user_surface",
+          "userSurface",
+          "initiator_kind",
+          "initiatorKind",
+        ]) {
+          delete publicInput[key];
+        }
+        const trustedSurface = resolveTrustedDiscordSurface(input);
         const body = {
           ...publicInput,
           requester_agent_id: requesterAgentId,
-          initiator_kind: input.initiator_kind ?? "agent",
+          initiator_kind: "agent",
+          ...(trustedSurface ? { user_surface: trustedSurface } : {}),
         };
 
         const response = await fetchFn(bridgeUrl, {

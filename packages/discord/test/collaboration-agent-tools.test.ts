@@ -70,6 +70,12 @@ describe("collaboration-agent-tools", () => {
       objective: "Check a source.",
       context_summary: "A draft has a claim.",
       visibility: "summary",
+      user_surface: { kind: "discord", channel_id: "spoofed-channel" },
+      _conversation_key: "conversation-1",
+      _turn_id: "turn-1",
+      _message_id: "message-1",
+      _channel_id: "channel-1",
+      _thread_id: "thread-1",
     });
 
     expect(result).toEqual({
@@ -90,8 +96,19 @@ describe("collaboration-agent-tools", () => {
       purpose: "source-check",
       objective: "Check a source.",
       initiator_kind: "agent",
+      user_surface: {
+        kind: "discord",
+        channel_id: "channel-1",
+        thread_id: "thread-1",
+        message_id: "message-1",
+        turn_id: "turn-1",
+        conversation_key: "conversation-1",
+      },
     });
-    expect(JSON.parse(String((init as RequestInit).body))).not.toHaveProperty("_requester_agent_id");
+    const body = JSON.parse(String((init as RequestInit).body));
+    expect(body).not.toHaveProperty("_requester_agent_id");
+    expect(body).not.toHaveProperty("_channel_id");
+    expect(body.user_surface.channel_id).not.toBe("spoofed-channel");
   });
 
   it("fails before bridge calls when requester identity is unavailable", async () => {

@@ -383,6 +383,81 @@ describe("AgentCollaborationService", () => {
     }
   });
 
+  it("emits best-effort presentation lifecycle events without changing the exchange", async () => {
+    const storage = createStorage();
+    const presentationObserver = vi.fn(async () => undefined);
+    const service = new AgentCollaborationService({
+      storage,
+      v2Configs: createConfigMap(),
+      presentationObserver,
+      invokeTarget: async () => ({
+        text: JSON.stringify({
+          status: "completed",
+          answer: "The source supports the claim.",
+          evidence: [],
+          actions_taken: [],
+          actions_not_taken: [],
+          needs_user: false,
+        }),
+        durationMs: 10,
+      }),
+    });
+
+    try {
+      const result = await service.collaborate({
+        ...baseRequest,
+        userSurface: { kind: "discord", channel_id: "channel-1" },
+      });
+
+      expect(result.status).toBe("completed");
+      expect(presentationObserver).toHaveBeenCalledTimes(2);
+      expect(presentationObserver.mock.calls.map(([event]) => event.kind)).toEqual([
+        "started",
+        "completed",
+      ]);
+      expect(presentationObserver.mock.calls[0]?.[0].session.userSurface).toEqual({
+        kind: "discord",
+        channel_id: "channel-1",
+      });
+      expect(presentationObserver.mock.calls[1]?.[0]).toMatchObject({
+        answer: "The source supports the claim.",
+      });
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("keeps a collaboration successful when its presentation observer fails", async () => {
+    const storage = createStorage();
+    const service = new AgentCollaborationService({
+      storage,
+      v2Configs: createConfigMap(),
+      presentationObserver: async () => {
+        throw new Error("Discord unavailable");
+      },
+      invokeTarget: async () => ({
+        text: JSON.stringify({
+          status: "completed",
+          answer: "The source supports the claim.",
+          evidence: [],
+          actions_taken: [],
+          actions_not_taken: [],
+          needs_user: false,
+        }),
+        durationMs: 10,
+      }),
+    });
+
+    try {
+      await expect(service.collaborate(baseRequest)).resolves.toMatchObject({
+        status: "completed",
+        answer: "The source supports the claim.",
+      });
+    } finally {
+      storage.close();
+    }
+  });
+
   it("does not invoke the target for denied collaborations", async () => {
     const storage = createStorage();
     const invokeTarget = vi.fn();
@@ -628,6 +703,54 @@ describe("AgentCollaborationService", () => {
       const turns = storage.listAgentCollaborationTurns(result.collaborationId);
       expect(turns).toHaveLength(1);
       expect(turns[0]?.content).toContain("Collaboration request from agent:ops.");
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("stores immutable presentation delivery records separately from the collaboration", () => {
+    const storage = createStorage();
+    try {
+      const collaborationId = storage.insertAgentCollaborationSession({
+        requesterAgentId: "ops",
+        targetAgentId: "research",
+        initiatorKind: "agent",
+        purpose: "source-check",
+        objective: "Verify whether the cited source supports the claim.",
+        normalizedObjective: normalizeCollaborationObjective(baseRequest.objective),
+        status: "completed",
+        visibilityMode: "summary",
+      });
+      storage.insertAgentCollaborationDelivery({
+        collaborationId,
+        eventKind: "completed",
+        destinationChannelId: "channel-1",
+        discordMessageId: "message-1",
+        status: "delivered",
+      });
+      storage.insertAgentCollaborationDelivery({
+        collaborationId,
+        eventKind: "digest",
+        destinationChannelId: "channel-1",
+        status: "failed",
+        error: "delivery unavailable",
+      });
+
+      const deliveries = storage.listAgentCollaborationDeliveries(collaborationId);
+      expect(deliveries).toHaveLength(2);
+      expect(deliveries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          eventKind: "completed",
+          destinationChannelId: "channel-1",
+          discordMessageId: "message-1",
+          status: "delivered",
+        }),
+        expect.objectContaining({
+          eventKind: "digest",
+          status: "failed",
+          error: "delivery unavailable",
+        }),
+      ]));
     } finally {
       storage.close();
     }
