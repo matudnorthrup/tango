@@ -778,32 +778,47 @@ export class StateService {
   renderTurnReceipt(turnId: string): string | null {
     const events = this.listTurnEvents(turnId);
     if (events.length === 0) return null;
+    const prefix = "⟢ state: ";
     const pieces: string[] = [];
-    for (const event of events.slice(0, 8)) {
+    let omitted = Math.max(0, events.length - MAX_TURN_RECEIPT_EVENTS);
+    const appendPiece = (piece: string): void => {
+      const separatorLength = pieces.length > 0 ? 3 : 0;
+      const reservedOverflowLength = RECEIPT_OVERFLOW_RESERVE;
+      if (
+        pieces.length >= MAX_TURN_RECEIPT_PIECES
+        || prefix.length + pieces.join(" · ").length + separatorLength + piece.length + reservedOverflowLength
+          > MAX_TURN_RECEIPT_CHARS
+      ) {
+        omitted += 1;
+        return;
+      }
+      pieces.push(piece);
+    };
+    for (const event of events.slice(0, MAX_TURN_RECEIPT_EVENTS)) {
       const entity = this.getEntityUnscoped(event.entityId, true);
       if (!entity) continue;
       if (event.kind === "create") {
-        pieces.push(`NEW ${entity.typeId}/${entity.slug}${entity.status ? ` (${entity.status})` : ""}`);
+        appendPiece(`NEW ${entity.typeId}/${entity.slug}${entity.status ? ` (${entity.status})` : ""}`);
         continue;
       }
       if (event.kind === "revert") {
-        pieces.push(`${entity.typeId}/${entity.slug} reverted event ${event.revertsEventId ?? ""}`.trim());
+        appendPiece(`${entity.typeId}/${entity.slug} reverted event ${event.revertsEventId ?? ""}`.trim());
         continue;
       }
       if (event.kind === "archive" || event.kind === "restore") {
-        pieces.push(`${entity.typeId}/${entity.slug} ${event.kind}d`);
+        appendPiece(`${entity.typeId}/${entity.slug} ${event.kind}d`);
         continue;
       }
       for (const [field, change] of Object.entries(event.patch ?? {})) {
         if (field === "__created__") continue;
-        pieces.push(`${entity.typeId}/${entity.slug} ${displayField(field)} ${displayValue(change.from)} → ${displayValue(change.to)}`);
+        appendPiece(renderReceiptPatch(entity, field, change));
       }
       if (Object.keys(event.patch ?? {}).length === 0 && event.note) {
-        pieces.push(`${entity.typeId}/${entity.slug} note recorded`);
+        appendPiece(`${entity.typeId}/${entity.slug} note recorded`);
       }
     }
     if (pieces.length === 0) return null;
-    const overflow = events.length > 8 ? ` · +${events.length - 8} more` : "";
+    const overflow = omitted > 0 ? ` · +${omitted} more` : "";
     return `⟢ state: ${pieces.join(" · ")}${overflow}`;
   }
 
@@ -2677,6 +2692,35 @@ function displayValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+const MAX_TURN_RECEIPT_EVENTS = 8;
+const MAX_TURN_RECEIPT_PIECES = 6;
+const MAX_TURN_RECEIPT_CHARS = 480;
+const MAX_RECEIPT_VALUE_CHARS = 96;
+const RECEIPT_OVERFLOW_RESERVE = 16;
+
+function renderReceiptPatch(
+  entity: Pick<StateEntity, "typeId" | "slug">,
+  field: string,
+  change: StatePatchValue,
+): string {
+  const subject = `${entity.typeId}/${entity.slug}`;
+  if (isNarrativeReceiptField(field)) return `${subject} ${displayField(field)} updated`;
+  if (field === "bodyPointer" || field === "bodyFieldsHash") return `${subject} source updated`;
+  if (field === "lastProgressAt") return `${subject} progress recorded`;
+  return `${subject} ${displayField(field)} ${displayReceiptValue(change.from)} → ${displayReceiptValue(change.to)}`;
+}
+
+function isNarrativeReceiptField(field: string): boolean {
+  return field === "summary"
+    || /^attributes\.(?:next_action|summary|description|details|notes?|plan|content)$/u.test(field);
+}
+
+function displayReceiptValue(value: unknown): string {
+  const compact = displayValue(value).replace(/\s+/gu, " ").trim();
+  if (compact.length <= MAX_RECEIPT_VALUE_CHARS) return compact;
+  return `${compact.slice(0, MAX_RECEIPT_VALUE_CHARS - 3)}...`;
 }
 
 function displayField(value: string): string {
