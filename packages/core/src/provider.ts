@@ -620,9 +620,8 @@ export function parseClaudePrintJson(stdout: string): ProviderResponse {
       if (eventType === "result") {
         const modelUsage = asRecord(record.modelUsage);
         if (modelUsage) {
-          const primaryModel = selectPrimaryClaudeModel(modelUsage);
-          const primaryUsage = primaryModel ? asRecord(modelUsage[primaryModel]) : undefined;
-          const cw = primaryUsage?.contextWindow;
+          // Primary entry, never first-listed — see selectPrimaryModelUsageEntry.
+          const cw = selectPrimaryModelUsageEntry(modelUsage)?.entry?.contextWindow;
           if (typeof cw === "number" && cw > 0) contextWindowTokens = cw;
         }
       }
@@ -772,7 +771,11 @@ function extractClaudeMetadata(payload: Record<string, unknown>): ProviderRespon
 
   const usage = payload.usage as Record<string, unknown> | undefined;
   const modelUsage = payload.modelUsage as Record<string, unknown> | undefined;
-  const model = selectPrimaryClaudeModel(modelUsage);
+  // Derive the primary model from observed usage (highest costUSD, tie-broken
+  // by output tokens) rather than key order: modelUsage lists every model the
+  // CLI touched this turn, internal helper models included, in arbitrary
+  // order, and an internal helper model can easily land first.
+  const model = modelUsage ? selectPrimaryModelUsageEntry(modelUsage)?.name : undefined;
 
   return {
     model,
@@ -792,38 +795,35 @@ function extractClaudeMetadata(payload: Record<string, unknown>): ProviderRespon
 }
 
 /**
- * Claude Code can report auxiliary models alongside the model that carries the
- * conversation. Prefer the entry with cached context; otherwise fall back to
- * the entry that accounted for the most tokens. Object-key order is not a
- * meaningful signal here.
+ * modelUsage lists every model the CLI touched this turn — internal helper
+ * models included — in arbitrary order. Records should show which model
+ * actually did the work, not whichever key the CLI lists first: observed
+ * order is not a meaningful signal, and an internal helper model can easily
+ * come first. The primary is the entry that did the work: highest costUSD,
+ * tie-broken by output tokens. One selector for every consumer, so metadata
+ * fields can never disagree about which model was primary.
  */
-function selectPrimaryClaudeModel(modelUsage: Record<string, unknown> | undefined): string | undefined {
-  if (!modelUsage) return undefined;
-
-  let selected: { name: string; cachedTokens: number; totalTokens: number } | undefined;
-  for (const [name, rawEntry] of Object.entries(modelUsage)) {
-    const entry = rawEntry && typeof rawEntry === "object" ? rawEntry as Record<string, unknown> : undefined;
-    if (!entry) continue;
-
-    const numberField = (value: unknown): number =>
-      typeof value === "number" && Number.isFinite(value) ? value : 0;
-    const cachedTokens =
-      numberField(entry.cacheReadInputTokens) + numberField(entry.cacheCreationInputTokens);
-    const totalTokens =
-      numberField(entry.inputTokens) +
-      numberField(entry.outputTokens) +
-      cachedTokens;
-
-    if (
-      !selected ||
-      cachedTokens > selected.cachedTokens ||
-      (cachedTokens === selected.cachedTokens && totalTokens > selected.totalTokens)
-    ) {
-      selected = { name, cachedTokens, totalTokens };
+export function selectPrimaryModelUsageEntry(
+  modelUsage: Record<string, unknown>,
+): { name: string; entry: Record<string, unknown> | undefined } | undefined {
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  let best: { name: string; entry: Record<string, unknown> | undefined } | undefined;
+  let bestCost = -1;
+  let bestOutput = -1;
+  for (const [name, value] of Object.entries(modelUsage)) {
+    const entry = value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+    const cost = num(entry?.costUSD);
+    const output = num(entry?.outputTokens);
+    // True two-level comparison: cost decides outright; output tokens break
+    // exact cost ties only. A weighted sum here is a trap — token counts are
+    // large enough to outweigh realistic cost gaps and flip the winner.
+    if (cost > bestCost || (cost === bestCost && output > bestOutput)) {
+      bestCost = cost;
+      bestOutput = output;
+      best = { name, entry };
     }
   }
-
-  return selected?.name;
+  return best;
 }
 
 function normalizeToolMode(mode: ProviderToolMode | undefined): ProviderToolMode {
