@@ -20,6 +20,9 @@ import type { SchedulerStore } from "./store.js";
 import { getDeterministicHandler, getPreCheckHandler } from "./handlers.js";
 import { resolveDefaultObsidianVaultPath } from "../obsidian-indexer.js";
 
+/** Safety cap on batches per drained conditional-agent run. */
+const DEFAULT_DRAIN_MAX_BATCHES = 15;
+
 export interface ExecutionResult {
   status: RunStatus;
   durationMs: number;
@@ -403,37 +406,107 @@ async function executeConditionalAgent(
     };
   }
 
-  // Run the pre-check
-  const ctx: HandlerContext = {
-    scheduleId: config.id,
-    db: deps.db,
-    lastRunAt: getLastRunDate(config.id, deps),
-  };
+  // Drain mode keeps re-running the pre-check + agent batch until the pre-check
+  // reports nothing left to process. A no-op single run (drainBatches unset)
+  // behaves exactly as before: one pre-check, one batch.
+  const drain = config.execution.drainBatches === true;
+  const maxBatches = drain
+    ? (config.execution.drainMaxBatches ?? DEFAULT_DRAIN_MAX_BATCHES)
+    : 1;
 
-  const preCheckResult = await withTimeout(
-    preCheckHandler(ctx),
-    30_000,
-    `Pre-check '${preCheckConfig.handler}' timed out`,
-  );
+  const batchSummaries: string[] = [];
+  let batchesRun = 0;
+  let lastResult: ExecutionResult | undefined;
+  // Backlog size from the previous batch's pre-check; used to detect a stuck
+  // candidate the agent can't clear (which would otherwise loop forever).
+  let previousBacklog = Number.POSITIVE_INFINITY;
 
-  if (preCheckResult.action === "skip") {
-    if (config.obsidianLog) {
-      try {
-        writeObsidianLog(config, `Skipped — ${preCheckResult.reason ?? "pre-check returned skip"}`);
-      } catch (err) {
-        console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
-      }
-    }
-    return {
-      status: "skipped",
-      durationMs: Date.now() - startTime,
-      summary: preCheckResult.reason,
-      preCheckResult: JSON.stringify(preCheckResult),
+  for (let batch = 0; batch < maxBatches; batch++) {
+    const ctx: HandlerContext = {
+      scheduleId: config.id,
+      db: deps.db,
+      lastRunAt: getLastRunDate(config.id, deps),
     };
+
+    const preCheckResult = await withTimeout(
+      preCheckHandler(ctx),
+      30_000,
+      `Pre-check '${preCheckConfig.handler}' timed out`,
+    );
+
+    if (preCheckResult.action === "skip") {
+      // Nothing (left) to do. On the very first pass this is the classic
+      // "skipped" outcome; after one or more batches it means we drained clean.
+      if (batchesRun === 0) {
+        if (config.obsidianLog) {
+          try {
+            writeObsidianLog(config, `Skipped — ${preCheckResult.reason ?? "pre-check returned skip"}`);
+          } catch (err) {
+            console.error(`[scheduler] obsidian-log error for ${config.id}:`, err);
+          }
+        }
+        return {
+          status: "skipped",
+          durationMs: Date.now() - startTime,
+          summary: preCheckResult.reason,
+          preCheckResult: JSON.stringify(preCheckResult),
+        };
+      }
+      break;
+    }
+
+    // No-progress guard: if the backlog didn't shrink after a completed batch,
+    // the agent couldn't clear the remaining candidates (e.g. a 2FA wall).
+    // Stop rather than spin, and flag it in the summary.
+    if (drain && batchesRun > 0) {
+      const backlog = drainBacklogSize(preCheckResult.context);
+      if (backlog >= previousBacklog) {
+        batchSummaries.push(
+          `Halted draining after batch ${batchesRun}: backlog not decreasing `
+            + `(${backlog} candidate(s) remain — likely a stuck receipt needing manual attention).`,
+        );
+        break;
+      }
+      previousBacklog = backlog;
+    } else if (drain) {
+      previousBacklog = drainBacklogSize(preCheckResult.context);
+    }
+
+    lastResult = await runAgentWorker(config, deps, startTime, preCheckResult.context);
+    batchesRun++;
+    if (lastResult.summary) {
+      batchSummaries.push(lastResult.summary);
+    }
+    // Stop the drain on a failed batch; the caller's backoff/alerting handles it.
+    if (lastResult.status !== "ok") {
+      break;
+    }
+    if (!drain) {
+      break;
+    }
   }
 
-  // Pre-check says proceed — spawn the agent worker
-  return await runAgentWorker(config, deps, startTime, preCheckResult.context);
+  const combinedSummary = batchSummaries.join("\n\n---\n\n").trim() || undefined;
+  return {
+    status: lastResult?.status ?? "ok",
+    durationMs: Date.now() - startTime,
+    summary: combinedSummary ? combinedSummary.slice(0, 2000) : undefined,
+    modelUsed: lastResult?.modelUsed,
+    preCheckResult: JSON.stringify({ action: "proceed", batchesRun }),
+    metadata: { ...(lastResult?.metadata ?? {}), batchesRun },
+  };
+}
+
+/**
+ * Total unresolved candidates a drained pre-check still reports. Used to detect
+ * a stuck backlog (no forward progress) so the drain loop terminates.
+ */
+function drainBacklogSize(context: Record<string, unknown> | undefined): number {
+  if (!context) return 0;
+  const retailer = Number(context.totalRetailerCandidateCount ?? 0);
+  const reimbursement = Number(context.reimbursementGapCandidateCount ?? 0);
+  return (Number.isFinite(retailer) ? retailer : 0)
+    + (Number.isFinite(reimbursement) ? reimbursement : 0);
 }
 
 // -------------------------------------------------------------------

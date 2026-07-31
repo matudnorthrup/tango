@@ -641,7 +641,7 @@ describe("loadScheduleConfigs", () => {
       expect(task).toContain("References/Email Triage Rules.md");
       expect(task).toContain("filter every email-sourced item");
       expect(task).toContain("Today's Priorities");
-      expect(task).toContain("Stretch (if capacity)");
+      expect(task).toContain("Other Work");
       expect(task).toContain("alerts@example.com");
     }
 

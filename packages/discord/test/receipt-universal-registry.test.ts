@@ -35,6 +35,45 @@ afterEach(() => {
 });
 
 describe("receipt universal registry", () => {
+  it("reads transaction links from declared frontmatter fields only", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-frontmatter-links-"));
+    cleanupDirs.push(tempDir);
+    const receiptDir = path.join(tempDir, "Retailer");
+    fs.mkdirSync(receiptDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(receiptDir, "2026-07-30 Example Receipt.md"),
+      [
+        "---",
+        'lunch_money_ids: ["900000001"]',
+        "lunch_money_transactions:",
+        "  - id: 900000002",
+        "    amount: 42.50",
+        "metadata:",
+        "  id: 700000001",
+        "---",
+        "",
+        "# Example Receipt",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const linked = lookupReceiptRecords({
+      transactionId: "900000002",
+      rootDir: tempDir,
+    });
+    const unrelated = lookupReceiptRecords({
+      transactionId: "700000001",
+      rootDir: tempDir,
+    });
+
+    expect(linked).toHaveLength(1);
+    expect(linked[0]?.record.linkedTransactions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "900000001" }),
+      expect.objectContaining({ id: "900000002", amount: 42.5 }),
+    ]));
+    expect(unrelated).toHaveLength(0);
+  });
+
   it("looks up itemized receipts by linked Lunch Money transaction id", () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-receipt-lookup-home-"));
     cleanupDirs.push(tempHome);

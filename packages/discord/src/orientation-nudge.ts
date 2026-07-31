@@ -567,13 +567,22 @@ function computeCooldownUntil(
   return new Date(now.getTime() + minutes * 60_000);
 }
 
+/**
+ * Blocked rotation items are marked with a leading 🚧 and carry a `— blocked:`
+ * note. They stay in the rotation but are never offered as the current task —
+ * nudging work that can't move is noise.
+ */
+export function isBlockedRotationItem(text: string): boolean {
+  return text.trimStart().startsWith("🚧");
+}
+
 export function parseDailyNote(
   content: string,
   date: string,
 ): Pick<DailyNoteObservation, "currentTask" | "latestInterstitial" | "rotationItems" | "rotationSignature"> {
   const rotationBody = markdownSectionBody(content, "Current Task Rotation");
   const rotationItems = rotationBody ? parseTaskRotation(rotationBody) : [];
-  const currentTask = rotationItems.find((item) => !item.checked)?.text ?? null;
+  const currentTask = rotationItems.find((item) => !item.checked && !isBlockedRotationItem(item.text))?.text ?? null;
   const interstitialBody = markdownSectionBody(content, "Interstitial Log");
   const latestInterstitial = interstitialBody ? parseLatestInterstitial(interstitialBody, date) : null;
   const rotationSignature = rotationItems.length > 0

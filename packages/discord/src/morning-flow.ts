@@ -8,24 +8,21 @@ const DEFAULT_TIME_ZONE = "America/Los_Angeles";
 const DEFAULT_VAULT_ROOT = path.join(os.homedir(), "Documents", "main");
 
 const DAILY_NOTE_SECTIONS: Array<{ heading: string; body: string }> = [
-  { heading: "Today's Priorities", body: "- [ ]" },
   {
     heading: "Current Task Rotation",
     body: [
-      "<!-- Optional top-level task checkboxes. First unchecked item is the orientation nudge current task. -->",
+      "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done. First unchecked unblocked item is the orientation nudge current task. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
       "- [ ]",
     ].join("\n"),
   },
-  { heading: "Stretch (if capacity)", body: "- [ ]" },
+  { heading: "Today's Priorities", body: "- [ ]" },
   {
-    heading: "Routines",
+    heading: "Other Work",
     body: [
-      "- [ ] Slack saved items (Morning)",
-      "- [ ] Check/Update Linear (Afternoon)",
-      "- [ ] Discord and Reddit (Afternoon)",
+      "<!-- Spare-capacity tasks, unscheduled work done today, and rotation items the user has explicitly said are finished. -->",
+      "- [ ]",
     ].join("\n"),
   },
-  { heading: "Unscheduled Work I Did Today", body: "-" },
   { heading: "Notes", body: "-" },
   {
     heading: "Interstitial Log",
@@ -68,23 +65,16 @@ const DEFAULT_DAILY_TEMPLATE = [
   "  - \"[[Church Backlog]]\"",
   "---",
   "",
+  "## Current Task Rotation",
+  "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done. First unchecked unblocked item is the orientation nudge current task. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
+  "- [ ]",
+  "",
   "## Today's Priorities",
   "- [ ]",
   "",
-  "## Current Task Rotation",
-  "<!-- Optional top-level task checkboxes. First unchecked item is the orientation nudge current task. -->",
+  "## Other Work",
+  "<!-- Spare-capacity tasks, unscheduled work done today, and rotation items the user has explicitly said are finished. -->",
   "- [ ]",
-  "",
-  "## Stretch (if capacity)",
-  "- [ ]",
-  "",
-  "## Routines",
-  "- [ ] Slack saved items (Morning)",
-  "- [ ] Check/Update Linear (Afternoon)",
-  "- [ ] Discord and Reddit (Afternoon)",
-  "",
-  "## Unscheduled Work I Did Today",
-  "-",
   "",
   "## Notes",
   "-",
@@ -111,6 +101,8 @@ export interface DailyNoteBootstrapResult {
   updatedNote: boolean;
   addedFrontmatterFields: string[];
   addedSections: string[];
+  /** Rotation items carried forward from the prior daily note, checked or not. */
+  carriedRotation: string[];
 }
 
 export interface MorningFlowSentinelResult {
@@ -365,6 +357,91 @@ function ensureSection(
   };
 }
 
+const ROTATION_HEADING = "Current Task Rotation";
+
+/** Blocked rotation items are marked with a leading 🚧 and sort to the bottom. */
+function isBlockedRotationItem(text: string): boolean {
+  return text.trimStart().startsWith("🚧");
+}
+
+function sectionBody(text: string, heading: string): string | null {
+  const lines = text.split(/\r?\n/u);
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const headingPattern = new RegExp(`^##\\s+${escaped}\\s*$`, "u");
+  const start = lines.findIndex((line) => headingPattern.test(line.trim()));
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^##\s+\S/u.test(lines[index] ?? "")) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start + 1, end).join("\n");
+}
+
+function replaceSectionBody(text: string, heading: string, body: string): string {
+  const lines = text.split(/\r?\n/u);
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const headingPattern = new RegExp(`^##\\s+${escaped}\\s*$`, "u");
+  const start = lines.findIndex((line) => headingPattern.test(line.trim()));
+  if (start < 0) return text;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^##\s+\S/u.test(lines[index] ?? "")) {
+      end = index;
+      break;
+    }
+  }
+  const trailing = end < lines.length ? [""] : [];
+  return [...lines.slice(0, start + 1), ...body.split("\n"), ...trailing, ...lines.slice(end)].join("\n");
+}
+
+/**
+ * Top-level rotation items from the most recent prior daily note, checkbox
+ * state preserved. The rotation is multi-day work, so it carries forward
+ * instead of resetting each morning. Looks back up to `lookbackDays` to
+ * survive skipped days.
+ *
+ * Checked items carry forward too: the checkbox means "nudged this pass", not
+ * "finished". The user may check their way down the list, then uncheck the whole thing
+ * and start another pass. Dropping checked items would eat live work.
+ */
+export function carriedRotationItems(
+  vaultRoot: string,
+  date: string,
+  lookbackDays = 7,
+): Array<{ text: string; checked: boolean }> {
+  const base = new Date(`${date}T00:00:00Z`);
+  for (let back = 1; back <= lookbackDays; back += 1) {
+    const prior = new Date(base.getTime() - back * 86400000).toISOString().slice(0, 10);
+    let content: string;
+    try {
+      content = fs.readFileSync(dailyNotePath(vaultRoot, prior), "utf8");
+    } catch {
+      continue;
+    }
+    const body = sectionBody(content, ROTATION_HEADING);
+    if (body === null) continue;
+    const items = body
+      .split(/\r?\n/u)
+      .map((line) => /^-\s+\[( |x|X)\]\s+(.+?)\s*$/u.exec(line))
+      .filter((match): match is RegExpExecArray => match !== null)
+      .map((match) => ({
+        text: (match[2] ?? "").trim(),
+        checked: (match[1] ?? " ").toLowerCase() === "x",
+      }))
+      .filter((item) => item.text.length > 0 && item.text !== "-");
+    // Blocked items (leading 🚧) sink to the bottom, relative order preserved,
+    // so the live work stays at the top of the list.
+    return [
+      ...items.filter((item) => !isBlockedRotationItem(item.text)),
+      ...items.filter((item) => isBlockedRotationItem(item.text)),
+    ];
+  }
+  return [];
+}
+
 function writeFileIfChanged(filePath: string, before: string, after: string): boolean {
   if (before === after) {
     return false;
@@ -381,6 +458,7 @@ export function ensureDailyNote(options: MorningFlowOptions = {}): DailyNoteBoot
   const targetBriefPath = briefPath(vaultRoot, flowDate.date);
   const addedFrontmatterFields: string[] = [];
   const addedSections: string[] = [];
+  let carriedRotation: string[] = [];
 
   fs.mkdirSync(path.dirname(notePath), { recursive: true });
   fs.mkdirSync(path.dirname(targetBriefPath), { recursive: true });
@@ -418,6 +496,22 @@ export function ensureDailyNote(options: MorningFlowOptions = {}): DailyNoteBoot
     }
   }
 
+  if (createdNote) {
+    const carried = carriedRotationItems(vaultRoot, flowDate.date);
+    if (carried.length > 0) {
+      text = replaceSectionBody(
+        text,
+        ROTATION_HEADING,
+        [
+          "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done. First unchecked unblocked item is the orientation nudge current task. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
+          ...carried.map((item) => `- [${item.checked ? "x" : " "}] ${item.text}`),
+          "- [ ]",
+        ].join("\n"),
+      );
+      carriedRotation = carried.map((item) => item.text);
+    }
+  }
+
   if (!text.endsWith("\n")) {
     text += "\n";
   }
@@ -434,6 +528,7 @@ export function ensureDailyNote(options: MorningFlowOptions = {}): DailyNoteBoot
     updatedNote,
     addedFrontmatterFields,
     addedSections,
+    carriedRotation,
   };
 }
 
@@ -541,9 +636,9 @@ function sectionHasFilledTask(body: string | null): boolean {
 
 function generatedPlanningSectionsAreBlank(noteText: string): boolean {
   const priorities = markdownSectionBody(noteText, (line) => line === "## Today's Priorities");
-  const stretch = markdownSectionBody(noteText, (line) => line === "## Stretch (if capacity)");
+  const otherWork = markdownSectionBody(noteText, (line) => line === "## Other Work");
 
-  return !sectionHasFilledTask(priorities) && !sectionHasFilledTask(stretch);
+  return !sectionHasFilledTask(priorities) && !sectionHasFilledTask(otherWork);
 }
 
 function briefHasFlaggedItems(briefText: string): boolean {

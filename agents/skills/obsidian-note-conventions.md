@@ -11,7 +11,7 @@ Reusable conventions for reading and writing notes in the main Obsidian vault.
 - Preserve the note's existing structure, sections, and frontmatter style when editing. Don't reorganize what you weren't asked to change.
 - For existing daily notes, **do not use `create --overwrite`**. Use the `section` command for generated planning sections and the `frontmatter` command for metadata fields.
 - For non-daily notes, use `create --overwrite` only after reading the note and preserving all current content that should remain.
-- Treat daily-note sections `Notes`, `Interstitial Log`, `Unscheduled Work I Did Today`, `Energy Reflection`, and `Notes from Last Night` as human-owned. Never replace them. Append only when explicitly asked to add a new entry.
+- Treat daily-note sections `Notes`, `Interstitial Log`, `Other Work`, `Energy Reflection`, and `Notes from Last Night` as human-owned. Never replace them. Append only when explicitly asked to add a new entry.
 
 ## Frontmatter
 
@@ -44,7 +44,7 @@ For trip planning notes, use `types` with a `[[Project Plan]]` list item, choose
 
 - Keep task lines terse and action-oriented.
 - **Daily/weekly notes:** `- [ ] Task name (Xhr) [[Area]]` — estimate in parens, area link at end. See `daily_planning` skill.
-- **Current Task Rotation:** use top-level daily-note task checkboxes only. The orientation nudge system treats the first unchecked item in `## Current Task Rotation` as the current task.
+- **Current Task Rotation:** use top-level daily-note task checkboxes only. The orientation nudge system treats the first unchecked item in `## Current Task Rotation` as the current task. All items carry forward into each new daily note automatically, checkbox state preserved — the rotation is multi-day work and must never be duplicated into `Today's Priorities`. A checked box means the user nudged that item on the current pass, **not** that it's finished; never move, complete, or remove a rotation item without their explicit direction.
 - **Area backlogs:** `- [ ] Task description (Xhr)—YYYY-MM-DD` — estimate in parens, date added after em-dash. See `backlog_management` skill.
 
 ## Base files (`.base`)

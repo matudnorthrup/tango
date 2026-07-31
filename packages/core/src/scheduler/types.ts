@@ -56,6 +56,15 @@ export interface ScheduleExecutionConfig {
   taskTemplate?: string;
   /** Per-execution timeout in seconds */
   timeoutSeconds?: number;
+  /**
+   * Conditional-agent only. When true, the executor keeps re-running the
+   * pre-check + agent batch until the pre-check reports nothing left to do
+   * (drains the backlog in one scheduled run instead of one batch per night).
+   * Bounded by drainMaxBatches and a no-progress guard.
+   */
+  drainBatches?: boolean;
+  /** Max batches per drained run (safety cap; default 15). */
+  drainMaxBatches?: number;
 }
 
 export interface ScheduleProviderConfig {

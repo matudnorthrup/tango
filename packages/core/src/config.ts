@@ -812,7 +812,9 @@ const scheduleExecutionSchema = z.object({
   deterministic_agent_id: z.string().min(1).optional(),
   task: z.string().min(1).optional(),
   task_template: z.string().min(1).optional(),
-  timeout_seconds: z.number().positive().optional()
+  timeout_seconds: z.number().positive().optional(),
+  drain_batches: z.boolean().optional(),
+  drain_max_batches: z.number().int().positive().optional()
 });
 
 const scheduleProviderSchema = z.object({
@@ -910,6 +912,8 @@ export function loadScheduleConfigs(configDir: string): ScheduleConfig[] {
         task: parsed.execution.task,
         taskTemplate: parsed.execution.task_template,
         timeoutSeconds: parsed.execution.timeout_seconds,
+        drainBatches: parsed.execution.drain_batches,
+        drainMaxBatches: parsed.execution.drain_max_batches,
       },
       provider: parsed.provider
         ? {

@@ -1439,7 +1439,12 @@ export function isLowSignalGlobalOperationalObsidianMemory(memory: StoredMemoryR
   if (filePath.includes("/planning/daily/")) {
     if (title === "in progress") return true;
     if (heading === "in progress") return true;
-    if (heading === "primary tasks" || heading === "stretch tasks" || heading === "unscheduled work i did today") {
+    if (
+      heading === "primary tasks" ||
+      heading === "stretch tasks" ||
+      heading === "other work" ||
+      heading === "unscheduled work i did today"
+    ) {
       return true;
     }
   }

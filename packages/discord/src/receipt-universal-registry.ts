@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import yaml from "js-yaml";
 import { resolveConfiguredPath, resolveTangoProfileConfigDir } from "@tango/core";
 import { loadReimbursementEvidenceRecord } from "./reimbursement-evidence.js";
 import { parseFlexibleDateToIso } from "./reimbursement-automation.js";
@@ -1131,6 +1132,15 @@ function parseReceiptCategoryNotes(markdown: string): string[] {
 
 function parseLinkedReceiptTransactions(markdown: string): LinkedReceiptTransaction[] {
   const transactions: LinkedReceiptTransaction[] = [];
+  const seen = new Set<string>();
+  const push = (transaction: LinkedReceiptTransaction) => {
+    if (seen.has(transaction.id)) {
+      return;
+    }
+    seen.add(transaction.id);
+    transactions.push(transaction);
+  };
+
   for (const rawLine of markdown.replace(/\r\n/gu, "\n").split("\n")) {
     const line = rawLine.trim();
     const match = /^\s*(?:[-*]\s*)?(?:Lunch Money\s+)?TXN\s+(\d+)\s*:?\s*(?:\$([0-9.,]+))?\s*(?:\((.*?)\))?\s*$/iu.exec(line);
@@ -1138,14 +1148,82 @@ function parseLinkedReceiptTransactions(markdown: string): LinkedReceiptTransact
     if (!id) {
       continue;
     }
-    transactions.push({
+    push({
       id,
       amount: parseCurrency(match?.[2]),
       description: match?.[3]?.trim(),
       raw: line,
     });
   }
+
+  // Canonical receipt notes link transactions via YAML frontmatter
+  // (`lunch_money_ids: [...]` and `lunch_money_transactions:` `- id:` entries)
+  // rather than inline "TXN <id>" text. Include those so registry lookups match.
+  for (const linked of parseFrontmatterLinkedTransactions(markdown)) {
+    push(linked);
+  }
+
   return transactions;
+}
+
+function parseFrontmatterLinkedTransactions(markdown: string): LinkedReceiptTransaction[] {
+  const frontmatter = parseReceiptFrontmatter(markdown);
+  if (!frontmatter) {
+    return [];
+  }
+
+  const results: LinkedReceiptTransaction[] = [];
+  const add = (value: unknown, raw: string, amount?: unknown) => {
+    const id = numericTransactionId(value);
+    if (id) {
+      results.push({
+        id,
+        amount: parseCurrency(
+          typeof amount === "string" || typeof amount === "number" ? String(amount) : undefined,
+        ),
+        raw,
+      });
+    }
+  };
+
+  if (Array.isArray(frontmatter.lunch_money_ids)) {
+    for (const value of frontmatter.lunch_money_ids) {
+      add(value, "lunch_money_ids");
+    }
+  }
+
+  if (Array.isArray(frontmatter.lunch_money_transactions)) {
+    for (const transaction of frontmatter.lunch_money_transactions) {
+      if (isRecord(transaction)) {
+        add(transaction.id, "lunch_money_transactions", transaction.amount);
+      }
+    }
+  }
+
+  return results;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function numericTransactionId(value: unknown): string | undefined {
+  const id = String(value ?? "").trim();
+  return /^\d+$/u.test(id) ? id : undefined;
+}
+
+function parseReceiptFrontmatter(markdown: string): Record<string, unknown> | undefined {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(markdown)?.[1];
+  if (!frontmatter) {
+    return undefined;
+  }
+
+  try {
+    const parsed = yaml.load(frontmatter, { schema: yaml.JSON_SCHEMA });
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildMerchantCandidates(input: {

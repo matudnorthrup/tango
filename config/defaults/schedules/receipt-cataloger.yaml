@@ -25,6 +25,13 @@ execution:
   mode: conditional-agent
   pre_check:
     handler: foxtrot-receipt-catalog-candidates
+  # Keep cataloging batch-after-batch within this run until no receipts remain,
+  # so the morning starts with an empty backlog. Each batch is still capped at
+  # RECEIPT_CATALOG_MAX_CANDIDATES_PER_RUN (3) by the pre-check; drain re-runs
+  # the pre-check to pick up the next batch. Bounded by drain_max_batches and a
+  # no-progress guard (stops if a stuck receipt won't clear).
+  drain_batches: true
+  drain_max_batches: 15
   deterministic_agent_id: foxtrot
   worker_id: personal-assistant
   intent_ids:

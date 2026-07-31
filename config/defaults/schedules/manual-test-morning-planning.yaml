@@ -28,7 +28,7 @@ execution:
     - Read Records/Briefs/YYYY-MM-DD.md for today's
       brief (flagged items, calendar, overnight job summaries)
     - Read References/Email Triage Rules.md before
-      selecting any email-derived priorities or stretch tasks. These rules
+      selecting any email-derived priorities or Other Work tasks. These rules
       define Ignore, Delegate, and Flag behavior for email sources.
     - Read Planning/Daily/YYYY-MM-DD.md for existing
       generated sections and human-owned context
@@ -39,21 +39,26 @@ execution:
     **Step 2: Produce proposed generated sections only.**
     Before proposing output, filter every email-sourced item from the brief or
     email logs through the triage rules. Do not add ignored or delegated email
-    items to "Today's Priorities", "Stretch (if capacity)", or action
+    items to "Today's Priorities", "Other Work", or action
     recommendations.
     Return proposed content for only these sections:
     - "Today's Priorities" — top 3-5 tasks based on brief flags,
       carryovers, and calendar. Include dates in format: task—YYYY-MM-DD
-    - "Stretch (if capacity)" — lower priority items
-    - "Routines" — keep exactly as template:
-      - [ ] Slack saved items (Morning)
-      - [ ] Check/Update Linear (Afternoon)
-      - [ ] Discord and Reddit (Afternoon)
+    - "Other Work" — lower-priority / spare-capacity items. APPEND only
+      (`section ... --append`); this section is human-owned and also holds
+      unscheduled work and completed rotation items. Never list an OPEN
+      Current Task Rotation item here.
 
     **Filtering rules — do NOT surface these as priorities:**
+    - Current Task Rotation items. The rotation and the orientation nudge
+      already cover them; copying them into priorities is duplicate noise.
+    - Recurring meetings of any kind.
+    - Work meetings, recurring or not. Non-recurring PERSONAL or family
+      calendar events (doctor's appointment, school event, one-off
+      appointment) ARE allowed and often useful.
     - Email items marked Ignore or Delegate by
       References/Email Triage Rules.md. This applies to
-      both priorities and stretch tasks. For example, emails from
+      both priorities and Other Work tasks. For example, emails from
       alerts@example.com must not become daily-note tasks when the triage rules
       say to ignore that source.
     - Domain renewals: these are handled through other monitoring channels
@@ -68,7 +73,7 @@ execution:
     **Step 3: Return validation evidence.**
     Include:
     - Proposed "Today's Priorities"
-    - Proposed "Stretch (if capacity)"
+    - Proposed "Other Work" additions
     - A short "Filtered by triage rules" list naming any ignored/delegated
       email-derived items that were excluded
     - Confirmation that no Obsidian writes were performed
