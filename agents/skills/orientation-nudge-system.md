@@ -26,19 +26,23 @@ suppress nudges.
 
 ## Daily Note Contract
 
-Daily notes include a formal `## Current Task Rotation` section. Use top-level
-task checkboxes only:
+The `## Interstitial Log` is the only source of truth for what the user is
+doing. The nudge task is the latest timestamped interstitial entry, full stop.
 
-```md
-## Current Task Rotation
-- [ ] First task
-- [ ] Second task
-```
+The `## Current Task Rotation` section is deliberately **not** used to name the
+task. Rotating is itself a mode: when the user is working the rotation, the log
+gets a single `Task rotation` entry and the nudge asks about that mode — never
+about an individual item inside the rotation. Cycling between rotation items is
+not a task transition. Flipping into focused work on one thing *is* a
+transition, and gets its own log entry naming that work; from then on the
+rotation is assumed to be over until a new `Task rotation` entry appears.
 
-The first unchecked top-level item is the current task. Nested checkboxes are
-ignored. If the rotation is missing or complete, the system falls back to the
-latest timestamped `## Interstitial Log` entry, then to `No current task
-detected`.
+Rotation edits still count as daily-note activity for the staleness timer — they
+just never supply the task name.
+
+When there is no interstitial entry yet, the nudge does not guess. It asks
+`What are you working on right now?`, and the answer becomes the first log
+entry.
 
 Scheduled/background reads and writes use direct filesystem I/O against the
 vault, not Obsidian MCP.
@@ -59,8 +63,11 @@ interstitial log entry because the user typed a new task.
 The nudge message uses buttons:
 
 ```md
-Are you still working on **[current task]**?
+Are you still working on **[latest interstitial log entry]**?
 ```
+
+With no interstitial entry for the day, the message is instead
+`What are you working on right now?`.
 
 - `Yes` confirms and snoozes.
 - `No` opens a task modal and appends the new task to the interstitial log.

@@ -11,7 +11,7 @@ const DAILY_NOTE_SECTIONS: Array<{ heading: string; body: string }> = [
   {
     heading: "Current Task Rotation",
     body: [
-      "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done. First unchecked unblocked item is the orientation nudge current task. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
+      "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done - items only leave when I say so. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
       "- [ ]",
     ].join("\n"),
   },
@@ -27,7 +27,7 @@ const DAILY_NOTE_SECTIONS: Array<{ heading: string; body: string }> = [
   {
     heading: "Interstitial Log",
     body: [
-      "<!-- Quick timestamped entries at every task transition. Format: HH:MM - what you just finished / what's moving into next -->",
+      "<!-- Source of truth for the orientation nudge. One entry per real task transition. Working the rotation is one entry: 'Task rotation'; switching between rotation items is not a transition. Format: HH:MM - what I'm moving into -->",
       "-",
     ].join("\n"),
   },
@@ -66,7 +66,7 @@ const DEFAULT_DAILY_TEMPLATE = [
   "---",
   "",
   "## Current Task Rotation",
-  "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done. First unchecked unblocked item is the orientation nudge current task. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
+  "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done - items only leave when I say so. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
   "- [ ]",
   "",
   "## Today's Priorities",
@@ -80,7 +80,7 @@ const DEFAULT_DAILY_TEMPLATE = [
   "-",
   "",
   "## Interstitial Log",
-  "<!-- Quick timestamped entries at every task transition. Format: HH:MM - what you just finished / what's moving into next -->",
+  "<!-- Source of truth for the orientation nudge. One entry per real task transition. Working the rotation is one entry: 'Task rotation'; switching between rotation items is not a transition. Format: HH:MM - what I'm moving into -->",
   "-",
   "",
 ].join("\n");
@@ -503,7 +503,7 @@ export function ensureDailyNote(options: MorningFlowOptions = {}): DailyNoteBoot
         text,
         ROTATION_HEADING,
         [
-          "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done. First unchecked unblocked item is the orientation nudge current task. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
+          "<!-- Multi-day work. All items carry forward. A checkmark means 'nudged this pass', not done - items only leave when I say so. Blocked items: prefix 🚧 and append ' - blocked: why', sorted to the bottom. -->",
           ...carried.map((item) => `- [${item.checked ? "x" : " "}] ${item.text}`),
           "- [ ]",
         ].join("\n"),

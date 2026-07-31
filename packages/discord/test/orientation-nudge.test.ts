@@ -168,7 +168,37 @@ describe("orientation nudge trigger decisions", () => {
           rotationSignature: " :Ship feature",
         },
       });
-      expect(decision).toEqual({ action: "send", task: "Task rotation: Ship feature" });
+      // Rotation contents never name the nudge task; with no interstitial entry
+      // we don't know what he's doing, so the nudge asks instead of guessing.
+      expect(decision).toEqual({ action: "send", task: null });
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("takes the nudge task from the interstitial log, not the rotation", () => {
+    const { storage, store } = createStorage();
+    try {
+      const config = resolveOrientationNudgeConfig();
+      const now = new Date("2026-06-25T17:30:00.000Z");
+      const stale = new Date("2026-06-25T15:00:00.000Z");
+      store.recordInterstitialActivity(config.userId, stale, "Task rotation");
+      const decision = evaluateOrientationNudge({
+        state: store.getState(config.userId, now),
+        now,
+        config,
+        calendarBlocker: null,
+        observation: {
+          notePath: "/tmp/note.md",
+          noteFound: true,
+          date: "2026-06-25",
+          currentTask: "Ship feature",
+          latestInterstitial: { at: stale, text: "Task rotation" },
+          rotationItems: [{ checked: false, text: "Ship feature" }],
+          rotationSignature: " :Ship feature",
+        },
+      });
+      expect(decision).toEqual({ action: "send", task: "Task rotation" });
     } finally {
       storage.close();
     }
