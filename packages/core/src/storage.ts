@@ -1811,7 +1811,7 @@ const MIGRATIONS: Migration[] = [
     version: 34,
     sql: `
       INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type)
-      VALUES ('gospel_library', 'personal', 'Gospel Library', 'write');
+      VALUES ('study_library', 'personal', 'Study Library', 'write');
 
       INSERT OR IGNORE INTO principals (id, type, display_name)
       SELECT 'user:owner', 'user', 'Owner'
@@ -1830,47 +1830,47 @@ const MIGRATIONS: Migration[] = [
       LIMIT 1;
 
       INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
-      SELECT 'worker:church-assistant', 'worker', 'agent:porter', 'Church Assistant'
+      SELECT 'worker:study-assistant', 'worker', 'agent:porter', 'Study Assistant'
       WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:porter');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:church-assistant', 'gospel_library', 'write', 'Gospel Library marking and linking'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
-        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'gospel_library');
+      SELECT 'worker:study-assistant', 'study_library', 'write', 'Study Library marking and linking'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'study_library');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:church-assistant', 'obsidian', 'write', 'church study notes and calling outlines'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+      SELECT 'worker:study-assistant', 'obsidian', 'write', 'church study notes and calling outlines'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'obsidian');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:church-assistant', 'browser', 'write', 'authenticated Gospel Library marking and linking'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+      SELECT 'worker:study-assistant', 'browser', 'write', 'authenticated Study Library marking and linking'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'browser');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:church-assistant', 'onepassword', 'read', 'credential retrieval for Church login if explicitly configured'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+      SELECT 'worker:study-assistant', 'onepassword', 'read', 'credential retrieval for Church login if explicitly configured'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'onepassword');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:church-assistant', 'gog_email', 'read', 'read-only calling context from email'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+      SELECT 'worker:study-assistant', 'gog_email', 'read', 'read-only calling context from email'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'gog_email');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:church-assistant', 'memory_search', 'read', 'memory lookup for durable church context'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+      SELECT 'worker:study-assistant', 'memory_search', 'read', 'memory lookup for durable church context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_search');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:church-assistant', 'memory_add', 'write', 'memory capture for durable church context'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+      SELECT 'worker:study-assistant', 'memory_add', 'write', 'memory capture for durable church context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_add');
 
       INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
-      SELECT 'worker:church-assistant', 'memory_reflect', 'write', 'memory reflection for durable church context'
-      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:church-assistant')
+      SELECT 'worker:study-assistant', 'memory_reflect', 'write', 'memory reflection for durable church context'
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
         AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'memory_reflect');
     `,
   },
@@ -3009,6 +3009,99 @@ const MIGRATIONS: Migration[] = [
           WHERE type.id = entity.type_id
             AND terminal.value = entity.status
         );
+    `,
+  },
+  {
+    version: 68,
+    sql: `
+      -- Rename the study-library tool and its worker principal so the repo
+      -- carries no operator-specific naming; the site behind the tool is
+      -- described by a profile-layer browser-site descriptor instead. The old
+      -- ids appear here only because a rename has to name what it renames.
+      --
+      -- Deliberately additive: it mirrors the old rows onto the new ids and
+      -- leaves the originals in place. Deleting them would mean deleting rows
+      -- other grants still reference, and a half-applied delete is how a
+      -- principal silently loses every permission it had.
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type, description)
+      SELECT 'study_library', domain, 'Study Library', access_type, description
+      FROM governance_tools WHERE id = 'gospel_library';
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      SELECT 'worker:study-assistant', type, parent_id, 'Study Assistant'
+      FROM principals WHERE id = 'worker:church-assistant';
+
+      -- Same grants on the renamed tool, for whoever held them.
+      INSERT OR IGNORE INTO permissions (principal_id, group_id, tool_id, access_level, granted_by, reason)
+      SELECT principal_id, group_id, 'study_library', access_level, granted_by, reason
+      FROM permissions
+      WHERE tool_id = 'gospel_library'
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'study_library');
+
+      -- Same grants for the renamed principal, on whatever tools it held.
+      INSERT OR IGNORE INTO permissions (principal_id, group_id, tool_id, access_level, granted_by, reason)
+      SELECT 'worker:study-assistant', group_id, tool_id, access_level, granted_by, reason
+      FROM permissions
+      WHERE principal_id = 'worker:church-assistant'
+        AND EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant');
+
+      INSERT OR IGNORE INTO permissions (principal_id, group_id, tool_id, access_level, granted_by, reason)
+      SELECT 'worker:study-assistant', group_id, 'study_library', access_level, granted_by, reason
+      FROM permissions
+      WHERE principal_id = 'worker:church-assistant' AND tool_id = 'gospel_library'
+        AND EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'study_library');
+    `,
+  },
+  {
+    // Ward Program tools for Porter (worker:study-assistant → agent:porter): let
+    // Porter drive the waldportward.org "apply weekly data → build → deploy" engine
+    // (ward-program-agent-tools + porter.yaml ward-program server). Appended after
+    // the v68 church→study rename, so it grants the current principal directly.
+    // Idempotent (INSERT OR IGNORE + EXISTS guard) — safe on fresh installs and on
+    // any database already past v68. Status is read-only; update commits to staging;
+    // promote publishes to production.
+    version: 69,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('ward_program_status', 'personal', 'Ward Program Status', 'read'),
+        ('ward_program_update', 'personal', 'Ward Program Update', 'write'),
+        ('ward_program_promote', 'personal', 'Ward Program Promote', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+      SELECT 'worker:study-assistant', tool_id, access_level, reason
+      FROM (
+        SELECT 'ward_program_status' AS tool_id, 'read' AS access_level, 'ward program updates via Porter' AS reason
+        UNION ALL SELECT 'ward_program_update', 'write', 'ward program updates via Porter'
+        UNION ALL SELECT 'ward_program_promote', 'write', 'ward program promote via Porter'
+      )
+      WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant');
+    `,
+  },
+  {
+    // attachment_update (v0 operator write surface: title and project_id
+    // only, real columns, no schema migration). CATALOG ONLY: register the
+    // tool so fresh databases know it exists, but insert NO permission rows
+    // here — who holds a tool is an operator decision, made per install
+    // through its own grant mechanism, never seeded by a migration.
+    // (Renumbered from the source chain's migration 74 onto this chain's tail.)
+    version: 70,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('attachment_update', 'attachments', 'Attachment Update', 'write');
+    `,
+  },
+  {
+    // attachment_enumerate (read-only, exhaustive-by-label listing:
+    // list_projects, list_tags, by_label). Born UNGRANTED, catalog only —
+    // read-vs-write does not change whose word arms a grant: permissions are
+    // operator decisions, inserted per install by the operator, never by a
+    // migration. (Renumbered from the source chain's migration 75 onto this
+    // chain's tail.)
+    version: 71,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('attachment_enumerate', 'attachments', 'Attachment Enumerate', 'read');
     `,
   },
 ];

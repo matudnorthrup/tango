@@ -1,7 +1,7 @@
 id: porter
 enabled: false
 display_name: Porter
-type: lds-companion
+type: faith-companion
 
 # System prompt = personality + domain + rules
 system_prompt_file: agents/assistants/porter/soul.md
@@ -21,36 +21,42 @@ mcp_servers:
     args: ["packages/core/dist/mcp-proxy.js", "google"]
     env:
       ALLOWED_TOOL_IDS: "gog_email"
-      WORKER_ID: "church-assistant"
+      WORKER_ID: "study-assistant"
   - name: obsidian
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "obsidian"]
     env:
       ALLOWED_TOOL_IDS: "obsidian"
-      WORKER_ID: "church-assistant"
+      WORKER_ID: "study-assistant"
   - name: browser
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "browser"]
     env:
       ALLOWED_TOOL_IDS: "browser"
-      WORKER_ID: "church-assistant"
-  - name: gospel-library
+      WORKER_ID: "study-assistant"
+  - name: study-library
     command: node
-    args: ["packages/core/dist/mcp-proxy.js", "gospel-library"]
+    args: ["packages/core/dist/mcp-proxy.js", "study-library"]
     env:
-      ALLOWED_TOOL_IDS: "gospel_library"
-      WORKER_ID: "church-assistant"
+      ALLOWED_TOOL_IDS: "study_library"
+      WORKER_ID: "study-assistant"
   - name: onepassword
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "onepassword"]
     env:
       ALLOWED_TOOL_IDS: "onepassword"
-      WORKER_ID: "church-assistant"
+      WORKER_ID: "study-assistant"
   - name: send-image
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "send-image"]
     env:
       ALLOWED_TOOL_IDS: "discord_send_image"
+  - name: ward-program
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "ward-program"]
+    env:
+      ALLOWED_TOOL_IDS: "ward_program_status,ward_program_update,ward_program_promote"
+      WORKER_ID: "study-assistant"
 
 # Runtime configuration
 runtime:
@@ -94,7 +100,7 @@ discord:
 
 # Legacy registry fields
 avatar_path: agents/assistants/porter/avatar.png
-default_topic: personal/lds-companion
+default_topic: personal/faith-companion
 default_project: personal
 response_mode: explain
 

@@ -124,6 +124,7 @@ import {
 } from "@tango/core";
 import { runAtlasScheduledReflections } from "./atlas-memory-reflection.js";
 import { printerMonitorHandler } from "./printer-monitor.js";
+import { runSiteSessionKeepalive } from "./site-session.js";
 import {
   createDailyNoteBootstrapHandler,
   createMorningFlowSentinelHandler,
@@ -226,6 +227,11 @@ import {
   formatReceiptCatalogCandidateDetails,
 } from "./receipt-catalog-precheck.js";
 import { resolveDefaultReceiptRoot } from "./receipt-paths.js";
+import {
+  findBudgetNeutralInternalTransfers,
+  formatBudgetNeutralTransferDetails,
+  readFinanceCategorizationRules,
+} from "./finance-automation.js";
 import {
   applySlotNickname,
   initializeSlotMode,
@@ -1253,12 +1259,40 @@ registerDeterministicHandler("state-sweep", async () => {
   };
 });
 registerDeterministicHandler("printer-monitor", printerMonitorHandler);
-registerDeterministicHandler("daily-brief-aggregate", createDailyBriefAggregationHandler());
-registerDeterministicHandler("daily-note-bootstrap", createDailyNoteBootstrapHandler());
-registerDeterministicHandler("morning-flow-sentinel", createMorningFlowSentinelHandler());
-registerDeterministicHandler("kilo-ledger-monitor", createKiloLedgerMonitorHandler({
-  getLunchMoneyAccessToken: getLunchMoneyApiKey,
-}));
+registerDeterministicHandler("browser-session-keepalive", async () => {
+  // Identity-provider sessions idle out server-side, and the cookies that carry
+  // them die with the browser unless given a real expiry. Touching every
+  // configured site on a schedule is what keeps authenticated work from
+  // starting with a sign-in.
+  const report = await runSiteSessionKeepalive();
+  if (report.length === 0) {
+    return { status: "skipped", summary: "No browser-session descriptors have keepalive enabled." };
+  }
+
+  const all = report.flatMap((entry) => entry.results);
+  const blocked = all.filter((result) => !result.authenticated);
+  const persisted = report.reduce((sum, entry) => sum + entry.persisted.converted.length, 0);
+
+  const failureDetail = blocked
+    .map((result) => `${result.site}/${result.scope} — ${result.message}`)
+    .join(" | ");
+
+  return {
+    status: blocked.length === 0 ? "ok" : "error",
+    // The scheduler logs `error`; leaving it unset prints error="undefined" and
+    // hides the one line that says what actually went wrong.
+    ...(blocked.length === 0 ? {} : { error: failureDetail }),
+    summary:
+      blocked.length === 0
+        ? `Sessions live for ${all.map((r) => `${r.site}/${r.scope}`).join(", ")}; ${persisted} session cookie(s) hardened.`
+        : `Sessions needing attention: ${failureDetail}`,
+    data: {
+      sessions: all.map((r) => ({ site: r.site, scope: r.scope, authenticated: r.authenticated, path: r.path })),
+      persistedCookies: persisted,
+      needsSecondFactor: all.some((r) => r.needsSecondFactor === true),
+    },
+  };
+});
 registerDeterministicHandler("attachment-retention-sweep", async (ctx) => {
   const store = new AttachmentStore(ctx.db);
   const report = runAttachmentRetentionSweep(store, {
@@ -1352,12 +1386,18 @@ registerPreCheckHandler("foxtrot-unreviewed-transactions", async () => {
       reason: "No uncleared transactions in the last 48 hours.",
     };
   }
+  const categorizationRules = readFinanceCategorizationRules();
+  const budgetNeutralTransfers = findBudgetNeutralInternalTransfers(transactions);
   return {
     action: "proceed" as const,
     context: {
       startDate,
       endDate,
       unreviewedCount,
+      categorizationRulesPath: categorizationRules.relativePath,
+      categorizationRules: categorizationRules.content,
+      budgetNeutralTransferCount: budgetNeutralTransfers.length,
+      budgetNeutralTransferDetails: formatBudgetNeutralTransferDetails(budgetNeutralTransfers),
     },
   };
 });
@@ -1398,6 +1438,7 @@ registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
         `No recent receipt candidates or reimbursement tracking gaps for configured retailers in the last ${lookbackDays} days.`,
     };
   }
+  const categorizationRules = readFinanceCategorizationRules();
 
   return {
     action: "proceed" as const,
@@ -1421,6 +1462,8 @@ registerPreCheckHandler("foxtrot-receipt-catalog-candidates", async () => {
       reimbursementGapDetails: formatReimbursementGapCandidateDetails(
         reimbursementGapCandidates,
       ),
+      categorizationRulesPath: categorizationRules.relativePath,
+      categorizationRules: categorizationRules.content,
     },
   };
 });

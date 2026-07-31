@@ -50,8 +50,8 @@ const SERVER_KEYWORD_PATTERNS: Record<string, RegExp[]> = {
   google: [
     /\b(gmail|email|calendar|google docs?|doc tabs?|google)\b/iu,
   ],
-  "gospel-library": [
-    /\b(gospel library|scripture|verse|lesson|talk|manual)\b/iu,
+  "study-library": [
+    /\b(study library|scripture|verse|lesson|talk|manual)\b/iu,
   ],
   "kilo-ledger": [
     /\b(kilo|ledger|allowance|budget|transaction)\b/iu,

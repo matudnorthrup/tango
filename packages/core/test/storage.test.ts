@@ -344,41 +344,41 @@ describe("TangoStorage", () => {
     db.close();
   });
 
-  it("seeds Porter church-assistant governance with read-only email", () => {
+  it("seeds Porter study-assistant governance with read-only email", () => {
     const { storage, dir } = createStorage();
     storage.close();
 
     const db = new DatabaseSync(path.join(dir, "tango.sqlite"), { readonly: true });
     const principal = db.prepare(
-      "SELECT id, parent_id FROM principals WHERE id = 'worker:church-assistant'",
+      "SELECT id, parent_id FROM principals WHERE id = 'worker:study-assistant'",
     ).get() as { id: string; parent_id: string } | undefined;
     const emailPermission = db.prepare(
-      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'worker:church-assistant' AND tool_id = 'gog_email'",
+      "SELECT principal_id, tool_id, access_level FROM permissions WHERE principal_id = 'worker:study-assistant' AND tool_id = 'gog_email'",
     ).get() as { principal_id: string; tool_id: string; access_level: string } | undefined;
     const gospelLibraryTool = db.prepare(
-      "SELECT id, access_type FROM governance_tools WHERE id = 'gospel_library'",
+      "SELECT id, access_type FROM governance_tools WHERE id = 'study_library'",
     ).get() as { id: string; access_type: string } | undefined;
     const checker = new GovernanceChecker(db);
 
     expect(principal).toEqual({
-      id: "worker:church-assistant",
+      id: "worker:study-assistant",
       parent_id: "agent:porter",
     });
     expect(emailPermission).toEqual({
-      principal_id: "worker:church-assistant",
+      principal_id: "worker:study-assistant",
       tool_id: "gog_email",
       access_level: "read",
     });
     expect(gospelLibraryTool).toEqual({
-      id: "gospel_library",
+      id: "study_library",
       access_type: "write",
     });
-    expect(checker.hasPermission("worker:church-assistant", "gog_email", "read")).toBe(true);
-    expect(checker.hasPermission("worker:church-assistant", "gog_email", "write")).toBe(false);
-    expect(checker.hasPermission("worker:church-assistant", "gospel_library", "write")).toBe(true);
-    expect(checker.hasPermission("worker:church-assistant", "obsidian", "write")).toBe(true);
-    expect(checker.hasPermission("worker:church-assistant", "browser", "write")).toBe(true);
-    expect(checker.hasPermission("worker:church-assistant", "onepassword", "read")).toBe(true);
+    expect(checker.hasPermission("worker:study-assistant", "gog_email", "read")).toBe(true);
+    expect(checker.hasPermission("worker:study-assistant", "gog_email", "write")).toBe(false);
+    expect(checker.hasPermission("worker:study-assistant", "study_library", "write")).toBe(true);
+    expect(checker.hasPermission("worker:study-assistant", "obsidian", "write")).toBe(true);
+    expect(checker.hasPermission("worker:study-assistant", "browser", "write")).toBe(true);
+    expect(checker.hasPermission("worker:study-assistant", "onepassword", "read")).toBe(true);
 
     db.close();
   });
@@ -2224,5 +2224,53 @@ describe("TangoStorage", () => {
     expect(storage.countPendingSessionSaves()).toBe(0);
 
     storage.close();
+  });
+});
+
+// attachment_update (v0 operator write surface) registers as a catalog-only
+// write tool, born ungranted: who holds it is the operator's decision, made
+// per install, never applied by a migration.
+// (Renumbered from the source chain's 74 onto this chain's tail.)
+describe("attachment_update governance registration (migration 70)", () => {
+  it("registers the tool as write-access and grants it to no one", () => {
+    const { storage } = createStorage();
+
+    const tool = storage
+      .getDatabase()
+      .prepare("SELECT id, domain, access_type FROM governance_tools WHERE id = 'attachment_update'")
+      .get() as { id?: string; domain?: string; access_type?: string } | undefined;
+    expect(tool?.id).toBe("attachment_update");
+    expect(tool?.domain).toBe("attachments");
+    expect(tool?.access_type).toBe("write");
+
+    const grants = storage
+      .getDatabase()
+      .prepare("SELECT COUNT(*) AS count FROM permissions WHERE tool_id = 'attachment_update'")
+      .get() as { count: number };
+    expect(grants.count).toBe(0);
+  });
+});
+
+// attachment_enumerate (exhaustive-by-label read tool). Born UNGRANTED:
+// grants are operator decisions, applied per install on the operator's word.
+// This test PINS the ungranted state so a future edit cannot silently arm it
+// in the migration. (Renumbered from the source chain's 75 onto this chain's tail.)
+describe("attachment_enumerate governance registration (migration 71)", () => {
+  it("registers the tool as read-access with ZERO grants (born ungranted)", () => {
+    const { storage } = createStorage();
+
+    const tool = storage
+      .getDatabase()
+      .prepare("SELECT id, domain, access_type FROM governance_tools WHERE id = 'attachment_enumerate'")
+      .get() as { id?: string; domain?: string; access_type?: string } | undefined;
+    expect(tool?.id).toBe("attachment_enumerate");
+    expect(tool?.domain).toBe("attachments");
+    expect(tool?.access_type).toBe("read");
+
+    const grantCount = storage
+      .getDatabase()
+      .prepare("SELECT COUNT(*) AS count FROM permissions WHERE tool_id = 'attachment_enumerate'")
+      .get() as { count: number };
+    expect(grantCount.count).toBe(0);
   });
 });

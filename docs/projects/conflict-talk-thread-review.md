@@ -36,12 +36,12 @@ Both conversations happened on 2026-04-19. All interactions were with Watson.
 
 | Time | Msg ID | What happened | User saw |
 |------|--------|---------------|----------|
-| 17:35 | 1988 | User asks for help preparing LDS talk on disagreement, requests Obsidian draft | (inbound) |
+| 17:35 | 1988 | User asks for help preparing a talk on disagreement, requests Obsidian draft | (inbound) |
 | 17:35 | 1989 | Watson asks where to save in vault | Normal |
 | 17:35 | 1990 | User says "Root." | (inbound) |
-| **17:37** | **1991** | **Worker executes `notes.note_update` successfully (per deterministic summary msg 1992). File "LDS Talk - How We Live and Disagree.md" IS created in Obsidian vault. But narration guard fires again — same pattern as above. Latency: 105 seconds.** | **"Sorry, something went wrong before I could finish that step. Please try again."** |
+| **17:37** | **1991** | **Worker executes `notes.note_update` successfully (per deterministic summary msg 1992). The talk note IS created in Obsidian vault. But narration guard fires again — same pattern as above. Latency: 105 seconds.** | **"Sorry, something went wrong before I could finish that step. Please try again."** |
 | 17:38 | 1993 | User says "Try again please." | (inbound) |
-| **17:39** | **1994** | Watson retries, creates SECOND file "LDS Talk - Living and Disagreeing.md" (different title). This time narration passes the guard. | Normal response — but now there are **two duplicate notes** in the vault |
+| **17:39** | **1994** | Watson retries, creates a SECOND note with a different title. This time narration passes the guard. | Normal response — but now there are **two duplicate notes** in the vault |
 | 17:42 | 1996 | User says "Hmm. Not seeing those things in the doc. Check again" | (inbound) |
 | **17:43** | **1997** | **Classifier marks turn as "conversational" (fallback). Watson says "I need to answer that directly from the current conversation context, not start another worker task." — effectively refuses to check the doc.** | **"Sorry, I need to answer that directly from the current conversation context, not start another worker task."** |
 
@@ -119,4 +119,4 @@ Before creating a new Obsidian note, the personal-assistant worker should check 
 - `packages/discord/src/turn-executor.ts` — narration guard logic (lines 799-1226)
 - `docs/projects/silent-message-failures.md` — related but different failure class
 - `docs/projects/reply-in-context-bug.md` — related session isolation fix
-- Private Obsidian vault — two duplicate LDS talk notes exist
+- Private Obsidian vault — two duplicate talk notes exist

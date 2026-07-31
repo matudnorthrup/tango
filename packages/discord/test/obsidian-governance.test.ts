@@ -4,24 +4,28 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createObsidianTools } from "../src/personal-agent-tools.js";
 
-// The obsidian tool resolves its vault from os.homedir()/Documents/main, which
-// honors $HOME on POSIX — so we point HOME at a temp dir to exercise the real
-// tool handler end-to-end against a throwaway vault.
+// Point both supported environment inputs at a temp dir so an externally
+// configured vault cannot redirect this end-to-end fixture.
 let homeBackup: string | undefined;
+let vaultBackup: string | undefined;
 let tempHome: string;
 let vault: string;
 
 beforeEach(() => {
   homeBackup = process.env.HOME;
+  vaultBackup = process.env.TANGO_OBSIDIAN_VAULT;
   tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "tango-gov-home-"));
   process.env.HOME = tempHome;
   vault = path.join(tempHome, "Documents", "main");
   fs.mkdirSync(vault, { recursive: true });
+  process.env.TANGO_OBSIDIAN_VAULT = vault;
 });
 
 afterEach(() => {
   if (homeBackup === undefined) delete process.env.HOME;
   else process.env.HOME = homeBackup;
+  if (vaultBackup === undefined) delete process.env.TANGO_OBSIDIAN_VAULT;
+  else process.env.TANGO_OBSIDIAN_VAULT = vaultBackup;
   fs.rmSync(tempHome, { recursive: true, force: true });
 });
 

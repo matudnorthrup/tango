@@ -36,7 +36,7 @@ import {
 import { createAllPersonalTools } from "./personal-agent-tools.js";
 import { createAllResearchTools } from "./research-agent-tools.js";
 import { createBrowserTools } from "./browser-agent-tools.js";
-import { createGospelLibraryTools, gospelLibraryActionLooksMutating } from "./gospel-library-agent-tools.js";
+import { createStudyLibraryTools, studyLibraryActionLooksMutating } from "./study-library-agent-tools.js";
 import { createTangoTools } from "./tango-agent-tools.js";
 import { createDevTools } from "./tango-dev-tools.js";
 import { createDiscordManageTools } from "./discord-manage-tools.js";
@@ -56,6 +56,8 @@ import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { createOrientationNudgeTools, orientationNudgeToolLooksReadOnly } from "./orientation-nudge.js";
 import { createCollaborationTools } from "./collaboration-agent-tools.js";
 import { createStateTools } from "./state-agent-tools.js";
+import { createWardProgramTools } from "./ward-program-agent-tools.js";
+import { isReadOnlyGogDocsCommand } from "./gog-docs-access.js";
 import { isReadOnlyGogEmailCommand } from "./gog-email-access.js";
 import { buildMcpListedTool } from "./mcp-tool-metadata.js";
 import { getListedToolAccessLevel } from "./mcp-tool-visibility.js";
@@ -161,7 +163,7 @@ const allTools: AgentTool[] = [
   ...createAllPersonalTools(),
   ...createAllResearchTools(),
   ...createBrowserTools(),
-  ...createGospelLibraryTools(),
+  ...createStudyLibraryTools(),
   ...createTangoTools(),
   ...createDevTools(),
   ...createDiscordManageTools({ storage: threadSessionStorage }),
@@ -180,6 +182,7 @@ const allTools: AgentTool[] = [
   ...createOrientationNudgeTools(),
   ...createCollaborationTools(),
   ...createStateTools(),
+  ...createWardProgramTools(),
 ];
 
 debug(`Loaded ${allTools.length} tools:`, allTools.map((t) => t.name).join(", "));
@@ -226,11 +229,6 @@ function looksLikeLinearReadQuery(value: unknown): boolean {
 function isReadOnlyGogCalendarCommand(command: unknown): boolean {
   const head = getCommandHead(command);
   return head[0] === "calendar" && head[1] === "events";
-}
-
-function isReadOnlyGogDocsCommand(command: unknown): boolean {
-  const head = getCommandHead(command);
-  return head[0] === "docs" && ["list", "cat", "read", "export"].includes(head[1] ?? "");
 }
 
 function isReadOnlyObsidianCommand(command: unknown): boolean {
@@ -429,9 +427,9 @@ function inferRequestedAccessLevel(
         ? "read"
         : "write";
     }
-    case "gospel_library": {
+    case "study_library": {
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
-      return gospelLibraryActionLooksMutating(action) ? "write" : "read";
+      return studyLibraryActionLooksMutating(action) ? "write" : "read";
     }
     default:
       if (name.startsWith("wellnessdb_")) {

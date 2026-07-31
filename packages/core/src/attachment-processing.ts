@@ -265,12 +265,19 @@ function createDirectoryHandler(): AttachmentJobHandler {
     const chunks = store.listChunks(attachment.id);
     const hasText = Boolean(extraction?.text.trim());
     const status = hasText ? "ready" : "failed";
+    // T-I-125 Phase 1: attachment_reprocess threads an optional context_hint
+    // into THIS job's metadata (only when the reprocess call chose the
+    // `directory` strategy directly — see the tool's doc comment). No hint
+    // in metadata = contextHint stays null = buildAttachmentDirectory's
+    // output is byte-identical to pre-T-I-125 behavior.
+    const contextHint = readJobContextHint(job.metadata);
     const directory = buildAttachmentDirectory({
       attachment,
       file,
       extraction,
       chunks,
       status: hasText ? "ready" : "partial",
+      contextHint,
     });
 
     const record = store.addDirectory({
@@ -417,6 +424,11 @@ function requireAttachmentWithFile(
   }
 
   return { attachment, file, filePath: file.storagePath };
+}
+
+function readJobContextHint(metadata: Record<string, unknown> | null): string | null {
+  const value = metadata?.contextHint;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 function requireAttachment(store: AttachmentStore, job: AttachmentJobRecord): AttachmentRecord {

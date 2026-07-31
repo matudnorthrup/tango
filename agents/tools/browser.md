@@ -36,8 +36,15 @@ Interaction:
 ## Notes
 
 - Use `launch` instead of `connect` — it handles starting Brave automatically.
+- All runs share one cookie jar, `~/.tango/browser-profile` (override with
+  `TANGO_BROWSER_PROFILE_DIR`). One browser on one port means one set of saved
+  logins; worktrees and profiles do not get their own.
 - `snapshot` returns page text plus numbered refs for elements.
 - Refs are not stable after navigation or page changes.
+- `open` on a URL belonging to a configured browser-site descriptor restores
+  that site's session first and reports the outcome under `site_session`. Never
+  type those passwords through `fill`/`type`; see
+  [`docs/guides/browser-sessions.md`](../../docs/guides/browser-sessions.md).
 
 ## Example
 

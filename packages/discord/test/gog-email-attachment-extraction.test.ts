@@ -77,11 +77,11 @@ async function runGogEmail(command: string, gogCommand: string): Promise<Record<
 }
 
 describe("gog_email attachment extraction", () => {
-  it("loads GOG_KEYRING_PASSWORD from .env for background gog commands", async () => {
+  it("uses dotenv parsing and overrides inherited GOG_KEYRING_PASSWORD for background gog commands", async () => {
     const root = await makeTempRoot();
     const gogCommand = await writeEnvEchoGog(root);
-    delete process.env.GOG_KEYRING_PASSWORD;
-    await fs.writeFile(path.join(root, ".env"), "GOG_KEYRING_PASSWORD=\"synthetic-password\"\n", "utf8");
+    process.env.GOG_KEYRING_PASSWORD = "stale-launcher-password";
+    await fs.writeFile(path.join(root, ".env"), "GOG_KEYRING_PASSWORD=canonical-password # comment\n", "utf8");
     process.chdir(root);
 
     const result = await runGogEmail(
@@ -90,7 +90,7 @@ describe("gog_email attachment extraction", () => {
     );
     const payload = JSON.parse(String(result.result)) as { keyringPassword: string | null };
 
-    expect(payload.keyringPassword).toBe("synthetic-password");
+    expect(payload.keyringPassword).toBe("canonical-password");
   });
 
   it("adds bounded extracted text for safe PDF downloads into temp", async () => {
