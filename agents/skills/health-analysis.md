@@ -4,7 +4,7 @@ Workflow for reviewing wellness data, receiving symptom reports, searching the h
 
 ## When to use
 
-- Wellness dispatches: when the user reports symptoms, asks about trends, or wants to understand patterns
+- Jules dispatches: when the user reports symptoms, asks about trends, or wants to understand patterns
 - Self-initiated: every few days, run a proactive review and surface any insights worth sharing
 
 ## Why This Work Matters
@@ -15,7 +15,7 @@ This is not data analysis for its own sake. The analyst helps the user apply the
 
 ## Two Modes
 
-### Responsive (dispatched by Wellness)
+### Responsive (dispatched by Jules)
 
 The user reports something: tiredness, injury, labs, a fall, energy changes, or emotional weight. The workflow:
 

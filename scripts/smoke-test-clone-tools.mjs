@@ -38,7 +38,7 @@ const CLONES = ["watson", "sierra", "charlie", "foxtrot", "juliet", "malibu", "p
 // Tools NOT auto-smoked (side effects / sensitive / need targeted+cleanup tests).
 const SKIP = new Set([
   "onepassword", "ramp_reimbursement", "printer_command", "openscad_render", "prusa_slice", "paper_print",
-  "browser", "tango_shell", "tango_file", "discord_manage", "imessage", "wellness_files",
+  "browser", "tango_shell", "tango_file", "discord_manage", "imessage", "jules_files",
   "memory_add", "memory_reflect", "recipe_write", "gog_docs_update_tab", "kilo_ledger",
   "walmart", "lunch_money", "workout_sql", "atlas_sql", "nutrition_log_items",
   "attachment_reprocess", "latitude_run",

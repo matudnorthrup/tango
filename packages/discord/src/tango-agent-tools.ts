@@ -194,11 +194,11 @@ function resolveAgentTreeDirectoryPath(
   return null;
 }
 
-function resolveAgentDirectory(
+function resolveAgentDirectoryListPaths(
   agentsDir: string,
   profileAgentsDir: string | undefined,
   agentId: string,
-): string | null {
+): string[] {
   const candidates = [
     path.join("assistants", agentId),
     path.join("workers", agentId),
@@ -206,19 +206,24 @@ function resolveAgentDirectory(
     agentId,
   ];
 
-  if (profileAgentsDir) {
-    for (const candidate of candidates) {
-      const resolved = path.resolve(profileAgentsDir, candidate);
-      if (fs.existsSync(resolved)) return resolved;
-    }
-  }
-
+  // Agent profile directories are per-file overlays, mirroring the path:
+  // branch of the list operation: a profile dir that only overrides
+  // knowledge.md must not hide soul.md from the repo fallback. Resolve BOTH
+  // roots for the first candidate present in either, profile first — and
+  // stay on that one candidate so a profile assistants/<id> never merges
+  // with an unrelated repo workers/<id>.
   for (const candidate of candidates) {
-    const resolved = path.resolve(agentsDir, candidate);
-    if (fs.existsSync(resolved)) return resolved;
+    const resolvedDirs: string[] = [];
+    if (profileAgentsDir) {
+      const profilePath = path.resolve(profileAgentsDir, candidate);
+      if (fs.existsSync(profilePath)) resolvedDirs.push(profilePath);
+    }
+    const repoPath = path.resolve(agentsDir, candidate);
+    if (fs.existsSync(repoPath)) resolvedDirs.push(repoPath);
+    if (resolvedDirs.length > 0) return resolvedDirs;
   }
 
-  return null;
+  return [];
 }
 
 function resolveDocPath(
@@ -426,6 +431,7 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
           const agentId = input.agent ? String(input.agent) : "";
 
           let resolved: string | null = null;
+          let agentDirPaths: string[] = [];
           if (relPath) {
             resolved = resolveAgentTreeDirectoryPath(
               agentsDir,
@@ -433,7 +439,8 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
               relPath,
             )?.effectivePath ?? null;
           } else if (agentId) {
-            resolved = resolveAgentDirectory(agentsDir, paths.profileAgentsDir, agentId);
+            agentDirPaths = resolveAgentDirectoryListPaths(agentsDir, paths.profileAgentsDir, agentId);
+            resolved = agentDirPaths[0] ?? null;
           } else {
             resolved = path.resolve(agentsDir);
           }
@@ -456,6 +463,11 @@ export function createTangoTools(overrides?: TangoToolPaths): AgentTool[] {
             ) {
               listPaths.push(repoPath);
             }
+          }
+          // Same per-file-overlay union for agent-id listings (agentDirPaths[0]
+          // is already `resolved`; the loop appends the other root, if any).
+          for (const dir of agentDirPaths) {
+            if (!listPaths.includes(dir)) listPaths.push(dir);
           }
 
           // Agent profile directories are per-file overlays. A profile that only
