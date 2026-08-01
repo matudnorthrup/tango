@@ -34,8 +34,29 @@ const MAX_BLOCK_DEPTH = 3;
 const MAX_BLOCK_PAGES = 20;
 
 /* -------------------------------------------------------------------------- */
-/* Credentials (profile layer — never hardcoded in this repo)                  */
+/* Credentials and workspaces (profile layer — never hardcoded in this repo)   */
 /* -------------------------------------------------------------------------- */
+
+/*
+ * A Notion internal integration token is scoped to exactly ONE workspace and
+ * cannot reach across workspaces. An installation that spans more than one
+ * (say a work workspace and a personal one) therefore needs one token per
+ * workspace, and — more importantly — needs agents pinned to the workspace
+ * they belong in. Routing is a safety boundary, not a convenience: an agent
+ * handling private material must not be able to write it into a shared or
+ * employer-owned workspace by picking the wrong id.
+ *
+ * Env surface (all values live in the profile layer):
+ *   NOTION_API_KEY                    token for the default workspace
+ *   NOTION_1PASSWORD_VAULT/_ITEM/_FIELD   1Password ref for the default workspace
+ *   NOTION_API_KEY_<WS>               token for named workspace <WS>
+ *   NOTION_1PASSWORD_VAULT_<WS> / _ITEM_<WS> / _FIELD_<WS>
+ *   NOTION_DEFAULT_WORKSPACE          name of the unnamed/default workspace
+ *   NOTION_WORKSPACES_<AGENT>         comma-separated allowlist; first = default
+ *
+ * With none of the named vars set this behaves exactly as a single-workspace
+ * install, so existing setups keep working untouched.
+ */
 
 /** Direct token. Simplest path and the one CI/test runs use. */
 export const NOTION_TOKEN_ENV = "NOTION_API_KEY";
@@ -45,7 +66,10 @@ export const NOTION_VAULT_ENV = "NOTION_1PASSWORD_VAULT";
 export const NOTION_ITEM_ENV = "NOTION_1PASSWORD_ITEM";
 /** 1Password fallback: the field on that item (defaults to "credential"). */
 export const NOTION_FIELD_ENV = "NOTION_1PASSWORD_FIELD";
+/** Name given to the workspace configured by the unsuffixed vars above. */
+export const NOTION_DEFAULT_WORKSPACE_ENV = "NOTION_DEFAULT_WORKSPACE";
 const DEFAULT_CREDENTIAL_FIELD = "credential";
+const FALLBACK_WORKSPACE_NAME = "default";
 
 export const NOTION_SETUP_HINT =
   `Notion is not configured for this installation. Set ${NOTION_TOKEN_ENV} to a Notion ` +
@@ -60,45 +84,147 @@ function envValue(name: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/**
- * Where this installation keeps its Notion token. Values come from the profile
- * layer, so the repo stays generic and shareable.
- */
-export function notionCredentialRef(): {
+/** Workspace/agent names become env-var suffixes: lowercase-kebab → UPPER_SNAKE. */
+function envSuffix(name: string): string {
+  return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+}
+
+export function notionDefaultWorkspace(): string {
+  return (envValue(NOTION_DEFAULT_WORKSPACE_ENV) ?? FALLBACK_WORKSPACE_NAME).toLowerCase();
+}
+
+interface WorkspaceCredentialRef {
+  workspace: string;
+  tokenEnv: string;
+  vaultEnv: string;
+  itemEnv: string;
+  fieldEnv: string;
   vault: string | null;
   item: string | null;
   field: string;
   hasDirectToken: boolean;
-} {
+  configured: boolean;
+}
+
+/**
+ * Env var names for one workspace. The default workspace uses the unsuffixed
+ * vars; every other workspace gets a `_<WS>` suffix.
+ */
+function credentialEnvNames(workspace: string): Pick<WorkspaceCredentialRef, "tokenEnv" | "vaultEnv" | "itemEnv" | "fieldEnv"> {
+  if (workspace === notionDefaultWorkspace()) {
+    return {
+      tokenEnv: NOTION_TOKEN_ENV,
+      vaultEnv: NOTION_VAULT_ENV,
+      itemEnv: NOTION_ITEM_ENV,
+      fieldEnv: NOTION_FIELD_ENV,
+    };
+  }
+  const s = envSuffix(workspace);
   return {
-    vault: envValue(NOTION_VAULT_ENV),
-    item: envValue(NOTION_ITEM_ENV),
-    field: envValue(NOTION_FIELD_ENV) ?? DEFAULT_CREDENTIAL_FIELD,
-    hasDirectToken: envValue(NOTION_TOKEN_ENV) !== null,
+    tokenEnv: `${NOTION_TOKEN_ENV}_${s}`,
+    vaultEnv: `${NOTION_VAULT_ENV}_${s}`,
+    itemEnv: `${NOTION_ITEM_ENV}_${s}`,
+    fieldEnv: `${NOTION_FIELD_ENV}_${s}`,
   };
 }
 
-let cachedToken: string | null = null;
-
-/** Drop the memoized token — used by tests and after a credential rotation. */
-export function resetNotionTokenCache(): void {
-  cachedToken = null;
+/**
+ * Where this installation keeps the token for a workspace. Values come from the
+ * profile layer, so the repo stays generic and shareable.
+ */
+export function notionCredentialRef(workspace?: string): WorkspaceCredentialRef {
+  const ws = (workspace ?? notionDefaultWorkspace()).toLowerCase();
+  const envs = credentialEnvNames(ws);
+  const vault = envValue(envs.vaultEnv);
+  const item = envValue(envs.itemEnv);
+  const hasDirectToken = envValue(envs.tokenEnv) !== null;
+  return {
+    workspace: ws,
+    ...envs,
+    vault,
+    item,
+    field: envValue(envs.fieldEnv) ?? DEFAULT_CREDENTIAL_FIELD,
+    hasDirectToken,
+    configured: hasDirectToken || Boolean(vault && item),
+  };
 }
 
-export async function resolveNotionToken(): Promise<string> {
-  if (cachedToken) return cachedToken;
+/** Every workspace this installation has credentials for. */
+export function listNotionWorkspaces(): string[] {
+  const found = new Set<string>();
+  if (notionCredentialRef().configured) found.add(notionDefaultWorkspace());
 
-  const direct = envValue(NOTION_TOKEN_ENV);
+  const patterns: Array<[string, RegExp]> = [
+    [NOTION_TOKEN_ENV, new RegExp(`^${NOTION_TOKEN_ENV}_(.+)$`)],
+    [NOTION_ITEM_ENV, new RegExp(`^${NOTION_ITEM_ENV}_(.+)$`)],
+  ];
+  for (const key of Object.keys(process.env)) {
+    for (const [, re] of patterns) {
+      const m = key.match(re);
+      if (m && envValue(key)) found.add(m[1]!.toLowerCase());
+    }
+  }
+  return [...found].sort();
+}
+
+/**
+ * Which workspaces an agent may use, most-preferred first.
+ *
+ * Ollama clones inherit their persona's mapping so `watson` and
+ * `watson-ollama` can never drift apart.
+ *
+ * With no explicit mapping this deliberately FAILS CLOSED once more than one
+ * workspace exists: returning the default would hand an unmapped agent whichever
+ * workspace happens to be default, which in a work+personal install is the one
+ * with the most to lose. A single-workspace install is unambiguous, so it needs
+ * no mapping at all and keeps working untouched.
+ */
+export function notionWorkspacesForAgent(agentId?: string | null): string[] {
+  const id = String(agentId ?? "").trim().toLowerCase();
+  const candidates = id ? [id, id.replace(/-ollama$/, "")] : [];
+
+  for (const candidate of candidates) {
+    const raw = envValue(`NOTION_WORKSPACES_${envSuffix(candidate)}`);
+    if (raw) {
+      const list = raw.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean);
+      if (list.length) return list;
+    }
+  }
+
+  const configured = listNotionWorkspaces();
+  if (configured.length > 1) return [];
+  return [configured[0] ?? notionDefaultWorkspace()];
+}
+
+/** Env var an operator must set to give an agent a workspace. */
+export function notionWorkspaceEnvForAgent(agentId?: string | null): string {
+  const id = String(agentId ?? "").trim().toLowerCase();
+  return `NOTION_WORKSPACES_${envSuffix(id || "AGENT")}`;
+}
+
+// Cache per workspace — a rotation or a test must be able to drop just one.
+const tokenCache = new Map<string, string>();
+
+/** Drop memoized tokens — used by tests and after a credential rotation. */
+export function resetNotionTokenCache(): void {
+  tokenCache.clear();
+}
+
+export async function resolveNotionToken(workspace?: string): Promise<string> {
+  const ref = notionCredentialRef(workspace);
+  const cached = tokenCache.get(ref.workspace);
+  if (cached) return cached;
+
+  const direct = envValue(ref.tokenEnv);
   if (direct) {
-    cachedToken = direct;
+    tokenCache.set(ref.workspace, direct);
     return direct;
   }
 
-  const ref = notionCredentialRef();
   if (ref.vault && ref.item) {
     const secret = await getSecret(ref.vault, ref.item, ref.field);
     if (secret) {
-      cachedToken = secret;
+      tokenCache.set(ref.workspace, secret);
       return secret;
     }
     throw new Error(
@@ -107,7 +233,45 @@ export async function resolveNotionToken(): Promise<string> {
     );
   }
 
+  const known = listNotionWorkspaces();
+  if (known.length && !known.includes(ref.workspace)) {
+    throw new Error(
+      `Notion workspace "${ref.workspace}" has no credentials configured. ` +
+        `Configured workspaces: ${known.join(", ")}. Set ${ref.tokenEnv}, or ${ref.vaultEnv} + ${ref.itemEnv}.`,
+    );
+  }
   throw new Error(NOTION_SETUP_HINT);
+}
+
+/**
+ * Pick the workspace for one call. Requesting a workspace outside the agent's
+ * allowlist is refused rather than silently redirected — a caller that names
+ * the wrong workspace should be told, not quietly served the default.
+ */
+export function selectNotionWorkspace(
+  agentId: string | null | undefined,
+  requested: unknown,
+): { workspace: string } | { error: string } {
+  const allowed = notionWorkspacesForAgent(agentId);
+  const asked = String(requested ?? "").trim().toLowerCase();
+
+  if (allowed.length === 0) {
+    return {
+      error:
+        `This installation has more than one Notion workspace ` +
+        `(${listNotionWorkspaces().join(", ")}) and no workspace is assigned to ` +
+        `${agentId ? `"${agentId}"` : "this caller"}. Set ${notionWorkspaceEnvForAgent(agentId)} ` +
+        "to the workspace(s) it should use. Refusing rather than guessing.",
+    };
+  }
+
+  if (!asked) return { workspace: allowed[0]! };
+  if (allowed.includes(asked)) return { workspace: asked };
+  return {
+    error:
+      `This agent is not permitted to use the "${asked}" Notion workspace. ` +
+      `Allowed: ${allowed.join(", ")}.`,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -136,12 +300,27 @@ class NotionApiError extends Error {
   }
 }
 
+/**
+ * A Notion client bound to ONE workspace. Every request in a call goes through
+ * the same client, so a handler cannot accidentally mix workspaces mid-operation.
+ */
+export type NotionApi = (
+  path: string,
+  method: "GET" | "POST" | "PATCH",
+  body?: unknown,
+) => Promise<unknown>;
+
+function notionClient(workspace: string): NotionApi {
+  return (path, method, body) => notionFetch(workspace, path, method, body);
+}
+
 async function notionFetch(
+  workspace: string,
   path: string,
   method: "GET" | "POST" | "PATCH",
   body?: unknown,
 ): Promise<unknown> {
-  const token = await resolveNotionToken();
+  const token = await resolveNotionToken(workspace);
   const res = await fetch(`${NOTION_BASE}${path}`, {
     method,
     headers: {
@@ -296,12 +475,13 @@ export function markdownToBlocks(markdown: string): Record<string, unknown>[] {
 
 /** POST blocks in ≤100-block batches, since Notion rejects larger payloads. */
 async function appendBlocksBatched(
+  api: NotionApi,
   blockId: string,
   blocks: Record<string, unknown>[],
 ): Promise<{ appended: number; batches: number }> {
   let batches = 0;
   for (let i = 0; i < blocks.length; i += MAX_BLOCKS_PER_REQUEST) {
-    await notionFetch(`/blocks/${blockId}/children`, "PATCH", {
+    await api(`/blocks/${blockId}/children`, "PATCH", {
       children: blocks.slice(i, i + MAX_BLOCKS_PER_REQUEST),
     });
     batches++;
@@ -337,7 +517,7 @@ function renderBlock(type: string, text: string, block: Record<string, unknown>)
 }
 
 /** Flatten a page's block children into readable markdown-ish text. */
-async function readPageContent(pageId: string, depth = 0): Promise<string> {
+async function readPageContent(api: NotionApi, pageId: string, depth = 0): Promise<string> {
   const lines: string[] = [];
   let cursor: string | undefined;
   let pages = 0;
@@ -347,7 +527,7 @@ async function readPageContent(pageId: string, depth = 0): Promise<string> {
       page_size: "100",
       ...(cursor ? { start_cursor: cursor } : {}),
     });
-    const res = (await notionFetch(`/blocks/${pageId}/children?${qs.toString()}`, "GET")) as {
+    const res = (await api(`/blocks/${pageId}/children?${qs.toString()}`, "GET")) as {
       results?: Array<Record<string, unknown>>;
       has_more?: boolean;
       next_cursor?: string | null;
@@ -361,7 +541,7 @@ async function readPageContent(pageId: string, depth = 0): Promise<string> {
 
       // Nested content (toggles, list children, columns) is invisible without this.
       if (block.has_children === true && type !== "child_page" && type !== "child_database" && depth < MAX_BLOCK_DEPTH) {
-        const nested = await readPageContent(String(block.id), depth + 1);
+        const nested = await readPageContent(api, String(block.id), depth + 1);
         if (nested) lines.push(nested.split("\n").map((l) => `  ${l}`).join("\n"));
       }
     }
@@ -398,13 +578,13 @@ type ParentInfo =
  * request shape differs, and databases name their own title property. Callers
  * may state it explicitly; otherwise probe.
  */
-async function resolveParent(id: string, declared?: unknown): Promise<ParentInfo> {
+async function resolveParent(api: NotionApi, id: string, declared?: unknown): Promise<ParentInfo> {
   const stated = String(declared ?? "").trim().toLowerCase();
   if (stated === "page") return { kind: "page" };
 
   if (stated === "database" || stated === "") {
     try {
-      const db = (await notionFetch(`/databases/${id}`, "GET")) as {
+      const db = (await api(`/databases/${id}`, "GET")) as {
         object?: string;
         properties?: Record<string, { type?: string }>;
       };
@@ -471,6 +651,12 @@ export function createNotionTools(): AgentTool[] {
         "page_id/database_id/parent_id accept a raw id or a full Notion URL. To read a document,",
         "use get_page (NOT a browser — Notion's web UI requires interactive login and renders",
         "blank to tools). Only pages shared with this installation's integration are reachable.",
+        "",
+        "This installation may have more than one Notion workspace, and each is a separate",
+        "world — a page in one is invisible from another. You are restricted to the",
+        "workspace(s) assigned to you; omit `workspace` to use your default. Use",
+        "`list_workspaces` to see which ones you may use. If a page you expect is missing,",
+        "check you are in the right workspace before concluding it does not exist.",
       ].join("\n"),
       inputSchema: {
         type: "object",
@@ -478,7 +664,12 @@ export function createNotionTools(): AgentTool[] {
           operation: {
             type: "string",
             description:
-              "search | get_page | create_page | update_page | append | query_database | get_database | archive | restore",
+              "search | get_page | create_page | update_page | append | query_database | get_database | archive | restore | list_workspaces",
+          },
+          workspace: {
+            type: "string",
+            description:
+              "which Notion workspace to act in; omit for your default. Only workspaces assigned to you are allowed.",
           },
           query: { type: "string", description: "search text (operation=search)" },
           page_id: { type: "string", description: "page id or Notion URL (get_page/update_page/append/archive)" },
@@ -503,10 +694,29 @@ export function createNotionTools(): AgentTool[] {
       },
       handler: async (input) => {
         const op = String(input.operation ?? "").trim().toLowerCase().replace(/[-\s]/g, "_");
+
+        // Injected by the MCP server from the X-Worker-ID header; absent for
+        // direct/in-process callers, which then get the default workspace.
+        const agentId = typeof input._requester_agent_id === "string" ? input._requester_agent_id : null;
+        const allowed = notionWorkspacesForAgent(agentId);
+
+        if (op === "list_workspaces" || op === "workspaces") {
+          return {
+            workspaces: allowed,
+            default: allowed[0],
+            configured: listNotionWorkspaces(),
+          };
+        }
+
+        const picked = selectNotionWorkspace(agentId, input.workspace);
+        if ("error" in picked) return { error: picked.error, allowed_workspaces: allowed };
+        const workspace = picked.workspace;
+        const api = notionClient(workspace);
+
         try {
           switch (op) {
             case "search": {
-              const res = (await notionFetch("/search", "POST", {
+              const res = (await api("/search", "POST", {
                 ...(input.query ? { query: String(input.query) } : {}),
                 page_size: typeof input.page_size === "number" ? input.page_size : 10,
                 ...(input.start_cursor ? { start_cursor: String(input.start_cursor) } : {}),
@@ -530,11 +740,11 @@ export function createNotionTools(): AgentTool[] {
               const id = normalizeNotionId(input.page_id ?? input.id);
               let page: Record<string, unknown>;
               try {
-                page = (await notionFetch(`/pages/${id}`, "GET")) as Record<string, unknown>;
+                page = (await api(`/pages/${id}`, "GET")) as Record<string, unknown>;
               } catch (err) {
                 // Agents routinely hand a database URL to get_page; say so plainly.
                 if (err instanceof NotionApiError && err.status === 404) {
-                  const db = await notionFetch(`/databases/${id}`, "GET").catch(() => null);
+                  const db = await api(`/databases/${id}`, "GET").catch(() => null);
                   if (db) {
                     return {
                       error:
@@ -545,7 +755,7 @@ export function createNotionTools(): AgentTool[] {
                 }
                 throw err;
               }
-              const content = await readPageContent(id);
+              const content = await readPageContent(api, id);
               return {
                 id: page.id,
                 title: titleOf(page),
@@ -561,7 +771,7 @@ export function createNotionTools(): AgentTool[] {
               if (!parentId) return { error: "create_page needs a parent_id (page or database id/URL)." };
 
               const title = String(input.title ?? "Untitled");
-              const parent = await resolveParent(parentId, input.parent_type);
+              const parent = await resolveParent(api, parentId, input.parent_type);
               const extraProps = (input.properties as Record<string, unknown> | undefined) ?? {};
               const titleValue = { title: [{ type: "text", text: { content: title } }] };
 
@@ -574,7 +784,7 @@ export function createNotionTools(): AgentTool[] {
               const inlineBlocks = blocks.slice(0, MAX_BLOCKS_PER_REQUEST);
               const overflow = blocks.slice(MAX_BLOCKS_PER_REQUEST);
 
-              const created = (await notionFetch("/pages", "POST", {
+              const created = (await api("/pages", "POST", {
                 parent:
                   parent.kind === "database"
                     ? { database_id: parentId }
@@ -584,7 +794,7 @@ export function createNotionTools(): AgentTool[] {
               })) as Record<string, unknown>;
 
               if (overflow.length) {
-                await appendBlocksBatched(String(created.id), overflow);
+                await appendBlocksBatched(api, String(created.id), overflow);
               }
 
               return {
@@ -598,7 +808,7 @@ export function createNotionTools(): AgentTool[] {
 
             case "update_page": {
               const id = normalizeNotionId(input.page_id);
-              const updated = (await notionFetch(`/pages/${id}`, "PATCH", {
+              const updated = (await api(`/pages/${id}`, "PATCH", {
                 properties: (input.properties as Record<string, unknown>) ?? {},
               })) as Record<string, unknown>;
               return { id: updated.id, url: updated.url, title: titleOf(updated), updated: true };
@@ -608,13 +818,13 @@ export function createNotionTools(): AgentTool[] {
               const id = normalizeNotionId(input.page_id);
               const blocks = markdownToBlocks(String(input.markdown ?? ""));
               if (!blocks.length) return { error: "append needs non-empty markdown." };
-              const result = await appendBlocksBatched(id, blocks);
+              const result = await appendBlocksBatched(api, id, blocks);
               return { id, ...result };
             }
 
             case "query_database": {
               const id = normalizeNotionId(input.database_id ?? input.page_id);
-              const res = (await notionFetch(`/databases/${id}/query`, "POST", {
+              const res = (await api(`/databases/${id}/query`, "POST", {
                 ...(input.filter ? { filter: input.filter } : {}),
                 ...(input.sorts ? { sorts: input.sorts } : {}),
                 page_size: typeof input.page_size === "number" ? input.page_size : 25,
@@ -636,7 +846,7 @@ export function createNotionTools(): AgentTool[] {
             case "get_database":
             case "database_schema": {
               const id = normalizeNotionId(input.database_id ?? input.page_id);
-              const db = (await notionFetch(`/databases/${id}`, "GET")) as Record<string, unknown>;
+              const db = (await api(`/databases/${id}`, "GET")) as Record<string, unknown>;
               const props = (db.properties ?? {}) as Record<string, { type?: string }>;
               return {
                 id: db.id,
@@ -652,14 +862,14 @@ export function createNotionTools(): AgentTool[] {
             case "trash":
             case "delete": {
               const id = normalizeNotionId(input.page_id);
-              await notionFetch(`/pages/${id}`, "PATCH", { in_trash: true });
+              await api(`/pages/${id}`, "PATCH", { in_trash: true });
               return { id, archived: true };
             }
 
             case "restore":
             case "unarchive": {
               const id = normalizeNotionId(input.page_id);
-              await notionFetch(`/pages/${id}`, "PATCH", { in_trash: false });
+              await api(`/pages/${id}`, "PATCH", { in_trash: false });
               return { id, archived: false };
             }
 
