@@ -144,6 +144,34 @@ function resolveWorkerMemoryScope(principalId: string | null): {
   };
 }
 
+/**
+ * Runtime context the SERVER supplies to a handler. These are never accepted
+ * from the caller: they carry identity and provenance, so a model that could
+ * set them itself could impersonate another agent.
+ */
+const RUNTIME_CONTEXT_KEYS = new Set([
+  "_requester_agent_id",
+  "_conversation_key",
+  "_turn_id",
+  "_message_id",
+  "_channel_id",
+  "_thread_id",
+]);
+
+function stripRuntimeContextKeys(args: Record<string, unknown>): Record<string, unknown> {
+  let found = false;
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (RUNTIME_CONTEXT_KEYS.has(key)) {
+      found = true;
+      continue;
+    }
+    clean[key] = value;
+  }
+  if (found) debug("dropped caller-supplied runtime-context keys from tool args");
+  return clean;
+}
+
 // ---------------------------------------------------------------------------
 // Thread session storage (reuses the same DB path as governance)
 // ---------------------------------------------------------------------------
@@ -541,10 +569,18 @@ async function executeToolCall(
     const scopedArgs = workerScope
       ? applyMemoryScopeToToolArgs(name, args, workerScope.workerId, workerScope.memoryScope)
       : args;
-    const needsRuntimeContext = name === "collaborate_with_agent" || name.startsWith("state_");
+    // `notion` needs the caller's identity to pick that agent's Notion
+    // workspace — the routing is a privacy boundary, so it must come from the
+    // authenticated worker id, never from a model-supplied argument.
+    const needsRuntimeContext =
+      name === "collaborate_with_agent" || name === "notion" || name.startsWith("state_");
     const effectiveArgs = needsRuntimeContext
       ? {
-          ...scopedArgs,
+          // Drop any caller-supplied runtime-context keys first. Without this a
+          // model could pass `_requester_agent_id` itself and, whenever the
+          // worker scope is absent, impersonate another agent — which for
+          // `notion` would mean selecting a workspace it may not use.
+          ...stripRuntimeContextKeys(scopedArgs),
           ...(workerScope ? { _requester_agent_id: workerScope.workerId } : {}),
           ...(turnProvenance.conversationKey ? { _conversation_key: turnProvenance.conversationKey } : {}),
           ...(turnProvenance.turnId ? { _turn_id: turnProvenance.turnId } : {}),

@@ -9,19 +9,26 @@ vi.mock("../src/op-secret.js", () => ({
 
 import {
   createNotionTools,
+  listNotionWorkspaces,
   markdownToBlocks,
   normalizeNotionId,
   notionCredentialRef,
   notionOperationLooksReadOnly,
+  notionWorkspacesForAgent,
   resetNotionTokenCache,
   resolveNotionToken,
+  selectNotionWorkspace,
   NOTION_TOKEN_ENV,
   NOTION_VAULT_ENV,
   NOTION_ITEM_ENV,
   NOTION_FIELD_ENV,
+  NOTION_DEFAULT_WORKSPACE_ENV,
 } from "../src/notion-agent-tools.js";
 
-const CREDENTIAL_ENVS = [NOTION_TOKEN_ENV, NOTION_VAULT_ENV, NOTION_ITEM_ENV, NOTION_FIELD_ENV];
+const CREDENTIAL_ENVS = [
+  NOTION_TOKEN_ENV, NOTION_VAULT_ENV, NOTION_ITEM_ENV, NOTION_FIELD_ENV,
+  NOTION_DEFAULT_WORKSPACE_ENV,
+];
 const saved: Record<string, string | undefined> = {};
 
 function tool() {
@@ -139,13 +146,158 @@ describe("notion credential resolution", () => {
     process.env[NOTION_VAULT_ENV] = "SomeVault";
     process.env[NOTION_ITEM_ENV] = "Some Item";
 
-    expect(notionCredentialRef()).toEqual({
+    expect(notionCredentialRef()).toMatchObject({
       vault: "SomeVault",
       item: "Some Item",
       field: "credential",
       hasDirectToken: false,
+      configured: true,
     });
     expect(getSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("notion workspace routing", () => {
+  // A Notion token is scoped to one workspace, so routing is the boundary that
+  // keeps an agent's writes out of a workspace it has no business touching.
+  beforeEach(() => {
+    process.env.NOTION_DEFAULT_WORKSPACE = "work";
+    process.env.NOTION_API_KEY = "ntn_work";
+    process.env.NOTION_API_KEY_PERSONAL = "ntn_personal";
+    process.env.NOTION_WORKSPACES_VICTOR = "personal";
+    process.env.NOTION_WORKSPACES_WATSON = "work,personal";
+    resetNotionTokenCache();
+  });
+
+  afterEach(() => {
+    for (const k of [
+      "NOTION_DEFAULT_WORKSPACE", "NOTION_API_KEY_PERSONAL",
+      "NOTION_WORKSPACES_VICTOR", "NOTION_WORKSPACES_WATSON",
+    ]) delete process.env[k];
+  });
+
+  it("discovers every configured workspace", () => {
+    expect(listNotionWorkspaces()).toEqual(["personal", "work"]);
+  });
+
+  it("gives each agent only its assigned workspaces, most-preferred first", () => {
+    expect(notionWorkspacesForAgent("victor")).toEqual(["personal"]);
+    expect(notionWorkspacesForAgent("watson")).toEqual(["work", "personal"]);
+  });
+
+  // Guessing here would hand an unmapped agent whichever workspace happens to
+  // be default — in a work+personal install, the one with the most to lose.
+  it("fails closed for an unmapped agent when several workspaces exist", () => {
+    expect(notionWorkspacesForAgent("sierra")).toEqual([]);
+    expect(notionWorkspacesForAgent(null)).toEqual([]);
+
+    const res = selectNotionWorkspace("sierra", undefined);
+    expect(res).toHaveProperty("error");
+    expect((res as { error: string }).error).toMatch(/NOTION_WORKSPACES_SIERRA/);
+    expect((res as { error: string }).error).toMatch(/Refusing rather than guessing/);
+  });
+
+  it("still needs no mapping when only one workspace is configured", () => {
+    delete process.env.NOTION_API_KEY_PERSONAL;
+    expect(listNotionWorkspaces()).toEqual(["work"]);
+    expect(notionWorkspacesForAgent("sierra")).toEqual(["work"]);
+    expect(selectNotionWorkspace("sierra", undefined)).toEqual({ workspace: "work" });
+  });
+
+  it("lets ollama clones inherit their persona's mapping", () => {
+    expect(notionWorkspacesForAgent("victor-ollama")).toEqual(["personal"]);
+    expect(notionWorkspacesForAgent("watson-ollama")).toEqual(["work", "personal"]);
+  });
+
+  it("prefers a clone's own mapping when one is set explicitly", () => {
+    process.env.NOTION_WORKSPACES_VICTOR_OLLAMA = "work";
+    try {
+      expect(notionWorkspacesForAgent("victor-ollama")).toEqual(["work"]);
+    } finally {
+      delete process.env.NOTION_WORKSPACES_VICTOR_OLLAMA;
+    }
+  });
+
+  it("defaults a call to the agent's first workspace", () => {
+    expect(selectNotionWorkspace("victor", undefined)).toEqual({ workspace: "personal" });
+    expect(selectNotionWorkspace("watson", undefined)).toEqual({ workspace: "work" });
+  });
+
+  it("refuses a workspace outside the agent's allowlist rather than redirecting", () => {
+    const res = selectNotionWorkspace("victor", "work");
+    expect(res).toHaveProperty("error");
+    expect((res as { error: string }).error).toMatch(/not permitted/);
+    expect((res as { error: string }).error).toMatch(/personal/);
+  });
+
+  it("allows an explicit workspace that is on the allowlist", () => {
+    expect(selectNotionWorkspace("watson", "personal")).toEqual({ workspace: "personal" });
+  });
+
+  it("resolves a different token per workspace", async () => {
+    await expect(resolveNotionToken("work")).resolves.toBe("ntn_work");
+    await expect(resolveNotionToken("personal")).resolves.toBe("ntn_personal");
+  });
+
+  it("reads a named workspace's 1Password ref from suffixed vars", async () => {
+    delete process.env.NOTION_API_KEY_PERSONAL;
+    process.env.NOTION_1PASSWORD_VAULT_PERSONAL = "PersonalVault";
+    process.env.NOTION_1PASSWORD_ITEM_PERSONAL = "Personal Notion Token";
+    resetNotionTokenCache();
+    getSecret.mockResolvedValue("ntn_personal_op");
+    try {
+      await expect(resolveNotionToken("personal")).resolves.toBe("ntn_personal_op");
+      expect(getSecret).toHaveBeenCalledWith("PersonalVault", "Personal Notion Token", "credential");
+    } finally {
+      delete process.env.NOTION_1PASSWORD_VAULT_PERSONAL;
+      delete process.env.NOTION_1PASSWORD_ITEM_PERSONAL;
+    }
+  });
+
+  it("names the configured workspaces when asked for an unconfigured one", async () => {
+    await expect(resolveNotionToken("nonexistent")).rejects.toThrow(/Configured workspaces: personal, work/);
+  });
+
+  it("routes the handler's requests to the agent's workspace token", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { headers?: Record<string, string> }) => {
+      seen.push(init?.headers?.Authorization ?? "");
+      return { ok: true, status: 200, text: async () => JSON.stringify({ results: [] }) } as unknown as Response;
+    }));
+
+    process.env.NOTION_WORKSPACES_SIERRA = "work";
+    try {
+      await tool().handler({ operation: "search", _requester_agent_id: "victor" });
+      await tool().handler({ operation: "search", _requester_agent_id: "sierra" });
+    } finally {
+      delete process.env.NOTION_WORKSPACES_SIERRA;
+    }
+
+    expect(seen).toEqual(["Bearer ntn_personal", "Bearer ntn_work"]);
+  });
+
+  it("blocks a cross-workspace call from the handler", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await tool().handler({
+      operation: "search", workspace: "work", _requester_agent_id: "victor",
+    }) as { error: string; allowed_workspaces: string[] };
+
+    expect(res.error).toMatch(/not permitted/);
+    expect(res.allowed_workspaces).toEqual(["personal"]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports the agent's workspaces via list_workspaces", async () => {
+    const res = await tool().handler({ operation: "list_workspaces", _requester_agent_id: "watson" }) as {
+      workspaces: string[]; default: string; configured: string[];
+    };
+    expect(res).toMatchObject({
+      workspaces: ["work", "personal"],
+      default: "work",
+      configured: ["personal", "work"],
+    });
   });
 });
 

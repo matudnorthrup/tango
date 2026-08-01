@@ -3433,6 +3433,22 @@ const MIGRATIONS: Migration[] = [
         AND EXISTS (SELECT 1 FROM principals WHERE id = 'agent:jules');
     `,
   },
+  {
+    // Victor holds the personal/PM surface and needs Notion, but only in the
+    // workspace that surface belongs to. Governance grants the TOOL; which
+    // workspace the tool may reach is a separate profile-layer mapping
+    // (NOTION_WORKSPACES_VICTOR) — see notion-agent-tools.ts. Both layers must
+    // agree before Victor can write anywhere.
+    version: 75,
+    sql: `
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:victor', 'notion', 'write', 'Victor personal/PM filing: Notion read/write in its assigned workspace'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:victor');
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:victor-ollama', 'notion', 'write', 'Victor Ollama parity: Notion read/write in its assigned workspace'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:victor-ollama');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

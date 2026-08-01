@@ -31,6 +31,48 @@ values, not this doc.
 **The integration only sees what has been shared with it.** A `404` from this
 tool almost always means "not shared yet", not "does not exist".
 
+## Workspaces
+
+A Notion integration token is scoped to exactly **one workspace** and cannot
+reach across workspaces. An installation covering more than one — say a work
+workspace and a personal one — configures a token per workspace and assigns each
+agent the workspace(s) it belongs in.
+
+This is a privacy boundary, not a convenience. An agent handling private
+material must not be able to write it into a shared or employer-owned workspace,
+so requesting a workspace outside your assignment is **refused**, not quietly
+redirected to your default.
+
+- Omit `workspace` to act in your default (the first one assigned to you).
+- `{"operation": "list_workspaces"}` reports which workspaces you may use.
+- If a page you expect is missing, check you are in the right workspace before
+  concluding it does not exist — that is the usual cause of a surprising `404`.
+
+Configuration (profile layer):
+
+```text
+NOTION_DEFAULT_WORKSPACE      name for the workspace the unsuffixed vars configure
+NOTION_API_KEY_<WS>           token for named workspace <WS>
+NOTION_1PASSWORD_VAULT_<WS>   1Password ref for named workspace <WS>
+NOTION_1PASSWORD_ITEM_<WS>
+NOTION_1PASSWORD_FIELD_<WS>
+NOTION_WORKSPACES_<AGENT>     comma-separated allowlist; first entry is the default
+```
+
+`<WS>` and `<AGENT>` are upper-snake-cased (`personal` → `PERSONAL`,
+`victor-ollama` → `VICTOR_OLLAMA`). An Ollama clone inherits its persona's
+mapping unless it has one of its own, so `watson` and `watson-ollama` cannot
+drift apart.
+
+Mapping is only required once an installation has **more than one** workspace.
+With several configured, an agent that has none is **refused** with an error
+naming the variable to set, rather than being handed whichever workspace is
+default. A single-workspace installation is unambiguous and needs none of these
+variables.
+
+The routing comes from the authenticated caller, never from a tool argument —
+an agent cannot claim to be another one to reach its workspace.
+
 ## Input
 
 ```json
@@ -53,6 +95,9 @@ undashed) or a full Notion URL — the tool extracts the id.
 | `get_database` | `database_id` | | `{id, title, url, properties}` (property name → type) |
 | `archive` | `page_id` | | `{id, archived: true}` |
 | `restore` | `page_id` | | `{id, archived: false}` |
+| `list_workspaces` | | | `{workspaces, default, configured}` |
+
+Every operation also accepts an optional `workspace` — see **Workspaces** above.
 
 Aliases: `read`/`fetch` → `get_page`, `trash`/`delete` → `archive`,
 `unarchive` → `restore`, `database_schema` → `get_database`.
