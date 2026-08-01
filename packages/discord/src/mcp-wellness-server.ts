@@ -51,7 +51,7 @@ import { createYouTubeTools } from "./youtube-agent-tools.js";
 import { createWellnessDbTools, wellnessDbToolLooksReadOnly } from "./wellness-db-tools.js";
 import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agent-tools.js";
 import { createKiloLedgerTools, kiloLedgerToolLooksReadOnly } from "./kilo-ledger-tools.js";
-import { createNotionTools } from "./notion-agent-tools.js";
+import { createNotionTools, notionOperationLooksReadOnly } from "./notion-agent-tools.js";
 import { createClaudeSessionTools } from "./claude-session-tools.js";
 import { createOrientationNudgeTools, orientationNudgeToolLooksReadOnly } from "./orientation-nudge.js";
 import { buildCollaborationToolPresentation, createCollaborationTools } from "./collaboration-agent-tools.js";
@@ -440,11 +440,8 @@ function inferRequestedAccessLevel(
       return isReadOnlyIMessageCommand(args.command) ? "read" : "write";
     case "linear":
       return looksLikeLinearReadQuery(args.query) ? "read" : "write";
-    case "notion": {
-      // Direct Notion API. Classify by operation: reads vs mutations.
-      const op = typeof args.operation === "string" ? args.operation.trim().toLowerCase() : "";
-      return /create|update|append|delete|patch|insert|archive|move/.test(op) ? "write" : "read";
-    }
+    case "notion":
+      return notionOperationLooksReadOnly(args.operation) ? "read" : "write";
     case "orientation_nudge":
       return orientationNudgeToolLooksReadOnly(args.operation) ? "read" : "write";
     case "kilo_ledger":

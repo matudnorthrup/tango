@@ -31,6 +31,7 @@ See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) f
 | `agent-collaboration.md` | `collaborate_with_agent` | cross-agent bounded collaboration | |
 | `agent-docs.md` | `agent_docs` | Agent self-update | |
 | `latitude-remote.md` | `latitude_run` | Watson / work systems | |
+| `notion.md` | `notion` | Sierra / research filing; Watson / notes | |
 | `linear.md` | `linear` | Victor / project tracking | |
 | `attachments.md` | `attachment_search`, `attachment_read`, `attachment_status`, `attachment_reprocess`, `attachment_update`, `attachment_enumerate` | all agents/workers (`attachment_update`, `attachment_enumerate` ship UNGRANTED — see `attachments.md`) | |
 | `discord-manage.md` | `discord_manage` | Dev agents | |

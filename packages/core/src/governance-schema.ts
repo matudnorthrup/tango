@@ -293,6 +293,7 @@ export const GOVERNANCE_SEED = `
     ('linear', 'personal', 'Linear Project Management', 'write'),
     ('imessage', 'personal', 'iMessage Read/Send', 'write'),
     ('latitude_run', 'personal', 'Latitude Remote MCP (Notion, Slack, etc.)', 'write'),
+    ('notion', 'personal', 'Notion (direct API)', 'write'),
     ('orientation_nudge', 'personal', 'Orientation Nudge Controls', 'write'),
     ('youtube_transcript', 'research', 'YouTube Transcript', 'read'),
     ('youtube_analyze', 'research', 'YouTube Video Analysis', 'read'),

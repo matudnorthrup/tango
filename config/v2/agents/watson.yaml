@@ -69,6 +69,11 @@ mcp_servers:
   - name: latitude
     command: mcp-remote
     args: ["https://mcp.example.invalid/oauth/mcp"]
+  - name: notion
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "notion"]
+    env:
+      ALLOWED_TOOL_IDS: "notion"
   - name: send-image
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "send-image"]
