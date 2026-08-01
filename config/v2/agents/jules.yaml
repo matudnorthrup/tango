@@ -58,16 +58,14 @@ memory:
   importance_threshold: 0.25
   scheduled_reflection: disabled
 
+# Real channel ids and the voice block (call_signs required by schema) come
+# from the profile overlay, like every other assistant. No access block here:
+# a repo-level placeholder allowlist blocks slot-mode smoke threads and all
+# real traffic until an overlay exists.
 discord:
   default_channel_id: "100000000000000015"
   smoke_test_channel_id: "100000000000001015"
   typing_token_env: JULES_DISCORD_TOKEN
-
-access:
-  mode: allowlist
-  allowlist_channel_ids:
-    - "100000000000000015"
-    - "100000000000001015"
 
 provider:
   default: claude-oauth
