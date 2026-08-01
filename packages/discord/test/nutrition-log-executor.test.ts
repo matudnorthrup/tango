@@ -174,7 +174,8 @@ describe("executeNutritionLogItems", () => {
     expect(fatsecretCall.mock.calls[0]?.[1]).toMatchObject({
       food_id: "1001",
       serving_id: "2001",
-      number_of_units: 1,
+      // "100 g" is a gram-unit serving → FatSecret wants raw grams (100), not 1.
+      number_of_units: 100,
       meal: "other",
       date: "2026-04-09",
     });
@@ -306,6 +307,117 @@ describe("executeNutritionLogItems", () => {
     });
   });
 
+  // Regression: the recurring "sweet potato logs as ~1 cal" bug. FatSecret
+  // serving 59350 has measurement_description "g" / metric_serving_amount 100,
+  // so it interprets number_of_units as RAW GRAMS. Logging 140 g must send 140,
+  // not 140/100 = 1.4 (which FatSecret reads as 1.4 g → ~1 cal). The gram unit
+  // is detected from serving_description "100g".
+  it("sends raw grams for a numeric gram serving (sweet potato 140g)", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Sweet Potato",
+        food_id: "36619",
+        serving_id: "59350",
+        serving_description: "100g",
+        serving_size: null,
+        grams_per_serving: 100,
+        calories: 76,
+        protein: 1.37,
+        carbs: 17.72,
+        fat: 0.14,
+        fiber: 2.5,
+        aliases: JSON.stringify(["sweet potato"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return { success: true, food_entry_id: `${params.food_id}-entry` };
+      }
+      if (method === "food_entries_get") {
+        return { dinner: [{ food_entry_id: "36619-entry" }] };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "sweet potato", quantity: "140g" }],
+        meal: "dinner",
+        date: "2026-04-09",
+      },
+      { atlasDbPath, fatsecretCall },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "confirmed",
+      totals: {
+        calories: 106,
+      },
+    });
+    expect(fatsecretCall.mock.calls[0]?.[1]).toMatchObject({
+      food_id: "36619",
+      serving_id: "59350",
+      number_of_units: 140,
+      meal: "dinner",
+      date: "2026-04-09",
+    });
+  });
+
+  // Guard against over-triggering the raw-grams rule: a "1 cup" serving that
+  // merely WEIGHS 227g must log as serving-count (1), not 227 raw grams. The
+  // unit lives in serving_description; serving_size is only the gram weight.
+  it("does not treat a cup serving's gram weight as raw grams", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Whole Milk Greek Yogurt",
+        food_id: "23761706",
+        serving_id: "22170245",
+        serving_description: "1 cup",
+        serving_size: "227g",
+        grams_per_serving: 227,
+        calories: 230,
+        protein: 22,
+        carbs: 9,
+        fat: 11,
+        aliases: JSON.stringify(["whole milk greek yogurt", "greek yogurt"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return { success: true, food_entry_id: `${params.food_id}-entry` };
+      }
+      if (method === "food_entries_get") {
+        return { breakfast: [{ food_entry_id: "23761706-entry" }] };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "whole milk greek yogurt", quantity: "227g" }],
+        meal: "breakfast",
+        date: "2026-04-09",
+      },
+      { atlasDbPath, fatsecretCall },
+    );
+
+    expect(result).toMatchObject({
+      action: "nutrition_log_items",
+      status: "confirmed",
+      totals: {
+        calories: 230,
+      },
+    });
+    expect(fatsecretCall.mock.calls[0]?.[1]).toMatchObject({
+      food_id: "23761706",
+      serving_id: "22170245",
+      number_of_units: 1,
+      meal: "breakfast",
+      date: "2026-04-09",
+    });
+  });
+
   it("uses the FatSecret batch path when available", async () => {
     const atlasDbPath = createAtlasDb([
       {
@@ -343,7 +455,8 @@ describe("executeNutritionLogItems", () => {
         params: {
           food_id: "1001",
           serving_id: "2001",
-          number_of_units: 1,
+          // "100 g" gram-unit serving → raw grams (100), not 1.
+          number_of_units: 100,
           meal: "other",
           date: "2026-04-09",
         },
@@ -569,7 +682,8 @@ describe("executeNutritionLogItems", () => {
       item: "light vanilla greek yogurt",
       food_id: "1001",
       serving_id: "2001",
-      number_of_units: 1,
+      // "100 g" gram-unit serving → raw grams (100), not 1.
+      number_of_units: 100,
     });
     expect(fatsecretCall.mock.calls.map(([method]) => method)).toEqual([
       "food_entry_create",
