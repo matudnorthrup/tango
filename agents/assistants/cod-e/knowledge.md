@@ -24,7 +24,7 @@ runtime config layering.
 - **Cod-E** -- canary/testing agent and proof-of-concept surface.
 - **Sage** -- system overseer when configured.
 - **Piper** -- operations-focused assistant.
-- **Wellness** -- wellness assistant.
+- **Jules** -- wellness assistant.
 - **Watson**, **Sierra**, **Malibu**, **Victor**, and other agents may exist in
   other profiles or deployments.
 

@@ -3387,6 +3387,52 @@ const MIGRATIONS: Migration[] = [
         ON agent_collaboration_deliveries(collaboration_id, created_at);
     `,
   },
+  {
+    // Jules debuts as the wellness domain's first-class V2 assistant, taking
+    // over the agent:wellness principal's role. Mirrors the v68 church→study
+    // pattern: additive INSERT OR IGNORE mirrors onto the new ids, originals
+    // left in place — deleting rows other grants still reference is how a
+    // principal silently loses every permission it had. The one UPDATE
+    // (worker reparenting) only swings inheritance to agent:jules, which by
+    // then holds a mirror of every grant agent:wellness had.
+    version: 74,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type, description)
+      SELECT 'jules_files', domain, 'Jules Wellness Files', access_type, description
+      FROM governance_tools WHERE id = 'wellness_files';
+
+      INSERT OR IGNORE INTO principals (id, type, parent_id, display_name)
+      SELECT 'agent:jules', type, parent_id, 'Jules'
+      FROM principals WHERE id = 'agent:wellness';
+
+      -- Same grants on the renamed tool, for whoever held them.
+      INSERT OR IGNORE INTO permissions (principal_id, group_id, tool_id, access_level, granted_by, reason)
+      SELECT principal_id, group_id, 'jules_files', access_level, granted_by, reason
+      FROM permissions
+      WHERE tool_id = 'wellness_files'
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'jules_files');
+
+      -- Same grants for the successor principal, on whatever tools it held.
+      INSERT OR IGNORE INTO permissions (principal_id, group_id, tool_id, access_level, granted_by, reason)
+      SELECT 'agent:jules', group_id, tool_id, access_level, granted_by, reason
+      FROM permissions
+      WHERE principal_id = 'agent:wellness'
+        AND EXISTS (SELECT 1 FROM principals WHERE id = 'agent:jules');
+
+      INSERT OR IGNORE INTO permissions (principal_id, group_id, tool_id, access_level, granted_by, reason)
+      SELECT 'agent:jules', group_id, 'jules_files', access_level, granted_by, reason
+      FROM permissions
+      WHERE principal_id = 'agent:wellness' AND tool_id = 'wellness_files'
+        AND EXISTS (SELECT 1 FROM principals WHERE id = 'agent:jules')
+        AND EXISTS (SELECT 1 FROM governance_tools WHERE id = 'jules_files');
+
+      -- Reparent the wellness workers under Jules so permission inheritance
+      -- flows from the live assistant. Guarded: only once agent:jules exists.
+      UPDATE principals SET parent_id = 'agent:jules', updated_at = datetime('now')
+      WHERE parent_id = 'agent:wellness'
+        AND EXISTS (SELECT 1 FROM principals WHERE id = 'agent:jules');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

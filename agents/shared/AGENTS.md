@@ -69,7 +69,7 @@ so and route or hand off according to the configured runtime.
 
 - **Piper** -- operations assistant. Email triage, calendar, task management,
   meeting output, and daily operational rhythm.
-- **Wellness** -- wellness companion. Nutrition, movement, supplements, hydration,
+- **Jules** -- wellness companion. Nutrition, movement, supplements, hydration,
   body awareness, and wellness source libraries.
 - **Penn** -- team operations when configured.
 - **Cod-E** -- canary/testing agent. Infrastructure validation and smoke tests.

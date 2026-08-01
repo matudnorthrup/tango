@@ -31,7 +31,7 @@ import {
   createHealthTools,
   createWorkoutTools,
   createRecipeTools,
-  createWellnessFilesTools,
+  createJulesFilesTools,
 } from "./wellness-agent-tools.js";
 import { createAllPersonalTools } from "./personal-agent-tools.js";
 import { createAllResearchTools } from "./research-agent-tools.js";
@@ -184,7 +184,7 @@ const allTools: AgentTool[] = [
   ...createHealthTools(),
   ...createWorkoutTools(),
   ...createRecipeTools(),
-  ...createWellnessFilesTools(),
+  ...createJulesFilesTools(),
   ...createAllPersonalTools(),
   ...createAllResearchTools(),
   ...createBrowserTools(),
@@ -456,7 +456,7 @@ function inferRequestedAccessLevel(
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return action === "list" || action === "read" ? "read" : "write";
     }
-    case "wellness_files": {
+    case "jules_files": {
       const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
       return action === "list" || action === "read" ? "read" : "write";
     }
