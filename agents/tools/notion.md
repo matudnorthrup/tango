@@ -97,6 +97,16 @@ undashed) or a full Notion URL — the tool extracts the id.
 | `restore` | `page_id` | | `{id, archived: false}` |
 | `list_workspaces` | | | `{workspaces, default, configured}` |
 
+Editing an existing page:
+
+| Operation | Required | Optional | Returns |
+| --- | --- | --- | --- |
+| `get_blocks` | `page_id` | | `blocks[]` of `{id, type, text, has_children}` |
+| `update_block` | `block_id` | `markdown`, `checked` | `{id, type, text}` |
+| `delete_block` | `block_id` | | `{id, deleted: true}` |
+| `insert_after` | `block_id`, `markdown` | | `{block_id, inserted, parent_id}` |
+| `replace_text` | `page_id`, `find` | `replace`, `all` | `{page_id, replaced, blocks}` |
+
 Every operation also accepts an optional `workspace` — see **Workspaces** above.
 
 Aliases: `read`/`fetch` → `get_page`, `trash`/`delete` → `archive`,
@@ -149,6 +159,35 @@ Anything else becomes a paragraph. Headings deeper than `###` clamp to `###`
 because Notion has only three heading levels. Long lines are split across
 2000-character runs and large bodies are written in 100-block batches, both
 Notion API limits.
+
+## Editing an existing page
+
+You do **not** need to rebuild a page to change it. Notion's unit of edit is a
+block, so the flow is:
+
+1. `get_blocks` — returns every block with its `id`, `type`, and `text`
+   (as markdown, so existing bold/links are visible and matchable).
+2. `update_block` / `delete_block` / `insert_after` on the ids you care about.
+
+`replace_text` collapses the common case — "swap this wording for that" — into
+one call. It rewrites whichever block holds the text, keeping that block's
+inline styling. If several blocks match it **refuses and lists the candidates**
+rather than guessing; pass `all: true` to change every one.
+
+Rules worth knowing:
+
+- A block keeps its type. Rewriting a bullet leaves it a bullet — Notion cannot
+  change a block's type. To change type, `delete_block` then `insert_after`.
+- Because the type is preserved, `markdown` for `update_block` may repeat the
+  marker or not: `"- new text"` and `"new text"` both yield `- new text` on a
+  bulleted block.
+- `checked` ticks or unticks a `to_do` without touching its text.
+- Blocks with no editable text (dividers, child pages) are refused by
+  `update_block` — delete and re-insert instead.
+
+Rebuilding a page as a "new version" costs the URL and any edits made by a human
+in the meantime. Prefer editing in place; create a fresh page only when the user
+asks for one.
 
 ## Pages vs database rows
 
@@ -220,10 +259,11 @@ Append to an existing page:
 
 ## Governance
 
-`search`, `get_page`, `query_database`, and `get_database` are classified
-**read**. Everything else — including `archive` and `restore` — is **write**, and
-an unrecognized operation is treated as a write so a mutation can never be
-waved through as a read.
+`search`, `get_page`, `get_blocks`, `query_database`, `get_database`, and
+`list_workspaces` are classified **read**. Everything else — including
+`archive`, `restore`, and the block-editing operations — is **write**, and an
+unrecognized operation is treated as a write so a mutation can never be waved
+through as a read.
 
 ## Notes
 

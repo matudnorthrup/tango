@@ -634,6 +634,164 @@ describe("notion tool handler", () => {
     expect(res.content).toBe(source);
   });
 
+  // Editing needs addressable blocks; without ids the only option was to
+  // rebuild the whole page, which loses the link and any human edits.
+  describe("in-place block editing", () => {
+    const BLOCKS = {
+      results: [
+        { id: "b1", type: "heading_2", has_children: false, heading_2: { rich_text: [{ plain_text: "Section" }] } },
+        {
+          id: "b2", type: "bulleted_list_item", has_children: false,
+          bulleted_list_item: { rich_text: [
+            { plain_text: "keep ", annotations: {} },
+            { plain_text: "this", annotations: { bold: true } },
+          ] },
+        },
+        { id: "b3", type: "to_do", has_children: false, to_do: { rich_text: [{ plain_text: "a task" }], checked: false } },
+      ],
+      has_more: false, next_cursor: null,
+    };
+
+    it("lists blocks with ids, types and markdown text", async () => {
+      stubFetch({ "GET /blocks/": { body: BLOCKS } });
+      const res = await tool().handler({ operation: "get_blocks", page_id: "p1" }) as {
+        count: number; blocks: Array<{ id: string; type: string; text: string }>;
+      };
+      expect(res.count).toBe(3);
+      expect(res.blocks[0]).toMatchObject({ id: "b1", type: "heading_2", text: "Section" });
+      // Existing styling is surfaced as markdown so it can be matched and kept.
+      expect(res.blocks[1]!.text).toBe("keep **this**");
+    });
+
+    it("rewrites a block in place, keeping its type", async () => {
+      const calls = stubFetch({
+        "GET /blocks/b2": { body: { id: "b2", type: "bulleted_list_item", bulleted_list_item: { rich_text: [] } } },
+        "PATCH /blocks/b2": { body: { id: "b2", type: "bulleted_list_item", bulleted_list_item: { rich_text: [{ plain_text: "new text" }] } } },
+      });
+
+      const res = await tool().handler({ operation: "update_block", block_id: "b2", markdown: "new text" }) as {
+        id: string; type: string;
+      };
+      expect(res).toMatchObject({ id: "b2", type: "bulleted_list_item" });
+
+      const patch = calls.find((c) => c.method === "PATCH")!;
+      expect(patch.body).toHaveProperty("bulleted_list_item");
+    });
+
+    // "- new text" on a bullet must not produce "- - new text".
+    it("does not double a list marker when the markdown repeats it", async () => {
+      const calls = stubFetch({
+        "GET /blocks/b2": { body: { id: "b2", type: "bulleted_list_item", bulleted_list_item: { rich_text: [] } } },
+        "PATCH /blocks/b2": { body: { id: "b2", type: "bulleted_list_item", bulleted_list_item: { rich_text: [] } } },
+      });
+
+      await tool().handler({ operation: "update_block", block_id: "b2", markdown: "- swapped **bold**" });
+      const sent = (calls.find((c) => c.method === "PATCH")!.body as {
+        bulleted_list_item: { rich_text: Array<{ text: { content: string }; annotations?: Record<string, boolean> }> };
+      }).bulleted_list_item.rich_text;
+      expect(sent[0]!.text.content).toBe("swapped ");
+      expect(sent[1]).toMatchObject({ text: { content: "bold" }, annotations: { bold: true } });
+    });
+
+    it("ticks a to-do without touching its text", async () => {
+      const calls = stubFetch({
+        "GET /blocks/b3": { body: { id: "b3", type: "to_do", to_do: { rich_text: [{ plain_text: "a task" }], checked: false } } },
+        "PATCH /blocks/b3": { body: { id: "b3", type: "to_do", to_do: { rich_text: [{ plain_text: "a task" }], checked: true } } },
+      });
+
+      await tool().handler({ operation: "update_block", block_id: "b3", checked: true });
+      expect((calls.find((c) => c.method === "PATCH")!.body as { to_do: { checked: boolean } }).to_do.checked).toBe(true);
+    });
+
+    it("refuses to rewrite a block with no editable text", async () => {
+      stubFetch({ "GET /blocks/b9": { body: { id: "b9", type: "divider", divider: {} } } });
+      const res = await tool().handler({ operation: "update_block", block_id: "b9", markdown: "x" }) as { error: string };
+      expect(res.error).toMatch(/has no editable text/);
+      expect(res.error).toMatch(/delete_block/);
+    });
+
+    it("deletes a block", async () => {
+      const calls = stubFetch({ "DELETE /blocks/b2": { body: { id: "b2", archived: true } } });
+      await expect(tool().handler({ operation: "delete_block", block_id: "b2" }))
+        .resolves.toMatchObject({ id: "b2", deleted: true });
+      expect(calls[0]!.method).toBe("DELETE");
+    });
+
+    it("inserts after a sibling by resolving its parent", async () => {
+      const calls = stubFetch({
+        "GET /blocks/b2": { body: { id: "b2", parent: { type: "page_id", page_id: "p1" } } },
+        "PATCH /blocks/p1": { body: { results: [] } },
+      });
+
+      const res = await tool().handler({ operation: "insert_after", block_id: "b2", markdown: "- added" }) as {
+        inserted: number; parent_id: string;
+      };
+      expect(res).toMatchObject({ inserted: 1, parent_id: "p1" });
+
+      const patch = calls.find((c) => c.method === "PATCH")!;
+      expect(patch.path).toBe("/blocks/p1/children");
+      expect((patch.body as { after: string }).after).toBe("b2");
+    });
+
+    it("replaces wording in the one block that holds it, preserving styling", async () => {
+      const calls = stubFetch({
+        "GET /blocks/p1/children": { body: BLOCKS },
+        "GET /blocks/b2": { body: { id: "b2", type: "bulleted_list_item", bulleted_list_item: { rich_text: [] } } },
+        "PATCH /blocks/b2": { body: { id: "b2", type: "bulleted_list_item", bulleted_list_item: { rich_text: [] } } },
+      });
+
+      const res = await tool().handler({
+        operation: "replace_text", page_id: "p1", find: "keep", replace: "swap",
+      }) as { replaced: number };
+      expect(res.replaced).toBe(1);
+
+      const sent = (calls.find((c) => c.method === "PATCH")!.body as {
+        bulleted_list_item: { rich_text: Array<{ text: { content: string }; annotations?: Record<string, boolean> }> };
+      }).bulleted_list_item.rich_text;
+      expect(sent[0]!.text.content).toBe("swap ");
+      // The bold run survived the rewrite rather than being flattened.
+      expect(sent[1]).toMatchObject({ text: { content: "this" }, annotations: { bold: true } });
+    });
+
+    // Silently editing the wrong paragraph of a real document is expensive.
+    it("refuses an ambiguous replace and lists the candidates", async () => {
+      stubFetch({
+        "GET /blocks/p1/children": {
+          body: {
+            results: [
+              { id: "x1", type: "paragraph", has_children: false, paragraph: { rich_text: [{ plain_text: "the term here" }] } },
+              { id: "x2", type: "paragraph", has_children: false, paragraph: { rich_text: [{ plain_text: "the term again" }] } },
+            ],
+            has_more: false, next_cursor: null,
+          },
+        },
+      });
+
+      const res = await tool().handler({
+        operation: "replace_text", page_id: "p1", find: "term", replace: "word",
+      }) as { error: string; matched: number; candidates: Array<{ id: string }> };
+      expect(res.matched).toBe(2);
+      expect(res.error).toMatch(/all:true/);
+      expect(res.candidates.map((c) => c.id)).toEqual(["x1", "x2"]);
+    });
+
+    it("reports a replace that matched nothing", async () => {
+      stubFetch({ "GET /blocks/": { body: BLOCKS } });
+      const res = await tool().handler({
+        operation: "replace_text", page_id: "p1", find: "absent", replace: "x",
+      }) as { error: string; matched: number };
+      expect(res.matched).toBe(0);
+      expect(res.error).toMatch(/No block on this page contains/);
+    });
+
+    it("classifies the editing operations for governance", () => {
+      expect(notionOperationLooksReadOnly("get_blocks")).toBe(true);
+      for (const op of ["update_block", "delete_block", "insert_after", "replace_text"]) {
+        expect(notionOperationLooksReadOnly(op)).toBe(false);
+      }
+    });
+  });
+
   it("points at query_database when get_page is handed a database id", async () => {
     stubFetch({
       "GET /pages/": { status: 404, body: { message: "Could not find page", code: "object_not_found" } },
