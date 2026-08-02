@@ -28,3 +28,7 @@ agents/assistants/*/USER.md
 agents/assistants/*/context/
 agents/assistants/*/context
 Records/
+
+# Artifacts written to a literal "undefined" path by a tool with an
+# unset output-dir variable. Never intentional; keep them out of the repo.
+undefined/
