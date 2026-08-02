@@ -111,7 +111,9 @@ read path for a document.
 ## Markdown
 
 `markdown` (on `create_page` and `append`) supports the subset that round-trips
-with `get_page`:
+with `get_page`.
+
+Block level:
 
 ```text
 # H1   ## H2   ### H3
@@ -122,6 +124,26 @@ with `get_page`:
 ---                        (divider)
 ```lang … ```            (code block)
 ```
+
+Inline, inside any of the above:
+
+```text
+**bold**   __bold__
+*italic*   _italic_
+`code`
+~~strikethrough~~
+[label](https://example.com)
+```
+
+Notion does not parse markdown itself — inline styling is converted into
+annotated rich-text runs, and `get_page` converts it back. Notes:
+
+- Emphasis nests: `**bold with *both* inside**`.
+- A code span is literal: `` `**not bold**` `` keeps its asterisks.
+- Underscores inside a word never trigger emphasis, so `snake_case_name`
+  survives intact.
+- Backslash escapes a delimiter: `\*not italic\*`.
+- Code-block bodies are literal and are never re-parsed.
 
 Anything else becomes a paragraph. Headings deeper than `###` clamp to `###`
 because Notion has only three heading levels. Long lines are split across

@@ -256,12 +256,30 @@ export function selectNotionWorkspace(
   const asked = String(requested ?? "").trim().toLowerCase();
 
   if (allowed.length === 0) {
+    // An identified agent that is simply unmapped is a configuration gap:
+    // refuse either way, so it cannot reach a workspace nobody assigned it.
+    if (agentId) {
+      return {
+        error:
+          `This installation has more than one Notion workspace ` +
+          `(${listNotionWorkspaces().join(", ")}) and no workspace is assigned to "${agentId}". ` +
+          `Set ${notionWorkspaceEnvForAgent(agentId)} to the workspace(s) it should use. ` +
+          "Refusing rather than guessing.",
+      };
+    }
+    // No identity at all means an in-process/operator caller (scripts, smoke
+    // tests). The rule being enforced is "never guess", and naming a workspace
+    // outright is not a guess — so allow it, but still refuse to pick one.
+    if (asked) {
+      const known = listNotionWorkspaces();
+      if (known.includes(asked)) return { workspace: asked };
+      return { error: `Unknown Notion workspace "${asked}". Configured: ${known.join(", ")}.` };
+    }
     return {
       error:
         `This installation has more than one Notion workspace ` +
-        `(${listNotionWorkspaces().join(", ")}) and no workspace is assigned to ` +
-        `${agentId ? `"${agentId}"` : "this caller"}. Set ${notionWorkspaceEnvForAgent(agentId)} ` +
-        "to the workspace(s) it should use. Refusing rather than guessing.",
+        `(${listNotionWorkspaces().join(", ")}). Pass \`workspace\` to choose one. ` +
+        "Refusing rather than guessing.",
     };
   }
 
@@ -350,24 +368,182 @@ async function notionFetch(
 /* -------------------------------------------------------------------------- */
 
 /** Pull plain text out of a Notion rich_text array. */
+/** Plain concatenation — for titles, which carry no markdown. */
 function richText(arr: unknown): string {
   if (!Array.isArray(arr)) return "";
   return arr.map((r) => (r as { plain_text?: string })?.plain_text ?? "").join("");
 }
 
-interface RichTextRun {
-  type: "text";
-  text: { content: string };
+interface Annotations {
+  bold?: boolean;
+  italic?: boolean;
+  strikethrough?: boolean;
+  code?: boolean;
 }
 
-/** Notion rejects runs longer than 2000 chars, so split long content. */
+interface RichTextRun {
+  type: "text";
+  text: { content: string; link?: { url: string } };
+  annotations?: Annotations;
+}
+
+/*
+ * Notion does not parse markdown. Inline styling has to be sent as separate
+ * rich-text runs carrying `annotations`, so `**bold**` written as one plain run
+ * renders as literal asterisks. These two functions are the inverse of each
+ * other and keep a get_page → edit → write round trip from losing styling.
+ */
+
+interface InlineSegment {
+  content: string;
+  annotations: Annotations;
+  link?: string;
+}
+
+/** `_` is only an emphasis delimiter at a word boundary, so snake_case survives. */
+function isWordChar(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9]/.test(ch);
+}
+
+interface InlineRule {
+  re: RegExp;
+  /** Annotation this delimiter adds; absent for links. */
+  add?: keyof Annotations;
+  /** Content is literal — do not parse inside it (code spans). */
+  literal?: boolean;
+  link?: boolean;
+  /** Reject a match, e.g. `_` inside a word. */
+  reject?: (text: string, m: RegExpExecArray) => boolean;
+}
+
+// Longer delimiters first: `**` must win over `*`, `~~` over `~`.
+const INLINE_RULES: InlineRule[] = [
+  { re: /`([^`\n]+)`/, add: "code", literal: true },
+  { re: /\[([^\]]*)\]\(([^)\s]+)\)/, link: true },
+  { re: /\*\*([\s\S]+?)\*\*/, add: "bold" },
+  { re: /__([\s\S]+?)__/, add: "bold",
+    reject: (t, m) => isWordChar(t[m.index - 1]) || isWordChar(t[m.index + m[0].length]) },
+  { re: /~~([\s\S]+?)~~/, add: "strikethrough" },
+  { re: /\*([^*\n]+?)\*/, add: "italic" },
+  { re: /_([^_\n]+?)_/, add: "italic",
+    reject: (t, m) => isWordChar(t[m.index - 1]) || isWordChar(t[m.index + m[0].length]) },
+];
+
+/** Strip backslash escapes (`\*` → `*`) once no delimiter can consume them. */
+function unescape(text: string): string {
+  return text.replace(/\\([\\`*_~[\]()])/g, "$1");
+}
+
+/**
+ * Split inline markdown into annotated segments. Recurses so `**bold *both* **`
+ * nests correctly; code spans are literal and stop recursion.
+ */
+export function parseInlineMarkdown(text: string, base: Annotations = {}): InlineSegment[] {
+  const out: InlineSegment[] = [];
+  let rest = text;
+
+  while (rest.length > 0) {
+    let best: { m: RegExpExecArray; rule: InlineRule } | null = null;
+
+    for (const rule of INLINE_RULES) {
+      const re = new RegExp(rule.re.source, "g");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(rest)) !== null) {
+        // A delimiter escaped with a backslash is literal text.
+        const skip = rest[m.index - 1] === "\\" || rule.reject?.(rest, m);
+        if (skip) {
+          // Resume one character in, not past the whole match: a rejected
+          // candidate may have swallowed the opening delimiter of a valid one
+          // ("a_b and _real italic_" must still italicize the second pair).
+          re.lastIndex = m.index + 1;
+          continue;
+        }
+        if (!best || m.index < best.m.index) best = { m, rule };
+        break;
+      }
+    }
+
+    if (!best) {
+      if (rest) out.push({ content: unescape(rest), annotations: base });
+      break;
+    }
+
+    const { m, rule } = best;
+    if (m.index > 0) {
+      out.push({ content: unescape(rest.slice(0, m.index)), annotations: base });
+    }
+
+    if (rule.link) {
+      out.push(...parseInlineMarkdown(m[1] ?? "", base).map((s) => ({ ...s, link: s.link ?? m[2] })));
+    } else {
+      const next: Annotations = { ...base, ...(rule.add ? { [rule.add]: true } : {}) };
+      if (rule.literal) out.push({ content: m[1] ?? "", annotations: next });
+      else out.push(...parseInlineMarkdown(m[1] ?? "", next));
+    }
+
+    rest = rest.slice(m.index + m[0].length);
+  }
+
+  return out.filter((s) => s.content.length > 0);
+}
+
+/**
+ * Build Notion rich text from inline markdown, splitting any run longer than
+ * Notion's 2000-character limit.
+ */
 function richTextRuns(content: string): RichTextRun[] {
+  if (!content) return [];
+  const runs: RichTextRun[] = [];
+  for (const seg of parseInlineMarkdown(content)) {
+    for (let i = 0; i < seg.content.length; i += RICH_TEXT_LIMIT) {
+      runs.push({
+        type: "text",
+        text: {
+          content: seg.content.slice(i, i + RICH_TEXT_LIMIT),
+          ...(seg.link ? { link: { url: seg.link } } : {}),
+        },
+        ...(Object.keys(seg.annotations).length ? { annotations: seg.annotations } : {}),
+      });
+    }
+  }
+  return runs;
+}
+
+/** Literal runs — code-block bodies must not be re-parsed as markdown. */
+function literalRichTextRuns(content: string): RichTextRun[] {
   if (!content) return [];
   const runs: RichTextRun[] = [];
   for (let i = 0; i < content.length; i += RICH_TEXT_LIMIT) {
     runs.push({ type: "text", text: { content: content.slice(i, i + RICH_TEXT_LIMIT) } });
   }
   return runs;
+}
+
+/** Emphasis delimiters cannot sit next to the whitespace they wrap. */
+function wrap(text: string, delim: string): string {
+  const m = text.match(/^(\s*)([\s\S]*?)(\s*)$/);
+  if (!m || !m[2]) return text;
+  return `${m[1]}${delim}${m[2]}${delim}${m[3]}`;
+}
+
+/** Render Notion rich text back to inline markdown (inverse of the parser). */
+function richTextToMarkdown(arr: unknown): string {
+  if (!Array.isArray(arr)) return "";
+  return arr
+    .map((raw) => {
+      const r = raw as { plain_text?: string; annotations?: Annotations; href?: string | null };
+      let text = r?.plain_text ?? "";
+      if (!text) return "";
+      const a = r.annotations ?? {};
+      // Innermost first: code, then emphasis, then the link wrapper.
+      if (a.code) text = wrap(text, "`");
+      if (a.italic) text = wrap(text, "*");
+      if (a.bold) text = wrap(text, "**");
+      if (a.strikethrough) text = wrap(text, "~~");
+      if (r.href) text = `[${text}](${r.href})`;
+      return text;
+    })
+    .join("");
 }
 
 /** Languages Notion accepts for a code block; anything else falls back. */
@@ -424,7 +600,7 @@ export function markdownToBlocks(markdown: string): Record<string, unknown>[] {
       blocks.push({
         object: "block",
         type: "code",
-        code: { rich_text: richTextRuns(body.join("\n")), language },
+        code: { rich_text: literalRichTextRuns(body.join("\n")), language },
       });
       continue;
     }
@@ -536,7 +712,8 @@ async function readPageContent(api: NotionApi, pageId: string, depth = 0): Promi
     for (const block of res.results ?? []) {
       const type = String(block.type ?? "");
       const data = block[type] as { rich_text?: unknown } | undefined;
-      const rendered = renderBlock(type, richText(data?.rich_text), block);
+      const text = type === "code" ? richText(data?.rich_text) : richTextToMarkdown(data?.rich_text);
+      const rendered = renderBlock(type, text, block);
       if (rendered !== null) lines.push(rendered);
 
       // Nested content (toggles, list children, columns) is invisible without this.
