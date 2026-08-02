@@ -252,6 +252,21 @@ describe("buildV2RuntimeConfigs", () => {
     });
   });
 
+  it("allows an agent to explicitly disable the local runtime timeout", () => {
+    const configs = new Map<string, V2AgentConfig>([
+      ["victor", createV2Config("victor", { provider: "claude-code-v2", timeoutSeconds: 0 })],
+    ]);
+
+    const runtimeConfigs = buildV2RuntimeConfigs(configs, { repoRoot });
+
+    expect(runtimeConfigs.get("victor")).toMatchObject({
+      agentId: "victor",
+      runtimePreferences: {
+        timeout: 0,
+      },
+    });
+  });
+
   it("injects configured memory scope into MCP server environments", () => {
     const configs = new Map<string, V2AgentConfig>([
       [

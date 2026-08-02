@@ -564,6 +564,32 @@ describe("ClaudeCodeAdapter", () => {
     await sendExpectation;
     await adapter.teardown();
   });
+
+  it("keeps a send running when its timeout is explicitly disabled", async () => {
+    vi.useFakeTimers();
+
+    const child = new MockChildProcess();
+    child.closeOnSignal = new Set<NodeJS.Signals>(["SIGTERM"]);
+    spawnMock.mockImplementation(() => child);
+
+    const adapter = new ClaudeCodeAdapter();
+    await adapter.initialize(createConfig({
+      runtimePreferences: {
+        timeout: 0,
+      },
+    }));
+
+    const sendPromise = adapter.send("Keep working");
+    await vi.waitFor(() => {
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+    });
+    await vi.advanceTimersByTimeAsync(3_600_000);
+
+    expect(child.killMock).not.toHaveBeenCalled();
+    adapter.abortActiveRun();
+    await expect(sendPromise).rejects.toMatchObject({ aborted: true });
+    await adapter.teardown();
+  });
 });
 
 describe("RuntimePool", () => {

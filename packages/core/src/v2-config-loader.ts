@@ -229,7 +229,9 @@ const rawV2AgentConfigSchema = z.object({
     reasoning_effort: providerReasoningEffortSchema,
     idle_timeout_hours: z.number().positive(),
     context_reset_threshold: z.number().min(0).max(1),
-    timeout_seconds: z.number().int().positive().optional(),
+    // Zero explicitly disables the local runtime deadline. Omit the field to
+    // retain the shared default timeout.
+    timeout_seconds: z.number().int().nonnegative().optional(),
   }),
   memory: z.object({
     post_turn_extraction: featureToggleSchema,

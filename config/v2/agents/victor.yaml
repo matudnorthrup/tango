@@ -51,9 +51,10 @@ runtime:
   reasoning_effort: max
   idle_timeout_hours: 24
   context_reset_threshold: 0.80
-  # Long-form legal and operations turns can take time, but a stalled CLI should
-  # fail over to the secondary provider instead of blocking the channel for 15 minutes.
-  timeout_seconds: 360
+  # Zero disables Tango's local execution deadline. Victor's work can require
+  # long-running document and operations turns; use an explicit cancel or a
+  # runtime restart to stop one.
+  timeout_seconds: 0
 
 # Memory configuration
 memory:
