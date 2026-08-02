@@ -324,7 +324,7 @@ class NotionApiError extends Error {
  */
 export type NotionApi = (
   path: string,
-  method: "GET" | "POST" | "PATCH",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   body?: unknown,
 ) => Promise<unknown>;
 
@@ -335,7 +335,7 @@ function notionClient(workspace: string): NotionApi {
 async function notionFetch(
   workspace: string,
   path: string,
-  method: "GET" | "POST" | "PATCH",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   body?: unknown,
 ): Promise<unknown> {
   const token = await resolveNotionToken(workspace);
@@ -783,12 +783,149 @@ async function resolveParent(api: NotionApi, id: string, declared?: unknown): Pr
 }
 
 /* -------------------------------------------------------------------------- */
+/* Block-level editing                                                        */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Editing an existing document needs block ids: Notion's unit of edit is a
+ * block, and `PATCH /blocks/{id}` / `DELETE /blocks/{id}` address one directly.
+ * Reading a page as flat text gives an agent nothing to target, which is why
+ * append-and-rebuild was the only option before this.
+ */
+
+interface BlockSummary {
+  id: string;
+  type: string;
+  text: string;
+  has_children: boolean;
+}
+
+/** Flat, addressable listing of a page's blocks (one level, plus children). */
+async function listBlocks(
+  api: NotionApi,
+  parentId: string,
+  depth = 0,
+): Promise<BlockSummary[]> {
+  const out: BlockSummary[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+
+  do {
+    const qs = new URLSearchParams({ page_size: "100", ...(cursor ? { start_cursor: cursor } : {}) });
+    const res = (await api(`/blocks/${parentId}/children?${qs.toString()}`, "GET")) as {
+      results?: Array<Record<string, unknown>>;
+      has_more?: boolean;
+      next_cursor?: string | null;
+    };
+
+    for (const block of res.results ?? []) {
+      const type = String(block.type ?? "");
+      const data = block[type] as { rich_text?: unknown } | undefined;
+      out.push({
+        id: String(block.id),
+        type,
+        text: type === "code" ? richText(data?.rich_text) : richTextToMarkdown(data?.rich_text),
+        has_children: block.has_children === true,
+      });
+      if (block.has_children === true && depth < MAX_BLOCK_DEPTH && type !== "child_page" && type !== "child_database") {
+        out.push(...(await listBlocks(api, String(block.id), depth + 1)));
+      }
+    }
+
+    cursor = res.has_more ? res.next_cursor ?? undefined : undefined;
+  } while (cursor && ++pages < MAX_BLOCK_PAGES);
+
+  return out;
+}
+
+/** Block types whose body is a single rich_text array we can rewrite. */
+const REWRITABLE_TEXT_BLOCKS = new Set([
+  "paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item",
+  "numbered_list_item", "to_do", "quote", "callout", "toggle", "code",
+]);
+
+/**
+ * Rewrite one block's text in place, keeping its existing type — Notion cannot
+ * change a block's type, so a bullet stays a bullet. Markdown that parses to a
+ * single block contributes only its inline content, so passing "- new text" to
+ * a bullet does not double the marker.
+ */
+async function rewriteBlock(
+  api: NotionApi,
+  blockId: string,
+  markdown: string,
+  checked?: unknown,
+): Promise<{ id: string; type: string; text: string }> {
+  const current = (await api(`/blocks/${blockId}`, "GET")) as Record<string, unknown>;
+  const type = String(current.type ?? "");
+  if (!REWRITABLE_TEXT_BLOCKS.has(type)) {
+    throw new Error(
+      `Block ${blockId} is a "${type}", which has no editable text. ` +
+        "Use delete_block plus insert_after to replace it.",
+    );
+  }
+
+  const existing = (current[type] ?? {}) as Record<string, unknown>;
+  const body: Record<string, unknown> = {};
+
+  if (markdown !== undefined && markdown !== null && String(markdown).length > 0) {
+    if (type === "code") {
+      body.rich_text = literalRichTextRuns(String(markdown));
+      if (existing.language) body.language = existing.language;
+    } else {
+      const parsed = markdownToBlocks(String(markdown));
+      // One parsed block → reuse its inline runs under the original type.
+      // Several → the caller passed multiple lines; join them into one block.
+      const runs = parsed.length === 1
+        ? ((parsed[0]![parsed[0]!.type as string] as { rich_text?: unknown })?.rich_text ?? [])
+        : richTextRuns(String(markdown));
+      body.rich_text = runs;
+    }
+  }
+
+  if (typeof checked === "boolean" && type === "to_do") body.checked = checked;
+  if (Object.keys(body).length === 0) throw new Error("update_block needs `markdown` (or `checked` on a to-do).");
+
+  const updated = (await api(`/blocks/${blockId}`, "PATCH", { [type]: body })) as Record<string, unknown>;
+  const data = updated[type] as { rich_text?: unknown } | undefined;
+  return {
+    id: String(updated.id),
+    type,
+    text: type === "code" ? richText(data?.rich_text) : richTextToMarkdown(data?.rich_text),
+  };
+}
+
+/**
+ * Insert blocks directly after a sibling. Notion takes `after` on the PARENT's
+ * children endpoint, so the block's parent has to be resolved first.
+ */
+async function insertAfterBlock(
+  api: NotionApi,
+  blockId: string,
+  blocks: Record<string, unknown>[],
+): Promise<{ inserted: number; parent_id: string }> {
+  const block = (await api(`/blocks/${blockId}`, "GET")) as { parent?: Record<string, string> };
+  const parent = block.parent ?? {};
+  const parentId = parent.page_id ?? parent.block_id ?? parent.database_id;
+  if (!parentId) throw new Error(`Could not resolve the parent of block ${blockId}.`);
+
+  // `after` is only honored on the first request, so anything past the 100-block
+  // limit is appended to the parent's end rather than silently dropped.
+  const first = blocks.slice(0, MAX_BLOCKS_PER_REQUEST);
+  await api(`/blocks/${parentId}/children`, "PATCH", { children: first, after: blockId });
+  const rest = blocks.slice(MAX_BLOCKS_PER_REQUEST);
+  if (rest.length) await appendBlocksBatched(api, parentId, rest);
+  return { inserted: blocks.length, parent_id: parentId };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Governance classification                                                  */
 /* -------------------------------------------------------------------------- */
 
 /** Every operation that only reads. Anything else is treated as a mutation. */
 const READ_ONLY_OPERATIONS = new Set([
   "search", "get_page", "read", "fetch", "query_database", "get_database", "database_schema",
+  "get_blocks", "list_blocks", "list_workspaces", "workspaces",
 ]);
 
 /**
@@ -822,6 +959,17 @@ export function createNotionTools(): AgentTool[] {
         "  - get_database:   { database_id } → a database's schema (property names and types).",
         "  - archive:        { page_id } → move a page to trash. `restore` puts it back.",
         "",
+        "EDITING AN EXISTING PAGE (you do not need to rebuild it):",
+        "  - get_blocks:     { page_id } → every block with its id, type and text. Ids come from here.",
+        "  - update_block:   { block_id, markdown } → rewrite one block in place. `checked` ticks a to-do.",
+        "  - delete_block:   { block_id } → remove one block.",
+        "  - insert_after:   { block_id, markdown } → insert new blocks right after that one.",
+        "  - replace_text:   { page_id, find, replace } → swap wording in whichever block holds it.",
+        "                    Errors and lists candidates if several blocks match, unless all:true.",
+        "",
+        "So: to change a line, get_blocks → update_block. Do NOT create a replacement page for an edit.",
+        "A block keeps its type (a bullet stays a bullet); to change type, delete_block + insert_after.",
+        "",
         "markdown accepts headings (#/##/###), bullets, numbered lists, - [ ] to-dos,",
         "> quotes, ``` code fences, and --- dividers; they round-trip with get_page.",
         "",
@@ -841,7 +989,7 @@ export function createNotionTools(): AgentTool[] {
           operation: {
             type: "string",
             description:
-              "search | get_page | create_page | update_page | append | query_database | get_database | archive | restore | list_workspaces",
+              "search | get_page | get_blocks | create_page | update_page | append | update_block | delete_block | insert_after | replace_text | query_database | get_database | archive | restore | list_workspaces",
           },
           workspace: {
             type: "string",
@@ -864,6 +1012,11 @@ export function createNotionTools(): AgentTool[] {
           },
           filter: { type: "object", description: "Notion filter JSON for query_database" },
           sorts: { type: "array", description: "Notion sorts JSON for query_database" },
+          block_id: { type: "string", description: "block id from get_blocks (update_block/delete_block/insert_after)" },
+          checked: { type: "boolean", description: "tick/untick a to_do block (update_block)" },
+          find: { type: "string", description: "exact text to look for (replace_text)" },
+          replace: { type: "string", description: "text to substitute (replace_text)" },
+          all: { type: "boolean", description: "replace in every matching block instead of erroring on ambiguity" },
           page_size: { type: "number", description: "max results (search/query_database)" },
           start_cursor: { type: "string", description: "pagination cursor (search/query_database)" },
         },
@@ -997,6 +1150,69 @@ export function createNotionTools(): AgentTool[] {
               if (!blocks.length) return { error: "append needs non-empty markdown." };
               const result = await appendBlocksBatched(api, id, blocks);
               return { id, ...result };
+            }
+
+            case "get_blocks":
+            case "list_blocks": {
+              const id = normalizeNotionId(input.page_id);
+              const blocks = await listBlocks(api, id);
+              return { page_id: id, count: blocks.length, blocks };
+            }
+
+            case "update_block":
+            case "edit_block": {
+              const id = normalizeNotionId(input.block_id ?? input.page_id);
+              if (!id) return { error: "update_block needs a block_id (from get_blocks)." };
+              return await rewriteBlock(api, id, String(input.markdown ?? ""), input.checked);
+            }
+
+            case "delete_block":
+            case "remove_block": {
+              const id = normalizeNotionId(input.block_id ?? input.page_id);
+              if (!id) return { error: "delete_block needs a block_id (from get_blocks)." };
+              await api(`/blocks/${id}`, "DELETE");
+              return { id, deleted: true };
+            }
+
+            case "insert_after": {
+              const id = normalizeNotionId(input.block_id);
+              if (!id) return { error: "insert_after needs a block_id (from get_blocks)." };
+              const blocks = markdownToBlocks(String(input.markdown ?? ""));
+              if (!blocks.length) return { error: "insert_after needs non-empty markdown." };
+              return { block_id: id, ...(await insertAfterBlock(api, id, blocks)) };
+            }
+
+            case "replace_text": {
+              // The common editing shape: "swap this wording for that". Operates
+              // on each block's markdown, so inline styling survives the rewrite.
+              const id = normalizeNotionId(input.page_id);
+              const find = String(input.find ?? "");
+              if (!id || !find) return { error: "replace_text needs page_id and find." };
+              const replace = String(input.replace ?? "");
+
+              const blocks = (await listBlocks(api, id)).filter(
+                (b) => b.text.includes(find) && REWRITABLE_TEXT_BLOCKS.has(b.type),
+              );
+              if (blocks.length === 0) {
+                return { error: `No block on this page contains ${JSON.stringify(find)}.`, matched: 0 };
+              }
+              // Ambiguity is reported, never guessed at — an edit to the wrong
+              // paragraph of a real document is expensive to notice.
+              if (blocks.length > 1 && input.all !== true) {
+                return {
+                  error:
+                    `${blocks.length} blocks contain ${JSON.stringify(find)}. Pass all:true to change ` +
+                    "every one, or use update_block with a specific block_id.",
+                  matched: blocks.length,
+                  candidates: blocks.map((b) => ({ id: b.id, type: b.type, text: b.text.slice(0, 160) })),
+                };
+              }
+
+              const updated = [];
+              for (const b of blocks) {
+                updated.push(await rewriteBlock(api, b.id, b.text.split(find).join(replace)));
+              }
+              return { page_id: id, replaced: updated.length, blocks: updated };
             }
 
             case "query_database": {
