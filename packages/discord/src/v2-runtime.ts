@@ -55,6 +55,11 @@ export interface FeatureFlaggedRouter {
   shutdown(): Promise<void>;
 }
 
+export type V2RuntimeFailureRecovery = (
+  params: FeatureFlaggedRouteRequest,
+  error: unknown,
+) => Promise<FeatureFlaggedRouteResult | null>;
+
 type ReasoningEffort = NonNullable<AgentRuntimeConfig["runtimePreferences"]["reasoningEffort"]>;
 
 const DEFAULT_V2_RUNTIME_TIMEOUT_MS = 900_000;
@@ -449,23 +454,32 @@ export async function routeV2MessageIfEnabled(
   input: {
     v2EnabledAgents: ReadonlySet<string>;
     tangoRouter: Pick<FeatureFlaggedRouter, "routeMessage">;
+    recoverFromRuntimeFailure?: V2RuntimeFailureRecovery;
   },
 ): Promise<FeatureFlaggedRouteResult | null> {
   if (!input.v2EnabledAgents.has(params.agentId)) {
     return null;
   }
 
-  return await input.tangoRouter.routeMessage({
-    message: params.message,
-    channelId: params.channelId,
-    ...(params.threadId ? { threadId: params.threadId } : {}),
-    ...(params.messageId ? { messageId: params.messageId } : {}),
-    ...(params.occurredAt ? { occurredAt: params.occurredAt } : {}),
-    ...(params.contextRef ? { contextRef: params.contextRef } : {}),
-    ...(params.contextLabel ? { contextLabel: params.contextLabel } : {}),
-    agentId: params.agentId,
-    sendOptions: params.sendOptions,
-  });
+  try {
+    return await input.tangoRouter.routeMessage({
+      message: params.message,
+      channelId: params.channelId,
+      ...(params.threadId ? { threadId: params.threadId } : {}),
+      ...(params.messageId ? { messageId: params.messageId } : {}),
+      ...(params.occurredAt ? { occurredAt: params.occurredAt } : {}),
+      ...(params.contextRef ? { contextRef: params.contextRef } : {}),
+      ...(params.contextLabel ? { contextLabel: params.contextLabel } : {}),
+      agentId: params.agentId,
+      sendOptions: params.sendOptions,
+    });
+  } catch (error) {
+    const recovered = await input.recoverFromRuntimeFailure?.(params, error);
+    if (recovered) {
+      return recovered;
+    }
+    throw error;
+  }
 }
 
 export async function shutdownV2Runtime(input: {

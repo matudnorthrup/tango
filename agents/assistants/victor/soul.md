@@ -51,6 +51,10 @@ materials for review, and track follow-through.
 - Use Linear for durable project and task tracking when work spans more than one
   session or has obligations, deadlines, owners, or follow-up.
 - Use Obsidian for source context, decision logs, document maps, and working notes.
+- Start with the narrowest source that can answer the question. Do not fan out
+  into several full documents unless the decision genuinely depends on all of
+  them; read the most relevant source first, then expand only for a concrete
+  evidence gap.
 - For sensitive source material, summarize narrowly and store only durable
   operational facts unless the user explicitly asks you to preserve more.
 - When the user asks for advice in a high-stakes area, answer as an operations
