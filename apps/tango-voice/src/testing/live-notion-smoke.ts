@@ -12,6 +12,9 @@
  * Parent page for the scratch page, in order:
  *   --parent <id|url>  →  NOTION_SMOKE_PARENT_ID  →  workspace root
  *
+ * On a multi-workspace install, name the workspace with --workspace <name>
+ * (or NOTION_SMOKE_WORKSPACE); the tool refuses to guess one.
+ *
  * Notion does not allow archiving workspace-level pages through the API, so a
  * run that falls back to the workspace root reports the page it left behind
  * instead of silently littering. Pass a parent to get full cleanup.
@@ -42,6 +45,8 @@ function getArg(flag: string): string | null {
 const hasFlag = (flag: string) => process.argv.includes(flag);
 
 const JSON_OUT = hasFlag("--json");
+/** Multi-workspace installs refuse to guess, so name the workspace explicitly. */
+const WORKSPACE = getArg("--workspace") ?? process.env.NOTION_SMOKE_WORKSPACE ?? null;
 const KEEP = hasFlag("--keep");
 
 interface Check {
@@ -61,7 +66,8 @@ function record(name: string, ok: boolean, detail: string): boolean {
 
 const tool = createNotionTools().find((t) => t.name === "notion")!;
 type Result = Record<string, unknown>;
-const call = (input: Record<string, unknown>) => tool.handler(input) as Promise<Result>;
+const call = (input: Record<string, unknown>) =>
+  tool.handler({ ...input, ...(WORKSPACE ? { workspace: WORKSPACE } : {}) }) as Promise<Result>;
 
 /** Fail fast on an operation that was supposed to succeed. */
 function expectOk(label: string, res: Result): Result {
@@ -87,6 +93,10 @@ const BODY = [
   "const smoke = true;",
   "```",
   "plain paragraph",
+  // Inline styling must survive as Notion annotations, not literal asterisks.
+  "**bold** and *italic* and `code` and ~~struck~~",
+  "- **bold** inside a bullet with *italic*",
+  "snake_case_name stays plain and `**literal**` stays literal",
 ].join("\n");
 
 const EXPECTED = [
@@ -101,6 +111,9 @@ const EXPECTED = [
   "---",
   "```typescript\nconst smoke = true;\n```",
   "plain paragraph",
+  "**bold** and *italic* and `code` and ~~struck~~",
+  "- **bold** inside a bullet with *italic*",
+  "snake_case_name stays plain and `**literal**` stays literal",
 ].join("\n");
 
 /**
@@ -113,7 +126,7 @@ const EXPECTED = [
  */
 async function createScratchDatabase(parentPageId: string): Promise<string> {
   const { resolveNotionToken } = await import("../../../../packages/discord/src/notion-agent-tools.js");
-  const token = await resolveNotionToken();
+  const token = await resolveNotionToken(WORKSPACE ?? undefined);
   const res = await fetch("https://api.notion.com/v1/databases", {
     method: "POST",
     headers: {
@@ -184,7 +197,7 @@ async function main(): Promise<void> {
     // reported as un-cleanable rather than pretending it tidied up.
     record("create_page under parent", true, "skipped — no --parent/NOTION_SMOKE_PARENT_ID");
     const { resolveNotionToken } = await import("../../../../packages/discord/src/notion-agent-tools.js");
-    const token = await resolveNotionToken();
+    const token = await resolveNotionToken(WORKSPACE ?? undefined);
     const res = await fetch("https://api.notion.com/v1/pages", {
       method: "POST",
       headers: {

@@ -11,6 +11,7 @@ import {
   createNotionTools,
   listNotionWorkspaces,
   markdownToBlocks,
+  parseInlineMarkdown,
   normalizeNotionId,
   notionCredentialRef,
   notionOperationLooksReadOnly,
@@ -197,6 +198,26 @@ describe("notion workspace routing", () => {
     expect((res as { error: string }).error).toMatch(/Refusing rather than guessing/);
   });
 
+  // An identified-but-unmapped agent must not slip through by naming one.
+  it("refuses an unmapped agent even when it names a workspace", () => {
+    const res = selectNotionWorkspace("sierra", "work");
+    expect(res).toHaveProperty("error");
+    expect((res as { error: string }).error).toMatch(/no workspace is assigned/);
+  });
+
+  // No identity at all = an in-process/operator caller (scripts, smoke tests).
+  // The rule is "never guess", and naming a workspace outright is not a guess.
+  it("lets an unidentified caller name a workspace but never picks one for it", () => {
+    expect(selectNotionWorkspace(null, "personal")).toEqual({ workspace: "personal" });
+
+    const omitted = selectNotionWorkspace(null, undefined);
+    expect(omitted).toHaveProperty("error");
+    expect((omitted as { error: string }).error).toMatch(/Pass `workspace` to choose one/);
+
+    const unknown = selectNotionWorkspace(null, "nope");
+    expect((unknown as { error: string }).error).toMatch(/Unknown Notion workspace/);
+  });
+
   it("still needs no mapping when only one workspace is configured", () => {
     delete process.env.NOTION_API_KEY_PERSONAL;
     expect(listNotionWorkspaces()).toEqual(["work"]);
@@ -342,6 +363,100 @@ describe("notionOperationLooksReadOnly", () => {
   });
 });
 
+// Notion does not parse markdown: inline styling must arrive as separate runs
+// carrying `annotations`, or `**bold**` renders as literal asterisks.
+describe("inline markdown", () => {
+  const annotationsOf = (seg: { annotations: Record<string, boolean> }) =>
+    Object.keys(seg.annotations).filter((k) => seg.annotations[k]).sort();
+
+  it.each([
+    ["**bold**", "bold", ["bold"]],
+    ["__bold__", "bold", ["bold"]],
+    ["*italic*", "italic", ["italic"]],
+    ["`code`", "code", ["code"]],
+    ["~~strike~~", "strike", ["strikethrough"]],
+  ])("parses %s", (input, content, annotations) => {
+    const segs = parseInlineMarkdown(input);
+    expect(segs).toHaveLength(1);
+    expect(segs[0]!.content).toBe(content);
+    expect(annotationsOf(segs[0]!)).toEqual(annotations);
+  });
+
+  it("splits a mixed line into styled and plain runs", () => {
+    const segs = parseInlineMarkdown("plain **bold** and *italic* mixed");
+    expect(segs.map((s) => s.content)).toEqual(["plain ", "bold", " and ", "italic", " mixed"]);
+    expect(annotationsOf(segs[1]!)).toEqual(["bold"]);
+    expect(annotationsOf(segs[3]!)).toEqual(["italic"]);
+    expect(annotationsOf(segs[0]!)).toEqual([]);
+  });
+
+  it("nests emphasis", () => {
+    const segs = parseInlineMarkdown("**bold with *both* inside**");
+    expect(annotationsOf(segs[1]!)).toEqual(["bold", "italic"]);
+  });
+
+  it("captures links, including styled ones", () => {
+    expect(parseInlineMarkdown("[link](https://example.com)")[0])
+      .toMatchObject({ content: "link", link: "https://example.com" });
+    const bold = parseInlineMarkdown("**[text](https://x.com)**")[0]!;
+    expect(bold.link).toBe("https://x.com");
+    expect(annotationsOf(bold)).toEqual(["bold"]);
+  });
+
+  it("leaves snake_case alone", () => {
+    const segs = parseInlineMarkdown("snake_case_name stays plain");
+    expect(segs).toHaveLength(1);
+    expect(annotationsOf(segs[0]!)).toEqual([]);
+  });
+
+  // A rejected `_` candidate must not swallow the opening delimiter of a real one.
+  it("still finds real underscore emphasis after a snake_case token", () => {
+    const segs = parseInlineMarkdown("a_b and _real italic_ here");
+    expect(segs.map((s) => s.content)).toEqual(["a_b and ", "real italic", " here"]);
+    expect(annotationsOf(segs[1]!)).toEqual(["italic"]);
+  });
+
+  it("honors backslash escapes and strips them", () => {
+    const segs = parseInlineMarkdown("escaped \\*not italic\\*");
+    expect(segs).toHaveLength(1);
+    expect(segs[0]!.content).toBe("escaped *not italic*");
+    expect(annotationsOf(segs[0]!)).toEqual([]);
+  });
+
+  it("does not parse markdown inside a code span", () => {
+    const segs = parseInlineMarkdown("`**literal**`");
+    expect(segs[0]!.content).toBe("**literal**");
+    expect(annotationsOf(segs[0]!)).toEqual(["code"]);
+  });
+
+  it("emits annotated rich text on blocks", () => {
+    const block = markdownToBlocks("- **bold** item")[0] as {
+      bulleted_list_item: { rich_text: Array<{ text: { content: string }; annotations?: Record<string, boolean> }> };
+    };
+    const runs = block.bulleted_list_item.rich_text;
+    expect(runs[0]).toMatchObject({ text: { content: "bold" }, annotations: { bold: true } });
+    expect(runs[1]!.annotations).toBeUndefined();
+    expect(runs[1]!.text.content).toBe(" item");
+  });
+
+  it("keeps code-block bodies literal", () => {
+    const block = markdownToBlocks("```\nconst a = **b**;\n```")[0] as {
+      code: { rich_text: Array<{ text: { content: string }; annotations?: unknown }> };
+    };
+    expect(block.code.rich_text[0]!.text.content).toBe("const a = **b**;");
+    expect(block.code.rich_text[0]!.annotations).toBeUndefined();
+  });
+
+  it("still splits a long styled run at Notion's 2000-char limit", () => {
+    const runs = (markdownToBlocks(`**${"x".repeat(2500)}**`)[0] as {
+      paragraph: { rich_text: Array<{ text: { content: string }; annotations?: Record<string, boolean> }> };
+    }).paragraph.rich_text;
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!.text.content).toHaveLength(2000);
+    expect(runs.every((r) => r.annotations?.bold)).toBe(true);
+  });
+});
+
 describe("markdownToBlocks", () => {
   it("maps each markdown form to its Notion block type", () => {
     const blocks = markdownToBlocks(
@@ -453,6 +568,70 @@ describe("notion tool handler", () => {
       operation: "create_page", parent_id: "parent-1", title: "Report",
     }) as { error: string };
     expect(res.error).toMatch(/429/);
+  });
+
+  // Without this the reader drops styling, so get_page → edit → write silently
+  // strips every bold/italic/link the page had.
+  it("renders annotations back into markdown on read", async () => {
+    stubFetch({
+      "GET /pages/": { body: { id: "page-1", properties: { Name: { type: "title", title: [{ plain_text: "Doc" }] } } } },
+      "GET /blocks/": {
+        body: {
+          results: [
+            {
+              id: "b1", type: "paragraph", has_children: false,
+              paragraph: { rich_text: [
+                { plain_text: "plain ", annotations: {} },
+                { plain_text: "bold", annotations: { bold: true } },
+                { plain_text: " and ", annotations: {} },
+                { plain_text: "italic", annotations: { italic: true } },
+                { plain_text: " and ", annotations: {} },
+                { plain_text: "code", annotations: { code: true } },
+                { plain_text: " and ", annotations: {} },
+                { plain_text: "gone", annotations: { strikethrough: true } },
+                { plain_text: " and ", annotations: {} },
+                { plain_text: "a link", annotations: {}, href: "https://example.com" },
+              ] },
+            },
+          ],
+          has_more: false, next_cursor: null,
+        },
+      },
+    });
+
+    const res = await tool().handler({ operation: "get_page", page_id: "page-1" }) as { content: string };
+    expect(res.content).toBe(
+      "plain **bold** and *italic* and `code` and ~~gone~~ and [a link](https://example.com)",
+    );
+  });
+
+  it("survives a write → read round trip with inline styling intact", async () => {
+    const source = "## Notes\n- **bold** and *italic*\n- `code` and [link](https://example.com)\n> ~~struck~~";
+
+    // Feed the blocks the writer produced back through the reader's shape.
+    const blocks = markdownToBlocks(source) as Array<Record<string, any>>;
+    stubFetch({
+      "GET /pages/": { body: { id: "p", properties: { N: { type: "title", title: [{ plain_text: "T" }] } } } },
+      "GET /blocks/": {
+        body: {
+          results: blocks.map((b, i) => ({
+            id: `b${i}`, type: b.type, has_children: false,
+            [b.type]: {
+              ...b[b.type],
+              rich_text: (b[b.type].rich_text ?? []).map((r: any) => ({
+                plain_text: r.text.content,
+                annotations: r.annotations ?? {},
+                href: r.text.link?.url ?? null,
+              })),
+            },
+          })),
+          has_more: false, next_cursor: null,
+        },
+      },
+    });
+
+    const res = await tool().handler({ operation: "get_page", page_id: "p" }) as { content: string };
+    expect(res.content).toBe(source);
   });
 
   it("points at query_database when get_page is handed a database id", async () => {

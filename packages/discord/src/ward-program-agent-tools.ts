@@ -76,7 +76,7 @@ export function createWardProgramTools(): AgentTool[] {
           prayers: { type: "object", properties: { invocation: { type: "string" }, benediction: { type: "string" } }, additionalProperties: false },
           announcements: {
             type: "array",
-            description: "REPLACES the announcement list. Each item: title, date, time, location, optional until (ISO YYYY-MM-DD — auto-expires after this), tier ('critical' to also show on the printed program), detail, link.",
+            description: "REPLACES the announcement list — send every announcement that should remain, not just the new one. Each item: title, date, time, location, optional until (ISO YYYY-MM-DD — auto-expires after this), tier ('critical' to also show on the printed program), detail, link, short.",
             items: {
               type: "object",
               properties: {
@@ -84,6 +84,16 @@ export function createWardProgramTools(): AgentTool[] {
                 until: { type: "string", description: "ISO YYYY-MM-DD; the announcement stops showing on programs dated after this." },
                 tier: { type: "string", enum: ["critical"], description: "'critical' to also appear on the printed program (digital shows all)." },
                 detail: { type: "string" }, link: { type: "string" }, linkLabel: { type: "string" },
+                short: {
+                  type: "string",
+                  description: [
+                    "Short-link code for `link`, so the printed program reads e.g. 'waldportward.org/service-day' instead of a long sign-up URL.",
+                    "Set this whenever `link` is long or unreadable (a Google Form, an Eventbrite id, anything with a query string) — a long URL is unusable on a printed program someone has to retype.",
+                    "Use 2–32 lowercase letters, numbers, or dashes, and prefer a readable word over a code ('service-day', not '23se') since people retype it off paper.",
+                    "Use a UNIQUE code per event; codes never expire, so reusing one repoints the older program's link too.",
+                    "The build registers the redirect automatically — it goes live when the program is promoted, not before.",
+                  ].join(" "),
+                },
               },
               required: ["title"],
               additionalProperties: false,
