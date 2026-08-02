@@ -194,6 +194,10 @@ export function resolveV2RuntimeTimeoutMs(
   config: V2AgentConfig,
   defaultTimeoutMs: number,
 ): number {
+  if (config.runtime.timeoutSeconds === 0) {
+    return 0;
+  }
+
   return config.runtime.timeoutSeconds ? config.runtime.timeoutSeconds * 1000 : defaultTimeoutMs;
 }
 

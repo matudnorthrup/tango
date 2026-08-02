@@ -681,17 +681,19 @@ export class ClaudeCodeAdapter implements AgentRuntime {
         reject(error);
       };
 
-      const timeoutHandle = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-        const forceKillTimer = setTimeout(() => {
-          if (child.exitCode === null && child.signalCode === null) {
-            child.kill("SIGKILL");
-          }
-        }, FORCE_KILL_GRACE_PERIOD_MS);
-        forceKillTimer.unref();
-      }, timeoutMs);
-      timeoutHandle.unref();
+      const timeoutHandle = timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGTERM");
+            const forceKillTimer = setTimeout(() => {
+              if (child.exitCode === null && child.signalCode === null) {
+                child.kill("SIGKILL");
+              }
+            }, FORCE_KILL_GRACE_PERIOD_MS);
+            forceKillTimer.unref();
+          }, timeoutMs)
+        : undefined;
+      timeoutHandle?.unref();
 
       child.stdout.on("data", (chunk: Buffer | string) => {
         stdout += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk;
