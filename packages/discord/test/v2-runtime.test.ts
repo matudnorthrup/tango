@@ -162,6 +162,56 @@ describe("routeV2MessageIfEnabled", () => {
     expect(result).toBeNull();
     expect(routeMessage).not.toHaveBeenCalled();
   });
+
+  it("returns a configured recovery result when the v2 runtime fails", async () => {
+    const failure = new Error("Claude Code request timed out after 360000ms.");
+    const routeMessage = vi.fn().mockRejectedValue(failure);
+    const recoverFromRuntimeFailure = vi.fn().mockResolvedValue({
+      response: { text: "recovered reply", durationMs: 17 },
+      agentId: "malibu",
+      conversationKey: "thread:thread-1",
+      turnId: "recovery-turn",
+    });
+
+    const result = await routeV2MessageIfEnabled(
+      {
+        message: "help",
+        channelId: "channel-1",
+        agentId: "malibu",
+      },
+      {
+        v2EnabledAgents: new Set(["malibu"]),
+        tangoRouter: { routeMessage },
+        recoverFromRuntimeFailure,
+      },
+    );
+
+    expect(result).toMatchObject({
+      response: { text: "recovered reply", durationMs: 17 },
+      agentId: "malibu",
+      conversationKey: "thread:thread-1",
+      turnId: "recovery-turn",
+    });
+    expect(recoverFromRuntimeFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "help", agentId: "malibu" }),
+      failure,
+    );
+  });
+
+  it("rethrows the original runtime failure when recovery declines", async () => {
+    const failure = new Error("runtime unavailable");
+    const routeMessage = vi.fn().mockRejectedValue(failure);
+    const recoverFromRuntimeFailure = vi.fn().mockResolvedValue(null);
+
+    await expect(routeV2MessageIfEnabled(
+      { message: "help", channelId: "channel-1", agentId: "malibu" },
+      {
+        v2EnabledAgents: new Set(["malibu"]),
+        tangoRouter: { routeMessage },
+        recoverFromRuntimeFailure,
+      },
+    )).rejects.toThrow("runtime unavailable");
+  });
 });
 
 describe("buildV2RuntimeConfigs", () => {
