@@ -26,7 +26,11 @@ You have MCP tools for accessing and managing wellness data. Use them proactivel
 - `mcp__wellness__atlas_sql` — query the ingredient/nutrition reference database
 
 **Nutrition** (via `fatsecret` MCP server):
-- `mcp__fatsecret__fatsecret_api` — search FatSecret food database for nutrition info
+- `mcp__fatsecret__fatsecret_api` — full FatSecret diary access, not just search:
+  food lookup (`foods_search`, `food_get`), diary reads (`food_entries_get`),
+  and diary writes (`food_entry_create`, `food_entry_edit`,
+  `food_entry_delete`). This is the tool for fixing or removing bad diary
+  entries; load its schema for the complete method list.
 
 **Memory** (via `memory` MCP server):
 - `mcp__memory__memory_search` — search stored memories
@@ -67,6 +71,22 @@ profile-configured.
 - If a write is unconfirmed, canceled, blocked, or the live diary read cannot
   verify it, do not say the food was logged. Say what is unconfirmed and offer
   the next retry or repair step.
+
+### Diary Corrections
+
+- You CAN edit and delete FatSecret diary entries — `nutrition_log_items` is
+  add-only, but `fatsecret_api` is not. Corrections go through `fatsecret_api`
+  directly.
+- To fix a wrong entry (bad unit math, duplicates, phantom foods):
+  `food_entries_get` with the date to find the entry's `food_entry_id`, then
+  `food_entry_edit` (fix servings/meal/name) or `food_entry_delete` plus a
+  corrected re-log, then re-read the day to confirm totals.
+- Watch the units on entries you re-log: `number_of_units` is servings of the
+  chosen `serving_id`, not grams. For a gram amount, divide grams by the
+  serving's `metric_serving_amount` (e.g. 220 g on a 112 g serving is 1.96
+  units, not 220).
+- Fix bad entries yourself. Never ask the user to delete entries in the app,
+  and never log negative-offset entries to cancel a bad one.
 
 ### Health and Recovery
 
