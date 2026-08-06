@@ -463,6 +463,105 @@ describe("executeNutritionLogItems", () => {
     expect(units).not.toBe(220);
   });
 
+  // Atlas rows drift from the FatSecret food they point at: Atlas carried
+  // 180 cal per 112 g serving for chicken thighs while FatSecret's serving is
+  // 130. Reporting the Atlas estimate told the user 354 cal for 220 g when the
+  // diary actually held 255. The refreshed diary is authoritative.
+  it("reports the diary's macros rather than the Atlas estimate", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Chicken Thighs",
+        food_id: "1624102",
+        serving_id: "1601782",
+        serving_description: "4 oz",
+        serving_size: "112g",
+        grams_per_serving: 112,
+        calories: 180,
+        protein: 24,
+        carbs: 0,
+        fat: 9,
+        aliases: JSON.stringify(["chicken thighs"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string) => {
+      if (method === "food_entry_create") {
+        return { success: true, food_entry_id: "entry-1" };
+      }
+      if (method === "food_entries_get") {
+        return [
+          {
+            food_entry_id: "entry-1",
+            food_entry_name: "Chicken Thighs",
+            calories: "255",
+            protein: "43.20",
+            carbohydrate: "0",
+            fat: "8.84",
+          },
+        ];
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "chicken thighs", quantity: "220g" }],
+        meal: "lunch",
+        date: "2026-08-05",
+      },
+      { atlasDbPath, fatsecretCall },
+    ) as {
+      totals: Record<string, number | string>;
+      logged: Array<Record<string, unknown>>;
+    };
+
+    // Atlas would have claimed 180 * (220/112) = 354 cal.
+    expect(result.totals.calories).toBe(255);
+    expect(result.totals.protein).toBe(43.2);
+    expect(result.totals.totals_source).toBe("fatsecret");
+    expect(result.logged[0]?.logged_macros).toMatchObject({ calories: 255 });
+  });
+
+  // A write the diary refresh cannot confirm still reports a number, but it is
+  // labelled as the estimate it is rather than passed off as verified.
+  it("falls back to the Atlas estimate when the diary cannot confirm the entry", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Chicken Thighs",
+        food_id: "1624102",
+        serving_id: "1601782",
+        serving_description: "4 oz",
+        serving_size: "112g",
+        grams_per_serving: 112,
+        calories: 180,
+        protein: 24,
+        carbs: 0,
+        fat: 9,
+        aliases: JSON.stringify(["chicken thighs"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string) => {
+      if (method === "food_entry_create") {
+        return { success: true, food_entry_id: "entry-1" };
+      }
+      if (method === "food_entries_get") {
+        return [{ food_entry_id: "some-other-entry", calories: "999" }];
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    const result = await executeNutritionLogItems(
+      {
+        items: [{ name: "chicken thighs", quantity: "220g" }],
+        meal: "lunch",
+        date: "2026-08-05",
+      },
+      { atlasDbPath, fatsecretCall },
+    ) as { totals: Record<string, number | string> };
+
+    expect(result.totals.calories).toBe(354);
+    expect(result.totals.totals_source).toBe("atlas_estimate");
+  });
+
   it("uses the FatSecret batch path when available", async () => {
     const atlasDbPath = createAtlasDb([
       {

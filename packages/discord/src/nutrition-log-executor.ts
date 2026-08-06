@@ -335,7 +335,7 @@ async function writeEntriesViaBatch(
   }
 
   return {
-    logged,
+    logged: attachDiaryMacros(logged, diaryEntries),
     errors,
     diaryEntries,
   };
@@ -405,7 +405,7 @@ async function writeEntriesViaIndividualCalls(
   }
 
   return {
-    logged,
+    logged: attachDiaryMacros(logged, diaryEntries),
     errors,
     diaryEntries,
   };
@@ -876,6 +876,87 @@ function selectAtlasEntryName(row: AtlasIngredientRow): string {
   return row.product?.trim() || row.name?.trim() || "Logged Food";
 }
 
+// The diary refresh carries FatSecret's own macros for the entries we just
+// wrote, and those — not Atlas's stored columns — are what the day actually
+// totals to. Atlas rows drift from the FatSecret food they point at (different
+// cut, stale label, rounding), so reporting Atlas estimates tells the user a
+// number their diary does not contain. Index the refreshed diary by
+// food_entry_id so each write can be reconciled against what FatSecret stored.
+//
+// Shape-tolerant on purpose: food_entries_get returns a flat array on some
+// paths and a meal-keyed object on others, so walk the structure and take any
+// record carrying a food_entry_id.
+function indexDiaryEntriesById(diaryEntries: unknown): Map<string, Record<string, unknown>> {
+  const index = new Map<string, Record<string, unknown>>();
+  const visit = (value: unknown, depth: number): void => {
+    if (depth > 6 || value === null || typeof value !== "object") {
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item, depth + 1);
+      }
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const entryId = record.food_entry_id;
+    if (typeof entryId === "string" || typeof entryId === "number") {
+      const key = String(entryId).trim();
+      if (key && !index.has(key)) {
+        index.set(key, record);
+      }
+    }
+    for (const child of Object.values(record)) {
+      visit(child, depth + 1);
+    }
+  };
+  visit(diaryEntries, 0);
+  return index;
+}
+
+// FatSecret names the carb field "carbohydrate" and returns every macro as a
+// string; anything missing stays null so it can fall back to the estimate
+// rather than silently counting as zero.
+function extractDiaryMacros(entry: Record<string, unknown>): Record<string, number | null> | null {
+  const calories = parseFiniteNumber(entry.calories);
+  if (calories === null) {
+    return null;
+  }
+  const round = (value: unknown, digits = 1): number | null => {
+    const parsed = parseFiniteNumber(value);
+    return parsed === null ? null : Number.parseFloat(parsed.toFixed(digits));
+  };
+  return {
+    calories: Math.round(calories),
+    protein: round(entry.protein),
+    carbs: round(entry.carbohydrate),
+    fat: round(entry.fat),
+    fiber: round(entry.fiber),
+  };
+}
+
+function attachDiaryMacros(
+  logged: readonly Record<string, unknown>[],
+  diaryEntries: unknown,
+): Record<string, unknown>[] {
+  const index = indexDiaryEntriesById(diaryEntries);
+  if (index.size === 0) {
+    return [...logged];
+  }
+  return logged.map((entry) => {
+    const entryId = entry.food_entry_id;
+    if (typeof entryId !== "string" && typeof entryId !== "number") {
+      return entry;
+    }
+    const match = index.get(String(entryId).trim());
+    if (!match) {
+      return entry;
+    }
+    const macros = extractDiaryMacros(match);
+    return macros ? { ...entry, logged_macros: macros } : entry;
+  });
+}
+
 function estimateMacrosFromAtlas(row: AtlasIngredientRow, multiplier: number): Record<string, number | null> {
   const calories = parseFiniteNumber(row.calories);
   const protein = parseFiniteNumber(row.protein);
@@ -893,7 +974,13 @@ function estimateMacrosFromAtlas(row: AtlasIngredientRow, multiplier: number): R
   };
 }
 
-function buildNutritionTotals(logged: readonly Record<string, unknown>[]): Record<string, number> | null {
+// Totals follow the diary: per entry, FatSecret's stored macros win and the
+// Atlas estimate is only a fallback for writes the refresh could not confirm.
+// totals_source records which, so a caller can tell a verified total from an
+// estimated one instead of presenting both with equal confidence.
+function buildNutritionTotals(
+  logged: readonly Record<string, unknown>[],
+): Record<string, number | string> | null {
   if (logged.length === 0) {
     return null;
   }
@@ -902,8 +989,16 @@ function buildNutritionTotals(logged: readonly Record<string, unknown>[]): Recor
   let carbs = 0;
   let fat = 0;
   let fiber = 0;
+  let fromDiary = 0;
+  let fromEstimate = 0;
   for (const entry of logged) {
-    const macros = asRecord(entry.estimated_macros);
+    const diaryMacros = asRecord(entry.logged_macros);
+    const macros = diaryMacros ?? asRecord(entry.estimated_macros);
+    if (diaryMacros) {
+      fromDiary += 1;
+    } else {
+      fromEstimate += 1;
+    }
     calories += parseFiniteNumber(macros?.calories) ?? 0;
     protein += parseFiniteNumber(macros?.protein) ?? 0;
     carbs += parseFiniteNumber(macros?.carbs) ?? 0;
@@ -916,5 +1011,7 @@ function buildNutritionTotals(logged: readonly Record<string, unknown>[]): Recor
     carbs: Number.parseFloat(carbs.toFixed(1)),
     fat: Number.parseFloat(fat.toFixed(1)),
     fiber: Number.parseFloat(fiber.toFixed(1)),
+    totals_source:
+      fromEstimate === 0 ? "fatsecret" : fromDiary === 0 ? "atlas_estimate" : "mixed",
   };
 }
