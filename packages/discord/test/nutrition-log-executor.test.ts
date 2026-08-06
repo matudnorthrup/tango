@@ -418,6 +418,51 @@ describe("executeNutritionLogItems", () => {
     });
   });
 
+  // Regression: the 28,600-calorie chicken thighs mislog. FatSecret serving
+  // 1601782 is "4 oz" (a serving-count unit) whose gram WEIGHT is 112 g, and
+  // the Atlas row carries that weight in serving_size with no
+  // serving_description. Reading serving_size as a gram UNIT sent 220 g as 220
+  // servings. With the unit unknown, the serving-count path must win.
+  it("does not treat serving_size grams as a gram unit when the description is missing", async () => {
+    const atlasDbPath = createAtlasDb([
+      {
+        name: "Chicken Thighs",
+        food_id: "1624102",
+        serving_id: "1601782",
+        serving_description: null,
+        serving_size: "112g",
+        grams_per_serving: 112,
+        calories: 130,
+        protein: 22,
+        carbs: 0,
+        fat: 4.5,
+        aliases: JSON.stringify(["chicken thighs"]),
+      },
+    ]);
+    const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method === "food_entry_create") {
+        return { success: true, food_entry_id: `${params.food_id}-entry` };
+      }
+      if (method === "food_entries_get") {
+        return { lunch: [{ food_entry_id: "1624102-entry" }] };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+
+    await executeNutritionLogItems(
+      {
+        items: [{ name: "chicken thighs", quantity: "220g" }],
+        meal: "lunch",
+        date: "2026-08-05",
+      },
+      { atlasDbPath, fatsecretCall },
+    );
+
+    const units = (fatsecretCall.mock.calls[0]?.[1] as { number_of_units: number }).number_of_units;
+    expect(units).toBeCloseTo(220 / 112, 3);
+    expect(units).not.toBe(220);
+  });
+
   it("uses the FatSecret batch path when available", async () => {
     const atlasDbPath = createAtlasDb([
       {

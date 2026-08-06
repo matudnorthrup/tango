@@ -556,18 +556,18 @@ function deriveAtlasGramsPerServing(row: AtlasIngredientRow): number | null {
 // "100 g") interpret number_of_units as a RAW GRAM COUNT, not a multiple of the
 // serving. Logging 140 g of such a serving must send number_of_units = 140, not
 // 1.4 — FatSecret reads 1.4 as 1.4 grams (~1 cal). Detect these by the serving's
-// UNIT, which lives in serving_description ("100 g", "110g", or bare "g"). Only
-// fall back to serving_size when there is no description, because serving_size
-// can hold the gram WEIGHT of a non-gram serving (e.g. a "1 cup" serving whose
-// serving_size is "227g") — treating that as raw grams would corrupt the write.
+// UNIT, which lives in serving_description ("100 g", "110g", or bare "g").
+//
+// serving_size is NOT a fallback signal: it holds the gram WEIGHT, which every
+// serving has regardless of its unit. A "4 oz" serving with serving_size "112g"
+// is a serving-count serving, and reading that "112g" as a gram unit sends the
+// gram amount as a serving count — a ~100x overlog (220 g of chicken thighs
+// logged as 220 servings = 28,600 cal). When serving_description is missing the
+// unit is unknown, so assume the safe serving-count interpretation.
 const GRAM_UNIT_SERVING_RE = /^\d*\.?\d*\s*(?:g|gram|grams)$/iu;
 function isRawGramUnitsServing(row: AtlasIngredientRow): boolean {
   const desc = (row.serving_description ?? "").trim();
-  if (desc) {
-    return GRAM_UNIT_SERVING_RE.test(desc);
-  }
-  const size = (row.serving_size ?? "").trim();
-  return size ? GRAM_UNIT_SERVING_RE.test(size) : false;
+  return desc ? GRAM_UNIT_SERVING_RE.test(desc) : false;
 }
 
 function buildAtlasMatchSummary(
