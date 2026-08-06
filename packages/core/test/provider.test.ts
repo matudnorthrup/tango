@@ -5,7 +5,8 @@ import {
   buildOllamaChatBody,
   parseClaudePrintJson,
   parseCodexExecJson,
-  parseOllamaChatResponse
+  parseOllamaChatResponse,
+  summarizeClaudeCliFailureStdout
 } from "../src/provider.js";
 
 describe("parseClaudePrintJson", () => {
@@ -177,6 +178,40 @@ describe("parseClaudePrintJson", () => {
     );
 
     expect(parsed.metadata?.model).toBe("claude-sonnet-5");
+  });
+});
+
+describe("parseClaudePrintJson error results", () => {
+  it("preserves the CLI's failure text in the is_error throw", () => {
+    expect(() =>
+      parseClaudePrintJson(
+        '{"type":"result","is_error":true,"result":"Claude AI usage limit reached|1754500000"}\n',
+      ),
+    ).toThrow(/Claude AI usage limit reached/u);
+  });
+
+  it("keeps the generic message when the error result has no text", () => {
+    expect(() =>
+      parseClaudePrintJson('{"type":"result","is_error":true}\n'),
+    ).toThrow("Claude CLI returned an error result");
+  });
+});
+
+describe("summarizeClaudeCliFailureStdout", () => {
+  it("extracts result/error text from JSON-line output", () => {
+    const summary = summarizeClaudeCliFailureStdout(
+      '{"type":"result","is_error":true,"result":"Claude AI usage limit reached|1754500000"}\n',
+    );
+    expect(summary).toContain("Claude AI usage limit reached");
+  });
+
+  it("falls back to raw non-JSON lines", () => {
+    expect(summarizeClaudeCliFailureStdout("plain failure text\n")).toBe("plain failure text");
+  });
+
+  it("returns undefined for empty output", () => {
+    expect(summarizeClaudeCliFailureStdout("")).toBeUndefined();
+    expect(summarizeClaudeCliFailureStdout("\n\n")).toBeUndefined();
   });
 });
 

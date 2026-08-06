@@ -21,6 +21,7 @@ export * from "./current-turn-metadata.js";
 export * from "./turn-briefing.js";
 export * from "./chatgpt-migrated.js";
 export * from "./claude-code-adapter.js";
+export * from "./claude-code-failures.js";
 export * from "./ollama-runtime-adapter.js";
 export * from "./execution-trace.js";
 export * from "./embeddings.js";

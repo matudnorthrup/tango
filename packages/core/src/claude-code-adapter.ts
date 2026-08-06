@@ -6,6 +6,10 @@ import os from "node:os";
 import path from "node:path";
 import { parseClaudePrintJson } from "./provider.js";
 import {
+  classifyClaudeCodeFailureText,
+  isSecondaryCliRecoverable,
+} from "./claude-code-failures.js";
+import {
   RuntimeAbortedError,
   isRuntimeAbortedError,
   type AgentRuntime,
@@ -218,14 +222,12 @@ function describeClaudeFailure(execution: SpawnExecutionResult): string {
   return parts.length > 0 ? parts.join(" | ") : "No stderr output.";
 }
 
-function isClaudeAuthenticationFailure(execution: SpawnExecutionResult): boolean {
-  const haystack = `${execution.stderr}\n${execution.stdout}`.toLowerCase();
-  return (
-    haystack.includes("authentication_failed") ||
-    haystack.includes("authentication_error") ||
-    haystack.includes("failed to authenticate") ||
-    haystack.includes("invalid authentication credentials") ||
-    haystack.includes("api error: 401")
+// A secondary Claude CLI runs on separate credentials with a separate usage
+// quota, so auth failures AND usage-limit / overload failures are all worth a
+// secondary attempt (TGO-846) — not just the auth-shaped ones.
+function isClaudeSecondaryRecoverableFailure(execution: SpawnExecutionResult): boolean {
+  return isSecondaryCliRecoverable(
+    classifyClaudeCodeFailureText(`${execution.stderr}\n${execution.stdout}`),
   );
 }
 
@@ -425,7 +427,7 @@ export class ClaudeCodeAdapter implements AgentRuntime {
       };
 
       if (execution.code !== 0) {
-        if (hasFallbackAttempt && isClaudeAuthenticationFailure(execution)) {
+        if (hasFallbackAttempt && isClaudeSecondaryRecoverableFailure(execution)) {
           continue;
         }
 
