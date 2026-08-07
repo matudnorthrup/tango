@@ -415,6 +415,82 @@ describe("ClaudeCodeAdapter", () => {
     expect(thirdArgs).toEqual(expect.arrayContaining(["--resume", "secondary-session"]));
   });
 
+  it("falls back to secondary Claude on a usage-limit failure", async () => {
+    const primaryChild = new MockChildProcess();
+    const secondaryChild = new MockChildProcess();
+    spawnMock
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          primaryChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: true,
+              result: "Claude AI usage limit reached|1754500000",
+            }) + "\n",
+          );
+          primaryChild.close(1, null);
+        });
+        return primaryChild;
+      })
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          secondaryChild.stdout.write(
+            JSON.stringify({
+              type: "result",
+              is_error: false,
+              result: "Recovered on secondary quota",
+              session_id: "secondary-session",
+            }) + "\n",
+          );
+          secondaryChild.close(0, null);
+        });
+        return secondaryChild;
+      });
+
+    const adapter = new ClaudeCodeAdapter({
+      command: "claude",
+      fallbackCommand: "/tmp/claude-secondary",
+    });
+    await adapter.initialize(createConfig());
+
+    const response = await adapter.send("Hello Claude");
+
+    expect(response.text).toBe("Recovered on secondary quota");
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    const [primaryCommand] = spawnMock.mock.calls[0] as [string, string[]];
+    const [secondaryCommand] = spawnMock.mock.calls[1] as [string, string[]];
+    expect(primaryCommand).toBe("claude");
+    expect(secondaryCommand).toBe("/tmp/claude-secondary");
+  });
+
+  it("surfaces the usage-limit text when no fallback command is configured", async () => {
+    const child = new MockChildProcess();
+    spawnMock.mockImplementation(() => {
+      queueMicrotask(() => {
+        child.stdout.write(
+          JSON.stringify({
+            type: "result",
+            is_error: true,
+            result: "Claude AI usage limit reached|1754500000",
+          }) + "\n",
+        );
+        child.close(1, null);
+      });
+      return child;
+    });
+
+    const adapter = new ClaudeCodeAdapter({
+      command: "claude",
+      fallbackCommand: null,
+    });
+    await adapter.initialize(createConfig());
+
+    await expect(adapter.send("Hello Claude")).rejects.toThrow(/usage limit reached/iu);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+
+    await adapter.teardown();
+  });
+
   it("falls back to secondary Claude when the primary request times out", async () => {
     vi.useFakeTimers();
 

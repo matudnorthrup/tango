@@ -145,6 +145,7 @@ import {
   parseInterstitialStatusCapture,
 } from "./interstitial-log-capture.js";
 import { coerceWorkerReplyForDisplay } from "./worker-text-sanitizer.js";
+import { createV2RuntimeFailureRecovery } from "./v2-runtime-recovery.js";
 import { z } from "zod";
 import {
   buildDefaultAccessPolicy,
@@ -5208,73 +5209,16 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function isClaudeCodeRuntimeTimeout(error: unknown): boolean {
-  return error instanceof Error && /^Claude Code request timed out after \d+ms\.$/u.test(error.message);
-}
-
-function buildV2CodexRecoveryPrompt(params: FeatureFlaggedRouteRequest): string {
-  const options = params.sendOptions;
-  const sections = [
-    options?.context?.trim() ? `Context:\n${options.context.trim()}` : "",
-    options?.currentTurnMetadataPrompt?.trim() ?? "",
-    options?.turnBriefingPrompt?.trim() ?? "",
-    params.message,
-  ].filter((section) => section.trim().length > 0);
-  return sections.join("\n\n");
-}
-
-async function recoverV2RuntimeTimeoutWithCodex(
-  params: FeatureFlaggedRouteRequest,
-  error: unknown,
-): Promise<FeatureFlaggedRouteResult | null> {
-  const agentConfig = v2Configs.get(params.agentId);
-  const runtimeConfig = v2RuntimeConfigs.get(params.agentId);
-  if (
-    !isClaudeCodeRuntimeTimeout(error)
-    || agentConfig?.runtime.fallback !== "codex"
-    || !runtimeConfig
-  ) {
-    return null;
-  }
-
-  const provider = providers.get("codex");
-  if (!provider) {
-    return null;
-  }
-
-  const startedAt = Date.now();
-  const response = await provider.generate({
-    prompt: buildV2CodexRecoveryPrompt(params),
-    systemPrompt: [
-      runtimeConfig.systemPrompt,
-      "Runtime recovery: the primary tool-enabled runtime timed out. Use only the supplied context and user message. "
-        + "Do not claim to have completed an external read, write, or search that is not in the supplied context. "
-        + "Give the most useful concise answer or next action available from that context.",
-    ].join("\n\n"),
-    reasoningEffort: "medium",
-  });
-
-  return {
-    agentId: params.agentId,
-    conversationKey: buildV2ConversationKey(params.channelId, params.threadId),
-    turnId: randomUUID(),
-    response: {
-      text: response.text,
-      durationMs: Date.now() - startedAt,
-      ...(response.metadata?.model ? { model: response.metadata.model } : {}),
-      ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}),
-      ...(response.toolCalls?.length
-        ? { toolsUsed: [...new Set(response.toolCalls.map((toolCall) => toolCall.name))] }
-        : {}),
-      metadata: {
-        backend: "codex-fallback",
-        primaryFailure: error instanceof Error ? error.message : String(error),
-        ...(response.metadata ? { providerMetadata: response.metadata } : {}),
-        ...(response.raw !== undefined ? { raw: response.raw } : {}),
-      },
-    },
-  };
-}
+// Degraded-mode recovery for v2 Claude turns (TGO-846): classifies the failure
+// (timeout / usage-limit / overloaded / auth) and walks the agent's configured
+// fallback chain — Codex, then Ollama. See v2-runtime-recovery.ts.
+const recoverV2RuntimeFailure = createV2RuntimeFailureRecovery({
+  v2Configs,
+  v2RuntimeConfigs,
+  resolveProvider: (name) => providers.get(name),
+  buildConversationKey: buildV2ConversationKey,
+  log: (message) => console.warn(message),
+});
 
 function asRecordArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map((item) => asRecord(item)).filter((item): item is Record<string, unknown> => item !== null) : [];
@@ -8056,7 +8000,7 @@ async function handleMessage(
         {
           v2EnabledAgents,
           tangoRouter,
-          recoverFromRuntimeFailure: recoverV2RuntimeTimeoutWithCodex,
+          recoverFromRuntimeFailure: recoverV2RuntimeFailure,
         },
       );
 
@@ -8082,15 +8026,20 @@ async function handleMessage(
       // output in JSON / fenced structured blocks. Coerce to clean display text so
       // raw JSON never leaks to the channel, and store the cleaned text so it does
       // not pollute the next turn's warm-start. Claude replies pass through unchanged.
-      const replyText = targetAgentIsOllama
+      const v2Backend = metadataString(runtimeMetadata, "backend");
+      const replyText = targetAgentIsOllama || v2Backend === "ollama-fallback"
         ? coerceWorkerReplyForDisplay(v2Result.response.text)
         : v2Result.response.text;
       // Label the turn by backend so Ollama clone turns are not miscounted as the
       // Claude path. provider_name was hardcoded "claude-code-v2" for every v2 turn,
       // which made the cost A/B (the reason this project exists) unmeasurable.
-      const v2ProviderName = metadataString(runtimeMetadata, "backend") === "codex-fallback"
+      // Degraded-mode recovery turns (TGO-846) are labeled by the provider that
+      // actually served them.
+      const v2ProviderName = v2Backend === "codex-fallback"
         ? "codex"
-        : targetAgentIsOllama ? "ollama" : "claude-code-v2";
+        : v2Backend === "ollama-fallback"
+          ? "ollama"
+          : targetAgentIsOllama ? "ollama" : "claude-code-v2";
       const replyDelivery = await sendPresentedReply(message.channel, replyText, targetAgent);
       ensureReplyDeliverySucceeded(replyDelivery, message.channelId);
 

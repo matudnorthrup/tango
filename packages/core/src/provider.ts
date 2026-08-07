@@ -630,7 +630,15 @@ export function parseClaudePrintJson(stdout: string): ProviderResponse {
     const result = claudeResultSchema.safeParse(parsed);
     if (result.success) {
       if (result.data.is_error) {
-        throw new Error("Claude CLI returned an error result");
+        // Preserve the CLI's own failure text ("Claude AI usage limit
+        // reached…", auth errors, …) — downstream retry/failover decisions
+        // classify on it (TGO-846).
+        const errorText = (result.data.result ?? "").trim();
+        throw new Error(
+          errorText.length > 0
+            ? `Claude CLI returned an error result: ${errorText.slice(0, 500)}`
+            : "Claude CLI returned an error result",
+        );
       }
 
       resultPayload = result.data;
@@ -1021,6 +1029,39 @@ export function buildCodexExecArgs(
   return args;
 }
 
+/**
+ * Distill a failed Claude CLI run's stdout (JSON lines) down to its
+ * human-readable failure text, e.g. "Claude AI usage limit reached|<ts>".
+ */
+export function summarizeClaudeCliFailureStdout(stdout: string): string | undefined {
+  const fragments: string[] = [];
+  for (const line of stdout.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      fragments.push(trimmed);
+      continue;
+    }
+    const record = asRecord(parsed);
+    if (!record) continue;
+    for (const key of ["result", "error", "message"]) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        fragments.push(value.trim());
+      }
+    }
+  }
+
+  const summary = fragments
+    .filter((fragment, index, all) => all.indexOf(fragment) === index)
+    .join(" | ")
+    .trim();
+  return summary.length > 0 ? summary.slice(0, 500) : undefined;
+}
+
 export class ClaudeCliProvider implements ChatProvider {
   constructor(private readonly options: ClaudeCliProviderOptions = {}) {}
 
@@ -1054,6 +1095,12 @@ export class ClaudeCliProvider implements ChatProvider {
         const stderr = result.stderr.trim();
         if (stderr.length > 0) {
           details.push(`stderr=${stderr.slice(0, 500)}`);
+        }
+        // The CLI prints usage-limit / auth failures to STDOUT in -p mode, so a
+        // stderr-only message reads as an opaque `code=1` (TGO-846).
+        const stdoutSummary = summarizeClaudeCliFailureStdout(result.stdout);
+        if (stdoutSummary) {
+          details.push(`stdout=${stdoutSummary}`);
         }
         throw new Error(details.join(" | "));
       }
