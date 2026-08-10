@@ -13,6 +13,19 @@ import type { AgentTool } from "@tango/core";
 import { getSecret } from "./op-secret.js";
 
 const SLACK_API = "https://slack.com/api";
+const READ_ONLY_SLACK_ACTIONS = new Set([
+  "list_channels",
+  "search_messages",
+  "channel_history",
+  "user_info",
+  "thread_replies",
+  "saved_items",
+  "my_user_id",
+]);
+
+export function slackActionLooksReadOnly(action: unknown): boolean {
+  return typeof action === "string" && READ_ONLY_SLACK_ACTIONS.has(action.trim().toLowerCase());
+}
 
 class SlackApiError extends Error {
   constructor(
@@ -21,6 +34,35 @@ class SlackApiError extends Error {
   ) {
     super(`Slack ${method}: ${slackError}`);
   }
+}
+
+class SlackRateLimitError extends Error {
+  constructor(
+    public readonly retryAfterSeconds: number,
+  ) {
+    super(`Slack search rate limited; retry after ${retryAfterSeconds} seconds`);
+  }
+}
+
+const SLACK_SEARCH_WINDOW_MS = 60_000;
+const SLACK_SEARCH_REQUESTS_PER_WINDOW = 9;
+const slackSearchRequestTimes: number[] = [];
+
+function claimSlackSearchBudget(): void {
+  const now = Date.now();
+  while (
+    slackSearchRequestTimes.length > 0 &&
+    now - slackSearchRequestTimes[0]! >= SLACK_SEARCH_WINDOW_MS
+  ) {
+    slackSearchRequestTimes.shift();
+  }
+
+  if (slackSearchRequestTimes.length >= SLACK_SEARCH_REQUESTS_PER_WINDOW) {
+    const retryAfterMs = SLACK_SEARCH_WINDOW_MS - (now - slackSearchRequestTimes[0]!);
+    throw new SlackRateLimitError(Math.max(1, Math.ceil(retryAfterMs / 1000)));
+  }
+
+  slackSearchRequestTimes.push(now);
 }
 
 let cachedToken: string | null = null;
@@ -69,6 +111,56 @@ async function slackApi(
   return slackApiWithToken(token, method, params);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+async function slackApiPostWithToken(
+  token: string,
+  method: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${SLACK_API}/${method}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    throw new SlackRateLimitError(
+      Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : 60,
+    );
+  }
+  if (!res.ok) throw new Error(`Slack ${method} HTTP ${res.status}`);
+
+  const body: unknown = await res.json();
+  if (!isRecord(body)) throw new Error(`Slack ${method} returned an invalid response`);
+  if (!body.ok && ["rate_limited", "ratelimited"].includes(String(body.error))) {
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    throw new SlackRateLimitError(
+      Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : 60,
+    );
+  }
+  if (!body.ok) throw new SlackApiError(method, String(body.error ?? "unknown_error"));
+  return body;
+}
+
+function selectFields(
+  value: unknown,
+  fields: readonly string[],
+): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  const selected: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (field in value) selected[field] = value[field];
+  }
+  return selected;
+}
+
 export function createSlackTools(): AgentTool[] {
   return [
     {
@@ -80,6 +172,11 @@ export function createSlackTools(): AgentTool[] {
         "",
         "  list_channels — List all channels the bot is in.",
         "    Returns: array of { id, name, is_private, num_members }",
+        "",
+        "  search_messages — Search public Slack messages and files with real-time search.",
+        "    Params: query (required), limit (default 20, max 20), cursor (optional)",
+        "    Returns: matching messages and files with permalinks and surrounding context",
+        "    Search is limited to 9 calls per minute; each paginated request uses the same budget.",
         "",
         "  channel_history — Get recent messages from a channel.",
         "    Params: channel_id (required), hours (default 24), limit (default 200)",
@@ -116,8 +213,16 @@ export function createSlackTools(): AgentTool[] {
         properties: {
           action: {
             type: "string",
-            enum: ["list_channels", "channel_history", "user_info", "thread_replies", "saved_items", "remove_star", "my_user_id"],
+            enum: ["list_channels", "search_messages", "channel_history", "user_info", "thread_replies", "saved_items", "remove_star", "my_user_id"],
             description: "The Slack operation to perform",
+          },
+          query: {
+            type: "string",
+            description: "Slack search query, including filters such as in:, from:, before:, or after:",
+          },
+          cursor: {
+            type: "string",
+            description: "Pagination cursor returned by search_messages",
           },
           channel_id: {
             type: "string",
@@ -141,7 +246,7 @@ export function createSlackTools(): AgentTool[] {
           },
           limit: {
             type: "number",
-            description: "Max items to return (default 200 for channel_history, 100 for saved_items)",
+            description: "Max items to return (20 for search_messages, 200 for channel_history, 100 for saved_items)",
           },
           since_hours: {
             type: "number",
@@ -154,6 +259,94 @@ export function createSlackTools(): AgentTool[] {
         const action = String(input.action);
 
         switch (action) {
+          case "search_messages": {
+            const query = String(input.query || "").trim();
+            if (!query) return { error: "query is required" };
+
+            const requestedLimit = Number(input.limit);
+            const limit = Number.isFinite(requestedLimit)
+              ? Math.min(20, Math.max(1, Math.floor(requestedLimit)))
+              : 20;
+            const cursor = String(input.cursor || "").trim();
+            const payload: Record<string, unknown> = {
+              query,
+              channel_types: ["public_channel"],
+              content_types: ["messages", "files"],
+              include_context_messages: true,
+              include_message_blocks: true,
+              limit,
+            };
+            if (cursor) payload.cursor = cursor;
+
+            let body: Record<string, unknown>;
+            try {
+              claimSlackSearchBudget();
+              const userToken = await getSlackUserToken();
+              body = await slackApiPostWithToken(
+                userToken,
+                "assistant.search.context",
+                payload,
+              );
+            } catch (error) {
+              if (error instanceof SlackRateLimitError) {
+                return {
+                  ok: false,
+                  error: "rate_limited",
+                  retry_after_seconds: error.retryAfterSeconds,
+                };
+              }
+              throw error;
+            }
+            const results = isRecord(body.results) ? body.results : {};
+            const messages: Array<Record<string, unknown>> = [];
+            const files: Array<Record<string, unknown>> = [];
+
+            if (Array.isArray(results.messages)) {
+              for (const message of results.messages) {
+                const selected = selectFields(message, [
+                  "author_name",
+                  "author_user_id",
+                  "channel_id",
+                  "channel_name",
+                  "message_ts",
+                  "content",
+                  "permalink",
+                  "is_author_bot",
+                  "blocks",
+                  "context_messages",
+                ]);
+                if (selected) messages.push(selected);
+              }
+            }
+
+            if (Array.isArray(results.files)) {
+              for (const file of results.files) {
+                const selected = selectFields(file, [
+                  "file_id",
+                  "title",
+                  "file_type",
+                  "permalink",
+                  "content",
+                  "author_name",
+                  "author_user_id",
+                  "date_created",
+                  "date_updated",
+                ]);
+                if (selected) files.push(selected);
+              }
+            }
+
+            const responseMetadata = isRecord(body.response_metadata)
+              ? body.response_metadata
+              : {};
+            return {
+              query,
+              messages,
+              files,
+              next_cursor: String(responseMetadata.next_cursor || ""),
+            };
+          }
+
           case "list_channels": {
             const body = await slackApi("users.conversations", {
               types: "public_channel,private_channel",
@@ -340,7 +533,7 @@ export function createSlackTools(): AgentTool[] {
           }
 
           default:
-            return { error: `Unknown action: ${action}. Use list_channels, channel_history, user_info, thread_replies, saved_items, remove_star, or my_user_id.` };
+            return { error: `Unknown action: ${action}. Use list_channels, search_messages, channel_history, user_info, thread_replies, saved_items, remove_star, or my_user_id.` };
         }
       },
     },

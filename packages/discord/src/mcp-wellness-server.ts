@@ -46,7 +46,7 @@ import { createMemoryTools } from "./memory-agent-tools.js";
 import { applyMemoryScopeToToolArgs } from "./memory-tool-scope.js";
 import { createAttachmentTools } from "./attachment-agent-tools.js";
 import { createLinearTools } from "./linear-agent-tools.js";
-import { createSlackTools } from "./slack-tools.js";
+import { createSlackTools, slackActionLooksReadOnly } from "./slack-tools.js";
 import { createYouTubeTools } from "./youtube-agent-tools.js";
 import { createWellnessDbTools, wellnessDbToolLooksReadOnly } from "./wellness-db-tools.js";
 import { createEmailAgentTools, emailAgentToolLooksReadOnly } from "./email-agent-tools.js";
@@ -307,6 +307,9 @@ function sanitizeToolArgsForLog(name: string, args: Record<string, unknown> | un
     if (name === "browser" && ["value", "text"].includes(key)) {
       return "[redacted]";
     }
+    if (name === "slack" && key === "query") {
+      return "[redacted]";
+    }
     if (Array.isArray(value)) {
       return value.map((item) => sanitize(item));
     }
@@ -468,6 +471,8 @@ function inferRequestedAccessLevel(
       return isReadOnlyIMessageCommand(args.command) ? "read" : "write";
     case "linear":
       return looksLikeLinearReadQuery(args.query) ? "read" : "write";
+    case "slack":
+      return slackActionLooksReadOnly(args.action) ? "read" : "write";
     case "notion":
       return notionOperationLooksReadOnly(args.operation) ? "read" : "write";
     case "orientation_nudge":

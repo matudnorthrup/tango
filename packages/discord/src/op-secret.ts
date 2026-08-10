@@ -1,14 +1,15 @@
 /**
  * 1Password Secret Resolver — Transparent credential fetching for tool handlers.
  *
- * Fetches secrets from 1Password via the CLI service account, caches them
- * in memory for the process lifetime. Used by tool handlers that need
- * API keys or credentials at runtime.
+ * Fetches secrets from 1Password through the service-account SDK, caches them
+ * in memory for the process lifetime, and retains the CLI as a fallback. Used
+ * by tool handlers that need API keys or credentials at runtime.
  *
  * Falls back gracefully: if OP_SERVICE_ACCOUNT_TOKEN is not set or the
  * item doesn't exist, returns null so callers can use legacy sources.
  */
 
+import { createClient } from "@1password/sdk";
 import { spawn } from "node:child_process";
 
 const debug = (...args: unknown[]) => {
@@ -19,6 +20,8 @@ const OP_BINARY = "/opt/homebrew/bin/op";
 
 // In-memory cache: "vault/item/field" -> value
 const cache = new Map<string, string>();
+let sdkAuthToken: string | null = null;
+let sdkClientPromise: ReturnType<typeof createClient> | null = null;
 
 interface CommandResult {
   stdout: string;
@@ -52,6 +55,40 @@ function execOp(args: string[], token: string): Promise<CommandResult> {
   });
 }
 
+async function getSdkClient(token: string) {
+  if (!sdkClientPromise || sdkAuthToken !== token) {
+    sdkAuthToken = token;
+    sdkClientPromise = createClient({
+      auth: token,
+      integrationName: "tango-runtime",
+      integrationVersion: "1.0.0",
+    });
+  }
+
+  const clientPromise = sdkClientPromise;
+  try {
+    return await clientPromise;
+  } catch (error) {
+    // A transient initialization failure must not poison this long-lived process.
+    if (sdkClientPromise === clientPromise) {
+      sdkClientPromise = null;
+      sdkAuthToken = null;
+    }
+    throw error;
+  }
+}
+
+async function resolveWithSdk(
+  vault: string,
+  item: string,
+  field: string,
+  token: string,
+): Promise<string | null> {
+  const client = await getSdkClient(token);
+  const value = await client.secrets.resolve(`op://${vault}/${item}/${field}`);
+  return value.trim() || null;
+}
+
 /**
  * Fetch a secret from 1Password. Returns the field value or null if unavailable.
  * Results are cached in memory after first fetch.
@@ -67,6 +104,20 @@ export async function getSecret(
   const cacheKey = `${vault}/${item}/${field}`;
   const cached = cache.get(cacheKey);
   if (cached !== undefined) return cached;
+
+  try {
+    const value = await resolveWithSdk(vault, item, field, token);
+    if (value) {
+      cache.set(cacheKey, value);
+      debug(`Resolved secret through SDK: ${vault}/${item}/${field}`);
+      return value;
+    }
+  } catch (err) {
+    debug(
+      `SDK failed for "${item}"; trying CLI fallback:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 
   try {
     const result = await execOp(
