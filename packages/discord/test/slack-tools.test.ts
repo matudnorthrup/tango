@@ -1,4 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { createSlackTools, slackActionLooksReadOnly } from "../src/slack-tools.js";
 
 vi.mock("../src/op-secret.js", () => ({
@@ -14,6 +21,60 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+async function reserveLocalPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Failed to reserve an MCP test port");
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+  return address.port;
+}
+
+async function waitForMcpHealth(port: number): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/health`);
+      if (response.ok) return;
+    } catch {
+      // The child process is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("Timed out waiting for the MCP test server");
+}
+
+async function callReadOnlySlackMcp(
+  port: number,
+  id: number,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-read-only-step": "1",
+      "x-allowed-tool-ids": "slack",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method: "tools/call",
+      params: { name: "slack", arguments: args },
+    }),
+  });
+  expect(response.ok).toBe(true);
+  return response.text();
+}
 
 describe("slack tool", () => {
   it("classifies star removal as a write while keeping lookup actions read-only", () => {
@@ -102,6 +163,102 @@ describe("slack tool", () => {
       next_cursor: "next-page",
     });
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("returns Slack retry guidance when real-time search is rate limited", async () => {
+    const fetchMock = vi.fn(async () => new Response("", {
+      status: 429,
+      headers: { "Retry-After": "7" },
+    }));
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+
+    const slackTool = createSlackTools().find((tool) => tool.name === "slack");
+    const result = await slackTool?.handler({
+      action: "search_messages",
+      query: "project gizmo",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "rate_limited",
+      retry_after_seconds: 7,
+    });
+  });
+
+  it("applies one shared search budget across tool instances", async () => {
+    vi.resetModules();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      results: { messages: [], files: [] },
+      response_metadata: { next_cursor: "" },
+    })));
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+    const { createSlackTools: createFreshSlackTools } = await import("../src/slack-tools.js");
+
+    const results = [];
+    for (let index = 0; index < 10; index++) {
+      const slackTool = createFreshSlackTools().find((tool) => tool.name === "slack");
+      results.push(await slackTool?.handler({
+        action: "search_messages",
+        query: `project gizmo ${index}`,
+      }));
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(9);
+    expect(results[9]).toEqual({
+      ok: false,
+      error: "rate_limited",
+      retry_after_seconds: 60,
+    });
+  });
+
+  it("enforces Slack write denial at the read-only MCP boundary and redacts searches from logs", async () => {
+    const port = await reserveLocalPort();
+    const tempDirectory = await mkdtemp(join(tmpdir(), "tango-slack-mcp-test-"));
+    const entrypoint = fileURLToPath(new URL("../src/mcp-wellness-server.ts", import.meta.url));
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", entrypoint, "--http", `--port=${port}`],
+      {
+        env: {
+          ...process.env,
+          OP_SERVICE_ACCOUNT_TOKEN: "",
+          TANGO_DB_PATH: join(tempDirectory, "tango.sqlite"),
+        },
+        stdio: ["ignore", "ignore", "pipe"],
+      },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    try {
+      await waitForMcpHealth(port);
+
+      const removeResult = await callReadOnlySlackMcp(port, 1, {
+        action: "remove_star",
+        channel_id: "C123",
+        timestamp: "1714391940.000200",
+      });
+      expect(removeResult).toContain("Read-only step cannot call write tool: slack");
+
+      const sensitiveQuery = "confidential project codename";
+      const searchResult = await callReadOnlySlackMcp(port, 2, {
+        action: "search_messages",
+        query: sensitiveQuery,
+      });
+      expect(searchResult).not.toContain("Read-only step cannot call write tool");
+      expect(searchResult).toContain("Slack user token not found");
+      expect(stderr).not.toContain(sensitiveQuery);
+      expect(stderr).toContain('"query":"[redacted]"');
+    } finally {
+      if (child.exitCode === null) {
+        child.kill("SIGTERM");
+        await once(child, "exit");
+      }
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
   });
 
   it("filters saved items to the recent window by default", async () => {

@@ -307,6 +307,9 @@ function sanitizeToolArgsForLog(name: string, args: Record<string, unknown> | un
     if (name === "browser" && ["value", "text"].includes(key)) {
       return "[redacted]";
     }
+    if (name === "slack" && key === "query") {
+      return "[redacted]";
+    }
     if (Array.isArray(value)) {
       return value.map((item) => sanitize(item));
     }

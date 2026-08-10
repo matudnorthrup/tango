@@ -36,6 +36,35 @@ class SlackApiError extends Error {
   }
 }
 
+class SlackRateLimitError extends Error {
+  constructor(
+    public readonly retryAfterSeconds: number,
+  ) {
+    super(`Slack search rate limited; retry after ${retryAfterSeconds} seconds`);
+  }
+}
+
+const SLACK_SEARCH_WINDOW_MS = 60_000;
+const SLACK_SEARCH_REQUESTS_PER_WINDOW = 9;
+const slackSearchRequestTimes: number[] = [];
+
+function claimSlackSearchBudget(): void {
+  const now = Date.now();
+  while (
+    slackSearchRequestTimes.length > 0 &&
+    now - slackSearchRequestTimes[0]! >= SLACK_SEARCH_WINDOW_MS
+  ) {
+    slackSearchRequestTimes.shift();
+  }
+
+  if (slackSearchRequestTimes.length >= SLACK_SEARCH_REQUESTS_PER_WINDOW) {
+    const retryAfterMs = SLACK_SEARCH_WINDOW_MS - (now - slackSearchRequestTimes[0]!);
+    throw new SlackRateLimitError(Math.max(1, Math.ceil(retryAfterMs / 1000)));
+  }
+
+  slackSearchRequestTimes.push(now);
+}
+
 let cachedToken: string | null = null;
 async function getSlackToken(): Promise<string> {
   if (!cachedToken) {
@@ -100,10 +129,22 @@ async function slackApiPostWithToken(
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(15_000),
   });
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    throw new SlackRateLimitError(
+      Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : 60,
+    );
+  }
   if (!res.ok) throw new Error(`Slack ${method} HTTP ${res.status}`);
 
   const body: unknown = await res.json();
   if (!isRecord(body)) throw new Error(`Slack ${method} returned an invalid response`);
+  if (!body.ok && ["rate_limited", "ratelimited"].includes(String(body.error))) {
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    throw new SlackRateLimitError(
+      Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : 60,
+    );
+  }
   if (!body.ok) throw new SlackApiError(method, String(body.error ?? "unknown_error"));
   return body;
 }
@@ -135,6 +176,7 @@ export function createSlackTools(): AgentTool[] {
         "  search_messages — Search public Slack messages and files with real-time search.",
         "    Params: query (required), limit (default 20, max 20), cursor (optional)",
         "    Returns: matching messages and files with permalinks and surrounding context",
+        "    Search is limited to 9 calls per minute; each paginated request uses the same budget.",
         "",
         "  channel_history — Get recent messages from a channel.",
         "    Params: channel_id (required), hours (default 24), limit (default 200)",
@@ -236,12 +278,25 @@ export function createSlackTools(): AgentTool[] {
             };
             if (cursor) payload.cursor = cursor;
 
-            const userToken = await getSlackUserToken();
-            const body = await slackApiPostWithToken(
-              userToken,
-              "assistant.search.context",
-              payload,
-            );
+            let body: Record<string, unknown>;
+            try {
+              claimSlackSearchBudget();
+              const userToken = await getSlackUserToken();
+              body = await slackApiPostWithToken(
+                userToken,
+                "assistant.search.context",
+                payload,
+              );
+            } catch (error) {
+              if (error instanceof SlackRateLimitError) {
+                return {
+                  ok: false,
+                  error: "rate_limited",
+                  retry_after_seconds: error.retryAfterSeconds,
+                };
+              }
+              throw error;
+            }
             const results = isRecord(body.results) ? body.results : {};
             const messages: Array<Record<string, unknown>> = [];
             const files: Array<Record<string, unknown>> = [];

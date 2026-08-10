@@ -55,28 +55,7 @@ function execOp(args: string[], token: string): Promise<CommandResult> {
   });
 }
 
-function normalizeResolvedSecret(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) {
-    return value;
-  }
-  if (value && typeof value === "object" && "content" in value) {
-    const content = value.content;
-    const secret = content && typeof content === "object" && "secret" in content
-      ? content.secret
-      : null;
-    if (typeof secret === "string" && secret.trim()) {
-      return secret;
-    }
-  }
-  return null;
-}
-
-async function resolveWithSdk(
-  vault: string,
-  item: string,
-  field: string,
-  token: string,
-): Promise<string | null> {
+async function getSdkClient(token: string) {
   if (!sdkClientPromise || sdkAuthToken !== token) {
     sdkAuthToken = token;
     sdkClientPromise = createClient({
@@ -86,8 +65,28 @@ async function resolveWithSdk(
     });
   }
 
-  const client = await sdkClientPromise;
-  return normalizeResolvedSecret(await client.secrets.resolve(`op://${vault}/${item}/${field}`));
+  const clientPromise = sdkClientPromise;
+  try {
+    return await clientPromise;
+  } catch (error) {
+    // A transient initialization failure must not poison this long-lived process.
+    if (sdkClientPromise === clientPromise) {
+      sdkClientPromise = null;
+      sdkAuthToken = null;
+    }
+    throw error;
+  }
+}
+
+async function resolveWithSdk(
+  vault: string,
+  item: string,
+  field: string,
+  token: string,
+): Promise<string | null> {
+  const client = await getSdkClient(token);
+  const value = await client.secrets.resolve(`op://${vault}/${item}/${field}`);
+  return value.trim() || null;
 }
 
 /**
