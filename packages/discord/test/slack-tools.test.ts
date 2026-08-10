@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSlackTools } from "../src/slack-tools.js";
+import { createSlackTools, slackActionLooksReadOnly } from "../src/slack-tools.js";
 
 vi.mock("../src/op-secret.js", () => ({
   getSecret: vi.fn(async (_vault: string, item: string) => {
@@ -16,6 +16,94 @@ afterEach(() => {
 });
 
 describe("slack tool", () => {
+  it("classifies star removal as a write while keeping lookup actions read-only", () => {
+    expect(slackActionLooksReadOnly("channel_history")).toBe(true);
+    expect(slackActionLooksReadOnly("search_messages")).toBe(true);
+    expect(slackActionLooksReadOnly("saved_items")).toBe(true);
+    expect(slackActionLooksReadOnly("remove_star")).toBe(false);
+  });
+
+  it("searches public messages and files through Slack real-time search", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/api/assistant.search.context");
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toMatchObject({ Authorization: "Bearer xoxp-user" });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        query: "project gizmo after:2026-08-01",
+        channel_types: ["public_channel"],
+        content_types: ["messages", "files"],
+        include_context_messages: true,
+        include_message_blocks: true,
+        limit: 10,
+      });
+      return new Response(JSON.stringify({
+        ok: true,
+        results: {
+          messages: [
+            {
+              author_name: "Example Person",
+              author_user_id: "U123",
+              channel_id: "C123",
+              channel_name: "project-gizmo",
+              message_ts: "1786320000.000100",
+              content: "Project Gizmo update",
+              permalink: "https://example.slack.com/archives/C123/p1786320000000100",
+              is_author_bot: false,
+              context_messages: { before: [], after: [] },
+            },
+          ],
+          files: [
+            {
+              file_id: "F123",
+              title: "Gizmo diagram",
+              file_type: "png",
+              permalink: "https://example.slack.com/files/U123/F123/gizmo.png",
+              author_name: "Example Person",
+            },
+          ],
+        },
+        response_metadata: { next_cursor: "next-page" },
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock as typeof fetch);
+
+    const slackTool = createSlackTools().find((tool) => tool.name === "slack");
+    const result = await slackTool?.handler({
+      action: "search_messages",
+      query: "project gizmo after:2026-08-01",
+      limit: 10,
+    });
+
+    expect(result).toEqual({
+      query: "project gizmo after:2026-08-01",
+      messages: [
+        {
+          author_name: "Example Person",
+          author_user_id: "U123",
+          channel_id: "C123",
+          channel_name: "project-gizmo",
+          message_ts: "1786320000.000100",
+          content: "Project Gizmo update",
+          permalink: "https://example.slack.com/archives/C123/p1786320000000100",
+          is_author_bot: false,
+          context_messages: { before: [], after: [] },
+        },
+      ],
+      files: [
+        {
+          file_id: "F123",
+          title: "Gizmo diagram",
+          file_type: "png",
+          permalink: "https://example.slack.com/files/U123/F123/gizmo.png",
+          author_name: "Example Person",
+        },
+      ],
+      next_cursor: "next-page",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("filters saved items to the recent window by default", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-29T12:00:00Z"));

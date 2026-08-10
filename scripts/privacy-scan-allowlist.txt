@@ -35,6 +35,7 @@ packages/core/test/provider-artifacts.test.ts
 packages/discord/src/onepassword-agent-tools.ts
 packages/discord/src/op-secret.ts
 packages/discord/test/onepassword-agent-tools.test.ts
+packages/discord/test/op-secret.test.ts
 docs/specs/ollama-provider-parallel-instance.md
 
 # Legacy Obsidian-vault fallback constant + comments. The vault root resolves
