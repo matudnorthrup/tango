@@ -260,7 +260,13 @@ import {
   resolvePersistedContextReadings,
   toLastContextUsageSnapshot,
 } from "./context-snapshots.js";
-import { isSmokeTestThreadWebhookMessage } from "./smoke-test-webhook.js";
+import { isSmokeTestThreadWebhookMessage, loadReplyWebhookIds } from "./smoke-test-webhook.js";
+import {
+  intakeSenderId,
+  loadIntakeWebhookEntries,
+  resolveIntakeWebhookMessage,
+  type IntakeWebhookEntry,
+} from "./intake-webhook.js";
 import { buildModelScorecard, loadEvaluatedModels } from "./model-scorecard.js";
 import { AtlasMemoryClient } from "./atlas-memory-client.js";
 import { TangoRouter } from "./tango-router.js";
@@ -640,6 +646,7 @@ const imessageDiscordChannelId = env.IMESSAGE_DISCORD_CHANNEL_ID;
 
 const configDir = resolveConfigDir();
 const sessionConfigs = loadSessionConfigs(configDir);
+const intakeWebhookEntries = loadIntakeWebhookEntries();
 const configuredDiscordChannelIds = extractConfiguredDiscordChannelIds(sessionConfigs);
 const envAllowlistChannels = parseCsvIds(env.TANGO_ALLOWLIST_CHANNEL_IDS);
 const envAllowlistUsers = parseCsvIds(env.TANGO_ALLOWLIST_USER_IDS);
@@ -7544,10 +7551,17 @@ async function handleMessage(
   options?: {
     existingInboundMessageId?: number | null;
     recoverySource?: "startup-orphan-check";
+    intakeWebhook?: IntakeWebhookEntry | null;
   }
 ): Promise<void> {
+  const intakeWebhook = options?.intakeWebhook ?? null;
+  const senderId = intakeWebhook ? intakeSenderId(intakeWebhook) : message.author.id;
+  const senderUsername = intakeWebhook?.label ?? message.author.username;
   const channelKey = toChannelKey(message);
   let route = sessionManager.route(channelKey) ?? sessionManager.route("discord:default");
+  if (route && intakeWebhook) {
+    route = { ...route, agentId: intakeWebhook.agentId };
+  }
 
   // If this message came from a Discord thread, check for a registered session override.
   // When an agent creates a thread from session X, replies route to the parent channel's
@@ -7589,7 +7603,7 @@ async function handleMessage(
   }
 
   console.log(
-    `[tango-discord] msg channel=${channelKey} user=${message.author.username} routed=${route?.sessionId ?? "none"}`
+    `[tango-discord] msg channel=${channelKey} user=${senderUsername} routed=${route?.sessionId ?? "none"}`
   );
 
   if (!route) {
@@ -7605,7 +7619,7 @@ async function handleMessage(
     );
   }
   const commandParse = parseLeadingCommands(effectiveContent);
-  const naturalRoute = applyInlineTopicGuard(
+  const naturalRoute = intakeWebhook ? null : applyInlineTopicGuard(
     commandParse.agentOverride === null
       ? parseNaturalTextRoute({
           text: commandParse.promptText,
@@ -7624,6 +7638,7 @@ async function handleMessage(
     routeSessionId: route.sessionId,
     routeAgentId: route.agentId,
     explicitAgentId:
+      intakeWebhook?.agentId ??
       commandParse.agentOverride ??
       naturalRoute?.addressedAgentId ??
       messageReferent?.targetAgentId ??
@@ -7639,11 +7654,19 @@ async function handleMessage(
   const accessPolicy = resolveAccessPolicy(accessAgent, defaultAccessPolicy);
   const routingChannelId = resolveRoutingChannelId(message);
   const threadChannelId = message.channelId !== routingChannelId ? message.channelId : undefined;
-  const access = evaluateAccess(
+  const access = intakeWebhook ? {
+    allowed: true,
+    mode: accessPolicy.mode,
+    mentionRequired: false,
+    mentioned: false,
+    channelAllowed: true,
+    userAllowed: true,
+    reason: "configured-intake-webhook",
+  } : evaluateAccess(
     {
       channelId: routingChannelId,
       threadChannelId,
-      userId: message.author.id,
+      userId: senderId,
       mentioned: hasMentionForBot(message)
     },
     accessPolicy
@@ -7657,8 +7680,8 @@ async function handleMessage(
       visibility: "debug",
       discordMessageId: message.id,
       discordChannelId: message.channelId,
-      discordUserId: message.author.id,
-      discordUsername: message.author.username,
+      discordUserId: senderId,
+      discordUsername: senderUsername,
       content: "message blocked by access control",
       metadata: {
         accessMode: access.mode,
@@ -7739,8 +7762,8 @@ async function handleMessage(
     visibility: "public",
     discordMessageId: message.id,
     discordChannelId: message.channelId,
-    discordUserId: message.author.id,
-    discordUsername: message.author.username,
+    discordUserId: senderId,
+    discordUsername: senderUsername,
     content: effectiveContent,
     metadata: {
       channelKey,
@@ -7761,6 +7784,11 @@ async function handleMessage(
       messageReferent,
       referentSystemMessageId: referentMessageId,
       recoverySource: options?.recoverySource ?? null,
+      intakeWebhook: intakeWebhook ? {
+        webhookId: intakeWebhook.webhookId,
+        channelId: intakeWebhook.channelId,
+        label: intakeWebhook.label,
+      } : null,
       attachments: attachmentsForMetadata(message)
     }
   });
@@ -7769,7 +7797,9 @@ async function handleMessage(
     return;
   }
 
-  const promptText = naturalRoute?.promptText ?? commandParse.promptText;
+  const promptText = intakeWebhook
+    ? effectiveContent
+    : naturalRoute?.promptText ?? commandParse.promptText;
   if (await maybeHandleWatsonInterstitialStatusCapture({
     message,
     promptText,
@@ -7812,7 +7842,10 @@ async function handleMessage(
     },
   });
   const prompt = buildPromptWithReferent(
-    buildPrompt(naturalRoute?.promptText ?? commandParse.promptText, message) + attachmentResult.promptSuffix,
+    buildPrompt(
+      intakeWebhook ? effectiveContent : naturalRoute?.promptText ?? commandParse.promptText,
+      message,
+    ) + attachmentResult.promptSuffix,
     messageReferent
   );
   if (prompt.length === 0) {
@@ -8641,7 +8674,12 @@ const recentlyProcessedMessageIds = new Set<string>();
 const MESSAGE_DEDUP_MAX_SIZE = 200;
 
 client.on("messageCreate", async (message) => {
-  if (!isChannelAllowed(message.channelId, allowedChannels)) return;
+  const intakeWebhook = resolveIntakeWebhookMessage(
+    message,
+    intakeWebhookEntries,
+    loadReplyWebhookIds(),
+  );
+  if (!intakeWebhook && !isChannelAllowed(message.channelId, allowedChannels)) return;
 
   // Voice-synced user messages are posted via webhook (bot=true) but prefixed with ZWS.
   // Advance the watermark for these before the bot early-return so the inbox stays current.
@@ -8659,7 +8697,7 @@ client.on("messageCreate", async (message) => {
   }
 
   const isSmokeTestWebhookInput = isSmokeTestThreadWebhookMessage(message, smokeTestChannelIds);
-  if (message.author.bot && !isSmokeTestWebhookInput) return;
+  if (message.author.bot && !isSmokeTestWebhookInput && !intakeWebhook) return;
   // Ignore system messages (thread created, pin, member join, etc.)
   if (message.type !== MessageType.Default && message.type !== MessageType.Reply) return;
 
@@ -8682,7 +8720,7 @@ client.on("messageCreate", async (message) => {
   const queueKey = `discord:${message.channelId}`;
   enqueueChannelWork(queueKey, "tango-discord", async () => {
     try {
-      await handleMessage(message);
+      await handleMessage(message, { intakeWebhook });
     } catch (error) {
       if (isRuntimeAbortedError(error)) {
         return;

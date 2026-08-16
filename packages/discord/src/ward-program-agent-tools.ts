@@ -104,6 +104,12 @@ export function createWardProgramTools(): AgentTool[] {
             properties: { releases: { type: "array", items: nameCalling }, sustainings: { type: "array", items: nameCalling } },
             additionalProperties: false,
           },
+          sheetCallings: {
+            type: "object",
+            description: "Updates the tracking spreadsheet's Callings tab ONLY — no program change, nothing announced over the pulpit.",
+            properties: { releases: { type: "array", items: nameCalling }, sustainings: { type: "array", items: nameCalling } },
+            additionalProperties: false,
+          },
           presiding: { type: "string", description: "Presiding officer, or 'auto' to use the standing schedule." },
           conducting: { type: "string", description: "Conducting officer, or 'auto' to use the standing schedule." },
           contact: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" } }, additionalProperties: false },
