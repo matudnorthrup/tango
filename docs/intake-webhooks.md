@@ -11,8 +11,8 @@ present, that profile file replaces the repo placeholder list.
 
 ```yaml
 intake_webhooks:
-  - webhook_id: "123456789012345678"
-    channel_id: "234567890123456789"
+  - webhook_id: "100000000000000101"
+    channel_id: "100000000000000102"
     agent_id: porter
     label: bishopric-intake
 ```
