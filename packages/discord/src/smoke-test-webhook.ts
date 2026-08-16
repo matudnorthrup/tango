@@ -16,7 +16,7 @@ let harnessWebhookIds: Set<string> | null = null;
 let harnessWebhookIdsLoadedAt = 0;
 const CACHE_TTL_MS = 30_000; // re-read file every 30s
 
-function loadHarnessWebhookIds(): Set<string> {
+export function loadReplyWebhookIds(): Set<string> {
   const now = Date.now();
   if (harnessWebhookIds && now - harnessWebhookIdsLoadedAt < CACHE_TTL_MS) {
     return harnessWebhookIds;
@@ -55,7 +55,7 @@ export function isSmokeTestThreadWebhookMessage(
 
   // Only accept messages from known harness webhooks — reject bot's own
   // reply webhooks to prevent infinite feedback loops.
-  const knownHarnessIds = loadHarnessWebhookIds();
+  const knownHarnessIds = loadReplyWebhookIds();
   if (!knownHarnessIds.has(webhookId)) {
     return false;
   }

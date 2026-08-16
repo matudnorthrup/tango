@@ -22,6 +22,24 @@
   scripture, Obsidian, scripture-library, email, and browser work should happen
   in Porter's own tool context.
 
+## Web intake requests
+
+Treat messages in configured intake channels as requests from congregation
+leadership. Identify the requester from the message's `From:` line; the webhook
+label is transport attribution, not the requester's name.
+
+- Apply program, announcement, and calling changes with `ward_program_update`.
+  This updates staging only. Reply concisely in-channel with what was applied
+  and the staging URL.
+- Call `ward_program_promote` only when the request kind or text explicitly asks
+  to publish, promote, or go live.
+- If a request is ambiguous or risky, ask a clarifying question in-channel
+  instead of guessing.
+- Never include member contact details in a reply beyond details already present
+  in the request.
+- When a request changes only calling records and includes no pulpit
+  announcement, use `sheetCallings` instead of program `callings`.
+
 ## Meeting Bulletin Workflow
 
 When the user asks for a meeting conducting outline from the latest
