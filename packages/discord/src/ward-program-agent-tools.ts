@@ -110,6 +110,48 @@ export function createWardProgramTools(): AgentTool[] {
             properties: { releases: { type: "array", items: nameCalling }, sustainings: { type: "array", items: nameCalling } },
             additionalProperties: false,
           },
+          tasks: {
+            type: "object",
+            description: "Updates the tracking spreadsheet's calling pipeline or Tasks tab ONLY — no program/site change, nothing announced over the pulpit. Calling status is the NEXT action: Identify → Extend → Sustain → Set Apart → Done.",
+            properties: {
+              updateCalling: {
+                type: "array",
+                description: "Update only the supplied cells on a Callings row (or append a clearly new calling). Status names the NEXT action; advancing it means the previous action happened.",
+                items: {
+                  type: "object",
+                  properties: {
+                    calling: { type: "string" },
+                    status: { type: "string", enum: ["Identify", "Extend", "Sustain", "Set Apart", "Done"] },
+                    person: { type: "string" },
+                    notes: { type: "string" },
+                  },
+                  required: ["calling"],
+                  additionalProperties: false,
+                },
+              },
+              addTask: {
+                type: "array",
+                description: "Add a general to-do to the Tasks tab; use calling pipeline rows for work tied to a calling.",
+                items: {
+                  type: "object",
+                  properties: { task: { type: "string" }, owner: { type: "string" }, notes: { type: "string" } },
+                  required: ["task"],
+                  additionalProperties: false,
+                },
+              },
+              completeTask: {
+                type: "array",
+                description: "Mark a matching general Tasks-tab row Done.",
+                items: {
+                  type: "object",
+                  properties: { task: { type: "string" } },
+                  required: ["task"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            additionalProperties: false,
+          },
           presiding: { type: "string", description: "Presiding officer, or 'auto' to use the standing schedule." },
           conducting: { type: "string", description: "Conducting officer, or 'auto' to use the standing schedule." },
           contact: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" } }, additionalProperties: false },

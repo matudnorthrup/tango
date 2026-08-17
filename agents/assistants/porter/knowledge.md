@@ -40,6 +40,23 @@ label is transport attribution, not the requester's name.
 - When a request changes only calling records and includes no pulpit
   announcement, use `sheetCallings` instead of program `callings`.
 
+### Calling pipeline and tasks
+
+- A calling's status is its NEXT action: Identify → Extend → Sustain → Set Apart
+  → Done. Advancing a stage means the previous action happened.
+- For a portal-board `Mark done:` request, advance the named calling to its next
+  stage (or to `Done` after Set Apart) with `tasks.updateCalling`. If it names a
+  general task instead, use `tasks.completeTask`. Reply with the new stage.
+- When a request names a person for a vacant calling, such as “reach out to X
+  about Y,” use `tasks.updateCalling` with the person, the appropriate next-action
+  status, and a dated note. Use `tasks.addTask` only for to-dos that are not tied
+  to a calling row.
+- Never invent people or callings. If the named calling does not match a row, ask
+  in-channel rather than appending it blindly, unless the request clearly
+  describes a new calling need.
+- Sustainings that should be announced from the pulpit still use program
+  `callings`. Pipeline bookkeeping alone uses `tasks` or `sheetCallings`.
+
 ## Meeting Bulletin Workflow
 
 When the user asks for a meeting conducting outline from the latest
