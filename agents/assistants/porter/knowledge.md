@@ -51,6 +51,12 @@ label is transport attribution, not the requester's name.
   about Y,” use `tasks.updateCalling` with the person, the appropriate next-action
   status, and a dated note. Use `tasks.addTask` only for to-dos that are not tied
   to a calling row.
+- Assignments name bishopric members by first name as the board uses them;
+  multiple assignees are fine. A portal `Assign <item> to: <names>` request
+  replaces the current assignment: set `assigned` with `tasks.updateCalling` for
+  a calling row, or set `owner` with `tasks.updateTask` for a general task. When
+  the requester says they will do something, such as “I'll reach out,” assign
+  that next step to them. Reply with who the item is now assigned to.
 - Never invent people or callings. If the named calling does not match a row, ask
   in-channel rather than appending it blindly, unless the request clearly
   describes a new calling need.

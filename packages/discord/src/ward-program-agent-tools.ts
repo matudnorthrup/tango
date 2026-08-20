@@ -123,6 +123,12 @@ export function createWardProgramTools(): AgentTool[] {
                     calling: { type: "string" },
                     status: { type: "string", enum: ["Identify", "Extend", "Sustain", "Set Apart", "Done"] },
                     person: { type: "string" },
+                    assigned: {
+                      type: "array",
+                      items: { type: "string" },
+                      description:
+                        'Bishopric member(s) who own the next step (first names as used on the board, e.g. ["Devin","Shawn"]). Replaces the current assignment.',
+                    },
                     notes: { type: "string" },
                   },
                   required: ["calling"],
@@ -134,7 +140,25 @@ export function createWardProgramTools(): AgentTool[] {
                 description: "Add a general to-do to the Tasks tab; use calling pipeline rows for work tied to a calling.",
                 items: {
                   type: "object",
-                  properties: { task: { type: "string" }, owner: { type: "string" }, notes: { type: "string" } },
+                  properties: {
+                    task: { type: "string" },
+                    owner: { type: "array", items: { type: "string" }, description: "Bishopric member(s) responsible." },
+                    notes: { type: "string" },
+                  },
+                  required: ["task"],
+                  additionalProperties: false,
+                },
+              },
+              updateTask: {
+                type: "array",
+                description: "Update only the supplied cells on a matching general Tasks-tab row (reassign, add a note).",
+                items: {
+                  type: "object",
+                  properties: {
+                    task: { type: "string" },
+                    owner: { type: "array", items: { type: "string" } },
+                    notes: { type: "string" },
+                  },
                   required: ["task"],
                   additionalProperties: false,
                 },
