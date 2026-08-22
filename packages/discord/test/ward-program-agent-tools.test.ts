@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createWardProgramTools } from "../src/ward-program-agent-tools.js";
 
 describe("ward program agent tools", () => {
@@ -24,7 +27,16 @@ describe("ward program agent tools", () => {
             type: "object",
             properties: {
               calling: { type: "string" },
-              status: { type: "string", enum: ["Identify", "Extend", "Sustain", "Set Apart", "Done"] },
+              happened: {
+                type: "array",
+                items: { enum: ["extended", "accepted", "sustained", "setApart", "recordedInLcr"] },
+                description: "Calling lifecycle step(s) that happened. Stamps each step's date column and advances Status to the next action unless status is also supplied.",
+              },
+              on: {
+                type: "string",
+                description: "Date for the happened step(s), when the request provides one; otherwise the engine uses today.",
+              },
+              status: { type: "string", enum: ["Identify", "Extend", "Sustain", "Set apart", "Record in LCR", "Done"] },
               person: { type: "string" },
               assigned: {
                 type: "array",
@@ -76,5 +88,41 @@ describe("ward program agent tools", () => {
         },
       },
     });
+  });
+
+  it("exposes the explicit weekly email send tool", async () => {
+    const tool = createWardProgramTools().find((candidate) => candidate.name === "ward_program_send_email");
+
+    expect(tool).toMatchObject({
+      name: "ward_program_send_email",
+      inputSchema: {
+        type: "object",
+        properties: {
+          by: { type: "string" },
+          force: { type: "boolean" },
+        },
+        required: ["by"],
+        additionalProperties: false,
+      },
+    });
+    expect(tool?.description).toContain("ONLY call when the user or portal explicitly asks");
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-ward-email-tool-"));
+    fs.mkdirSync(path.join(dir, "scripts"));
+    fs.writeFileSync(
+      path.join(dir, "scripts", "send-email.mjs"),
+      "process.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }));\n",
+    );
+    const previousDir = process.env.WARD_PROGRAM_DIR;
+    process.env.WARD_PROGRAM_DIR = dir;
+    try {
+      await expect(tool?.handler({ by: "Portal Requester", force: true })).resolves.toEqual({
+        argv: ["--by=Portal Requester", "--force"],
+      });
+    } finally {
+      if (previousDir === undefined) delete process.env.WARD_PROGRAM_DIR;
+      else process.env.WARD_PROGRAM_DIR = previousDir;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

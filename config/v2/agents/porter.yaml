@@ -55,7 +55,7 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "ward-program"]
     env:
-      ALLOWED_TOOL_IDS: "ward_program_status,ward_program_update,ward_program_promote"
+      ALLOWED_TOOL_IDS: "ward_program_status,ward_program_update,ward_program_promote,ward_program_send_email"
       WORKER_ID: "study-assistant"
 
 # Runtime configuration

@@ -3449,6 +3449,20 @@ const MIGRATIONS: Migration[] = [
         WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:victor-ollama');
     `,
   },
+  {
+    // Add the explicit weekly bulletin email send to Porter's ward-program
+    // surface. This follows v69 rather than modifying it so existing databases
+    // receive the new catalog entry and grant when they migrate.
+    version: 76,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('ward_program_send_email', 'personal', 'Ward Program Send Email', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'worker:study-assistant', 'ward_program_send_email', 'write', 'ward program email send via Porter'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
