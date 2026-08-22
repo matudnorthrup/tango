@@ -24,13 +24,13 @@ function wardProgramDir(): string {
   return path.join(os.homedir(), ".tango", "profiles", profile, "ward-program");
 }
 
-async function runScript(scriptRelPath: string, args: string[]): Promise<unknown> {
+async function runScript(scriptRelPath: string, args: string[], timeoutMs = 300_000): Promise<unknown> {
   const dir = wardProgramDir();
   const script = path.join(dir, scriptRelPath);
   try {
     const { stdout } = await execFileAsync("node", [script, ...args], {
       cwd: dir,
-      timeout: 300_000,
+      timeout: timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
       env: process.env,
     });
@@ -221,7 +221,7 @@ export function createWardProgramTools(): AgentTool[] {
       handler: async (input) => {
         const args = [`--by=${String(input?.by ?? "")}`];
         if (input?.force === true) args.push("--force");
-        return runScript("scripts/send-email.mjs", args);
+        return runScript("scripts/send-email.mjs", args, 600_000);
       },
     },
   ];
