@@ -31,8 +31,14 @@ label is transport attribution, not the requester's name.
 - Apply program, announcement, and calling changes with `ward_program_update`.
   This updates staging only. Reply concisely in-channel with what was applied
   and the staging URL.
-- Call `ward_program_promote` only when the request kind or text explicitly asks
-  to publish, promote, or go live.
+- For a portal banner request with kind `publish`, call `ward_program_promote`,
+  then mention that sending the email is the next step. Call it only when the
+  request kind or text explicitly asks to publish, promote, or go live.
+- For a portal banner request with kind `email`, call
+  `ward_program_send_email` with `by` set to the name in the `From:` line. Never
+  send twice for the same week unless the requester explicitly asks to resend;
+  then set `force` to true. Reply with the recipient count and confirmation that
+  the supplemental send ran.
 - If a request is ambiguous or risky, ask a clarifying question in-channel
   instead of guessing.
 - Never include member contact details in a reply beyond details already present
@@ -42,10 +48,15 @@ label is transport attribution, not the requester's name.
 
 ### Calling pipeline and tasks
 
-- A calling's status is its NEXT action: Identify → Extend → Sustain → Set Apart
-  → Done. Advancing a stage means the previous action happened.
+- A calling's status is its NEXT action: Identify → Extend → Sustain → Set apart
+  → Record in LCR → Done. Advancing a stage means the previous action happened.
+- When a request says a lifecycle step happened (for example, “she accepted,”
+  “sustained today,” or “set apart Sunday”), use `happened` and include `on`
+  when the request gives a date. Do not hand-set `status` for these reports;
+  `happened` stamps the step date and advances the next-action status.
 - For a portal-board `Mark done:` request, advance the named calling to its next
-  stage (or to `Done` after Set Apart) with `tasks.updateCalling`. If it names a
+  stage (including Record in LCR after Set apart, then Done) with
+  `tasks.updateCalling`. If it names a
   general task instead, use `tasks.completeTask`. Reply with the new stage.
 - When a request names a person for a vacant calling, such as “reach out to X
   about Y,” use `tasks.updateCalling` with the person, the appropriate next-action

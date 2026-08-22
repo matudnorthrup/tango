@@ -24,11 +24,11 @@ function wardProgramDir(): string {
   return path.join(os.homedir(), ".tango", "profiles", profile, "ward-program");
 }
 
-async function runEngine(args: string[]): Promise<unknown> {
+async function runScript(scriptRelPath: string, args: string[]): Promise<unknown> {
   const dir = wardProgramDir();
-  const engine = path.join(dir, "scripts", "update-program.mjs");
+  const script = path.join(dir, scriptRelPath);
   try {
-    const { stdout } = await execFileAsync("node", [engine, ...args], {
+    const { stdout } = await execFileAsync("node", [script, ...args], {
       cwd: dir,
       timeout: 300_000,
       maxBuffer: 4 * 1024 * 1024,
@@ -42,6 +42,10 @@ async function runEngine(args: string[]): Promise<unknown> {
     try { return JSON.parse(out); } catch { /* fall through */ }
     return { ok: false, error: (e.stderr || e.message || "engine error").toString().slice(0, 800) };
   }
+}
+
+async function runEngine(args: string[]): Promise<unknown> {
+  return runScript("scripts/update-program.mjs", args);
 }
 
 const nameCalling = {
@@ -112,7 +116,7 @@ export function createWardProgramTools(): AgentTool[] {
           },
           tasks: {
             type: "object",
-            description: "Updates the tracking spreadsheet's calling pipeline or Tasks tab ONLY — no program/site change, nothing announced over the pulpit. Calling status is the NEXT action: Identify → Extend → Sustain → Set Apart → Done.",
+            description: "Updates the tracking spreadsheet's calling pipeline or Tasks tab ONLY — no program/site change, nothing announced over the pulpit. Calling status is the NEXT action: Identify → Extend → Sustain → Set apart → Record in LCR → Done.",
             properties: {
               updateCalling: {
                 type: "array",
@@ -121,7 +125,16 @@ export function createWardProgramTools(): AgentTool[] {
                   type: "object",
                   properties: {
                     calling: { type: "string" },
-                    status: { type: "string", enum: ["Identify", "Extend", "Sustain", "Set Apart", "Done"] },
+                    happened: {
+                      type: "array",
+                      items: { enum: ["extended", "accepted", "sustained", "setApart", "recordedInLcr"] },
+                      description: "Calling lifecycle step(s) that happened. Stamps each step's date column and advances Status to the next action unless status is also supplied.",
+                    },
+                    on: {
+                      type: "string",
+                      description: "Date for the happened step(s), when the request provides one; otherwise the engine uses today.",
+                    },
+                    status: { type: "string", enum: ["Identify", "Extend", "Sustain", "Set apart", "Record in LCR", "Done"] },
                     person: { type: "string" },
                     assigned: {
                       type: "array",
@@ -191,6 +204,25 @@ export function createWardProgramTools(): AgentTool[] {
         "Promote the Waldport Ward program from staging to PRODUCTION (waldportward.org): fast-forward production to staging and deploy. This PUBLISHES to the public site and the printed/QR'd bulletin. Only call when the user explicitly asks to promote / publish / go live.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       handler: async () => runEngine(["--promote"]),
+    },
+    {
+      name: "ward_program_send_email",
+      description:
+        "Send the weekly bulletin email for the PUBLISHED program (LCR broadcast to all members plus the supplemental Gmail send). Takes a few minutes. Refuses if the draft has unpublished changes or the email already went out for that week unless force is true. ONLY call when the user or portal explicitly asks to send the email.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          by: { type: "string", description: "Who explicitly asked to send the weekly bulletin email." },
+          force: { type: "boolean", description: "Resend even if the email already went out for this week; use only when explicitly requested." },
+        },
+        required: ["by"],
+        additionalProperties: false,
+      },
+      handler: async (input) => {
+        const args = [`--by=${String(input?.by ?? "")}`];
+        if (input?.force === true) args.push("--force");
+        return runScript("scripts/send-email.mjs", args);
+      },
     },
   ];
 }

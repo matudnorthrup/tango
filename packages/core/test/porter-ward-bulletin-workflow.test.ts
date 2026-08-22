@@ -102,6 +102,9 @@ describe("Porter ward bulletin workflow", () => {
       },
     });
 
+    const wardProgramServer = config.mcpServers.find((server) => server.name === "ward-program");
+    expect(wardProgramServer?.env?.ALLOWED_TOOL_IDS).toContain("ward_program_send_email");
+
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-porter-bulletin-"));
     tempDirs.push(dir);
     const storage = new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster: true });
@@ -112,6 +115,7 @@ describe("Porter ward bulletin workflow", () => {
 
     expect(checker.hasPermission("worker:study-assistant", "gog_email", "read")).toBe(true);
     expect(checker.hasPermission("worker:study-assistant", "gog_email", "write")).toBe(false);
+    expect(checker.hasPermission("worker:study-assistant", "ward_program_send_email", "write")).toBe(true);
 
     db.close();
   });
