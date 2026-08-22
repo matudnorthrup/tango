@@ -2285,8 +2285,8 @@ describe("context usage snapshots (T-I-035)", () => {
     const db = new DatabaseSync(path.join(dir, "tango.sqlite"));
     try {
       const version = db.prepare("PRAGMA user_version;").get() as { user_version: number };
-      // Bump alongside the newest entry in MIGRATIONS (75 = Victor's notion grant).
-      expect(version.user_version).toBe(75);
+      // Bump alongside the newest entry in MIGRATIONS (76 = ward_program_send_email grant).
+      expect(version.user_version).toBe(76);
       const table = db
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'context_usage_snapshots'")
         .get() as { name?: string } | undefined;
