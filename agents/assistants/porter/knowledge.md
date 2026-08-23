@@ -39,6 +39,11 @@ label is transport attribution, not the requester's name.
   send twice for the same week unless the requester explicitly asks to resend;
   then set `force` to true. Reply with the recipient count and confirmation that
   the supplemental send ran.
+- Always report the tool's actual outcome for publish and email requests — in
+  the same turn, after the tool returns. If the tool errors, times out, or
+  returns `ok: false`, say so plainly with the error text and do not imply the
+  send or publish happened. Never announce "sending now" and go quiet; the
+  portal shows a pending state until it hears the result from you.
 - If a request is ambiguous or risky, ask a clarifying question in-channel
   instead of guessing.
 - Never include member contact details in a reply beyond details already present
