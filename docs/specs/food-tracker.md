@@ -254,20 +254,31 @@ appear, the fallback is the tango-state pattern (UI writes proxied through a
 thin bot-hosted HTTP API); the UI's data layer should be one module so that
 swap is cheap.
 
-Pages:
+Pages (shape validated via interactive mockup with Devin, 2026-09-03):
 
-1. **Ingredients** — products with macros/serving, grams/serving, current
-   price, price/serving, linked listing(s), price sparkline, FatSecret link
-   status, stale-price badge (>14 days since last observation).
+1. **Ingredients** — table of products with full macros/serving (calories,
+   protein, **fat**, fiber), grams/serving, current price, price/serving,
+   freshness badge (>14 days stale). Each row opens a **detail page**: full
+   macro panel (incl. carbs), FatSecret mapping + audit status, all listings
+   (preferred + alternates, $/container comparison), the item's price-history
+   chart, manual price entry for Amazon listings, used-in-recipes list with
+   per-recipe cost contribution, and a re-scan action. Item-level price
+   history lives here, not on a separate page.
 2. **Recipes** — ingredient rows (grams + display quantity), live per-serving
    macro/cost rollup while editing; flag ingredients with no price or no
-   FatSecret mapping.
+   FatSecret mapping (cost shown as a floor when any ingredient is unpriced).
 3. **Planner** — day grid of meal slots filled from recipes; per-day cost,
    cost/person, calories/protein/fiber/fat vs. simple targets.
 4. **Shopping list** — per plan: containers to buy with prices and total;
-   button to push items into Foxtrot's Walmart queue (Phase 4).
-5. **Prices** — price history table/chart per listing; manual price entry for
-   Amazon items; last-scan status.
+   button to push items into Foxtrot's Walmart queue (Phase 4);
+   pantry-exclusion for staples that haven't run out.
+5. **Trends** — the "is this working?" page (replaces the earlier flat
+   Prices page, which duplicated the ingredient list at item level):
+   weekly grocery spend vs. budget target, spend/person/day vs. planned
+   cost/person/day, average cost per meal by slot, protein/fiber
+   per-person-per-day weekly trends vs. targets, biggest price movers from
+   the last scan, and the scan status line (items read/skipped, store
+   verification). Sources: `price_history`, `meal_log`, `plan_summary`.
 
 Live refresh: v1 polls with TanStack Query staleness (SQLite has no
 `pg_notify`); SSE only if it earns its keep later.
