@@ -254,6 +254,11 @@ appear, the fallback is the tango-state pattern (UI writes proxied through a
 thin bot-hosted HTTP API); the UI's data layer should be one module so that
 swap is cheap.
 
+Pages (shape validated via interactive mockup with Devin, 2026-09-03).
+Universal convention: **every ingredient or recipe name, anywhere in the app,
+is a link to that entity's page** — recipe ingredient rows, planner slots,
+shopping-list rows, trend movers, used-in lists. No dead entity names.
+
 Pages (shape validated via interactive mockup with Devin, 2026-09-03):
 
 1. **Ingredients** — table of products with full macros/serving (calories,
