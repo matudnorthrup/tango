@@ -278,6 +278,7 @@ import { StateLifecycleRunner } from "./state-lifecycle.js";
 import { StateSchedulerAdapter } from "./state-scheduler-adapter.js";
 import { StateProjectionRunner } from "./state-projection.js";
 import { installStateTypePacks } from "./state-type-packs.js";
+import { ensureWellnessDb } from "./wellness-db-migrations.js";
 import {
   buildV2EnabledAgentSet,
   buildV2RuntimeConfigs,
@@ -802,6 +803,16 @@ if (stateTypePackConfigs.length > 0) {
   for (const failed of stateTypePackReport.packs.filter((pack) => pack.status === "failed")) {
     console.warn(`[tango-state] type-pack '${failed.packId}' failed atomically: ${failed.error}`);
   }
+}
+try {
+  const wellnessReport = ensureWellnessDb();
+  if (wellnessReport.created || wellnessReport.fromVersion !== wellnessReport.toVersion) {
+    console.log(
+      `[wellness-db] ${wellnessReport.created ? "materialized" : "migrated"} ${wellnessReport.path} (v${wellnessReport.fromVersion} → v${wellnessReport.toVersion})`,
+    );
+  }
+} catch (error) {
+  console.warn(`[wellness-db] ensure failed (wellnessdb tools may be unavailable): ${String(error)}`);
 }
 const attachmentStore = new AttachmentStore(storage.getDatabase());
 const attachmentDataDir = resolveTangoDataDir();

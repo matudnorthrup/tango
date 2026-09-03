@@ -355,13 +355,15 @@ function recalculateRecipeTotals(db: DatabaseSync, recipeId: number): void {
     protein_g: number | null;
     carbs_g: number | null;
     fat_g: number | null;
+    fiber_g: number | null;
   }>(
     db,
     `SELECT
        COALESCE(SUM(calories), 0) AS calories,
        COALESCE(SUM(protein_g), 0) AS protein_g,
        COALESCE(SUM(carbs_g), 0) AS carbs_g,
-       COALESCE(SUM(fat_g), 0) AS fat_g
+       COALESCE(SUM(fat_g), 0) AS fat_g,
+       COALESCE(SUM(fiber_g), 0) AS fiber_g
      FROM recipe_ingredients
      WHERE recipe_id = ?`,
     [recipeId],
@@ -369,13 +371,14 @@ function recalculateRecipeTotals(db: DatabaseSync, recipeId: number): void {
   db.prepare(
     `UPDATE recipes
      SET total_calories = ?, total_protein_g = ?, total_carbs_g = ?, total_fat_g = ?,
-         updated_at = datetime('now')
+         total_fiber_g = ?, updated_at = datetime('now')
      WHERE id = ?`,
   ).run(
     Math.round(totals?.calories ?? 0),
     totals?.protein_g ?? 0,
     totals?.carbs_g ?? 0,
     totals?.fat_g ?? 0,
+    totals?.fiber_g ?? 0,
     recipeId,
   );
 }
