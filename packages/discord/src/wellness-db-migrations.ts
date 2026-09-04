@@ -16,6 +16,8 @@
  *   3 — product_listings.retailer accepts 'costco' and 'other' (table rebuild)
  *   4 — recipes.archived_at: retire recipes without deleting (products use
  *       discontinued_date for the same purpose)
+ *   5 — recipe_cost rolls one level of sub-recipe cost into the parent
+ *       (component batch cost ÷ yield_g × grams used)
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -23,7 +25,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createWellnessDbSchema, resolveWellnessDbPath } from "./wellness-db-tools.js";
 
-export const WELLNESS_DB_VERSION = 4;
+export const WELLNESS_DB_VERSION = 5;
 
 export interface EnsureWellnessDbReport {
   path: string;
@@ -185,19 +187,36 @@ function createFoodTrackerViews(db: DatabaseSync): void {
       LIMIT 1
     );
 
-    DROP VIEW IF EXISTS recipe_cost;
-    CREATE VIEW recipe_cost AS
+    DROP VIEW IF EXISTS recipe_base_cost;
+    CREATE VIEW recipe_base_cost AS
     SELECT
       r.id AS recipe_id,
-      SUM(ri.quantity_g * pp.price_per_gram) AS total_cost,
-      CASE WHEN r.servings > 0
-           THEN SUM(ri.quantity_g * pp.price_per_gram) / r.servings END AS cost_per_serving,
-      SUM(CASE WHEN ri.quantity_g IS NULL OR pp.price_per_gram IS NULL
-               THEN 1 ELSE 0 END) AS unpriced_ingredients
+      r.servings,
+      r.yield_g,
+      SUM(ri.quantity_g * pp.price_per_gram) AS product_cost,
+      SUM(CASE WHEN ri.sub_recipe_id IS NULL AND (ri.quantity_g IS NULL OR pp.price_per_gram IS NULL)
+               THEN 1 ELSE 0 END) AS unpriced_products
     FROM recipes r
-    LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+    LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id AND ri.sub_recipe_id IS NULL
     LEFT JOIN product_price pp ON pp.product_id = ri.product_id
     GROUP BY r.id;
+
+    DROP VIEW IF EXISTS recipe_cost;
+    CREATE VIEW recipe_cost AS
+    -- One level of nesting: a component recipe's batch cost ÷ its yield_g
+    -- gives a per-gram cost, applied to the grams the parent uses.
+    SELECT
+      b.recipe_id,
+      COALESCE(b.product_cost, 0) + COALESCE(SUM(sri.quantity_g * sb.product_cost / NULLIF(sb.yield_g, 0)), 0) AS total_cost,
+      CASE WHEN b.servings > 0
+           THEN (COALESCE(b.product_cost, 0) + COALESCE(SUM(sri.quantity_g * sb.product_cost / NULLIF(sb.yield_g, 0)), 0)) / b.servings END AS cost_per_serving,
+      COALESCE(b.unpriced_products, 0)
+        + COALESCE(SUM(CASE WHEN sri.id IS NOT NULL AND (sri.quantity_g IS NULL OR sb.product_cost IS NULL OR sb.yield_g IS NULL OR sb.yield_g = 0)
+                            THEN 1 ELSE 0 END), 0) AS unpriced_ingredients
+    FROM recipe_base_cost b
+    LEFT JOIN recipe_ingredients sri ON sri.recipe_id = b.recipe_id AND sri.sub_recipe_id IS NOT NULL
+    LEFT JOIN recipe_base_cost sb ON sb.recipe_id = sri.sub_recipe_id
+    GROUP BY b.recipe_id;
 
     DROP VIEW IF EXISTS recipe_summary;
     CREATE VIEW recipe_summary AS
@@ -289,7 +308,7 @@ function applyRetailerMigration(db: DatabaseSync): void {
   // price_history's FK would fail the DROP while rows exist; ensureWellnessDb
   // disables foreign_keys around the migration transaction (SQLite's
   // documented rebuild procedure) and runs foreign_key_check before COMMIT.
-  for (const view of ['shopping_list', 'plan_summary', 'recipe_summary', 'recipe_cost', 'product_price', 'product_current_price']) {
+  for (const view of ['shopping_list', 'plan_summary', 'recipe_summary', 'recipe_cost', 'recipe_base_cost', 'product_price', 'product_current_price']) {
     db.exec(`DROP VIEW IF EXISTS ${view}`);
   }
   db.exec(`
@@ -354,6 +373,10 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
       if (version < 4) {
         addColumnIfMissing(db, "recipes", "archived_at", "TEXT");
         version = 4;
+      }
+      if (version < 5) {
+        createFoodTrackerViews(db);
+        version = 5;
       }
       setUserVersion(db, version);
       const violations = db.prepare("PRAGMA foreign_key_check").all();

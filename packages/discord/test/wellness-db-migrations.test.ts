@@ -197,6 +197,33 @@ describe("ensureWellnessDb", () => {
     check.close();
   });
 
+  it("rolls a component recipe's cost into the parent by grams used", () => {
+    const dbPath = tempDbPath();
+    ensureWellnessDb(dbPath);
+    const db = new DatabaseSync(dbPath);
+    // yogurt: $3.00 per 900g → $0.003333/g
+    db.prepare("INSERT INTO products (id, name, grams_per_serving) VALUES (1, 'Yogurt', 150)").run();
+    db.prepare("INSERT INTO product_listings (id, product_id, retailer, package_grams, servings_per_container, preferred) VALUES (1, 1, 'walmart', 900, 6, 1)").run();
+    db.prepare("INSERT INTO price_history (listing_id, price) VALUES (1, 3.00)").run();
+    // crema: 35g yogurt → 50g batch = $0.1167/batch → $0.002333/g
+    db.prepare("INSERT INTO recipes (id, name, servings, yield_g) VALUES (10, 'Crema', 1, 50)").run();
+    db.prepare("INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity_g) VALUES (10, 1, 'Yogurt', 35)").run();
+    // salad: 100g yogurt directly + 50g of crema, 2 servings
+    db.prepare("INSERT INTO recipes (id, name, servings) VALUES (20, 'Salad', 2)").run();
+    db.prepare("INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity_g) VALUES (20, 1, 'Yogurt', 100)").run();
+    db.prepare("INSERT INTO recipe_ingredients (recipe_id, sub_recipe_id, ingredient_name, quantity_g) VALUES (20, 10, 'Crema', 50)").run();
+    const row = db.prepare("SELECT total_cost, cost_per_serving, unpriced_ingredients FROM recipe_cost WHERE recipe_id = 20").get() as { total_cost: number; cost_per_serving: number; unpriced_ingredients: number };
+    // 100g × 0.003333 = 0.3333 ; crema 50g × (0.1167/50) = 0.1167 → 0.45 total, 0.225/srv
+    expect(row.total_cost).toBeCloseTo(0.45, 3);
+    expect(row.cost_per_serving).toBeCloseTo(0.225, 3);
+    expect(row.unpriced_ingredients).toBe(0);
+    // a component with no yield counts as unpriced rather than silently $0
+    db.prepare("UPDATE recipes SET yield_g = NULL WHERE id = 10").run();
+    const noYield = db.prepare("SELECT unpriced_ingredients FROM recipe_cost WHERE recipe_id = 20").get() as { unpriced_ingredients: number };
+    expect(noYield.unpriced_ingredients).toBe(1);
+    db.close();
+  });
+
   it("recipe writes touch updated_at without error on a fresh DB", () => {
     // recalculateRecipeTotals writes recipes.updated_at, which the base v1
     // schema never created; v2 adds it. Guard against regression.
