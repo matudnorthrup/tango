@@ -68,8 +68,17 @@ function applyFoodTrackerMigration(db: DatabaseSync): void {
   // recalculateRecipeTotals writes recipes.updated_at, which the base schema
   // never created — every recipe write on a freshly materialized DB threw.
   addColumnIfMissing(db, "recipes", "updated_at", "TEXT");
+  // yield_g: batch output in grams; set on component recipes (e.g. a sauce)
+  // so other recipes can use them by the gram — per-gram macros/cost are
+  // batch totals / yield_g.
+  addColumnIfMissing(db, "recipes", "yield_g", "REAL");
   addColumnIfMissing(db, "recipe_ingredients", "quantity_g", "REAL");
   addColumnIfMissing(db, "recipe_ingredients", "fiber_g", "REAL");
+  // sub_recipe_id: nested recipes — an ingredient row may reference another
+  // recipe instead of a product. Rollups recurse in application code
+  // (recalculateRecipeTotals and the UI), which must reject cycles at write
+  // time; the SQL views treat sub-recipe rows like any other macro/cost row.
+  addColumnIfMissing(db, "recipe_ingredients", "sub_recipe_id", "INTEGER REFERENCES recipes(id)");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS product_listings (

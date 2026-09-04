@@ -173,6 +173,9 @@ describe("ensureWellnessDb", () => {
     const cols = db.prepare("PRAGMA table_info(recipes)").all() as Array<{ name: string }>;
     expect(cols.map((c) => c.name)).toContain("updated_at");
     expect(cols.map((c) => c.name)).toContain("total_fiber_g");
+    expect(cols.map((c) => c.name)).toContain("yield_g");
+    const ricols = db.prepare("PRAGMA table_info(recipe_ingredients)").all() as Array<{ name: string }>;
+    expect(ricols.map((c) => c.name)).toContain("sub_recipe_id");
     db.close();
   });
 });
