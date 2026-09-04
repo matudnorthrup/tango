@@ -84,9 +84,15 @@ api.get('/recipes', (c) => {
   const showAll = c.req.query('all') === '1';
   const recipes = all(`
     SELECT rs.*, r.yield_g, r.archived_at,
+           CASE WHEN r.yield_g > 0 THEN ROUND(r.total_calories * 100.0 / r.yield_g) END AS per_100g_cal,
+           CASE WHEN r.yield_g > 0 THEN ROUND(r.total_protein_g * 100.0 / r.yield_g, 1) END AS per_100g_prot,
+           CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fat_g * 100.0 / r.yield_g, 1) END AS per_100g_fat,
+           CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fiber_g * 100.0 / r.yield_g, 1) END AS per_100g_fiber,
+           CASE WHEN r.yield_g > 0 THEN ROUND(rc.total_cost * 100.0 / r.yield_g, 2) END AS per_100g_cost,
            (SELECT count(*) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id) AS ingredient_count
     FROM recipe_summary rs
     JOIN recipes r ON r.id = rs.id
+    LEFT JOIN recipe_cost rc ON rc.recipe_id = rs.id
     ${showAll ? '' : 'WHERE r.archived_at IS NULL'}
     ORDER BY rs.name
   `);
@@ -111,24 +117,40 @@ api.post('/products/:id/archive', async (c) => {
 api.get('/recipes/:id', (c) => {
   const id = Number(c.req.param('id'));
   const recipe = one(
-    'SELECT rs.*, r.yield_g, r.archived_at FROM recipe_summary rs JOIN recipes r ON r.id = rs.id WHERE rs.id = ?',
+    `SELECT rs.*, r.yield_g, r.archived_at,
+            CASE WHEN r.yield_g > 0 THEN ROUND(r.total_calories * 100.0 / r.yield_g) END AS per_100g_cal,
+            CASE WHEN r.yield_g > 0 THEN ROUND(r.total_protein_g * 100.0 / r.yield_g, 1) END AS per_100g_prot,
+            CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fat_g * 100.0 / r.yield_g, 1) END AS per_100g_fat,
+            CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fiber_g * 100.0 / r.yield_g, 1) END AS per_100g_fiber,
+            CASE WHEN r.yield_g > 0 THEN ROUND(rc.total_cost * 100.0 / r.yield_g, 2) END AS per_100g_cost
+     FROM recipe_summary rs JOIN recipes r ON r.id = rs.id LEFT JOIN recipe_cost rc ON rc.recipe_id = rs.id WHERE rs.id = ?`,
     [id],
   );
   if (!recipe) return c.json({ error: 'not found' }, 404);
   const ingredients = all(
     `
-    SELECT ri.id, ri.ingredient_name, ri.quantity, ri.quantity_g, ri.calories, ri.protein_g,
-           ri.fiber_g, ri.product_id, ri.sub_recipe_id,
+    SELECT ri.id, ri.ingredient_name, ri.quantity, ri.quantity_g,
+           -- sub-recipe rows: macros derive from the component's batch totals ÷ yield × grams used
+           COALESCE(ri.calories, ROUND(ri.quantity_g * p.calories * 1.0 / NULLIF(p.grams_per_serving, 0)),
+                    ROUND(ri.quantity_g * sr.total_calories * 1.0 / NULLIF(sr.yield_g, 0))) AS calories,
+           COALESCE(ri.protein_g, ROUND(ri.quantity_g * p.protein_g / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_protein_g / NULLIF(sr.yield_g, 0), 1)) AS protein_g,
+           COALESCE(ri.fiber_g, ROUND(ri.quantity_g * p.fiber_g / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_fiber_g / NULLIF(sr.yield_g, 0), 1)) AS fiber_g,
+           ri.product_id, ri.sub_recipe_id,
            p.name AS product_name,
            sr.name AS sub_recipe_name,
            CASE WHEN ri.quantity_g IS NOT NULL AND pp.price_per_gram IS NOT NULL
-                THEN ROUND(ri.quantity_g * pp.price_per_gram, 2) END AS cost
+                THEN ROUND(ri.quantity_g * pp.price_per_gram, 2)
+                WHEN ri.quantity_g IS NOT NULL AND src.total_cost IS NOT NULL AND sr.yield_g > 0
+                THEN ROUND(ri.quantity_g * src.total_cost / sr.yield_g, 2) END AS cost
     FROM recipe_ingredients ri
     LEFT JOIN products p ON p.id = ri.product_id
     LEFT JOIN recipes sr ON sr.id = ri.sub_recipe_id
+    LEFT JOIN recipe_cost src ON src.recipe_id = ri.sub_recipe_id
     LEFT JOIN product_price pp ON pp.product_id = ri.product_id
     WHERE ri.recipe_id = ?
-    ORDER BY ri.calories DESC
+    ORDER BY 5 DESC
   `,
     [id],
   );
