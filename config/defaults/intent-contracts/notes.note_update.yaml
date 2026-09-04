@@ -19,4 +19,4 @@ examples:
   - Append this note to obsidian://open?vault=main&file=Planning%2FDaily%2F2026-05-23.
 classifier_hints:
   - Use for local or Obsidian note write/update requests outside Malibu recipe management.
-  - Prefer recipe.update for recipe notes and docs.google_doc_read_or_update for Google Docs.
+  - Prefer recipe.update for wellness.db recipes and docs.google_doc_read_or_update for Google Docs.

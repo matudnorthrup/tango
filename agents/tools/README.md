@@ -8,12 +8,11 @@ See [`docs/guides/agents-structure.md`](../../docs/guides/agents-structure.md) f
 
 | Doc | Tool IDs | Primary agents/domains | Paired skills |
 | --- | --- | --- | --- |
-| `atlas-sql.md` | `atlas_sql` | Malibu / nutrition | |
 | `fatsecret.md` | `fatsecret_api` | Malibu / nutrition | |
 | `nutrition-log-items.md` | `nutrition_log_items` | Malibu / nutrition | `food-logging.md` |
 | `health.md` | `health_query` | Malibu / health | `health-baselines.md` |
 | `workout-sql.md` | `workout_sql` | Malibu / workouts | |
-| `recipe.md` | `recipe_list`, `recipe_read`, `recipe_write` | Malibu / recipes | `recipe-format.md` |
+| `wellnessdb.md` | `wellnessdb_search_product`, `wellnessdb_search_recipe`, `wellnessdb_get_recipe_detail`, `wellnessdb_day_summary`, `wellnessdb_day_range`, `wellnessdb_recent_meals`, `wellnessdb_active_products`, `wellnessdb_add_recipe`, `wellnessdb_update_recipe` | Malibu / Jules wellness | `recipe-management.md`, `food-logging.md` |
 | `gog-email.md` | `gog_email` | Watson / email | |
 | `gog-calendar.md` | `gog_calendar` | Watson / calendar | |
 | `gog-docs.md` | `gog_docs` | Watson / docs | |

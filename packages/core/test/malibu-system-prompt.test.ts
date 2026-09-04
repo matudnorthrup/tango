@@ -53,7 +53,7 @@ describe("assembleSoulPrompt", () => {
     const user = readRepoFile("agents/shared/USER.md");
     const knowledge = readRepoFile("agents/assistants/malibu/knowledge.md");
     const fatsecretTool = readRepoFile("agents/tools/fatsecret.md");
-    const atlasTool = readRepoFile("agents/tools/atlas-sql.md");
+    const wellnessDbTool = readRepoFile("agents/tools/wellnessdb.md");
 
     const prompt = assembleSoulPrompt(config, { repoRoot });
     const v2Prompt = assembleV2SystemPrompt(config, { repoRoot });
@@ -71,6 +71,6 @@ describe("assembleSoulPrompt", () => {
     expect(prompt).not.toContain("dispatch_worker");
     expect(prompt).not.toContain("<worker-dispatch");
     expect(prompt).not.toContain(firstNonEmptyLine(fatsecretTool));
-    expect(prompt).not.toContain(firstNonEmptyLine(atlasTool));
+    expect(prompt).not.toContain(firstNonEmptyLine(wellnessDbTool));
   });
 });

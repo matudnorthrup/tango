@@ -55,9 +55,9 @@ describe("assembleAgentPrompt", () => {
     fs.writeFileSync(path.join(agentDir, "workers.md"), "watson workers");
     fs.mkdirSync(path.join(agentsDir, "tools"), { recursive: true });
     fs.mkdirSync(path.join(agentsDir, "skills"), { recursive: true });
-    fs.writeFileSync(path.join(agentsDir, "tools", "atlas-sql.md"), "atlas tool doc");
+    fs.writeFileSync(path.join(agentsDir, "tools", "wellnessdb.md"), "atlas tool doc");
     fs.writeFileSync(path.join(agentsDir, "tools", "fatsecret.md"), "fatsecret tool doc");
-    fs.writeFileSync(path.join(agentsDir, "skills", "recipe-format.md"), "recipe format skill");
+    fs.writeFileSync(path.join(agentsDir, "skills", "recipe-management.md"), "recipe format skill");
     fs.writeFileSync(path.join(agentsDir, "skills", "health-baselines.md"), "health baselines skill");
 
     const prompt = assembleAgentPrompt(agentDir, {

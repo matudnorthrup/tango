@@ -37,8 +37,8 @@ Read, write, list, and patch markdown files inside `agents/`.
 ```json
 {
   "operation": "write",
-  "path": "tools/atlas-sql.md",
-  "content": "# atlas_sql\n..."
+  "path": "tools/wellnessdb.md",
+  "content": "# wellnessdb\n..."
 }
 ```
 

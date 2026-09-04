@@ -2,7 +2,7 @@
 
 High-level nutrition diary logger for common meal writes.
 
-Use this as the default write path when the user already provided concrete foods and quantities and the items are likely to exist in Atlas. The tool resolves Atlas matches, derives FatSecret units, writes the diary entries, and refreshes the day in one transaction.
+Use this as the default write path when the user already provided concrete foods and quantities or a saved recipe name and servings. The tool resolves wellness.db products and recipes, derives FatSecret units, writes the diary entries, and refreshes the day in one transaction.
 
 ## Input
 
@@ -20,7 +20,7 @@ Use this as the default write path when the user already provided concrete foods
 
 ## Behavior
 
-- Atlas-backed first: resolves against the ingredient catalog before writing.
+- wellness.db first: resolves products and expands recipes, including nested components, before writing.
 - Transactional: writes the resolved items, then refreshes the diary once.
 - Safe by default: if `strict` is true, any unresolved item prevents all writes.
 - Honest fallback: unresolved items are returned explicitly instead of guessed.
@@ -28,14 +28,14 @@ Use this as the default write path when the user already provided concrete foods
 ## When To Use
 
 - Logging a simple meal or snack with specific quantities.
-- Logging recipe ingredients after you already expanded the recipe.
-- Fast common-case meal logging where Atlas coverage is likely.
+- Logging a recipe NAME with servings, or a component recipe name with grams; the tool expands ingredients itself.
+- Fast common-case meal logging where wellness.db coverage is likely.
 
 ## When Not To Use
 
 - You need raw FatSecret search results or serving metadata inspection.
 - The request is a repair/debug task for an earlier failed log.
-- The foods are not in Atlas and you need exploratory lookup.
+- The foods are not in wellness.db and you need exploratory lookup.
 
 Use `fatsecret_api` for those lower-level cases.
 

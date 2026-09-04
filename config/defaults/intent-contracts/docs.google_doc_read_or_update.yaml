@@ -19,4 +19,4 @@ examples:
   - Insert this summary into the meeting doc.
 classifier_hints:
   - Use for Google Doc read/update requests with a clear document target.
-  - Prefer notes.note_read for Obsidian notes and recipe.update or notes.note_update for local markdown notes.
+  - Prefer notes.note_read for Obsidian notes and recipe.update for wellness.db recipes, and notes.note_update for local markdown notes.

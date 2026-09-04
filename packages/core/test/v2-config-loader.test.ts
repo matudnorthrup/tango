@@ -75,7 +75,7 @@ describe("loadV2AgentConfig", () => {
     });
   });
 
-  it.each(["malibu", "malibu-ollama"])("exposes exactly the Phase A wellness DB tools to %s", (agent) => {
+  it.each(["malibu", "malibu-ollama"])("exposes exactly the wellness DB tools to %s", (agent) => {
     const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", `${agent}.yaml`));
     const server = config.mcpServers.find((entry) => entry.name === "wellness-db");
     expect(server).toMatchObject({ command: "node", args: ["packages/core/dist/mcp-proxy.js", "wellness-db"] });
@@ -85,7 +85,11 @@ describe("loadV2AgentConfig", () => {
       "wellnessdb_search_recipe", "wellnessdb_update_recipe",
     ]);
     expect(config.mcp?.defaultServers).toContain("wellness-db");
-    expect(config.mcpServers.map((entry) => entry.name)).toEqual(expect.arrayContaining(["atlas", "wellness", "fatsecret"]));
+    expect(config.mcpServers.map((entry) => entry.name)).toEqual(expect.arrayContaining(["wellness", "fatsecret"]));
+    expect(config.mcpServers.map((entry) => entry.name)).not.toContain("atlas");
+    const allowedTools = config.mcpServers.flatMap((entry) => entry.env?.ALLOWED_TOOL_IDS?.split(",") ?? []);
+    expect(allowedTools).not.toEqual(expect.arrayContaining(["atlas_sql"]));
+    for (const retired of ["recipe_list", "recipe_read", "recipe_write"]) expect(allowedTools).not.toContain(retired);
   });
 
   it("loads Victor as an operations agent with Linear and Obsidian access but no dev MCP surface", () => {

@@ -32,7 +32,9 @@ Reference these docs deliberately from agent prompts when a V2 agent needs the w
 | `receipt-logging.md` | `receipt_logging` | Foxtrot / finance | General-purpose Obsidian receipt file creation |
 | `session-save.md` | `session_save` | All agents | Three-layer save routing (thread file, daily log, Atlas); `/tango save` checklist |
 | `sinking-fund-reconciliation.md` | `sinking_fund_reconciliation` | Foxtrot / finance | Lunch Money and Obsidian workflow for SB-backed expense reconciliation |
-| `recipe-format.md` | `recipe_format` | Malibu / recipes | Recipe markdown structure and write rules |
+| `recipe-management.md` | `recipe_management` | Malibu / Jules recipes | wellness.db recipe and component management |
+| `food-logging.md` | `food_logging` | Malibu / nutrition | Resolve wellness.db recipes and products for FatSecret logging |
+| `nutrition-logging.md` | `nutrition_logging` | Jules / nutrition | wellness.db meal and supplement logging |
 | `remote-claude-sessions.md` | `remote_claude_sessions` | Watson / dev sessions | Spawn phone-controllable Claude Code sessions (confirmation rail, verbatim prompts) |
 | `transaction-categorization.md` | `transaction_categorization` | Foxtrot / finance | Lunch Money categorization, rules, splits |
 | `travel-routing.md` | `travel_routing` | Sierra / travel | Current-location, route-comparison, walking-route, and diesel-stop heuristics |

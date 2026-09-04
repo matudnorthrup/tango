@@ -1,7 +1,7 @@
 id: recipe.update
 domain: wellness
 display_name: Update Recipe
-description: Modify, rewrite, or update an existing recipe note.
+description: Modify, rewrite, or update an existing wellness.db recipe.
 mode: write
 route:
   kind: worker

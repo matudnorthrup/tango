@@ -10,45 +10,34 @@ Any time the user asks to log a meal, snack, or individual food items.
 
 Every food item must be resolved through this cascade before logging. Do not skip steps.
 
-### Step 1: Recipe check
+### Step 1: Find the recipe in wellness.db
 
-If the user names a dish that could be a saved recipe (e.g., "protein yogurt bowl," "chicken stir fry," "overnight oats"):
+If the user names a saved dish, use `wellnessdb_search_recipe` with the name,
+shorthand, or alias, then `wellnessdb_get_recipe_detail` for ingredients and
+servings. Recipes live in wellness.db; never read markdown notes. If no recipe
+matches, resolve the actual product with `wellnessdb_search_product`.
 
-1. Call `recipe_read` with the dish name.
-2. If a match is found, use the recipe's ingredient list as the items to log. Each ingredient line has a gram amount and often an Atlas-linked food_id.
-3. If no match is found, proceed to resolve the food as individual ingredients.
+### Step 2: Log by name and quantity
 
-### Step 2: High-level Atlas-backed logging
+1. Call `nutrition_log_items` with the recipe NAME and servings quantity, for example `{"name":"Yogurt bowl","quantity":"1 serving"}`. Component recipes can use their name and a gram quantity.
+2. The tool expands ingredients itself, including nested components. Do not pre-expand recipes. Concrete products and amounts can go in the same batch.
+3. For substitutions, name the actual product or recipe used instead. Resolve the actual amounts before logging; do not log the unchanged full recipe alongside replacement ingredients.
+4. If items are unresolved, resolve only those remaining items. If the tool returns a structural runtime error or `blocked` with no logged entries, stop and report the failure; do not retry with guessed or empty parameters.
 
-When you already have a concrete ingredient list with quantities:
+### Step 3: Product lookup for unresolved items
 
-1. Prefer `nutrition_log_items` as the primary write path.
-2. For named recipes, call `recipe_read`, expand the recipe into concrete ingredient items, then pass that full list to `nutrition_log_items` in one batch.
-3. If `nutrition_log_items` returns unresolved items, only then drop to the lower-level Atlas/FatSecret workflow for those remaining items.
-4. If `nutrition_log_items` returns a structural runtime error or `blocked` with no logged entries, stop and report that failure cleanly. Do not spray low-level `fatsecret_api` retries with guessed or empty params.
+1. Use `wellnessdb_search_product` by name or shorthand with `active_only: true`.
+2. Use stored FatSecret mappings and `grams_per_serving` for the actual product, then retry the unresolved item through `nutrition_log_items` with its resolved name and quantity.
+3. If multiple products match, choose only an unambiguous name/brand match; otherwise ask. Do not guess quantities or substitute a different product silently.
+4. A missing recipe yield, ambiguous component, or missing amount needs clarification, not FatSecret search.
 
-### Step 3: Atlas lookup (fallback for unresolved items)
+### Step 4: FatSecret search (last-resort fallback)
 
-For each ingredient or food item still unresolved after `nutrition_log_items`:
-
-1. Query `atlas_sql` — search by name, aliases, and brand:
-   ```sql
-   SELECT * FROM ingredients
-   WHERE name LIKE '%search_term%' OR aliases LIKE '%search_term%';
-   ```
-2. If Atlas returns a match with `food_id` and `serving_id`, use those IDs as the starting point for logging.
-3. If Atlas also has a trustworthy `grams_per_serving`, use it to convert the user's gram amount into `number_of_units` for portion-style servings such as `1 serving`, `1/2 cup`, or `1 large`.
-4. If the Atlas row uses a gram-based serving (`serving_size: 46g`, `84g`, `100 g`, etc.) or the serving semantics are otherwise unclear, call `fatsecret_api` with `method: "food_get"` for that `food_id` before writing so you can verify the serving metadata. Follow the serving semantics actually returned by FatSecret: raw gram servings (`measurement_description: g`) take raw grams in `number_of_units`, while portion-style servings take serving fractions.
-5. If Atlas has multiple matches, pick the one whose name/brand best fits the user's description. If genuinely ambiguous, report it as unresolved and ask.
-
-### Step 4: FatSecret search (fallback only)
-
-Only if Atlas has no match for an ingredient:
+Only for products with no FatSecret mapping in wellness.db (including products not found):
 
 1. Call `fatsecret_api` with `method: "foods_search"` using a specific search expression.
-2. Review results carefully — pick the entry whose name, brand, and serving size best match what the user described.
-3. If needed, call `food_get` to inspect serving details before logging.
-4. After logging, consider adding the ingredient to Atlas for next time (if it's something the user eats regularly).
+2. Match the actual name and brand, then call `food_get` to verify serving details.
+3. Use the verified mapping and serving metadata for the unresolved item only. Do not re-log items already confirmed by `nutrition_log_items`.
 
 ### Restaurant and branded calorie overrides
 
@@ -61,10 +50,10 @@ When the user gives an explicit calorie count for a restaurant or branded item:
 5. After the write, call `food_entries_get` and verify the refreshed diary entry before claiming success.
 6. Only stop for clarification if you cannot find a strong same-brand same-item match at all.
 
-### Step 5: Log to FatSecret
+### Step 5: Log unresolved fallback items to FatSecret
 
-For each resolved ingredient, call `food_entry_create` with:
-- `food_id` and `serving_id` from Atlas or FatSecret
+For each remaining resolved fallback item, call `food_entry_create` with:
+- `food_id` and `serving_id` from wellness.db or FatSecret
 - `number_of_units` computed from the user's stated amount and the serving's `grams_per_serving` or `metric_serving_amount`
 - Correct `meal` slot and `date`
 
@@ -88,14 +77,14 @@ If `fatsecret_api` returns a generic cancellation or other opaque failure while 
 
 ## Rules
 
-- **Never skip the cascade.** Use the batch logger first when you have concrete items, then Atlas/FatSecret fallback only for the unresolved remainder.
-- **Never fabricate food data.** If a food can't be found in Atlas or FatSecret, report it as unresolved. Do not invent calories, macros, food_ids, or serving_ids.
-- **Never guess gram conversions.** Use `grams_per_serving` from Atlas or `metric_serving_amount` from FatSecret to compute `number_of_units`. Do not estimate.
+- **Never skip the cascade.** Use the batch logger first when you have concrete items, then wellness.db lookup and FatSecret fallback only for the unresolved remainder.
+- **Never fabricate food data.** If a food can't be found in wellness.db or FatSecret, report it as unresolved. Do not invent calories, macros, food_ids, or serving_ids.
+- **Never guess gram conversions.** Use `grams_per_serving` from wellness.db or `metric_serving_amount` from FatSecret to compute `number_of_units`. Do not estimate.
 - **Verify serving shape before writes.** If the selected serving might be gram-denominated, inspect `food_get` first and follow the serving semantics FatSecret actually exposes. Raw gram servings take raw grams in `number_of_units`; portion-style servings take serving fractions.
 - **Preserve explicit restaurant calories.** If the user says a restaurant or branded item was `730 calories`, keep that calorie target by scaling the closest strong same-item FatSecret match instead of refusing the write or decomposing the meal.
 - **Do not claim an unverified write succeeded.** If FatSecret is unreachable, rejects the write, or diary refresh fails, return the attempted items as unconfirmed instead of logged.
 - **Cancelled connector calls are not receipts.** A cancelled `foods_search`, `food_get`, `food_entry_create`, or `food_entries_get` call means the lookup or write is unverified until a later successful FatSecret read confirms it.
-- **Batch efficiently.** If logging a recipe with 8 ingredients, run the Atlas query for all of them in one SQL call (using OR conditions) before falling back to individual FatSecret searches for any misses.
+- **Batch efficiently.** Pass recipe names and quantities together to `nutrition_log_items`; it expands and resolves their ingredients in one batch. Search individually only for unresolved products.
 
 ## Output
 

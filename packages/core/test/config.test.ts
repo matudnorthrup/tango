@@ -953,7 +953,7 @@ describe("loadWorkerConfigs", () => {
     fs.writeFileSync(path.join(workerPromptDir, "soul.md"), "recipe soul");
     fs.writeFileSync(path.join(workerPromptDir, "knowledge.md"), "recipe knowledge");
     fs.writeFileSync(path.join(dir, "agents", "tools", "recipe.md"), "recipe tool doc");
-    fs.writeFileSync(path.join(dir, "agents", "skills", "recipe-format.md"), "recipe skill doc");
+    fs.writeFileSync(path.join(dir, "agents", "skills", "recipe-management.md"), "recipe skill doc");
 
     fs.writeFileSync(
       path.join(dir, "workers", "recipe-librarian.yaml"),
@@ -964,7 +964,7 @@ describe("loadWorkerConfigs", () => {
         "  default: claude-oauth",
         "prompt_file: ../agents/workers/recipe-librarian/soul.md",
         "tool_contract_ids:",
-        "  - recipe_write",
+        "  - wellnessdb_update_recipe",
         "skill_doc_ids:",
         "  - recipe_format"
       ].join("\n")
@@ -973,7 +973,7 @@ describe("loadWorkerConfigs", () => {
     const workers = loadWorkerConfigs(dir);
     expect(workers[0]).toMatchObject({
       id: "recipe-librarian",
-      toolContractIds: ["recipe_write"],
+      toolContractIds: ["wellnessdb_update_recipe"],
       skillDocIds: ["recipe_format"],
       promptFile: path.join(workerPromptDir, "soul.md"),
     });
@@ -1076,8 +1076,8 @@ describe("loadWorkflowConfigs", () => {
         "confirmation_required: false",
         "handler: log_recipe_meal",
         "tool_contract_ids:",
-        "  - obsidian.recipe_notes.read",
-        "  - atlas.ingredients.lookup",
+        "  - wellnessdb.recipes.lookup",
+        "  - wellnessdb.ingredients.lookup",
         "  - fatsecret.log_food",
         "input_fields:",
         "  - recipe_query",
@@ -1106,8 +1106,8 @@ describe("loadWorkflowConfigs", () => {
       confirmationRequired: false,
       handler: "log_recipe_meal",
       toolContractIds: [
-        "obsidian.recipe_notes.read",
-        "atlas.ingredients.lookup",
+        "wellnessdb.recipes.lookup",
+        "wellnessdb.ingredients.lookup",
         "fatsecret.log_food",
       ],
       inputFields: ["recipe_query", "meal"],

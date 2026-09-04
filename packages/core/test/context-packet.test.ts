@@ -115,7 +115,7 @@ describe("buildContextPacket", () => {
               },
               toolCalls: [
                 {
-                  toolNames: ["obsidian.recipe_notes.read", "fatsecret.log_food"],
+                  toolNames: ["wellnessdb.recipes.lookup", "fatsecret.log_food"],
                 },
               ],
             },
@@ -133,7 +133,7 @@ describe("buildContextPacket", () => {
         recipe_query: "protein yogurt bowl",
         meal: "breakfast",
       },
-      toolNames: ["obsidian.recipe_notes.read", "fatsecret.log_food"],
+      toolNames: ["wellnessdb.recipes.lookup", "fatsecret.log_food"],
     });
     expect(packet.summary).toContain("Recent workflow activity captured in 1 turn");
   });
@@ -214,7 +214,7 @@ describe("renderContextPacket", () => {
               },
               toolCalls: [
                 {
-                  toolNames: ["obsidian.recipe_notes.read", "fatsecret.log_food"],
+                  toolNames: ["wellnessdb.recipes.lookup", "fatsecret.log_food"],
                 },
               ],
             },
@@ -227,7 +227,7 @@ describe("renderContextPacket", () => {
     expect(rendered).toContain("recent_workflow_outcomes");
     expect(rendered).toContain("workflow=wellness.log_recipe_meal");
     expect(rendered).toContain("worker=nutrition-logger");
-    expect(rendered).toContain("tools=obsidian.recipe_notes.read|fatsecret.log_food");
+    expect(rendered).toContain("tools=wellnessdb.recipes.lookup|fatsecret.log_food");
     expect(rendered).toContain("args=recipe_query|meal");
   });
 

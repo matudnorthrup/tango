@@ -78,7 +78,7 @@ describe("layered config loading", () => {
         "tools:",
         "  mode: allowlist",
         "  allowlist:",
-        "    - atlas_sql",
+        "    - wellnessdb_search_product",
         "    - memory_search",
       ].join("\n"),
     );

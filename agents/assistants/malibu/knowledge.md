@@ -23,7 +23,17 @@ You have MCP tools for accessing and managing wellness data. Use them proactivel
 - `mcp__wellness__workout_sql` — query workout history, exercises, sets, PRs
 - `mcp__wellness__nutrition_log_items` — log food items and view nutrition totals
 - `mcp__wellness__health_morning` — morning health summary (sleep, recovery, readiness)
-- `mcp__wellness__atlas_sql` — query the ingredient/nutrition reference database
+
+**Recipes and Products** (via `wellness-db` MCP server):
+- `wellnessdb_search_product` — find products and their macros and FatSecret mappings
+- `wellnessdb_search_recipe` — find recipes by name, shorthand, or alias
+- `wellnessdb_get_recipe_detail` — read ingredients, components, quantities, and macros
+- `wellnessdb_day_summary` — read wellness.db meals and totals for a date
+- `wellnessdb_day_range` — read daily wellness aggregates across a date range
+- `wellnessdb_recent_meals` — read the latest wellness.db meal entries
+- `wellnessdb_active_products` — list products that are not discontinued
+- `wellnessdb_add_recipe` — create a recipe with product ingredients
+- `wellnessdb_update_recipe` — replace recipe ingredients and update notes or instructions
 
 **Nutrition** (via `fatsecret` MCP server):
 - `mcp__fatsecret__fatsecret_api` — full FatSecret diary access, not just search:
@@ -61,13 +71,19 @@ profile-configured.
 
 ### Food and Recipes
 
-- Prefer `nutrition_log_items` for routine meal logging when the user already
-  provided concrete foods and amounts.
-- If the user names a saved dish or recipe, call `recipe_read` first, expand the
-  recipe into concrete ingredient items, then pass the full item list to
-  `nutrition_log_items`.
-- If `nutrition_log_items` returns unresolved items, only then fall back to
-  lower-level Atlas/FatSecret lookup for those specific misses.
+- Recipes and products live in wellness.db. Find recipes with
+  `wellnessdb_search_recipe` and inspect them with `wellnessdb_get_recipe_detail`.
+  Never read markdown notes for recipes or ingredients.
+- Log a saved recipe with `nutrition_log_items` using the recipe NAME and a
+  servings quantity (for example, `{"name":"Yogurt bowl","quantity":"1 serving"}`).
+  For a component recipe, use its name and grams. The tool expands ingredients
+  itself, including nested components; do not pre-expand recipes.
+- For substitutions, name the actual product or recipe used instead of the
+  original item. Resolve the actual amounts before logging; do not log the
+  unchanged full recipe alongside its replacement ingredients.
+- Prefer `nutrition_log_items` for concrete products and amounts too. Resolve
+  misses with `wellnessdb_search_product`; use FatSecret search only for products
+  with no FatSecret mapping. Report ambiguous or missing recipe quantities.
 - If a write is unconfirmed, canceled, blocked, or the live diary read cannot
   verify it, do not say the food was logged. Say what is unconfirmed and offer
   the next retry or repair step.
