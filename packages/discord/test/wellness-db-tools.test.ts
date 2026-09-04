@@ -4,10 +4,10 @@ import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  createWellnessDbSchema,
   createWellnessDbTools,
   wellnessDbToolLooksReadOnly,
 } from "../src/wellness-db-tools.js";
+import { ensureWellnessDb } from "../src/wellness-db-migrations.js";
 
 const tempFiles: string[] = [];
 
@@ -22,8 +22,8 @@ function makeToolMap(dbPath: string): Map<string, (input: Record<string, unknown
 }
 
 function seedTestDb(dbPath: string): void {
+  ensureWellnessDb(dbPath);
   const db = new DatabaseSync(dbPath);
-  createWellnessDbSchema(db);
   db.prepare(
     `INSERT INTO products (id, name, shorthand, calories, protein_g, carbs_g, fat_g)
      VALUES (1, 'Core Power Chocolate', 'core power', 170, 26, 8, 3),
