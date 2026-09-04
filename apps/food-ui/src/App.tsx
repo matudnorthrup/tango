@@ -15,15 +15,15 @@ export interface Nav {
 }
 
 const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'ingredients', label: 'Ingredients' },
   { key: 'recipes', label: 'Recipes' },
+  { key: 'ingredients', label: 'Ingredients' },
   { key: 'planner', label: 'Planner' },
   { key: 'shopping', label: 'Shopping list' },
   { key: 'trends', label: 'Trends' },
 ];
 
 export function App() {
-  const [tab, setTab] = useState<Tab>('ingredients');
+  const [tab, setTab] = useState<Tab>('recipes');
   const [productId, setProductId] = useState<number | null>(null);
   const [recipeId, setRecipeId] = useState<number | null>(null);
   const [planId, setPlanId] = useState<number | null>(null);

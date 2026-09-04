@@ -13,6 +13,7 @@
  *       grams_per_serving on products, canonical gram quantities on recipe
  *       ingredients, product_listings / price_history / meal_plans /
  *       meal_plan_entries / fatsecret_entry_links, and cost-aware views.
+ *   3 — product_listings.retailer accepts 'costco' and 'other' (table rebuild)
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -20,7 +21,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createWellnessDbSchema, resolveWellnessDbPath } from "./wellness-db-tools.js";
 
-export const WELLNESS_DB_VERSION = 2;
+export const WELLNESS_DB_VERSION = 3;
 
 export interface EnsureWellnessDbReport {
   path: string;
@@ -140,8 +141,11 @@ function applyFoodTrackerMigration(db: DatabaseSync): void {
       ON fatsecret_entry_links(date);
   `);
 
-  // Views. Dropped and recreated wholesale so re-running the migration (or a
-  // later version bump) always leaves the current definitions in place.
+  createFoodTrackerViews(db);
+}
+
+/** Views. Dropped and recreated wholesale so any migration can rebuild them. */
+function createFoodTrackerViews(db: DatabaseSync): void {
   db.exec(`
     DROP VIEW IF EXISTS product_current_price;
     CREATE VIEW product_current_price AS
@@ -277,6 +281,34 @@ function applyFoodTrackerMigration(db: DatabaseSync): void {
   `);
 }
 
+function applyRetailerMigration(db: DatabaseSync): void {
+  // SQLite can't alter a CHECK constraint: rebuild product_listings with the
+  // widened retailer set, preserving ids (price_history references them).
+  for (const view of ['shopping_list', 'plan_summary', 'recipe_summary', 'recipe_cost', 'product_price', 'product_current_price']) {
+    db.exec(`DROP VIEW IF EXISTS ${view}`);
+  }
+  db.exec(`
+    CREATE TABLE product_listings_v3 (
+      id INTEGER PRIMARY KEY,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      retailer TEXT NOT NULL CHECK(retailer IN ('walmart','amazon','costco','other')),
+      retailer_item_id TEXT,
+      url TEXT,
+      package_description TEXT,
+      package_grams REAL,
+      servings_per_container REAL,
+      active INTEGER NOT NULL DEFAULT 1,
+      preferred INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    INSERT INTO product_listings_v3 SELECT id, product_id, retailer, retailer_item_id, url, package_description,
+      package_grams, servings_per_container, active, preferred, created_at FROM product_listings;
+    DROP TABLE product_listings;
+    ALTER TABLE product_listings_v3 RENAME TO product_listings;
+  `);
+  createFoodTrackerViews(db);
+}
+
 /**
  * Materialize the wellness DB if absent and bring it to WELLNESS_DB_VERSION.
  * Safe to call from multiple processes (bot startup, food-ui server, scripts):
@@ -305,6 +337,10 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
       if (version < 2) {
         applyFoodTrackerMigration(db);
         version = 2;
+      }
+      if (version < 3) {
+        applyRetailerMigration(db);
+        version = 3;
       }
       setUserVersion(db, version);
       db.exec("COMMIT");
