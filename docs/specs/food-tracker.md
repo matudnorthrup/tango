@@ -396,5 +396,5 @@ Remaining defaults (non-blocking):
    the signed-in session's store.
 2. Price staleness threshold: 14 days for the UI badge.
 3. Weekly scan time: Sunday 05:30 (quiet, pre-deep-work).
-4. Named per-person macro targets (Devin vs Kalepo) are the expected v2 of
+4. Named per-person macro targets (per household member) are the expected v2 of
    the planner; per-meal servings keep the schema compatible.
