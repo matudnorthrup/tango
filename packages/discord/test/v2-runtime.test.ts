@@ -672,6 +672,45 @@ describe("createV2PostTurnHook", () => {
     );
   });
 
+  it("extracts with ollama when a claude-served agent keeps a DeepSeek extraction model", async () => {
+    // TGO-867: every claude-primary agent extracted with deepseek-v4-pro:cloud
+    // via the Claude CLI (unrecognized_model) from 2026-07-18 to 2026-09-04.
+    const extractAndStoreMemoriesImpl = vi.fn().mockResolvedValue(undefined);
+    const resolveProvider = vi.fn(() => ({ generate: vi.fn() }) as never);
+    const hook = createV2PostTurnHook({
+      v2Configs: new Map([
+        [
+          "malibu",
+          createV2Config(
+            "malibu",
+            { provider: "claude-code-v2" },
+            { postTurnExtraction: "enabled", extractionModel: "deepseek-v4-pro:cloud" },
+          ),
+        ],
+      ]),
+      atlasMemoryClient: { close: vi.fn() } as never,
+      resolveProvider,
+      extractAndStoreMemoriesImpl,
+    });
+
+    await hook({
+      conversationKey: "thread:thread-1",
+      agentId: "malibu",
+      userMessage: "Log my breakfast",
+      response: { text: "Logged.", durationMs: 20 },
+      channelId: "channel-1",
+      threadId: "thread-1",
+    });
+
+    expect(resolveProvider).toHaveBeenCalledWith("ollama");
+    expect(extractAndStoreMemoriesImpl).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ extractionProvider: "ollama", extractionModel: "deepseek-v4-pro:cloud" }),
+      expect.any(Object),
+      expect.any(Object),
+    );
+  });
+
   it("skips memory capture when the feature is disabled", async () => {
     const extractAndStoreMemoriesImpl = vi.fn().mockResolvedValue(undefined);
     const hook = createV2PostTurnHook({

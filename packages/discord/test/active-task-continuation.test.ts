@@ -103,11 +103,24 @@ function buildStorage(openTasks: ActiveTaskRecord[] = []): ActiveTaskStorage & {
 }
 
 describe("resolveActiveTaskContinuationSettings", () => {
-  it("defaults to enabled with memory extraction model and claude provider", () => {
-    const settings = resolveActiveTaskContinuationSettings(buildV2Config());
+  it("defaults to the claude provider for a claude extraction model", () => {
+    const config = buildV2Config();
+    config.memory = { ...config.memory, extractionModel: "claude-haiku-4-5" };
+    const settings = resolveActiveTaskContinuationSettings(config);
     expect(settings).toEqual({
       extractionProvider: "claude-oauth",
-      extractionModel: "memory-model",
+      extractionModel: "claude-haiku-4-5",
+    });
+  });
+
+  it("routes a non-claude extraction model to ollama even on a claude-served agent", () => {
+    // TGO-867: claude-primary agents kept deepseek for extraction after the
+    // 2026-07-18 flip; the serving backend must not decide the provider.
+    const config = buildV2Config();
+    config.memory = { ...config.memory, extractionModel: "deepseek-v4-pro:cloud" };
+    expect(resolveActiveTaskContinuationSettings(config)).toEqual({
+      extractionProvider: "ollama",
+      extractionModel: "deepseek-v4-pro:cloud",
     });
   });
 
@@ -332,7 +345,8 @@ describe("runActiveTaskPostTurn", () => {
       storage,
       context: buildContext(),
       v2Config: buildV2Config(),
-      resolveProvider: (name) => (name === "claude-oauth" ? provider : undefined),
+      // The fixture's "memory-model" is not a Claude id, so it routes to ollama.
+      resolveProvider: (name) => (name === "ollama" ? provider : undefined),
     });
 
     expect(generate).toHaveBeenCalledWith(

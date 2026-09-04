@@ -146,6 +146,7 @@ import {
 } from "./interstitial-log-capture.js";
 import { coerceWorkerReplyForDisplay } from "./worker-text-sanitizer.js";
 import { createV2RuntimeFailureRecovery } from "./v2-runtime-recovery.js";
+import { resolveExtractionProvider } from "./extraction-provider.js";
 import { z } from "zod";
 import {
   buildDefaultAccessPolicy,
@@ -1046,11 +1047,13 @@ const stateLifecycleRunner = new StateLifecycleRunner({
   projections: stateProjectionRunner,
   runSupersession: async () => {
     const config = v2Configs.get("watson-ollama") ?? v2Configs.get("watson") ?? [...v2Configs.values()][0];
-    const providerName = config?.state?.extractionProvider
-      ?? config?.memory.extractionProvider
-      ?? (config && isOllamaBackedAgent(config) ? "ollama" : "claude-oauth");
-    const provider = providerName ? providers.get(providerName) : undefined;
     const model = config?.state?.extractionModel ?? config?.memory.extractionModel;
+    const providerName = resolveExtractionProvider(
+      config,
+      config?.state?.extractionProvider ?? config?.memory.extractionProvider,
+      model,
+    );
+    const provider = providerName ? providers.get(providerName) : undefined;
     if (!provider || !model) return { candidates: 0, archived: 0, tagged: 0, unsure: 0, rejected: 0 };
     return runStateMemorySupersession({ service: stateService, atlas: atlasMemoryClient, provider, model });
   },
