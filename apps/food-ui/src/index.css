@@ -190,3 +190,29 @@ button.mini.x { border: 0; background: transparent; }
 .empty { color: var(--muted); font-size: 0.86rem; padding: 1.2rem; text-align: center; }
 .error { color: var(--stale-ink); background: var(--stale-bg); border-radius: 6px; padding: 0.5rem 0.8rem; font-size: 0.84rem; }
 footer { max-width: 1060px; margin: 0 auto; padding: 0.5rem 1.25rem 2.5rem; color: var(--muted); font-size: 0.76rem; }
+
+/* Recipes table: toolbar, filter drawer, sortable headers, clickable rows */
+.toolbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.toolbar input.grow { flex: 1 1 260px; min-width: 200px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button {
+  appearance: none; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600;
+  font-size: 0.8rem; padding: 0.38rem 0.7rem; cursor: pointer; border-right: 1px solid var(--rule);
+}
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--accent-soft); color: var(--accent-ink); }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.filters {
+  display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; padding: 0.7rem 0.9rem; align-items: flex-end;
+}
+.filters label { display: flex; flex-direction: column; gap: 0.25rem; }
+.filters label.check { flex-direction: row; align-items: center; gap: 0.4rem; padding-bottom: 0.4rem; }
+.filters .k { font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.filters input.short { width: 6.5rem; }
+table.recipes thead th.sortable { cursor: pointer; user-select: none; }
+table.recipes thead th.sortable:hover { color: var(--ink); }
+table.recipes thead th.on { color: var(--accent-ink); }
+table.recipes thead th .arrow { font-size: 0.6rem; margin-left: 0.3rem; }
+table.recipes tbody tr.row { cursor: pointer; }
+table.recipes tbody tr.row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+table.recipes td.empty { text-align: center; color: var(--muted); padding: 1.5rem; white-space: normal; }

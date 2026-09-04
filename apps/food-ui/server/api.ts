@@ -89,7 +89,17 @@ api.get('/recipes', (c) => {
            CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fat_g * 100.0 / r.yield_g, 1) END AS per_100g_fat,
            CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fiber_g * 100.0 / r.yield_g, 1) END AS per_100g_fiber,
            CASE WHEN r.yield_g > 0 THEN ROUND(rc.total_cost * 100.0 / r.yield_g, 2) END AS per_100g_cost,
-           (SELECT count(*) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id) AS ingredient_count
+           (SELECT count(*) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id) AS ingredient_count,
+           -- searchable text for the recipes table: every row's display name plus the linked
+           -- product / component name, and the recipe's aliases
+           (SELECT group_concat(DISTINCT COALESCE(p.name, sr.name, ri.ingredient_name))
+              FROM recipe_ingredients ri
+              LEFT JOIN products p ON p.id = ri.product_id
+              LEFT JOIN recipes sr ON sr.id = ri.sub_recipe_id
+             WHERE ri.recipe_id = rs.id) AS ingredient_names,
+           (SELECT group_concat(DISTINCT ri.ingredient_name) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id) AS ingredient_labels,
+           (SELECT group_concat(alias, ', ') FROM recipe_aliases ra WHERE ra.recipe_id = rs.id) AS aliases,
+           (SELECT count(*) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id AND ri.sub_recipe_id IS NOT NULL) AS component_count
     FROM recipe_summary rs
     JOIN recipes r ON r.id = rs.id
     LEFT JOIN recipe_cost rc ON rc.recipe_id = rs.id

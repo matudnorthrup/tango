@@ -47,7 +47,15 @@ export function App() {
       </header>
       <nav className="tabs">
         {TABS.map((t) => (
-          <button key={t.key} className={tab === t.key ? 'on' : ''} onClick={() => setTab(t.key)}>
+          <button
+            key={t.key}
+            className={tab === t.key ? 'on' : ''}
+            onClick={() => {
+              // Re-clicking the Recipes tab from a recipe page returns to the table.
+              if (t.key === 'recipes' && tab === 'recipes') setRecipeId(null);
+              setTab(t.key);
+            }}
+          >
             {t.label}
           </button>
         ))}
