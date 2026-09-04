@@ -19,6 +19,8 @@ export interface NutritionLogItemsDeps {
   fatsecretBatchCall?(
     calls: Array<{ method: string; params?: Record<string, unknown> }>,
   ): Promise<Array<{ ok: boolean; result?: unknown; error?: string }>>;
+  /** Injectable delay for transient-error retries (tests pass a no-op). */
+  sleep?(ms: number): Promise<void>;
 }
 
 interface ProductRow {
@@ -80,7 +82,42 @@ const NUMBER_WORD_VALUES: Record<string, number> = {
   twelve: 12,
 };
 
-const FATSECRET_WRITE_CONCURRENCY = 4;
+// FatSecret rejects bursts of concurrent writes with "Error 1: An unknown
+// error occurred: please try again later" (seen live 2026-09-04 logging an
+// 11-entry day at concurrency 4: two of six breakfast writes bounced). Keep the
+// burst small and retry the transient failures ourselves so a recipe log lands
+// whole — a model-driven retry re-logs the items as bare products and loses
+// the recipe link rows.
+const FATSECRET_WRITE_CONCURRENCY = 2;
+const FATSECRET_TRANSIENT_RETRY_DELAYS_MS = [800, 1600];
+const FATSECRET_TRANSIENT_ERROR_RE =
+  /please try again later|an unknown error occurred|\bError 1\b|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|rate limit|\b(?:429|500|502|503|504)\b/iu;
+
+export function isTransientFatSecretError(detail: string): boolean {
+  return FATSECRET_TRANSIENT_ERROR_RE.test(detail);
+}
+
+async function fatsecretCallWithTransientRetry(
+  deps: NutritionLogItemsDeps,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  let attempt = 0;
+  while (true) {
+    try {
+      return await deps.fatsecretCall(method, params);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const delay = FATSECRET_TRANSIENT_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !isTransientFatSecretError(detail)) {
+        throw error;
+      }
+      attempt += 1;
+      await sleep(delay);
+    }
+  }
+}
 const PRODUCT_PACKAGE_FALLBACK_UNITS = new Set(["bag", "pack", "package", "packet", "pouch"]);
 
 export async function executeNutritionLogItems(
@@ -461,7 +498,7 @@ async function writeEntriesViaIndividualCalls(
     FATSECRET_WRITE_CONCURRENCY,
     async (plannedEntry) => {
       try {
-        const output = await deps.fatsecretCall("food_entry_create", {
+        const output = await fatsecretCallWithTransientRetry(deps, "food_entry_create", {
           food_id: plannedEntry.foodId,
           food_entry_name: plannedEntry.foodEntryName,
           serving_id: plannedEntry.servingId,

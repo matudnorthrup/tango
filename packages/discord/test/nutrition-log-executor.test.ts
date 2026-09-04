@@ -1278,3 +1278,74 @@ describe("wellness.db recipe expansion", () => {
     expect(result).toMatchObject({ totals: { calories: 95, totals_source: "mixed" } });
   });
 });
+
+describe("transient FatSecret write failures", () => {
+  const transientError =
+    'Command failed: python fatsecret-api.py food_entry_create ({"error": "Error 1: An unknown error occurred: please try again later"})';
+
+  it("retries a 'try again later' write in-process and keeps every recipe link", async () => {
+    const deps = recipeFixture();
+    let bounced = false;
+    let id = 0;
+    deps.fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method !== "food_entry_create") return [];
+      if (params.food_id === "101" && !bounced) {
+        bounced = true;
+        throw new Error(transientError);
+      }
+      return { success: true, food_entry_id: String(++id) };
+    });
+    const sleeps: number[] = [];
+    const result = await executeNutritionLogItems(recipeInput("power salad", "2 servings"), {
+      ...deps,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+    expect(result).toMatchObject({ status: "confirmed", errors: [], link_warnings: [] });
+    expect(result.logged).toHaveLength(2);
+    expect(sleeps).toEqual([800]);
+    expect(deps.fatsecretCall.mock.calls.filter(([method]) => method === "food_entry_create")).toHaveLength(3);
+    const db = new DatabaseSync(deps.wellnessDbPath, { readOnly: true });
+    try {
+      expect(db.prepare("SELECT recipe_id, food_entry_id FROM fatsecret_entry_links ORDER BY food_entry_id").all())
+        .toEqual([{ recipe_id: 10, food_entry_id: "1" }, { recipe_id: 10, food_entry_id: "2" }]);
+    } finally { db.close(); }
+  });
+
+  it("stops after the retry budget and reports the failed item", async () => {
+    const deps = recipeFixture();
+    let id = 0;
+    deps.fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method !== "food_entry_create") return [];
+      if (params.food_id === "101") throw new Error(transientError);
+      return { success: true, food_entry_id: String(++id) };
+    });
+    const sleeps: number[] = [];
+    const result = await executeNutritionLogItems(recipeInput("power salad", "2 servings"), {
+      ...deps,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+    expect(result.status).toBe("partial_success");
+    expect(result.errors).toEqual([expect.stringContaining("FatSecret write for Yogurt failed")]);
+    expect(result.logged).toHaveLength(1);
+    expect(sleeps).toEqual([800, 1600]);
+    expect(deps.fatsecretCall.mock.calls.filter(([method, params]) => method === "food_entry_create" && params.food_id === "101"))
+      .toHaveLength(3);
+  });
+
+  it("does not retry non-transient write errors", async () => {
+    const deps = recipeFixture();
+    deps.fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      if (method !== "food_entry_create") return [];
+      if (params.food_id === "101") throw new Error('({"error": "Error 106: Invalid ID: serving_id"})');
+      return { success: true, food_entry_id: "9" };
+    });
+    const sleeps: number[] = [];
+    const result = await executeNutritionLogItems(recipeInput("power salad", "2 servings"), {
+      ...deps,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+    expect(result.status).toBe("partial_success");
+    expect(sleeps).toEqual([]);
+    expect(deps.fatsecretCall.mock.calls.filter(([method]) => method === "food_entry_create")).toHaveLength(2);
+  });
+});
