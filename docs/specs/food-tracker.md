@@ -48,7 +48,7 @@ One store, four surfaces:
                             │           │           │
               ┌─────────────┴──┐  ┌─────┴───────┐  ┌┴──────────────────┐
               │ wellnessdb_*   │  │ apps/food-ui│  │ walmart-price-scan│
-              │ MCP tools      │  │ :9350       │  │ weekly scheduler  │
+              │ MCP tools      │  │ :9360       │  │ weekly scheduler  │
               │ (agents, bot)  │  │ /tango-food │  │ handler (bot)     │
               └────────────────┘  └─────────────┘  └───────────────────┘
 ```
@@ -76,7 +76,7 @@ Decisions (each grounded in an existing repo precedent):
    page and appends to `price_history`. "Current price" is the latest
    observation, so trends come free.
 4. **The UI follows the workout-ui pattern exactly.** `apps/food-ui`,
-   Vite + React + Hono, loopback port **9350**, tailscale-serve path mount
+   Vite + React + Hono, loopback port **9360**, tailscale-serve path mount
    **`/tango-food`**, tmux window + `startup.yaml` block, card on the home
    directory page.
 5. **Shopping lists bridge into Foxtrot's existing Walmart queue** rather than
@@ -271,7 +271,7 @@ the weekly scan.
 
 Copy the workout-ui shape wholesale: workspace `@tango/food-ui`, Vite + React
 19 + Tailwind v4 + TanStack Query client (`base: '/tango-food/'`), Hono server
-on `127.0.0.1:9350` (`FOOD_UI_PORT/HOST/BASE_PATH` envs, base-path shim and
+on `127.0.0.1:9360` (`FOOD_UI_PORT/HOST/BASE_PATH` envs, base-path shim and
 loopback-only bind copied from `apps/workout-ui/server/main.ts`).
 
 DB access: `node:sqlite` on the profile `wellness.db` (WAL, busy_timeout
@@ -319,8 +319,8 @@ Live refresh: v1 polls with TanStack Query staleness (SQLite has no
 
 Hosting checklist (house pattern): tmux scripts
 `scripts/tmux/food-ui-{start,stop,restart,status}.sh`, root npm aliases,
-`config/defaults/startup.yaml` block with `tcp 127.0.0.1:9350` health check,
-`tailscale serve --bg --set-path /tango-food http://127.0.0.1:9350` (manual,
+`config/defaults/startup.yaml` block with `tcp 127.0.0.1:9360` health check,
+`tailscale serve --bg --set-path /tango-food http://127.0.0.1:9360` (manual,
 one-time — also added to the Obsidian post-outage checklist), card in
 `apps/home/index.html`, README in workout-ui's section order. Wire the app
 into root `build`/`test` chains (kilo-style) so CI compiles it.
@@ -371,7 +371,7 @@ Goal: confidence that FatSecret logging matches planned recipes.
 1. **Foundation** — materialize wellness.db, v2 migration, atlas.db
    ingredient migration + audit, Walmart item-ID/servings backfill.
 2. **Food UI** — `apps/food-ui` with Ingredients/Recipes/Planner/Shopping
-   list/Prices, hosted at `/tango-food` (9350), reboot-safe.
+   list/Prices, hosted at `/tango-food` (9360), reboot-safe.
 3. **Automation** — weekly Walmart price scan + staleness surfacing; manual
    Amazon entry.
 4. **Integration** — FatSecret verification loop, shopping-list → Foxtrot

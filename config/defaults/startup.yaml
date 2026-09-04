@@ -222,7 +222,7 @@ services:
         - type: tmux-window
         - type: tcp
           host: 127.0.0.1
-          port: 9350
+          port: 9360
 
   - id: workout-ui
     name: Workout UI

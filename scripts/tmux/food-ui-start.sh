@@ -39,4 +39,4 @@ else
   tango_service_tmux new-session -d -s "$SESSION_NAME" -n "$WINDOW_NAME" -c "$APP_DIR" "$RUN_CMD"
 fi
 
-echo "Started Food UI in tmux target '${SESSION_NAME}:${WINDOW_NAME}' (port ${FOOD_UI_PORT:-9350})"
+echo "Started Food UI in tmux target '${SESSION_NAME}:${WINDOW_NAME}' (port ${FOOD_UI_PORT:-9360})"
