@@ -141,20 +141,20 @@ describe("ensureWellnessDb", () => {
     expect(recipe.per_serving_fiber).toBeCloseTo(3.5, 1);
     expect(recipe.unpriced_ingredients).toBe(0);
 
-    // Plan: 2 people, taco dinner ×2 servings each on day 0.
-    db.prepare("INSERT INTO meal_plans (id, name, people) VALUES (1, 'Test Week', 2)").run();
+    // Plan: taco dinner, 4 total portions on day 0 (servings are per-meal).
+    db.prepare("INSERT INTO meal_plans (id, name) VALUES (1, 'Test Week')").run();
     db.prepare(
-      "INSERT INTO meal_plan_entries (plan_id, day_index, meal, recipe_id, servings) VALUES (1, 0, 'dinner', 1, 2)",
+      "INSERT INTO meal_plan_entries (plan_id, day_index, meal, recipe_id, servings) VALUES (1, 0, 'dinner', 1, 4)",
     ).run();
 
     const plan = db
-      .prepare("SELECT calories, cost_per_person, cost_total FROM plan_summary WHERE plan_id = 1 AND day_index = 0")
-      .get() as { calories: number; cost_per_person: number; cost_total: number };
-    expect(plan.calories).toBe(440); // 2 servings × 220 cal/serving
-    expect(plan.cost_per_person).toBeCloseTo(0.32, 2);
+      .prepare("SELECT servings, calories, cost_total FROM plan_summary WHERE plan_id = 1 AND day_index = 0")
+      .get() as { servings: number; calories: number; cost_total: number };
+    expect(plan.servings).toBe(4);
+    expect(plan.calories).toBe(880); // 4 portions × 220 cal/serving
     expect(plan.cost_total).toBeCloseTo(0.64, 2);
 
-    // Shopping list: 2 servings × 2 people × 65g/recipe-serving = 260g → 1 can.
+    // Shopping list: 4 portions × 65g/recipe-serving = 260g → 1 can.
     const list = db
       .prepare("SELECT grams_needed, containers_to_buy, est_cost FROM shopping_list WHERE plan_id = 1 AND product_id = 1")
       .get() as { grams_needed: number; containers_to_buy: number; est_cost: number };

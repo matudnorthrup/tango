@@ -110,7 +110,6 @@ function applyFoodTrackerMigration(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS meal_plans (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
-      people REAL NOT NULL DEFAULT 1,
       start_date TEXT,
       notes TEXT,
       created_at TEXT DEFAULT (datetime('now'))
@@ -123,6 +122,8 @@ function applyFoodTrackerMigration(db: DatabaseSync): void {
       meal TEXT NOT NULL CHECK(meal IN ('breakfast','lunch','snack','dinner')),
       recipe_id INTEGER REFERENCES recipes(id),
       product_id INTEGER REFERENCES products(id),
+      -- total portions eaten at this meal (per-meal, not per-week: e.g.
+      -- dinner ×2 while a school-day lunch is ×1)
       servings REAL NOT NULL DEFAULT 1.0,
       CHECK (recipe_id IS NOT NULL OR product_id IS NOT NULL)
     );
@@ -221,14 +222,13 @@ function applyFoodTrackerMigration(db: DatabaseSync): void {
     SELECT
       mp.id AS plan_id,
       mp.name,
-      mp.people,
       e.day_index,
+      ROUND(SUM(e.servings)) AS servings,
       ROUND(SUM(e.servings * COALESCE(rs.per_serving_cal, p.calories, 0))) AS calories,
       ROUND(SUM(e.servings * COALESCE(rs.per_serving_prot, p.protein_g, 0)), 1) AS protein_g,
       ROUND(SUM(e.servings * COALESCE(rs.per_serving_fiber, p.fiber_g, 0)), 1) AS fiber_g,
       ROUND(SUM(e.servings * COALESCE(rs.per_serving_fat, p.fat_g, 0)), 1) AS fat_g,
-      ROUND(SUM(e.servings * COALESCE(rs.per_serving_cost, pp.price_per_serving)), 2) AS cost_per_person,
-      ROUND(SUM(e.servings * COALESCE(rs.per_serving_cost, pp.price_per_serving)) * mp.people, 2) AS cost_total
+      ROUND(SUM(e.servings * COALESCE(rs.per_serving_cost, pp.price_per_serving)), 2) AS cost_total
     FROM meal_plans mp
     JOIN meal_plan_entries e ON e.plan_id = mp.id
     LEFT JOIN recipe_summary rs ON rs.id = e.recipe_id
@@ -253,9 +253,8 @@ function applyFoodTrackerMigration(db: DatabaseSync): void {
       WHERE e.product_id IS NOT NULL
     ),
     totals AS (
-      SELECT n.plan_id, n.product_id, SUM(n.grams) * mp.people AS grams_needed
+      SELECT n.plan_id, n.product_id, SUM(n.grams) AS grams_needed
       FROM needs n
-      JOIN meal_plans mp ON mp.id = n.plan_id
       GROUP BY n.plan_id, n.product_id
     )
     SELECT
