@@ -207,6 +207,7 @@ describe("ensureWellnessDb", () => {
     expect(cols.map((c) => c.name)).toContain("updated_at");
     expect(cols.map((c) => c.name)).toContain("total_fiber_g");
     expect(cols.map((c) => c.name)).toContain("yield_g");
+    expect(cols.map((c) => c.name)).toContain("archived_at");
     const ricols = db.prepare("PRAGMA table_info(recipe_ingredients)").all() as Array<{ name: string }>;
     expect(ricols.map((c) => c.name)).toContain("sub_recipe_id");
     db.close();
