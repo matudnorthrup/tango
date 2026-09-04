@@ -14,6 +14,11 @@ interface RecipeRow {
   unpriced_ingredients: number | null;
   ingredient_count: number;
   yield_g: number | null;
+  per_100g_cal?: number | null;
+  per_100g_prot?: number | null;
+  per_100g_fat?: number | null;
+  per_100g_fiber?: number | null;
+  per_100g_cost?: number | null;
   instructions: string | null;
   notes: string | null;
   archived_at?: string | null;
@@ -96,7 +101,7 @@ export function Recipes({
               {rec.name} {rec.archived_at && <span className="pill none">archived</span>}
               <span className="sub num">
                 {rec.yield_g
-                  ? `component · ${rec.yield_g}g batch`
+                  ? `component · ${rec.per_100g_cal ?? '—'} cal · ${grams(rec.per_100g_prot)} P · ${money(rec.per_100g_cost)} per 100g`
                   : `${rec.per_serving_cal ?? '—'} cal · ${grams(rec.per_serving_prot)} P · ${money(rec.per_serving_cost)}/srv`}
               </span>
             </button>
@@ -114,28 +119,57 @@ export function Recipes({
                 {r.yield_g ? ` · ${r.yield_g}g batch yield` : ''} · {detail.ingredients.length} ingredients
               </div>
             </div>
-            <div className="tiles">
-              <div className="tile">
-                <div className="k">Cal / srv</div>
-                <div className="v">{r.per_serving_cal ?? '—'}</div>
+            {r.yield_g ? (
+              <div className="tiles">
+                <div className="tile">
+                  <div className="k">Batch yield</div>
+                  <div className="v">{r.yield_g}<small>g</small></div>
+                </div>
+                <div className="tile">
+                  <div className="k">Cal / 100g</div>
+                  <div className="v">{r.per_100g_cal ?? '—'}</div>
+                </div>
+                <div className="tile">
+                  <div className="k">Protein / 100g</div>
+                  <div className="v">{grams(r.per_100g_prot)}</div>
+                </div>
+                <div className="tile">
+                  <div className="k">Fat / 100g</div>
+                  <div className="v">{grams(r.per_100g_fat)}</div>
+                </div>
+                <div className="tile">
+                  <div className="k">Fiber / 100g</div>
+                  <div className="v">{grams(r.per_100g_fiber)}</div>
+                </div>
+                <div className="tile">
+                  <div className="k">Cost / 100g</div>
+                  <div className="v cost">{money(r.per_100g_cost)}</div>
+                </div>
               </div>
-              <div className="tile">
-                <div className="k">Protein</div>
-                <div className="v">{grams(r.per_serving_prot)}</div>
+            ) : (
+              <div className="tiles">
+                <div className="tile">
+                  <div className="k">Cal / srv</div>
+                  <div className="v">{r.per_serving_cal ?? '—'}</div>
+                </div>
+                <div className="tile">
+                  <div className="k">Protein</div>
+                  <div className="v">{grams(r.per_serving_prot)}</div>
+                </div>
+                <div className="tile">
+                  <div className="k">Fat</div>
+                  <div className="v">{grams(r.per_serving_fat)}</div>
+                </div>
+                <div className="tile">
+                  <div className="k">Fiber</div>
+                  <div className="v">{grams(r.per_serving_fiber)}</div>
+                </div>
+                <div className="tile">
+                  <div className="k">Cost / srv</div>
+                  <div className="v cost">{money(r.per_serving_cost)}</div>
+                </div>
               </div>
-              <div className="tile">
-                <div className="k">Fat</div>
-                <div className="v">{grams(r.per_serving_fat)}</div>
-              </div>
-              <div className="tile">
-                <div className="k">Fiber</div>
-                <div className="v">{grams(r.per_serving_fiber)}</div>
-              </div>
-              <div className="tile">
-                <div className="k">Cost / srv</div>
-                <div className="v cost">{money(r.per_serving_cost)}</div>
-              </div>
-            </div>
+            )}
             <div className="scroll">
               <table>
                 <thead>
