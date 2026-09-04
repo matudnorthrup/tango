@@ -47,12 +47,12 @@ describe("mcp tool metadata", () => {
 
   it("builds listed tools with annotations even without governance", () => {
     expect(buildMcpListedTool({
-      name: "recipe_read",
-      description: "Read a recipe file.",
+      name: "wellnessdb_get_recipe_detail",
+      description: "Read recipe details from wellness.db.",
       inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
       handler: async () => ({ ok: true }),
     }, null)).toMatchObject({
-      name: "recipe_read",
+      name: "wellnessdb_get_recipe_detail",
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,

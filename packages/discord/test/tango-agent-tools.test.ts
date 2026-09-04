@@ -306,17 +306,17 @@ describe("agent_docs tool", () => {
     const profileToolsDir = createOverlayDir();
     const toolsDir = path.join(agentsDir, "tools");
     fs.mkdirSync(toolsDir, { recursive: true });
-    fs.writeFileSync(path.join(toolsDir, "atlas-sql.md"), "# Atlas SQL\n\nGeneric.\n");
+    fs.writeFileSync(path.join(toolsDir, "wellnessdb.md"), "# Wellness DB\n\nGeneric.\n");
 
     const tool = createTangoTools({ agentsDir, profileToolsDir }).find(
       (entry) => entry.name === "agent_docs",
     );
     const result = (await tool?.handler({
       operation: "read",
-      path: "tools/atlas-sql.md",
+      path: "tools/wellnessdb.md",
     })) as { content?: string };
 
-    expect(result.content).toBe("# Atlas SQL\n\nGeneric.\n");
+    expect(result.content).toBe("# Wellness DB\n\nGeneric.\n");
     expect(result.content).not.toContain("profile overlay");
   });
 

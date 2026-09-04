@@ -20,17 +20,18 @@ mcp_servers:
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "wellness"]
     env:
-      ALLOWED_TOOL_IDS: "health_query,workout_sql,nutrition_log_items,recipe_list,recipe_read,recipe_write,system_clock,health_morning"
+      ALLOWED_TOOL_IDS: "health_query,workout_sql,nutrition_log_items,system_clock,health_morning"
+  - name: wellness-db
+    command: node
+    args: ["packages/core/dist/mcp-proxy.js", "wellness-db"]
+    # Resolve the active profile's wellness.db; no fixed profile path.
+    env:
+      ALLOWED_TOOL_IDS: "wellnessdb_search_product,wellnessdb_search_recipe,wellnessdb_get_recipe_detail,wellnessdb_day_summary,wellnessdb_day_range,wellnessdb_recent_meals,wellnessdb_active_products,wellnessdb_add_recipe,wellnessdb_update_recipe"
   - name: fatsecret
     command: node
     args: ["packages/core/dist/mcp-proxy.js", "fatsecret"]
     env:
       ALLOWED_TOOL_IDS: "fatsecret_api"
-  - name: atlas
-    command: node
-    args: ["packages/core/dist/mcp-proxy.js", "atlas"]
-    env:
-      ALLOWED_TOOL_IDS: "atlas_sql"
   - name: obsidian
     # Note: read-only for Malibu (enforced at MCP server level)
     command: node
@@ -52,6 +53,7 @@ mcp:
   default_servers:
     - memory
     - wellness
+    - wellness-db
     - fatsecret
 
 # Runtime configuration

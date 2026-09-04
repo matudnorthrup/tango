@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { resolveDatabasePath } from "@tango/core";
+import { ensureWellnessDb } from "../../../../packages/discord/src/wellness-db-migrations.js";
 import { getBrowserManager } from "../../../../packages/discord/src/browser-manager.js";
 import { ensureSmokeThread } from "./discord-smoke-thread.js";
 
@@ -111,22 +112,19 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
-function getRecipeSmokeDir(): string {
-  const configured = getOptionalEnv("TANGO_RECIPE_SMOKE_DIR");
-  const configuredRecipesDir = getOptionalEnv("TANGO_RECIPES_DIR");
-  const profileRecipesDir = path.join(os.homedir(), ".tango", "profiles", "default", "notes", "recipes");
-  const legacyRecipesDir = path.join(os.homedir(), "Documents", "main", "Records", "Nutrition", "Recipes");
-  const dir = configured
-    ? path.resolve(configured)
-    : configuredRecipesDir
-      ? path.resolve(configuredRecipesDir)
-      : fs.existsSync(profileRecipesDir)
-        ? profileRecipesDir
-        : fs.existsSync(legacyRecipesDir)
-          ? legacyRecipesDir
-          : profileRecipesDir;
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+function getRecipeSmokeDbPath(): string {
+  const smokePath = getOptionalEnv("TANGO_WELLNESS_SMOKE_DB_PATH");
+  const configured = smokePath ?? getOptionalEnv("WELLNESS_DB_PATH");
+  if (!configured) {
+    throw new Error("Set TANGO_WELLNESS_SMOKE_DB_PATH or WELLNESS_DB_PATH to an isolated smoke wellness.db, and configure the bot to use that same database.");
+  }
+  const dbPath = path.resolve(configured);
+  // A generic runtime override is not enough evidence that this is a test DB.
+  // The smoke-specific variable explicitly designates an isolated database.
+  if (!smokePath && !/(?:^|[\/_.-])(?:smoke|test|tmp|temp)(?:[\/_.-]|$)/iu.test(dbPath)) {
+    throw new Error("WELLNESS_DB_PATH must identify a smoke/test database; use TANGO_WELLNESS_SMOKE_DB_PATH to explicitly designate another isolated smoke database.");
+  }
+  return dbPath;
 }
 
 function getDbPath(): string {
@@ -794,53 +792,6 @@ async function runWorkoutWriteSmoke(input: {
   }
 }
 
-function buildTempRecipeContent(recipeTitle: string): string {
-  return [
-    "---",
-    "source:",
-    "  - ai/codex",
-    "created: 2026-03-29",
-    "meal:",
-    "  - lunch",
-    "calories: 320",
-    "protein: 28",
-    "carbs: 24",
-    "fat: 12",
-    "fiber: 5",
-    "prep_minutes: 5",
-    "tags:",
-    "  - health",
-    "  - recipe",
-    "types:",
-    "  - \"[[Recipes]]\"",
-    "  - \"Nutrition\"",
-    "areas:",
-    "  - \"Health\"",
-    "---",
-    "",
-    `# ${recipeTitle}`,
-    "",
-    "## Macros",
-    "| Calories | Protein | Carbs | Fat | Fiber |",
-    "|----------|---------|-------|-----|-------|",
-    "| 320 | 28g | 24g | 12g | 5g |",
-    "",
-    "## Ingredients",
-    "- 150g chicken breast",
-    "- 120g rice",
-    "- 40g avocado",
-    "",
-    "## Instructions",
-    "1. Cook the chicken.",
-    "2. Warm the rice.",
-    "3. Plate and top with avocado.",
-    "",
-    "## Notes",
-    "- Temporary Codex smoke recipe.",
-    "",
-  ].join("\n");
-}
-
 function isBananaOtherEntry(entry: FatSecretEntry, date: string): boolean {
   const name = typeof entry.food_entry_name === "string" ? entry.food_entry_name.toLowerCase() : "";
   const meal = typeof entry.meal === "string" ? entry.meal.toLowerCase() : "";
@@ -856,16 +807,22 @@ async function runRecipeUpdateSmoke(input: {
   channelId?: string | null;
   discordUserId: string;
 }): Promise<void> {
-  const recipesDir = getRecipeSmokeDir();
-  const recipeTitle = `Codex Deterministic Smoke Recipe ${Date.now()}`;
-  const recipePath = path.join(recipesDir, `${recipeTitle}.md`);
-  const marker = "Codex deterministic write smoke validation.";
-  fs.writeFileSync(recipePath, buildTempRecipeContent(recipeTitle), "utf8");
-  const previousTurn = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
-  const transcript = `Update the recipe named "${recipeTitle}" and add this exact note somewhere in the notes section: "${marker}" Keep everything else the same.`;
-
-  console.log(`[write-smoke] recipe created temp file=${recipePath}`);
+  const smokeDbPath = getRecipeSmokeDbPath();
+  ensureWellnessDb(smokeDbPath);
+  const wellnessDb = new DatabaseSync(smokeDbPath);
+  let recipeId: number | null = null;
   try {
+    wellnessDb.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+    const recipeTitle = `Codex Deterministic Smoke Recipe ${Date.now()}`;
+    const initialNotes = "Temporary deterministic smoke recipe.";
+    const marker = `Deterministic write smoke validation ${Date.now()}.`;
+    recipeId = Number(wellnessDb.prepare(
+      "INSERT INTO recipes (name, servings, instructions, notes) VALUES (?, ?, ?, ?)",
+    ).run(recipeTitle, 1, "No preparation required.", initialNotes).lastInsertRowid);
+    const previousTurn = loadLatestDeterministicTurn(input.db, input.sessionId, input.agentId);
+    const transcript = `Update the recipe named "${recipeTitle}" in wellness.db and append this exact note to its existing notes: "${marker}" Keep everything else the same.`;
+
+    console.log(`[write-smoke] recipe created temp row id=${recipeId} db=${smokeDbPath}`);
     const response = await runTurn({
       ...input,
       transcript,
@@ -886,20 +843,43 @@ async function runRecipeUpdateSmoke(input: {
     });
     console.log(`[write-smoke] recipe deterministic turn=${turn.id}`);
 
-    const updatedContent = fs.readFileSync(recipePath, "utf8");
-    if (!updatedContent.includes(marker)) {
-      throw new Error("Recipe update smoke did not write the expected marker into the recipe file.");
+    const updatedRecipe = wellnessDb.prepare(
+      "SELECT name, servings, instructions, notes FROM recipes WHERE id = ?",
+    ).get(recipeId) as { name: string; servings: number; instructions: string; notes: string | null } | undefined;
+    if (!updatedRecipe?.notes?.includes(marker)) {
+      throw new Error("Recipe update smoke did not persist the expected note in the smoke wellness.db.");
+    }
+    if (!updatedRecipe.notes.includes(initialNotes)
+      || updatedRecipe.name !== recipeTitle
+      || updatedRecipe.servings !== 1
+      || updatedRecipe.instructions !== "No preparation required.") {
+      throw new Error("Recipe update smoke changed existing recipe content unexpectedly.");
     }
     const responseText = (response.responseText ?? "").trim();
     if (!responseText) {
       throw new Error("Recipe update smoke returned an empty response.");
     }
   } finally {
-    fs.rmSync(recipePath, { force: true });
-    if (fs.existsSync(recipePath)) {
-      throw new Error(`Recipe cleanup failed for ${recipePath}`);
+    try {
+      if (recipeId !== null) {
+        wellnessDb.exec("BEGIN IMMEDIATE");
+        try {
+          wellnessDb.prepare("DELETE FROM recipe_aliases WHERE recipe_id = ?").run(recipeId);
+          wellnessDb.prepare("DELETE FROM recipe_ingredients WHERE recipe_id = ?").run(recipeId);
+          wellnessDb.prepare("DELETE FROM recipes WHERE id = ?").run(recipeId);
+          wellnessDb.exec("COMMIT");
+        } catch (error) {
+          wellnessDb.exec("ROLLBACK");
+          throw error;
+        }
+        if (wellnessDb.prepare("SELECT id FROM recipes WHERE id = ?").get(recipeId)) {
+          throw new Error(`Recipe cleanup failed for smoke recipe ${recipeId}`);
+        }
+        console.log("[write-smoke] recipe cleanup ok");
+      }
+    } finally {
+      wellnessDb.close();
     }
-    console.log("[write-smoke] recipe cleanup ok");
   }
 }
 

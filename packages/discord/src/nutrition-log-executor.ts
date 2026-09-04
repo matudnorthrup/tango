@@ -1,5 +1,3 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { resolveCurrentTurnTimeZone } from "@tango/core";
 
@@ -16,35 +14,35 @@ export interface NutritionLogItemsInput {
 }
 
 export interface NutritionLogItemsDeps {
-  atlasDbPath: string;
+  wellnessDbPath: string;
   fatsecretCall(method: string, params: Record<string, unknown>): Promise<unknown>;
   fatsecretBatchCall?(
     calls: Array<{ method: string; params?: Record<string, unknown> }>,
   ): Promise<Array<{ ok: boolean; result?: unknown; error?: string }>>;
 }
 
-interface AtlasIngredientRow {
+interface ProductRow {
   name?: string;
   brand?: string;
-  product?: string;
-  food_id?: number | string | null;
-  serving_id?: number | string | null;
-  serving_description?: string | null;
+  id: number;
+  fatsecret_food_id?: number | string | null;
+  fatsecret_serving_id?: number | string | null;
   serving_size?: string | null;
   grams_per_serving?: number | string | null;
   calories?: number | string | null;
-  protein?: number | string | null;
-  carbs?: number | string | null;
-  fat?: number | string | null;
-  fiber?: number | string | null;
-  aliases?: string | null;
+  protein_g?: number | string | null;
+  carbs_g?: number | string | null;
+  fat_g?: number | string | null;
+  fiber_g?: number | string | null;
+  shorthand?: string | null;
 }
 
-interface PlannedAtlasLogEntry {
+interface PlannedProductLogEntry {
   input: NutritionLogItemInput;
-  row: AtlasIngredientRow;
+  row: ProductRow;
   writeUnits: number;
   macroMultiplier: number;
+  recipeId?: number;
   foodId: string;
   servingId: string;
   foodEntryName: string;
@@ -53,9 +51,10 @@ interface PlannedAtlasLogEntry {
 interface UnresolvedNutritionLogItem {
   item: string;
   quantity: string;
+  grams?: number;
   reason: string;
   resolution?: string;
-  atlas_match?: {
+  wellnessdb_match?: {
     name: string;
     food_id: string;
     serving_id: string;
@@ -82,20 +81,7 @@ const NUMBER_WORD_VALUES: Record<string, number> = {
 };
 
 const FATSECRET_WRITE_CONCURRENCY = 4;
-const ATLAS_PACKAGE_FALLBACK_UNITS = new Set(["bag", "pack", "package", "packet", "pouch"]);
-
-export function resolveAtlasDbPath(atlasCommand: string): string {
-  const resolvedCommand = resolveRealPath(atlasCommand);
-  return path.join(path.dirname(resolvedCommand), "atlas.db");
-}
-
-function resolveRealPath(value: string): string {
-  try {
-    return fs.realpathSync(value);
-  } catch {
-    return value;
-  }
-}
+const PRODUCT_PACKAGE_FALLBACK_UNITS = new Set(["bag", "pack", "package", "packet", "pouch"]);
 
 export async function executeNutritionLogItems(
   input: NutritionLogItemsInput,
@@ -124,58 +110,71 @@ export async function executeNutritionLogItems(
     };
   }
 
-  const db = new DatabaseSync(deps.atlasDbPath, { readOnly: true });
+  const db = new DatabaseSync(deps.wellnessDbPath, { readOnly: true });
   try {
-    const plannedEntries: PlannedAtlasLogEntry[] = [];
+    const plannedEntries: PlannedProductLogEntry[] = [];
     const unresolved: UnresolvedNutritionLogItem[] = [];
 
-    for (const item of items) {
-      const row = findBestAtlasMatchForItem(db, item.name);
-      if (!row) {
-        unresolved.push({
-          item: item.name,
-          quantity: item.quantity,
-          reason: "No Atlas ingredient match found. Use low-level FatSecret search for this item.",
-        });
-        continue;
+    const skipped: Array<{ item: string; grams?: number; reason: string }> = [];
+    let zeroCalorieSkips = 0;
+    const planProduct = (item: NutritionLogItemInput, row: ProductRow, recipeId?: number, grams?: number): void => {
+      const foodId = stringifyId(row.fatsecret_food_id);
+      const servingId = stringifyId(row.fatsecret_serving_id);
+      if (recipeId !== undefined && (row.calories == null || Number(row.calories) === 0)
+        && (!foodId || !servingId)) {
+        skipped.push({ item: item.name, grams,
+          reason: "zero-calorie product with no FatSecret mapping — nothing to log" });
+        zeroCalorieSkips += 1;
+        return;
       }
-
-      const foodId = stringifyId(row.food_id);
-      const servingId = stringifyId(row.serving_id);
-      if (!foodId || !servingId) {
-        unresolved.push({
-          item: item.name,
-          quantity: item.quantity,
-          reason: "Atlas match is missing food_id or serving_id.",
-        });
-        continue;
+      const recipeGrams = grams === undefined ? {} : { grams };
+      if (!foodId || !servingId || !deriveWellnessDbGramsPerServing(row)) {
+        unresolved.push({ item: item.name, quantity: item.quantity, ...recipeGrams,
+          reason: `Product ${row.name} is missing fatsecret_food_id, fatsecret_serving_id, or positive grams_per_serving. Use fatsecret_api food_get to repair the serving mapping.` });
+        return;
       }
-
-      const derived = deriveAtlasWriteUnits(item.quantity, row);
+      const derived = deriveWellnessDbWriteUnits(item.quantity, row);
       if (!derived) {
-        const atlasMatch = buildAtlasMatchSummary(row, foodId, servingId);
-        unresolved.push({
-          item: item.name,
-          quantity: item.quantity,
-          resolution: formatAtlasResolutionSummary(atlasMatch),
-          atlas_match: atlasMatch,
-          reason: buildAtlasUnitConversionFallbackReason(item.quantity, atlasMatch),
-        });
+        const match = buildWellnessDbMatchSummary(row, foodId, servingId);
+        unresolved.push({ item: item.name, quantity: item.quantity, ...recipeGrams,
+          resolution: formatWellnessDbResolutionSummary(match), wellnessdb_match: match,
+          reason: buildWellnessDbUnitConversionFallbackReason(item.quantity, match) });
+        return;
+      }
+      plannedEntries.push({ input: item, row, ...derived, recipeId, foodId, servingId,
+        foodEntryName: selectWellnessDbEntryName(row) });
+    };
+
+    for (const item of items) {
+      const recipe = findRecipe(db, item.name);
+      if (recipe) {
+        const start = plannedEntries.length;
+        try {
+          const grams = parseRecipeGrams(item.quantity);
+          const servings = parseLeadingQuantityToken(item.quantity);
+          const divisor = grams !== null ? recipe.yield_g : recipe.servings;
+          const amount = grams ?? servings;
+          if (!amount || amount <= 0 || !Number.isFinite(amount) || !divisor || divisor <= 0) {
+            throw new Error(`Recipe ${recipe.name}: quantity requires positive servings, or grams with a positive yield_g.`);
+          }
+          expandRecipe(db, recipe, amount / divisor, [], (row, grams) => {
+            planProduct({ name: row.name ?? item.name, quantity: `${grams} g` }, row, recipe.id, grams);
+          }, skipped);
+        } catch (error) {
+          // Never write an incomplete traversal after a cycle or depth failure.
+          plannedEntries.length = start;
+          unresolved.push({ item: item.name, quantity: item.quantity,
+            reason: error instanceof Error ? error.message : String(error) });
+        }
         continue;
       }
-
-      plannedEntries.push({
-        input: item,
-        row,
-        writeUnits: derived.writeUnits,
-        macroMultiplier: derived.macroMultiplier,
-        foodId,
-        servingId,
-        foodEntryName: selectAtlasEntryName(row),
-      });
+      const row = findBestWellnessDbMatchForItem(db, item.name);
+      if (row) planProduct(item, row);
+      else unresolved.push({ item: item.name, quantity: item.quantity,
+        reason: "No active wellness.db product or recipe match found. Use low-level FatSecret search for this item." });
     }
 
-    if (strict && unresolved.length > 0) {
+    if (strict && (unresolved.length > 0 || skipped.length > zeroCalorieSkips)) {
       return {
         action: "nutrition_log_items",
         status: "needs_clarification",
@@ -183,6 +182,7 @@ export async function executeNutritionLogItems(
         meal,
         logged: [],
         unresolved,
+        skipped,
         totals: null,
         errors: [],
       };
@@ -197,12 +197,14 @@ export async function executeNutritionLogItems(
       deps,
     );
 
+    const linkWarnings = recordRecipeLinks(deps.wellnessDbPath, logged, date, meal);
+
     const status =
       logged.length === 0
-        ? unresolved.length > 0
+        ? unresolved.length > 0 || skipped.length > 0
           ? "needs_clarification"
           : "blocked"
-        : unresolved.length > 0 || errors.length > 0
+        : unresolved.length > 0 || skipped.length > 0 || errors.length > 0
           ? "partial_success"
           : "confirmed";
 
@@ -213,6 +215,8 @@ export async function executeNutritionLogItems(
       meal,
       logged,
       unresolved,
+      skipped,
+      link_warnings: linkWarnings,
       totals: buildNutritionTotals(logged),
       diary_entries: diaryEntries,
       errors,
@@ -220,6 +224,105 @@ export async function executeNutritionLogItems(
   } finally {
     db.close();
   }
+}
+
+interface RecipeRow {
+  id: number;
+  name: string;
+  servings: number | null;
+  yield_g: number | null;
+}
+
+function findRecipe(db: DatabaseSync, name: string): RecipeRow | undefined {
+  return db.prepare(`SELECT r.id, r.name, r.servings, r.yield_g FROM recipes r
+    WHERE r.archived_at IS NULL AND (lower(r.name) = lower(?) OR lower(r.shorthand) = lower(?)
+      OR EXISTS (SELECT 1 FROM recipe_aliases a WHERE a.recipe_id = r.id AND lower(a.alias) = lower(?)))
+    ORDER BY r.id LIMIT 1`).get(name, name, name) as unknown as RecipeRow | undefined;
+}
+
+function parseRecipeGrams(quantity: string): number | null {
+  const match = /^(\d+(?:\.\d+)?)\s*(?:g|grams?)$/iu.exec(quantity.trim());
+  if (match) return Number(match[1]);
+  // A gram quantity must not accidentally become a serving count.
+  if (/\b(?:g|grams?)\b/iu.test(quantity) || /\d[gG]/u.test(quantity)) {
+    throw new Error(`Unsupported recipe gram quantity: ${quantity}`);
+  }
+  return null;
+}
+
+function expandRecipe(
+  db: DatabaseSync,
+  recipe: RecipeRow,
+  scale: number,
+  ancestors: number[],
+  product: (row: ProductRow, grams: number) => void,
+  skipped: Array<{ item: string; reason: string }>,
+): void {
+  if (ancestors.includes(recipe.id)) throw new Error(`Recipe cycle detected at ${recipe.name}.`);
+  if (ancestors.length >= 6) throw new Error(`Recipe nesting depth limit 6 exceeded at ${recipe.name}.`);
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error(`Invalid quantity for recipe ${recipe.name}.`);
+  const rows = db.prepare(`SELECT ingredient_name, product_id, sub_recipe_id, quantity_g
+    FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id`).all(recipe.id) as unknown as Array<{
+      ingredient_name: string; product_id: number | null; sub_recipe_id: number | null; quantity_g: number | null;
+    }>;
+  if (rows.length === 0) throw new Error(`Recipe ${recipe.name} has no ingredient rows.`);
+  for (const row of rows) {
+    if (row.quantity_g === null || !Number.isFinite(row.quantity_g) || row.quantity_g <= 0
+      || (row.product_id === null && row.sub_recipe_id === null)) {
+      skipped.push({ item: row.ingredient_name,
+        reason: row.quantity_g === null ? "Missing quantity_g; grams cannot be guessed."
+          : row.quantity_g <= 0 || !Number.isFinite(row.quantity_g) ? "quantity_g must be positive and finite."
+            : "Missing product_id and sub_recipe_id." });
+      continue;
+    }
+    if (row.product_id !== null && row.sub_recipe_id !== null) {
+      throw new Error(`Recipe ingredient ${row.ingredient_name} has both product_id and sub_recipe_id.`);
+    }
+    const grams = row.quantity_g * scale;
+    if (!Number.isFinite(grams)) throw new Error(`Invalid grams for ${row.ingredient_name}.`);
+    if (row.sub_recipe_id !== null) {
+      const sub = db.prepare(`SELECT id, name, servings, yield_g FROM recipes
+        WHERE id = ? AND archived_at IS NULL`).get(row.sub_recipe_id) as unknown as RecipeRow | undefined;
+      if (!sub || !sub.yield_g || sub.yield_g <= 0) {
+        throw new Error(`Component ${row.ingredient_name} is missing, archived, or lacks a positive yield_g.`);
+      }
+      expandRecipe(db, sub, grams / sub.yield_g, [...ancestors, recipe.id], product, skipped);
+    } else {
+      const match = db.prepare(`SELECT * FROM products WHERE id = ? AND discontinued_date IS NULL`)
+        .get(row.product_id!) as unknown as ProductRow | undefined;
+      if (!match) throw new Error(`Product ${row.ingredient_name} is missing or discontinued.`);
+      product(match, grams);
+    }
+  }
+}
+
+function recordRecipeLinks(
+  dbPath: string, logged: Record<string, unknown>[], date: string, meal: string,
+): string[] {
+  const entries = logged.filter((entry) => entry.recipe_id !== undefined);
+  if (entries.length === 0) return [];
+  const warnings: string[] = [];
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(dbPath);
+    db.exec("PRAGMA busy_timeout = 1000");
+    const insert = db.prepare(`INSERT INTO fatsecret_entry_links (date, meal, recipe_id, food_entry_id)
+      VALUES (?, ?, ?, ?)`);
+    for (const entry of entries) {
+      try {
+        const id = stringifyId(entry.food_entry_id);
+        if (!id) throw new Error("FatSecret returned no food_entry_id");
+        insert.run(date, meal, Number(entry.recipe_id), id);
+      } catch (error) {
+        warnings.push(`Diary entry ${entry.food_entry_id ?? entry.item} logged, but recipe link failed: ${String(error)}`);
+      }
+    }
+  } catch (error) {
+    warnings.push(`Diary entries logged, but recipe links failed: ${String(error)}`);
+  } finally {
+    db?.close();
+  }
+  return warnings;
 }
 
 async function mapWithConcurrencyLimit<T, R>(
@@ -251,7 +354,7 @@ async function mapWithConcurrencyLimit<T, R>(
 }
 
 async function writeEntriesAndRefreshDiary(
-  plannedEntries: PlannedAtlasLogEntry[],
+  plannedEntries: PlannedProductLogEntry[],
   context: { meal: string; date: string },
   deps: NutritionLogItemsDeps,
 ): Promise<{
@@ -279,7 +382,7 @@ async function writeEntriesAndRefreshDiary(
 }
 
 async function writeEntriesViaBatch(
-  plannedEntries: PlannedAtlasLogEntry[],
+  plannedEntries: PlannedProductLogEntry[],
   context: { meal: string; date: string },
   deps: NutritionLogItemsDeps,
 ): Promise<{
@@ -342,7 +445,7 @@ async function writeEntriesViaBatch(
 }
 
 async function writeEntriesViaIndividualCalls(
-  plannedEntries: PlannedAtlasLogEntry[],
+  plannedEntries: PlannedProductLogEntry[],
   context: { meal: string; date: string },
   deps: NutritionLogItemsDeps,
 ): Promise<{
@@ -412,7 +515,7 @@ async function writeEntriesViaIndividualCalls(
 }
 
 function buildLoggedEntry(
-  plannedEntry: PlannedAtlasLogEntry,
+  plannedEntry: PlannedProductLogEntry,
   foodEntryId: unknown,
 ): Record<string, unknown> {
   return {
@@ -423,8 +526,9 @@ function buildLoggedEntry(
     food_id: plannedEntry.foodId,
     serving_id: plannedEntry.servingId,
     number_of_units: plannedEntry.writeUnits,
-    source: "atlas",
-    estimated_macros: estimateMacrosFromAtlas(plannedEntry.row, plannedEntry.macroMultiplier),
+    source: "wellnessdb",
+    ...(plannedEntry.recipeId !== undefined ? { recipe_id: plannedEntry.recipeId } : {}),
+    estimated_macros: estimateMacrosFromWellnessDb(plannedEntry.row, plannedEntry.macroMultiplier),
   };
 }
 
@@ -473,7 +577,7 @@ function parseFiniteNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function formatAtlasDisplayNumber(value: number): string {
+function formatWellnessDbDisplayNumber(value: number): string {
   return Number.isInteger(value)
     ? String(value)
     : String(Number.parseFloat(value.toFixed(2)));
@@ -515,63 +619,33 @@ function buildNormalizedItemVariants(value: string): string[] {
   )];
 }
 
-function parseAtlasAliasList(value: unknown): string[] {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-      : [];
-  } catch {
-    return value
-      .split(",")
-      .map((entry) => entry.replaceAll("\"", "").trim())
-      .filter((entry) => entry.length > 0);
-  }
+function parseWellnessDbAliasList(value: unknown): string[] {
+  return typeof value === "string" ? value.split(",").map((alias) => alias.trim()).filter(Boolean) : [];
 }
 
-function parseGramValueFromText(value: unknown): number | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const match = value.trim().match(/(\d+(?:\.\d+)?)\s*g\b/iu);
-  if (!match?.[1]) {
-    return null;
-  }
-  const parsed = Number.parseFloat(match[1]);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function deriveAtlasGramsPerServing(row: AtlasIngredientRow): number | null {
-  return (
-    parseFiniteNumber(row.grams_per_serving)
-    ?? parseGramValueFromText(row.serving_size)
-    ?? parseGramValueFromText(row.serving_description)
-  );
+function deriveWellnessDbGramsPerServing(row: ProductRow): number | null {
+  const grams = parseFiniteNumber(row.grams_per_serving);
+  return grams !== null && grams > 0 ? grams : null;
 }
 
 // FatSecret gram-unit servings (measurement_description === "g", e.g. serving
 // "100 g") interpret number_of_units as a RAW GRAM COUNT, not a multiple of the
 // serving. Logging 140 g of such a serving must send number_of_units = 140, not
 // 1.4 — FatSecret reads 1.4 as 1.4 grams (~1 cal). Detect these by the serving's
-// UNIT, which lives in serving_description ("100 g", "110g", or bare "g").
+// UNIT, which wellness.db stores in serving_size ("100 g", "110g", or bare "g").
 //
-// serving_size is NOT a fallback signal: it holds the gram WEIGHT, which every
-// serving has regardless of its unit. A "4 oz" serving with serving_size "112g"
-// is a serving-count serving, and reading that "112g" as a gram unit sends the
-// gram amount as a serving count — a ~100x overlog (220 g of chicken thighs
-// logged as 220 servings = 28,600 cal). When serving_description is missing the
-// unit is unknown, so assume the safe serving-count interpretation.
+// grams_per_serving is NOT a fallback signal: it holds the gram WEIGHT, which
+// every serving has regardless of its unit. Reading a weight as a gram unit
+// sends the gram amount as a serving count — a ~100x overlog (220 g of chicken
+// thighs logged as 220 servings = 28,600 cal). When serving_size is missing or
+// unparseable the unit is unknown, so assume the safe serving-count interpretation.
 const GRAM_UNIT_SERVING_RE = /^\d*\.?\d*\s*(?:g|gram|grams)$/iu;
-function isRawGramUnitsServing(row: AtlasIngredientRow): boolean {
-  const desc = (row.serving_description ?? "").trim();
-  return desc ? GRAM_UNIT_SERVING_RE.test(desc) : false;
+function isRawGramUnitsServing(row: ProductRow): boolean {
+  return GRAM_UNIT_SERVING_RE.test((row.serving_size ?? "").trim());
 }
 
-function buildAtlasMatchSummary(
-  row: AtlasIngredientRow,
+function buildWellnessDbMatchSummary(
+  row: ProductRow,
   foodId: string,
   servingId: string,
 ): {
@@ -582,9 +656,9 @@ function buildAtlasMatchSummary(
   grams_per_serving?: number;
 } {
   const calories = parseFiniteNumber(row.calories);
-  const gramsPerServing = deriveAtlasGramsPerServing(row);
+  const gramsPerServing = deriveWellnessDbGramsPerServing(row);
   return {
-    name: selectAtlasEntryName(row),
+    name: selectWellnessDbEntryName(row),
     food_id: foodId,
     serving_id: servingId,
     ...(calories !== null ? { calories } : {}),
@@ -592,8 +666,8 @@ function buildAtlasMatchSummary(
   };
 }
 
-function formatAtlasResolutionSummary(
-  atlasMatch: {
+function formatWellnessDbResolutionSummary(
+  wellnessdbMatch: {
     name: string;
     food_id: string;
     serving_id: string;
@@ -601,42 +675,41 @@ function formatAtlasResolutionSummary(
   },
 ): string {
   const details = [
-    `food_id ${atlasMatch.food_id}`,
-    `serving_id ${atlasMatch.serving_id}`,
-    ...(typeof atlasMatch.grams_per_serving === "number"
-      ? [`grams_per_serving ${formatAtlasDisplayNumber(atlasMatch.grams_per_serving)}`]
+    `food_id ${wellnessdbMatch.food_id}`,
+    `serving_id ${wellnessdbMatch.serving_id}`,
+    ...(typeof wellnessdbMatch.grams_per_serving === "number"
+      ? [`grams_per_serving ${formatWellnessDbDisplayNumber(wellnessdbMatch.grams_per_serving)}`]
       : []),
   ];
-  return `Atlas match found: ${atlasMatch.name} (${details.join(", ")})`;
+  return `Wellness DB match found: ${wellnessdbMatch.name} (${details.join(", ")})`;
 }
 
-function buildAtlasUnitConversionFallbackReason(
+function buildWellnessDbUnitConversionFallbackReason(
   quantity: string,
-  atlasMatch: {
+  wellnessdbMatch: {
     name: string;
     food_id: string;
     calories?: number;
   },
 ): string {
-  const caloriesText = typeof atlasMatch.calories === "number"
-    ? ` Atlas calories are ${formatAtlasDisplayNumber(atlasMatch.calories)} per Atlas serving.`
+  const caloriesText = typeof wellnessdbMatch.calories === "number"
+    ? ` Wellness DB calories are ${formatWellnessDbDisplayNumber(wellnessdbMatch.calories)} per product serving.`
     : "";
   return [
-    `Atlas matched ${atlasMatch.name} (food_id ${atlasMatch.food_id}).${caloriesText}`,
-    `The deterministic layer could not convert "${quantity}" from the Atlas serving definition.`,
-    `Use fatsecret_api food_get with food_id ${atlasMatch.food_id} to inspect serving options and choose the one that matches the requested quantity (for example tbsp or cup).`,
+    `Wellness DB matched ${wellnessdbMatch.name} (food_id ${wellnessdbMatch.food_id}).${caloriesText}`,
+    `The deterministic layer could not convert "${quantity}" from the product serving definition.`,
+    `Use fatsecret_api food_get with food_id ${wellnessdbMatch.food_id} to inspect serving options and choose the one that matches the requested quantity (for example tbsp or cup).`,
   ].join(" ");
 }
 
-function scoreAtlasRowForItem(itemLabel: string, row: AtlasIngredientRow): number {
+function scoreWellnessDbRowForItem(itemLabel: string, row: ProductRow): number {
   const normalizedItemVariants = buildNormalizedItemVariants(itemLabel);
   if (normalizedItemVariants.length === 0) {
     return 0;
   }
-  const aliases = parseAtlasAliasList(row.aliases);
+  const aliases = parseWellnessDbAliasList(row.shorthand);
   const haystacks = [
     row.name ?? "",
-    row.product ?? "",
     row.brand ?? "",
     ...aliases,
   ];
@@ -670,34 +743,15 @@ function scoreAtlasRowForItem(itemLabel: string, row: AtlasIngredientRow): numbe
   return score;
 }
 
-function findBestAtlasMatchForItem(db: DatabaseSync, itemLabel: string): AtlasIngredientRow | null {
-  const normalizedItemVariants = buildNormalizedItemVariants(itemLabel);
-  const normalizedItem = normalizedItemVariants[0] ?? "";
-  const tokens = [...new Set(
-    normalizedItemVariants.flatMap((variant) => variant.split(/\s+/u).filter((token) => token.length > 1)),
-  )];
-  const searchTerms = tokens.length > 0 ? tokens : [normalizedItem];
-  const conditions: string[] = [];
-  const params: string[] = [];
-  for (const term of searchTerms) {
-    const like = `%${term}%`;
-    conditions.push("(lower(name) LIKE ? OR lower(product) LIKE ? OR lower(brand) LIKE ? OR lower(aliases) LIKE ?)");
-    params.push(like, like, like, like);
-  }
-  const sql = [
-    "SELECT name, brand, product, food_id, serving_id, serving_description, serving_size, grams_per_serving, calories, protein, carbs, fat, fiber, aliases",
-    "FROM ingredients",
-    conditions.length > 0 ? `WHERE ${conditions.join(" OR ")}` : "",
-    "LIMIT 50",
-  ]
-    .filter((part) => part.length > 0)
-    .join(" ");
-  const rows = db.prepare(sql).all(...params) as AtlasIngredientRow[];
+function findBestWellnessDbMatchForItem(db: DatabaseSync, itemLabel: string): ProductRow | null {
+  const rows = db.prepare(`SELECT id, name, brand, shorthand, serving_size, grams_per_serving,
+    calories, protein_g, carbs_g, fat_g, fiber_g, fatsecret_food_id, fatsecret_serving_id
+    FROM products WHERE discontinued_date IS NULL ORDER BY id`).all() as unknown as ProductRow[];
   const scoredRows = rows.map((row) => ({
     row,
-    score: scoreAtlasRowForItem(itemLabel, row),
+    score: scoreWellnessDbRowForItem(itemLabel, row),
   }));
-  let bestRow: AtlasIngredientRow | null = null;
+  let bestRow: ProductRow | null = null;
   let bestScore = 0;
   for (const { row, score } of scoredRows) {
     if (score > bestScore) {
@@ -713,7 +767,7 @@ function parseGramsFromAmountText(value: string): number | null {
   if (!normalized) {
     return null;
   }
-  const directMatch = normalized.match(/(\d+(?:\.\d+)?)\s*g\b/iu);
+  const directMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*(?:g|grams?)$/iu);
   const parsed = directMatch?.[1] ? Number.parseFloat(directMatch[1]) : Number.NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
@@ -741,6 +795,7 @@ function parseLeadingQuantityToken(value: string): number | null {
   if (!normalized) {
     return null;
   }
+  if (/^half(?:\s|$)/iu.test(normalized)) return 0.5;
   const mixedFractionMatch = normalized.match(/^(\d+)\s+(\d+)\/(\d+)\b/u);
   if (mixedFractionMatch?.[1] && mixedFractionMatch[2] && mixedFractionMatch[3]) {
     const whole = Number.parseFloat(mixedFractionMatch[1]);
@@ -749,6 +804,7 @@ function parseLeadingQuantityToken(value: string): number | null {
     if (Number.isFinite(whole) && Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0) {
       return whole + (numerator / denominator);
     }
+    return null;
   }
   const fractionMatch = normalized.match(/^(\d+)\/(\d+)\b/u);
   if (fractionMatch?.[1] && fractionMatch[2]) {
@@ -757,6 +813,7 @@ function parseLeadingQuantityToken(value: string): number | null {
     if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0) {
       return numerator / denominator;
     }
+    return null;
   }
   return extractCountFromAmountText(normalized);
 }
@@ -767,15 +824,14 @@ function extractAmountUnitHint(value: string): string | null {
     return null;
   }
   const withoutLeadingCount = normalized
-    .replace(/^(\d+(?:\.\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/iu, "")
+    .replace(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|half|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/iu, "")
     .replace(/^\s+/u, "");
   const match = withoutLeadingCount.match(/^([a-z]+(?:\s+[a-z]+){0,2})/iu);
   return match?.[1] ? normalizeFoodLabel(match[1]) : null;
 }
 
-function extractServingUnitCount(row: AtlasIngredientRow): number | null {
+function extractServingUnitCount(row: ProductRow): number | null {
   const candidates = [
-    typeof row.serving_description === "string" ? row.serving_description.trim() : "",
     typeof row.serving_size === "string" ? row.serving_size.trim() : "",
   ];
   for (const candidate of candidates) {
@@ -787,28 +843,28 @@ function extractServingUnitCount(row: AtlasIngredientRow): number | null {
   return null;
 }
 
-function atlasRowHasNamedServingUnit(row: AtlasIngredientRow): boolean {
-  return normalizeFoodLabel(`${row.serving_description ?? ""} ${row.serving_size ?? ""}`).length > 0;
+function wellnessdbRowHasNamedServingUnit(row: ProductRow): boolean {
+  return normalizeFoodLabel(`${row.serving_size ?? ""}`).length > 0;
 }
 
-function shouldUseAtlasPackageFallback(row: AtlasIngredientRow, amountUnit: string | null): boolean {
-  if (!amountUnit || !ATLAS_PACKAGE_FALLBACK_UNITS.has(amountUnit)) {
+function shouldUseWellnessDbPackageFallback(row: ProductRow, amountUnit: string | null): boolean {
+  if (!amountUnit || !PRODUCT_PACKAGE_FALLBACK_UNITS.has(amountUnit)) {
     return false;
   }
-  if (atlasRowHasNamedServingUnit(row)) {
+  if (wellnessdbRowHasNamedServingUnit(row)) {
     return false;
   }
-  if (!deriveAtlasGramsPerServing(row)) {
+  if (!deriveWellnessDbGramsPerServing(row)) {
     return false;
   }
-  return Boolean(row.brand?.trim() || row.product?.trim());
+  return Boolean(row.brand?.trim());
 }
 
-function servingMatchesAmountUnit(row: AtlasIngredientRow, amountUnit: string | null): boolean {
+function servingMatchesAmountUnit(row: ProductRow, amountUnit: string | null): boolean {
   if (!amountUnit) {
     return false;
   }
-  const haystack = normalizeFoodLabel(`${row.serving_description ?? ""} ${row.serving_size ?? ""}`);
+  const haystack = normalizeFoodLabel(`${row.serving_size ?? ""}`);
   if (!haystack) {
     return false;
   }
@@ -822,64 +878,42 @@ function servingMatchesAmountUnit(row: AtlasIngredientRow, amountUnit: string | 
   return tokens.some((token) => haystack.includes(token));
 }
 
-function deriveAtlasWriteUnits(
+function deriveWellnessDbWriteUnits(
   amountText: string,
-  row: AtlasIngredientRow,
+  row: ProductRow,
 ): { writeUnits: number; macroMultiplier: number } | null {
-  const grams = parseGramsFromAmountText(amountText);
-  const gramsPerServing = deriveAtlasGramsPerServing(row);
-  if (grams && gramsPerServing && gramsPerServing > 0) {
-    const macroMultiplier = Number.parseFloat((grams / gramsPerServing).toFixed(6));
-    // For FatSecret gram-based servings, number_of_units must be the raw gram count.
-    const writeUnits = isRawGramUnitsServing(row)
-      ? Number.parseFloat(grams.toFixed(6))
-      : macroMultiplier;
-    return { writeUnits, macroMultiplier };
-  }
-
-  const count = extractCountFromAmountText(amountText);
-  if (!count) {
-    return null;
-  }
-  const amountUnit = extractAmountUnitHint(amountText);
-  if (!amountUnit) {
-    return {
-      writeUnits: Number.parseFloat(count.toFixed(6)),
-      macroMultiplier: Number.parseFloat(count.toFixed(6)),
-    };
-  }
-  if (!servingMatchesAmountUnit(row, amountUnit)) {
-    if (shouldUseAtlasPackageFallback(row, amountUnit)) {
-      const units = Number.parseFloat(count.toFixed(6));
-      return {
-        writeUnits: units,
-        macroMultiplier: units,
-      };
-    }
-    return null;
-  }
-  const servingUnitCount = extractServingUnitCount(row) ?? 1;
-  if (!Number.isFinite(servingUnitCount) || servingUnitCount <= 0) {
-    return {
-      writeUnits: Number.parseFloat(count.toFixed(6)),
-      macroMultiplier: Number.parseFloat(count.toFixed(6)),
-    };
-  }
-  const multiplier = Number.parseFloat((count / servingUnitCount).toFixed(6));
-  return {
-    writeUnits: multiplier,
-    macroMultiplier: multiplier,
+  const gramsPerServing = deriveWellnessDbGramsPerServing(row);
+  if (!gramsPerServing) return null;
+  const fromGrams = (grams: number) => {
+    const macroMultiplier = grams / gramsPerServing;
+    // Macros always scale by weight, independently of FatSecret's write unit.
+    const units = isRawGramUnitsServing(row) ? grams : macroMultiplier;
+    const writeUnits = Number.parseFloat(units.toFixed(6));
+    return Number.isFinite(writeUnits) && writeUnits > 0 && Number.isFinite(macroMultiplier)
+      ? { writeUnits, macroMultiplier } : null;
   };
+  const grams = parseGramsFromAmountText(amountText);
+  if (grams !== null) return fromGrams(grams);
+
+  const count = parseLeadingQuantityToken(amountText);
+  if (!count || count <= 0) return null;
+  const amountUnit = extractAmountUnitHint(amountText);
+  if (!amountUnit || amountUnit === "serving" || shouldUseWellnessDbPackageFallback(row, amountUnit)) {
+    return fromGrams(count * gramsPerServing);
+  }
+  if (!servingMatchesAmountUnit(row, amountUnit)) return null;
+  const servingUnitCount = extractServingUnitCount(row) ?? 1;
+  return fromGrams(count / servingUnitCount * gramsPerServing);
 }
 
-function selectAtlasEntryName(row: AtlasIngredientRow): string {
-  return row.product?.trim() || row.name?.trim() || "Logged Food";
+function selectWellnessDbEntryName(row: ProductRow): string {
+  return row.name?.trim() || "Logged Food";
 }
 
 // The diary refresh carries FatSecret's own macros for the entries we just
-// wrote, and those — not Atlas's stored columns — are what the day actually
-// totals to. Atlas rows drift from the FatSecret food they point at (different
-// cut, stale label, rounding), so reporting Atlas estimates tells the user a
+// wrote, and those — not the product's stored columns — are what the day actually
+// totals to. Product rows can drift from the FatSecret food they point at (different
+// cut, stale label, rounding), so reporting product estimates tells the user a
 // number their diary does not contain. Index the refreshed diary by
 // food_entry_id so each write can be reconciled against what FatSecret stored.
 //
@@ -957,12 +991,12 @@ function attachDiaryMacros(
   });
 }
 
-function estimateMacrosFromAtlas(row: AtlasIngredientRow, multiplier: number): Record<string, number | null> {
+function estimateMacrosFromWellnessDb(row: ProductRow, multiplier: number): Record<string, number | null> {
   const calories = parseFiniteNumber(row.calories);
-  const protein = parseFiniteNumber(row.protein);
-  const carbs = parseFiniteNumber(row.carbs);
-  const fat = parseFiniteNumber(row.fat);
-  const fiber = parseFiniteNumber(row.fiber);
+  const protein = parseFiniteNumber(row.protein_g);
+  const carbs = parseFiniteNumber(row.carbs_g);
+  const fat = parseFiniteNumber(row.fat_g);
+  const fiber = parseFiniteNumber(row.fiber_g);
   const scale = (value: number | null, digits = 1): number | null =>
     value === null ? null : Number.parseFloat((value * multiplier).toFixed(digits));
   return {
@@ -975,7 +1009,7 @@ function estimateMacrosFromAtlas(row: AtlasIngredientRow, multiplier: number): R
 }
 
 // Totals follow the diary: per entry, FatSecret's stored macros win and the
-// Atlas estimate is only a fallback for writes the refresh could not confirm.
+// Wellness DB estimate is only a fallback for writes the refresh could not confirm.
 // totals_source records which, so a caller can tell a verified total from an
 // estimated one instead of presenting both with equal confidence.
 function buildNutritionTotals(
@@ -1012,6 +1046,6 @@ function buildNutritionTotals(
     fat: Number.parseFloat(fat.toFixed(1)),
     fiber: Number.parseFloat(fiber.toFixed(1)),
     totals_source:
-      fromEstimate === 0 ? "fatsecret" : fromDiary === 0 ? "atlas_estimate" : "mixed",
+      fromEstimate === 0 ? "fatsecret" : fromDiary === 0 ? "wellnessdb_estimate" : "mixed",
   };
 }

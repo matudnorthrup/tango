@@ -93,8 +93,8 @@ describe("execution trace", () => {
       toolCalls: [
         {
           toolNames: [
-            "obsidian.recipe_notes.read",
-            "atlas.ingredients.lookup",
+            "wellnessdb.recipes.lookup",
+            "wellnessdb.ingredients.lookup",
             "fatsecret.log_food",
             "fatsecret.day_summary",
           ],
@@ -103,7 +103,7 @@ describe("execution trace", () => {
     });
 
     expect(summary).toBe(
-      "flow=workflow workflow=wellness.log_recipe_meal worker=nutrition-logger route=provider:claude-oauth argres=provider:claude-oauth tools=obsidian.recipe_notes.read,atlas.ingredients.lookup,fatsecret.log_food,fatsecret.day_summary",
+      "flow=workflow workflow=wellness.log_recipe_meal worker=nutrition-logger route=provider:claude-oauth argres=provider:claude-oauth tools=wellnessdb.recipes.lookup,wellnessdb.ingredients.lookup,fatsecret.log_food,fatsecret.day_summary",
     );
   });
 

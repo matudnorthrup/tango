@@ -3463,6 +3463,100 @@ const MIGRATIONS: Migration[] = [
         WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'worker:study-assistant');
     `,
   },
+  {
+    // Give Malibu first-class wellness.db visibility and recipe access (TGO-861).
+    // Seed missing catalog tools for existing installations as well as fresh DBs.
+    version: 77,
+    sql: `
+      INSERT OR IGNORE INTO governance_tools (id, domain, display_name, access_type) VALUES
+        ('wellnessdb_update_product', 'wellness', 'Wellness DB Update Product', 'write'),
+        ('wellnessdb_update_supplement', 'wellness', 'Wellness DB Update Supplement', 'write'),
+        ('wellnessdb_delete_product', 'wellness', 'Wellness DB Delete Product', 'write'),
+        ('wellnessdb_delete_supplement', 'wellness', 'Wellness DB Delete Supplement', 'write');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_search_product', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_search_recipe', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_get_recipe_detail', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_day_summary', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_day_range', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_recent_meals', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_active_products', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_add_recipe', 'write', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu', 'wellnessdb_update_recipe', 'write', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_search_product', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_search_recipe', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_get_recipe_detail', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_day_summary', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_day_range', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_recent_meals', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_active_products', 'read', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_add_recipe', 'write', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+
+      INSERT OR IGNORE INTO permissions (principal_id, tool_id, access_level, reason)
+        SELECT 'agent:malibu-ollama', 'wellnessdb_update_recipe', 'write', 'Malibu wellness catalog and recipes'
+        WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
+    `,
+  },
+  {
+    // Retire legacy recipe-note and ingredient SQL access (TGO-861 Phase B).
+    version: 78,
+    sql: `
+      DELETE FROM permissions
+        WHERE tool_id IN ('atlas_sql', 'recipe_list', 'recipe_read', 'recipe_write');
+      DELETE FROM governance_tools
+        WHERE id IN ('atlas_sql', 'recipe_list', 'recipe_read', 'recipe_write');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";

@@ -26,7 +26,7 @@ Also check recipe_aliases if no shorthand match.
 
 Match to a products, supplements, or recipes entry. Use the stored macros — never look up nutrition externally when the database has it.
 
-For recipes: expand into ingredient list via recipe_ingredients table. Total macros come from the recipe row, adjusted by servings.
+For FatSecret recipe logs, pass the recipe name and servings (or component name and grams) to `nutrition_log_items`; the tool expands ingredients, including nested components. For wellness.db meal entries, use stored recipe macros adjusted by servings.
 
 ### Step 3: Log the entry
 

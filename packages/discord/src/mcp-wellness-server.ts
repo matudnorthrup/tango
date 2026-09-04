@@ -30,7 +30,6 @@ import {
   createNutritionTools,
   createHealthTools,
   createWorkoutTools,
-  createRecipeTools,
   createJulesFilesTools,
 } from "./wellness-agent-tools.js";
 import { createAllPersonalTools } from "./personal-agent-tools.js";
@@ -211,7 +210,6 @@ const allTools: AgentTool[] = [
   ...createNutritionTools(),
   ...createHealthTools(),
   ...createWorkoutTools(),
-  ...createRecipeTools(),
   ...createJulesFilesTools(),
   ...createAllPersonalTools(),
   ...createAllResearchTools(),
@@ -431,10 +429,8 @@ function inferRequestedAccessLevel(
       const method = typeof args.method === "string" ? args.method.trim() : "";
       return FATSECRET_WRITE_METHODS.has(method) ? "write" : "read";
     }
-    case "atlas_sql":
     case "workout_sql":
       return isReadOnlySql(args.sql) ? "read" : "write";
-    case "recipe_write":
     case "discord_manage":
     case "spawn_claude_session":
     case "discord_send_image":

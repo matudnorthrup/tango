@@ -79,6 +79,47 @@ describe("createWellnessDbTools", () => {
     }
   });
 
+  it("excludes archived recipe matches unless include_archived is true", async () => {
+    const db = new DatabaseSync(dbPath);
+    db.exec("UPDATE recipes SET archived_at = '2026-09-01' WHERE id = 1");
+    db.close();
+    for (const query of ["Vegetarian", "chili", "veggie chili"]) {
+      expect(await tools.get("wellnessdb_search_recipe")!({ query })).toMatchObject({ count: 0 });
+      expect(await tools.get("wellnessdb_search_recipe")!({ query, include_archived: true }))
+        .toMatchObject({ count: 1, recipes: [{ archived_at: "2026-09-01" }] });
+    }
+    // Detail is still available for inspecting a retired recipe.
+    expect(await tools.get("wellnessdb_get_recipe_detail")!({ query: "1" }))
+      .toMatchObject({ recipe: { archived_at: "2026-09-01" } });
+  });
+
+  it("returns canonical grams, product mappings, component names and per-100g macros", async () => {
+    const db = new DatabaseSync(dbPath);
+    db.exec(`UPDATE products SET grams_per_serving = 100, fiber_g = 4,
+        fatsecret_food_id = '101', fatsecret_serving_id = '201' WHERE id = 1;
+      UPDATE recipes SET yield_g = 400, total_fiber_g = 16 WHERE id = 1;
+      UPDATE recipe_ingredients SET quantity_g = 50, calories = NULL, protein_g = NULL,
+        carbs_g = NULL, fat_g = NULL WHERE recipe_id = 1;
+      INSERT INTO recipes (id, name, yield_g, total_calories, total_protein_g, total_carbs_g, total_fat_g, total_fiber_g)
+        VALUES (2, 'Component Sauce', 50, 100, 10, 8, 3, 2);
+      INSERT INTO recipe_ingredients (recipe_id, ingredient_name, sub_recipe_id, quantity_g)
+        VALUES (1, 'Sauce', 2, 25);`);
+    db.close();
+    for (const query of ["1", "chili", "veggie chili", "Vegetarian Chili"]) {
+      expect(await tools.get("wellnessdb_get_recipe_detail")!({ query })).toMatchObject({
+        recipe: { yield_g: 400, archived_at: null, per_100g_cal: 200, per_100g_prot: 10,
+          per_100g_carb: 20, per_100g_fat: 5, per_100g_fiber: 4 },
+        ingredients: [
+          { quantity_g: 50, fiber_g: 2, calories: 85, protein_g: 13, carbs_g: 4, fat_g: 1.5,
+            product_id: 1, product_name: "Core Power Chocolate", fatsecret_food_id: "101",
+            fatsecret_serving_id: "201", grams_per_serving: 100, sub_recipe_id: null, sub_recipe_name: null },
+          { quantity_g: 25, sub_recipe_id: 2, sub_recipe_name: "Component Sauce", product_id: null,
+            calories: 50, protein_g: 5, carbs_g: 4, fat_g: 1.5, fiber_g: 1 },
+        ],
+      });
+    }
+  });
+
   it("searches products by shorthand and by name", async () => {
     const byShorthand = await tools.get("wellnessdb_search_product")!({ query: "core power" });
     expect(byShorthand).toMatchObject({

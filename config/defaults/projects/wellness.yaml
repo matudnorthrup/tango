@@ -25,13 +25,8 @@ tool_contract_ids:
   - fatsecret.search_food
   - fatsecret.log_food
   - fatsecret.day_summary
-  - atlas.ingredients.lookup
-  - atlas.ingredients.create
-  - atlas.recipes.lookup
-  - atlas.recipes.upsert
-  - obsidian.recipe_notes.read
-  - obsidian.recipe_notes.write
-  - obsidian.recipe_notes.validate_frontmatter
+  - wellnessdb.recipes.lookup
+  - wellnessdb.ingredients.lookup
   - obsidian
   - workouts.start_session
   - workouts.log_set

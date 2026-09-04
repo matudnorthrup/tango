@@ -226,63 +226,31 @@ function searchSupplements(db: DatabaseSync, query: string, activeOnly = false):
   );
 }
 
+const RECIPE_SUMMARY_SELECT = `SELECT rs.*, r.yield_g, r.archived_at,
+  CASE WHEN r.yield_g > 0 THEN ROUND(r.total_calories * 100.0 / r.yield_g) END AS per_100g_cal,
+  CASE WHEN r.yield_g > 0 THEN ROUND(r.total_protein_g * 100.0 / r.yield_g, 1) END AS per_100g_prot,
+  CASE WHEN r.yield_g > 0 THEN ROUND(r.total_carbs_g * 100.0 / r.yield_g, 1) END AS per_100g_carb,
+  CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fat_g * 100.0 / r.yield_g, 1) END AS per_100g_fat,
+  CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fiber_g * 100.0 / r.yield_g, 1) END AS per_100g_fiber
+  FROM recipe_summary rs JOIN recipes r ON r.id = rs.id`;
+
 function findRecipeSummary(db: DatabaseSync, query: string): RecipeSummaryRow | undefined {
   const term = normalizeSearchTerm(query);
-  const byShorthand = queryOne<RecipeSummaryRow>(
-    db,
-    `SELECT id, name, shorthand, servings, per_serving_cal, per_serving_prot, per_serving_carb, per_serving_fat,
-            total_calories, total_protein_g, total_carbs_g, total_fat_g, instructions, notes
-     FROM recipe_summary
-     WHERE lower(shorthand) = ?
-     LIMIT 1`,
-    [term],
-  );
-  if (byShorthand) return byShorthand;
-
-  const alias = queryOne<{ recipe_id: number }>(
-    db,
-    "SELECT recipe_id FROM recipe_aliases WHERE lower(alias) = ? LIMIT 1",
-    [term],
-  );
-  if (alias) {
-    return queryOne<RecipeSummaryRow>(
-      db,
-      `SELECT id, name, shorthand, servings, per_serving_cal, per_serving_prot, per_serving_carb, per_serving_fat,
-              total_calories, total_protein_g, total_carbs_g, total_fat_g, instructions, notes
-       FROM recipe_summary
-       WHERE id = ?
-       LIMIT 1`,
-      [alias.recipe_id],
-    );
-  }
-
-  return queryOne<RecipeSummaryRow>(
-    db,
-    `SELECT id, name, shorthand, servings, per_serving_cal, per_serving_prot, per_serving_carb, per_serving_fat,
-            total_calories, total_protein_g, total_carbs_g, total_fat_g, instructions, notes
-     FROM recipe_summary
-     WHERE lower(name) LIKE ?
-     LIMIT 1`,
-    [`%${term}%`],
-  );
+  return queryOne<RecipeSummaryRow>(db, `${RECIPE_SUMMARY_SELECT}
+    WHERE lower(rs.shorthand) = ? OR lower(rs.name) LIKE ?
+      OR EXISTS (SELECT 1 FROM recipe_aliases ra WHERE ra.recipe_id = rs.id AND lower(ra.alias) = ?)
+    ORDER BY (lower(rs.shorthand) = ?) DESC,
+      EXISTS (SELECT 1 FROM recipe_aliases ra WHERE ra.recipe_id = rs.id AND lower(ra.alias) = ?) DESC,
+      (lower(rs.name) = ?) DESC, rs.id LIMIT 1`,
+    [term, `%${term}%`, term, term, term, term]);
 }
 
-function searchRecipes(db: DatabaseSync, query: string): RecipeSummaryRow[] {
-  const term = normalizeSearchTerm(query);
-  return queryAll<RecipeSummaryRow>(
-    db,
-    `SELECT DISTINCT rs.id, rs.name, rs.shorthand, rs.servings, rs.per_serving_cal, rs.per_serving_prot,
-            rs.per_serving_carb, rs.per_serving_fat, rs.total_calories, rs.total_protein_g, rs.total_carbs_g,
-            rs.total_fat_g, rs.instructions, rs.notes
-     FROM recipe_summary rs
-     LEFT JOIN recipe_aliases ra ON ra.recipe_id = rs.id
-     WHERE lower(rs.shorthand) LIKE ?
-        OR lower(rs.name) LIKE ?
-        OR lower(ra.alias) LIKE ?
-     ORDER BY rs.name
-     LIMIT 25`,
-    [`%${term}%`, `%${term}%`, `%${term}%`],
-  );
+function searchRecipes(db: DatabaseSync, query: string, includeArchived = false): RecipeSummaryRow[] {
+  const term = `%${normalizeSearchTerm(query)}%`;
+  return queryAll<RecipeSummaryRow>(db, `${RECIPE_SUMMARY_SELECT}
+    WHERE (? OR r.archived_at IS NULL) AND (lower(rs.shorthand) LIKE ? OR lower(rs.name) LIKE ?
+      OR EXISTS (SELECT 1 FROM recipe_aliases ra WHERE ra.recipe_id = rs.id AND lower(ra.alias) LIKE ?))
+    ORDER BY rs.name LIMIT 25`, [includeArchived ? 1 : 0, term, term, term]);
 }
 
 function parseSupplementBatchShortcut(line: string): [string, string[]] | null {
@@ -621,11 +589,12 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
     },
     {
       name: "wellnessdb_search_recipe",
-      description: "Search recipes by name, shorthand, or alias. Returns per-serving macros.",
+      description: "Search recipes by name, shorthand, or alias. Returns per-serving macros. Excludes archived recipes by default.",
       inputSchema: {
         type: "object",
         properties: {
           query: { type: "string", description: "Recipe name, shorthand, or alias" },
+          include_archived: { type: "boolean", description: "Include archived recipes (default false)" },
         },
         required: ["query"],
       },
@@ -633,7 +602,7 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
         const query = String(input.query ?? "").trim();
         if (!query) return { error: "query is required" };
         const db = openDb(dbPath, true);
-        const recipes = searchRecipes(db, query);
+        const recipes = searchRecipes(db, query, input.include_archived === true);
         return { query, count: recipes.length, recipes };
       },
     },
@@ -654,9 +623,7 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
         const recipe = /^\d+$/.test(query)
           ? queryOne<RecipeSummaryRow>(
             db,
-            `SELECT id, name, shorthand, servings, per_serving_cal, per_serving_prot, per_serving_carb, per_serving_fat,
-                    total_calories, total_protein_g, total_carbs_g, total_fat_g, instructions, notes
-             FROM recipe_summary WHERE id = ?`,
+            `${RECIPE_SUMMARY_SELECT} WHERE rs.id = ?`,
             [Number(query)],
           )
           : findRecipeSummary(db, query);
@@ -664,10 +631,23 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
 
         const ingredients = queryAll(
           db,
-          `SELECT ri.id, ri.ingredient_name, ri.quantity, ri.calories, ri.protein_g, ri.carbs_g, ri.fat_g,
-                  p.id AS product_id, p.name AS product_name, p.shorthand AS product_shorthand
+          `SELECT ri.id, ri.ingredient_name, ri.quantity, ri.quantity_g,
+                  COALESCE(ri.calories, ROUND(ri.quantity_g * p.calories * 1.0 / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_calories * 1.0 / NULLIF(sr.yield_g, 0), 1)) AS calories,
+                  COALESCE(ri.protein_g, ROUND(ri.quantity_g * p.protein_g * 1.0 / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_protein_g * 1.0 / NULLIF(sr.yield_g, 0), 1)) AS protein_g,
+                  COALESCE(ri.carbs_g, ROUND(ri.quantity_g * p.carbs_g * 1.0 / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_carbs_g * 1.0 / NULLIF(sr.yield_g, 0), 1)) AS carbs_g,
+                  COALESCE(ri.fat_g, ROUND(ri.quantity_g * p.fat_g * 1.0 / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_fat_g * 1.0 / NULLIF(sr.yield_g, 0), 1)) AS fat_g,
+                  COALESCE(ri.fiber_g, ROUND(ri.quantity_g * p.fiber_g * 1.0 / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_fiber_g * 1.0 / NULLIF(sr.yield_g, 0), 1)) AS fiber_g,
+                  ri.product_id, p.name AS product_name, p.shorthand AS product_shorthand,
+                  ri.sub_recipe_id, sr.name AS sub_recipe_name,
+                  p.fatsecret_food_id, p.fatsecret_serving_id, p.grams_per_serving
            FROM recipe_ingredients ri
            LEFT JOIN products p ON p.id = ri.product_id
+           LEFT JOIN recipes sr ON sr.id = ri.sub_recipe_id
            WHERE ri.recipe_id = ?
            ORDER BY ri.id`,
           [recipe.id],
