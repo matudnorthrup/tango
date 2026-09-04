@@ -6,6 +6,7 @@
  *
  *   node --import tsx scripts/backfill-amazon-listings.ts history [--pages N] [--out FILE]
  *   node --import tsx scripts/backfill-amazon-listings.ts pdp --asins FILE [--out FILE]
+ *   node --import tsx scripts/backfill-amazon-listings.ts search --q "query" [--out FILE]
  */
 import fs from 'node:fs';
 import { chromium, type Page } from 'playwright-core';
@@ -60,6 +61,27 @@ async function main() {
       }
       fs.writeFileSync(outFile, JSON.stringify(results, null, 2));
       console.log(`wrote ${results.length} PDP records → ${outFile}`);
+      return;
+    }
+    if (mode === 'search') {
+      const q = argOf('--q') ?? '';
+      await page.goto(`https://www.amazon.com/s?k=${encodeURIComponent(q)}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await pace(3500);
+      const hits = await page.evaluate(`(() => {
+        const out = [];
+        for (const card of Array.from(document.querySelectorAll('[data-asin]'))) {
+          const asin = card.getAttribute('data-asin');
+          if (!asin || asin.length !== 10) continue;
+          const title = (card.querySelector('h2') || {}).innerText || '';
+          const priceEl = card.querySelector('.a-price .a-offscreen');
+          const m = priceEl && priceEl.innerText.match(/[\\d,.]+/);
+          if (title.trim()) out.push({ asin, title: title.trim().slice(0, 120), price: m ? Number(m[0].replace(/,/g, '')) : null });
+          if (out.length >= 8) break;
+        }
+        return out;
+      })()`) as Array<{ asin: string; title: string; price: number | null }>;
+      for (const h of hits) console.log(`  ${h.asin} $${h.price ?? '?'} ${h.title.slice(0, 80)}`);
+      fs.writeFileSync(outFile, JSON.stringify(hits, null, 2));
       return;
     }
     throw new Error(`unknown mode ${mode}`);
