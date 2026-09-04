@@ -178,6 +178,25 @@ describe("ensureWellnessDb", () => {
     db.close();
   });
 
+  it("v2 → v3 rebuild succeeds with populated listings and price history", () => {
+    const dbPath = tempDbPath();
+    ensureWellnessDb(dbPath);
+    const db = new DatabaseSync(dbPath);
+    db.prepare("INSERT INTO products (id, name) VALUES (1, 'Black Beans')").run();
+    db.prepare("INSERT INTO product_listings (id, product_id, retailer, retailer_item_id) VALUES (3, 1, 'walmart', '10534038')").run();
+    db.prepare("INSERT INTO price_history (listing_id, price) VALUES (3, 0.92)").run();
+    db.exec("PRAGMA user_version = 2"); // pretend we're pre-v3 with real data
+    db.close();
+
+    const report = ensureWellnessDb(dbPath);
+    expect(report.fromVersion).toBe(2);
+    expect(report.toVersion).toBe(WELLNESS_DB_VERSION);
+    const check = new DatabaseSync(dbPath);
+    const row = check.prepare("SELECT price FROM product_price WHERE product_id = 1").get() as { price: number };
+    expect(row.price).toBe(0.92);
+    check.close();
+  });
+
   it("recipe writes touch updated_at without error on a fresh DB", () => {
     // recalculateRecipeTotals writes recipes.updated_at, which the base v1
     // schema never created; v2 adds it. Guard against regression.
