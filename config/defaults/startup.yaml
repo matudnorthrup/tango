@@ -204,6 +204,26 @@ services:
           host: 127.0.0.1
           port: 9320
 
+  - id: food-ui
+    name: Food UI
+    enabled: true
+    optional: false
+    cwd: "${REPO_DIR}/apps/food-ui"
+    command: >-
+      "${NODE_BIN}" dist/server/main.js
+    tmux:
+      window: food-ui
+    retries:
+      attempts: 2
+      delayMs: 1000
+      timeoutMs: 15000
+    health:
+      checks:
+        - type: tmux-window
+        - type: tcp
+          host: 127.0.0.1
+          port: 9350
+
   - id: workout-ui
     name: Workout UI
     enabled: true
