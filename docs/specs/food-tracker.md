@@ -103,10 +103,23 @@ ALTER TABLE products ADD COLUMN fatsecret_serving_id TEXT;
 ALTER TABLE products ADD COLUMN grams_per_serving REAL;
 
 ALTER TABLE recipes ADD COLUMN total_fiber_g REAL;
+ALTER TABLE recipes ADD COLUMN yield_g REAL;        -- batch output grams (component recipes)
 
 ALTER TABLE recipe_ingredients ADD COLUMN quantity_g REAL;  -- canonical grams
 ALTER TABLE recipe_ingredients ADD COLUMN fiber_g REAL;
+ALTER TABLE recipe_ingredients ADD COLUMN sub_recipe_id INTEGER REFERENCES recipes(id);
 ```
+
+**Nested (component) recipes.** A recipe that is really a reusable component
+— a lime crema, a spice blend, a dressing — sets `yield_g` (grams one batch
+produces) and is then usable *by the gram* inside other recipes via
+`recipe_ingredients.sub_recipe_id` (set instead of `product_id`). Per-gram
+macros and cost are batch totals ÷ `yield_g`, so repricing an ingredient of
+the component reprices every recipe that uses it. Rollups recurse in
+application code (`recalculateRecipeTotals` + UI), which rejects cycles at
+write time; nesting depth is unbounded in schema, practically 2–3 levels.
+FatSecret logging expansion recurses the same way — a component contributes
+its ingredients' FatSecret servings scaled by the grams used.
 
 `quantity_g` is the normalization Devin asked for: free-text `quantity` stays
 for display ("1 can"), `quantity_g` drives all math. For products with
