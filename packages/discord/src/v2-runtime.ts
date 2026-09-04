@@ -25,6 +25,7 @@ import {
   type MemoryCaptureConfig,
 } from "./memory-capture.js";
 import { runActiveTaskPostTurn } from "./active-task-continuation.js";
+import { resolveExtractionProvider } from "./extraction-provider.js";
 import {
   runStateReconciler,
   type StateReconcilerOutcome,
@@ -371,9 +372,11 @@ export function createV2PostTurnHook(input: {
     const memorySuppressed = input.extractionSuppressedChannelIds?.has(context.channelId) ?? false;
     if (!memorySuppressed && agentV2Config?.memory.postTurnExtraction === "enabled") {
       const memoryScope = resolveV2MemoryScope(context.agentId, agentV2Config);
-      const extractionProvider =
-        agentV2Config.memory.extractionProvider
-        ?? (isOllamaBackedAgent(agentV2Config) ? "ollama" : "claude-oauth");
+      const extractionProvider = resolveExtractionProvider(
+        agentV2Config,
+        agentV2Config.memory.extractionProvider,
+        agentV2Config.memory.extractionModel,
+      );
       const provider = input.resolveProvider(extractionProvider);
       if (!provider) {
         console.warn(

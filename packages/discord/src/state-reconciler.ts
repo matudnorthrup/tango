@@ -9,6 +9,7 @@ import type {
   StateService,
   V2AgentConfig,
 } from "@tango/core";
+import { resolveExtractionProvider } from "./extraction-provider.js";
 
 const MAX_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 2_000;
@@ -99,22 +100,16 @@ export function resolveStateReconcilerSettings(
 ): StateReconcilerSettings | null {
   if (!config || config.state?.reconciliation === "disabled") return null;
   const model = config.state?.extractionModel ?? config.memory.extractionModel;
-  const providerName = config.state?.extractionProvider
-    ?? config.memory.extractionProvider
-    ?? (isClaudeExtractionModel(model)
-      ? "claude-oauth"
-      : config.legacyProvider?.default === "ollama"
-        ? "ollama"
-        : "claude-oauth");
+  const providerName = resolveExtractionProvider(
+    config,
+    config.state?.extractionProvider ?? config.memory.extractionProvider,
+    model,
+  );
   return {
     providerName,
     model,
     focusTtlDays: config.state?.focusTtlDays ?? 7,
   };
-}
-
-function isClaudeExtractionModel(model: string): boolean {
-  return /^(?:claude(?:-|:)|haiku|sonnet|opus)/iu.test(model.trim());
 }
 
 export function buildStateReconcilerPrompt(input: {

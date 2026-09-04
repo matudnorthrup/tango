@@ -6,7 +6,7 @@ import type {
   ChatProvider,
   V2AgentConfig,
 } from "@tango/core";
-import { isOllamaBackedAgent } from "./v2-runtime.js";
+import { resolveExtractionProvider } from "./extraction-provider.js";
 
 /**
  * Active-task continuation for the v2 runtime.
@@ -98,12 +98,14 @@ export function resolveActiveTaskContinuationSettings(
     return null;
   }
 
+  const extractionModel = v2Config.activeTasks?.extractionModel ?? v2Config.memory.extractionModel;
   return {
-    extractionProvider:
-      v2Config.activeTasks?.extractionProvider
-      ?? v2Config.memory.extractionProvider
-      ?? (isOllamaBackedAgent(v2Config) ? "ollama" : "claude-oauth"),
-    extractionModel: v2Config.activeTasks?.extractionModel ?? v2Config.memory.extractionModel,
+    extractionProvider: resolveExtractionProvider(
+      v2Config,
+      v2Config.activeTasks?.extractionProvider ?? v2Config.memory.extractionProvider,
+      extractionModel,
+    ),
+    extractionModel,
   };
 }
 
