@@ -12,8 +12,8 @@ Malibu's nine tools use the active profile's `wellness/wellness.db` through the
 | `wellnessdb_day_range` | Read | Read daily aggregates from `start_date` through `end_date`. |
 | `wellnessdb_recent_meals` | Read | Read latest meal entries with `limit` (default 10, max 50). |
 | `wellnessdb_active_products` | Read | List products with no `discontinued_date`. |
-| `wellnessdb_add_recipe` | Write | Create with `name`, `ingredients`; optional `servings`, `shorthand`, `instructions`, `notes`, `aliases`. |
-| `wellnessdb_update_recipe` | Write | Replace ingredients by name/shorthand/alias `query`; optional `servings`, `instructions`, `notes`. Existing aliases stay intact. |
+| `wellnessdb_add_recipe` | Write | Create with `name`, `ingredients` (each a `product` or component `sub_recipe`, with `quantity_g`); optional `servings`, `yield_g` (component batch weight), `shorthand`, `instructions`, `notes`, `aliases`. |
+| `wellnessdb_update_recipe` | Write | Update by name/shorthand/alias `query`. Omit `ingredients` to change only `servings`, `yield_g`, `instructions`, `notes`, or add `aliases` (rows untouched). Pass `ingredients` only as the FULL list from `get_recipe_detail`, products and `sub_recipe` rows alike, with `quantity_g`. |
 
 Searches return matches and counts; detail returns `recipe`, `ingredients`, and
 `aliases`; writes return the recipe ID. Product search includes discontinued

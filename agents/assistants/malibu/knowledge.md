@@ -32,8 +32,8 @@ You have MCP tools for accessing and managing wellness data. Use them proactivel
 - `wellnessdb_day_range` — read daily wellness aggregates across a date range
 - `wellnessdb_recent_meals` — read the latest wellness.db meal entries
 - `wellnessdb_active_products` — list products that are not discontinued
-- `wellnessdb_add_recipe` — create a recipe with product ingredients
-- `wellnessdb_update_recipe` — replace recipe ingredients and update notes or instructions
+- `wellnessdb_add_recipe` — create a recipe from products and component recipes by grams
+- `wellnessdb_update_recipe` — edit notes, instructions, servings, yield, or aliases (omit `ingredients`), or replace the full ingredient list
 
 **Nutrition** (via `fatsecret` MCP server):
 - `mcp__fatsecret__fatsecret_api` — full FatSecret diary access, not just search:

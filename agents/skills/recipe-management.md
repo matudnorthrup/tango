@@ -24,16 +24,16 @@ Any time the user asks to create a recipe, modify an existing one, check recipe 
 1. **Resolve every ingredient** — match each product with `wellnessdb_search_product` (`active_only: true`) or a component with `wellnessdb_search_recipe`. If it does not exist, report it as unresolved.
 2. **Calculate macros** — sum ingredient macros for total recipe macros. Divide by servings for per-serving.
 3. **Write the recipe** — use `wellnessdb_add_recipe` with name, servings, and product ingredients; the tool calculates totals.
-4. **Respect the write schema** — product ingredients take `product`, display `quantity`, and a `servings` multiplier against product macros. Canonical `quantity_g`, component `sub_recipe_id`, and batch `yield_g` exist in the data model but are not supported inputs to these recipe write tools. Report that limitation for component or canonical-gram edits.
+4. **Respect the write schema** — each ingredient is a `product` or a component `sub_recipe`, with canonical `quantity_g` (a gram-style `quantity` such as `200 g` also works). Macros derive from grams via the product's grams-per-serving or the component's `yield_g`; the legacy `servings` multiplier is only for products with no gram data. Component rows always need grams and a component with a `yield_g`.
 5. **Add shorthand** — pass the user-provided shorthand at creation.
 6. **Add aliases** — pass common alternative names in `aliases` at creation.
 
 ## Recipe Update
 
 1. **Identify the recipe** — find by name, shorthand, or alias.
-2. **Make the change** — call `wellnessdb_update_recipe` by name/shorthand/alias with the complete product ingredient list, including for notes-only edits; it replaces all ingredient rows. Do not use it on recipes with components or canonical gram data that the schema cannot preserve.
+2. **Make the change** — call `wellnessdb_update_recipe` by name/shorthand/alias. For notes, instructions, servings, yield, or alias edits, omit `ingredients`; the rows stay untouched. To change ingredients, first read `wellnessdb_get_recipe_detail` and pass back the FULL list (every product row and every `sub_recipe` component row with its `quantity_g`, plus your change); the tool replaces all rows with what you send.
 3. **Recalculate macros** — any ingredient change requires recalculating total and per-serving macros. These must stay consistent.
-4. **Preserve aliases** — existing aliases remain; this update tool does not accept new aliases.
+4. **Preserve aliases** — existing aliases remain; pass `aliases` to add new ones.
 
 ## Ingredient Substitution
 
