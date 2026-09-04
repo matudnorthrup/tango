@@ -216,3 +216,4 @@ table.recipes thead th .arrow { font-size: 0.6rem; margin-left: 0.3rem; }
 table.recipes tbody tr.row { cursor: pointer; }
 table.recipes tbody tr.row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 table.recipes td.empty { text-align: center; color: var(--muted); padding: 1.5rem; white-space: normal; }
+table.recipes td.ratio { color: var(--accent-ink); font-weight: 600; }
