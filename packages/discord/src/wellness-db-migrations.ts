@@ -284,6 +284,9 @@ function createFoodTrackerViews(db: DatabaseSync): void {
 function applyRetailerMigration(db: DatabaseSync): void {
   // SQLite can't alter a CHECK constraint: rebuild product_listings with the
   // widened retailer set, preserving ids (price_history references them).
+  // price_history's FK would fail the DROP while rows exist; ensureWellnessDb
+  // disables foreign_keys around the migration transaction (SQLite's
+  // documented rebuild procedure) and runs foreign_key_check before COMMIT.
   for (const view of ['shopping_list', 'plan_summary', 'recipe_summary', 'recipe_cost', 'product_price', 'product_current_price']) {
     db.exec(`DROP VIEW IF EXISTS ${view}`);
   }
@@ -323,6 +326,10 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
   try {
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA busy_timeout = 5000");
+    // Table rebuilds (v3) need FKs off; the pragma is a no-op inside a
+    // transaction, so it has to be set here. foreign_key_check runs before
+    // COMMIT so a bad rebuild can never land.
+    db.exec("PRAGMA foreign_keys = OFF");
     db.exec("BEGIN IMMEDIATE");
     try {
       let version = getUserVersion(db);
@@ -343,6 +350,10 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
         version = 3;
       }
       setUserVersion(db, version);
+      const violations = db.prepare("PRAGMA foreign_key_check").all();
+      if (violations.length > 0) {
+        throw new Error(`wellness.db migration left ${violations.length} foreign key violation(s)`);
+      }
       db.exec("COMMIT");
       return { path: dbPath, created: !existed, fromVersion, toVersion: version };
     } catch (error) {
@@ -350,6 +361,7 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
       throw error;
     }
   } finally {
+    db.exec("PRAGMA foreign_keys = ON");
     db.close();
   }
 }
