@@ -36,12 +36,12 @@ trends. Spec: [`docs/specs/food-tracker.md`](../../docs/specs/food-tracker.md).
 
 ```bash
 npm run build -w @tango/food-ui
-npm run food-ui:start      # tmux window tango:food-ui, port 9360
+npm run food-ui:start      # tmux window tango:food-ui, port 9370
 npm run food-ui:status
 npm run food-ui:restart    # rebuilds first
 ```
 
-Env: `FOOD_UI_PORT` (9360), `FOOD_UI_HOST` (127.0.0.1), `FOOD_UI_BASE_PATH`
+Env: `FOOD_UI_PORT` (9370), `FOOD_UI_HOST` (127.0.0.1), `FOOD_UI_BASE_PATH`
 (`/tango-food`), `FOOD_UI_TOKEN` (optional bearer auth),
 `FOOD_UI_DB_PATH`/`WELLNESS_DB_PATH` (DB override). Reboot-safe via the
 `food-ui` service block in `config/defaults/startup.yaml`.
@@ -49,7 +49,7 @@ Env: `FOOD_UI_PORT` (9360), `FOOD_UI_HOST` (127.0.0.1), `FOOD_UI_BASE_PATH`
 ## Tailscale
 
 ```bash
-tailscale serve --bg --set-path /tango-food http://127.0.0.1:9360
+tailscale serve --bg --set-path /tango-food http://127.0.0.1:9370
 ```
 
 Serves at `https://mac-studio.<tailnet>.ts.net/tango-food/`. The server binds
@@ -59,6 +59,6 @@ works the same. Tailnet membership is the trust boundary (house convention).
 ## Dev
 
 ```bash
-npm run dev:server -w @tango/food-ui   # API on 9360
+npm run dev:server -w @tango/food-ui   # API on 9370
 npm run dev -w @tango/food-ui          # Vite on 5173, proxies /api
 ```
