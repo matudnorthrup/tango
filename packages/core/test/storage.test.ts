@@ -2286,7 +2286,7 @@ describe("context usage snapshots (T-I-035)", () => {
     try {
       const version = db.prepare("PRAGMA user_version;").get() as { user_version: number };
       // Bump alongside the newest entry in MIGRATIONS (77 = Malibu wellness.db grants).
-      expect(version.user_version).toBe(77);
+      expect(version.user_version).toBe(78);
       const table = db
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'context_usage_snapshots'")
         .get() as { name?: string } | undefined;
@@ -2458,6 +2458,58 @@ describe("Malibu wellness.db governance (migration 77)", () => {
         }
         // Replay only this migration to verify INSERT OR IGNORE behavior.
         upgradedDb.exec("PRAGMA user_version = 76");
+      } finally { upgraded.close(); }
+    }
+  });
+});
+
+describe("legacy wellness tool retirement (migration 78)", () => {
+  const retired = ["atlas_sql", "recipe_list", "recipe_read", "recipe_write"];
+
+  it.each([true, false])("removes retired tools on fresh databases with example roster=%s", (seedExampleRoster) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-retired-tools-"));
+    tempDirs.push(dir);
+    const storage = new TangoStorage(path.join(dir, "tango.sqlite"), { seedExampleRoster });
+    try {
+      const db = storage.getDatabase();
+      for (const tool of retired) {
+        expect(db.prepare("SELECT * FROM permissions WHERE tool_id = ?").all(tool)).toEqual([]);
+        expect(db.prepare("SELECT * FROM governance_tools WHERE id = ?").all(tool)).toEqual([]);
+      }
+    } finally { storage.close(); }
+  });
+
+  it("removes existing grants for every principal and preserves wellness.db grants on upgrade and replay", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-retired-upgrade-"));
+    tempDirs.push(dir);
+    const dbPath = path.join(dir, "tango.sqlite");
+    const initial = new TangoStorage(dbPath);
+    const db = initial.getDatabase();
+    db.exec(`INSERT INTO principals (id, type, display_name) VALUES
+      ('agent:retirement-test', 'agent', 'Retirement test'),
+      ('worker:retirement-test', 'worker', 'Retirement worker')`);
+    for (const tool of retired) {
+      db.prepare("INSERT INTO governance_tools (id, domain, display_name, access_type) VALUES (?, 'wellness', ?, 'write')").run(tool, tool);
+      for (const principal of ["agent:retirement-test", "worker:retirement-test"]) {
+        db.prepare("INSERT INTO permissions (principal_id, tool_id, access_level, reason) VALUES (?, ?, 'write', 'upgrade fixture')").run(principal, tool);
+      }
+    }
+    db.exec(`INSERT INTO permissions (principal_id, tool_id, access_level, reason)
+      VALUES ('agent:retirement-test', 'wellnessdb_search_recipe', 'read', 'preserve');
+      PRAGMA user_version = 77`);
+    initial.close();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const upgraded = new TangoStorage(dbPath);
+      try {
+        const upgradedDb = upgraded.getDatabase();
+        expect(upgradedDb.prepare("PRAGMA user_version").get()).toEqual({ user_version: 78 });
+        for (const tool of retired) {
+          expect(upgradedDb.prepare("SELECT * FROM permissions WHERE tool_id = ?").all(tool)).toEqual([]);
+          expect(upgradedDb.prepare("SELECT * FROM governance_tools WHERE id = ?").all(tool)).toEqual([]);
+        }
+        expect(upgradedDb.prepare("SELECT tool_id FROM permissions WHERE principal_id = 'agent:retirement-test'").all())
+          .toEqual([{ tool_id: "wellnessdb_search_recipe" }]);
+        upgradedDb.exec("PRAGMA user_version = 77");
       } finally { upgraded.close(); }
     }
   });

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createHealthTools, createNutritionTools, createRecipeTools, createWorkoutTools } from "../src/wellness-agent-tools.js";
+import { createHealthTools, createNutritionTools, createWorkoutTools } from "../src/wellness-agent-tools.js";
 
 import { ensureWellnessDb } from "../src/wellness-db-migrations.js";
 
@@ -15,15 +15,6 @@ function makeScript(contents: string): string {
   fs.writeFileSync(scriptPath, contents, "utf8");
   fs.chmodSync(scriptPath, 0o755);
   return scriptPath;
-}
-
-function makeRecipesDir(files: Record<string, string>): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-recipe-tools-"));
-  tempDirs.push(dir);
-  for (const [name, content] of Object.entries(files)) {
-    fs.writeFileSync(path.join(dir, name), content, "utf8");
-  }
-  return dir;
 }
 
 afterEach(() => {
@@ -79,41 +70,6 @@ describe("createHealthTools", () => {
   });
 });
 
-describe("createRecipeTools", () => {
-  it("matches singular and plural recipe variants plus content hints", async () => {
-    const recipesDir = makeRecipesDir({
-      "Egg & Fries Hash.md": "# Egg & Fries Hash\n\n- 2 Eggs\n- 150g French Fries\n",
-      "Taco Tuesday.md": "# Taco Tuesday\n\ntags: tacos\n\nProtein Options: Chicken\n",
-    });
-    const recipeRead = createRecipeTools({ recipesDir }).find((tool) => tool.name === "recipe_read");
-
-    await expect(recipeRead!.handler({ name: "eggs and fries hash" })).resolves.toMatchObject({
-      found: true,
-      matches: [{ title: "Egg & Fries Hash" }],
-    });
-    await expect(recipeRead!.handler({ name: "chicken tacos" })).resolves.toMatchObject({
-      found: true,
-      matches: [{ title: "Taco Tuesday" }],
-    });
-  });
-
-  it("extracts recipe names from obsidian links", async () => {
-    const recipesDir = makeRecipesDir({
-      "Egg & Fries Hash.md": "# Egg & Fries Hash\n",
-    });
-    const recipeRead = createRecipeTools({ recipesDir }).find((tool) => tool.name === "recipe_read");
-
-    await expect(
-      recipeRead!.handler({
-        name: "obsidian://open?vault=main&file=Records%2FNutrition%2FRecipes%2FEgg%20%26%20Fries%20Hash here's the recipe link",
-      }),
-    ).resolves.toMatchObject({
-      found: true,
-      matches: [{ title: "Egg & Fries Hash" }],
-    });
-  });
-});
-
 describe("createNutritionTools", () => {
   it.each(["JULES_WELLNESS_DB_PATH", "WELLNESS_DB_PATH"])("logs against %s instead of the legacy path", async (env) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-nutrition-path-"));
@@ -123,7 +79,7 @@ describe("createNutritionTools", () => {
     vi.stubEnv("JULES_WELLNESS_DB_PATH", "");
     vi.stubEnv("WELLNESS_DB_PATH", "");
     vi.stubEnv(env, dbPath);
-    const tool = createNutritionTools({ atlasDbPath: path.join(dir, "does-not-exist.db") })
+    const tool = createNutritionTools()
       .find((entry) => entry.name === "nutrition_log_items")!;
     expect(await tool.handler({ items: [{ name: "Unknown", quantity: "1" }], meal: "lunch" }))
       .toMatchObject({ status: "needs_clarification", logged: [] });

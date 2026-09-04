@@ -20,7 +20,6 @@ const OPEN_WORLD_TOOLS = new Set<string>([
 
 const DESTRUCTIVE_WRITE_TOOLS = new Set<string>([
   "fatsecret_api",
-  "recipe_write",
   "tango_file",
   "discord_manage",
 ]);

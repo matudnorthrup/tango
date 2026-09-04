@@ -1,7 +1,7 @@
 /**
  * Wellness Agent Tools — Tool definitions and handlers for wellness MCP access.
  *
- * Converts the existing shell scripts (nutrition-helper, health-query, atlas, workout)
+ * Converts the existing shell scripts (nutrition-helper, health-query, workout)
  * into AgentTool definitions that V2 runtimes can call through the wellness MCP server.
  *
  * Each tool has:
@@ -23,20 +23,6 @@ import {
 } from "@tango/core";
 import { executeNutritionLogItems } from "./nutrition-log-executor.js";
 import { resolveWellnessDbPath } from "./wellness-db-tools.js";
-
-// Legacy tool paths remain until the Phase B retirement.
-function resolveAtlasDbPath(atlasCommand: string): string {
-  const resolvedCommand = resolveRealPath(atlasCommand);
-  return path.join(path.dirname(resolvedCommand), "atlas.db");
-}
-
-function resolveRealPath(value: string): string {
-  try {
-    return fs.realpathSync(value);
-  } catch {
-    return value;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Command runner (shared by all tool handlers)
@@ -116,10 +102,7 @@ export interface WellnessToolPaths {
   nutritionScript?: string;
   fatsecretApiScript?: string;
   fatsecretBatchScript?: string;
-  atlasCommand?: string;
-  atlasDbPath?: string;
   workoutScript?: string;
-  recipesDir?: string;
 }
 
 function resolveExistingOrFallback(candidates: string[], fallback: string): string {
@@ -146,7 +129,6 @@ function resolveConfiguredOrFallback(
 export function resolveWellnessToolPaths(overrides?: WellnessToolPaths) {
   const home = os.homedir();
   const tangoHome = resolveTangoHome();
-  const profileDir = resolveTangoProfileDir();
   const genericHealthScript = path.join(tangoHome, "tools/health-data/scripts/health-query.js");
   const legacyHealthScript = path.join(home, "clawd/skills/health-data/scripts/health-query.js");
   const genericNutritionScript = path.join(tangoHome, "tools/nutrition-coach/scripts/nutrition-helper.js");
@@ -155,13 +137,6 @@ export function resolveWellnessToolPaths(overrides?: WellnessToolPaths) {
   const legacyFatsecretApiScript = path.join(home, "clawd/scripts/fatsecret-api.py");
   const genericWorkoutScript = path.join(tangoHome, "tools/workout-tracker/workout.sh");
   const legacyWorkoutScript = path.join(home, "clawd/workout-tracker/workout.sh");
-  const genericRecipesDir = path.join(profileDir, "notes", "recipes");
-  const legacyRecipesDir = path.join(home, "Documents/main/Records/Nutrition/Recipes");
-  const resolvedAtlasCommand = overrides?.atlasCommand ?? resolveConfiguredOrFallback(
-    process.env.TANGO_ATLAS_COMMAND,
-    [path.join(home, "bin/atlas")],
-    path.join(home, "bin/atlas"),
-  );
   return {
     healthScript: overrides?.healthScript ?? resolveConfiguredOrFallback(
       process.env.TANGO_HEALTH_SCRIPT,
@@ -182,21 +157,10 @@ export function resolveWellnessToolPaths(overrides?: WellnessToolPaths) {
       tangoHome,
       "packages/discord/scripts/fatsecret-batch.py",
     ),
-    atlasCommand: resolvedAtlasCommand,
-    atlasDbPath: overrides?.atlasDbPath ?? resolveConfiguredOrFallback(
-      process.env.TANGO_ATLAS_DB_PATH,
-      [resolveAtlasDbPath(resolvedAtlasCommand)],
-      resolveAtlasDbPath(resolvedAtlasCommand),
-    ),
     workoutScript: overrides?.workoutScript ?? resolveConfiguredOrFallback(
       process.env.TANGO_WORKOUT_SCRIPT,
       [genericWorkoutScript, legacyWorkoutScript],
       genericWorkoutScript,
-    ),
-    recipesDir: overrides?.recipesDir ?? resolveConfiguredOrFallback(
-      process.env.TANGO_RECIPES_DIR,
-      [genericRecipesDir, legacyRecipesDir],
-      genericRecipesDir,
     ),
   };
 }
@@ -309,84 +273,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
-}
-
-export async function callRecipeWrite(
-  name: string,
-  content: string,
-  overrides?: WellnessToolPaths,
-): Promise<unknown> {
-  const paths = resolveWellnessToolPaths(overrides);
-  const filename = `${name}.md`;
-  const filepath = path.join(paths.recipesDir, filename);
-  const existed = fs.existsSync(filepath);
-  fs.writeFileSync(filepath, content, "utf8");
-  return { success: true, action: existed ? "updated" : "created", file: filename };
-}
-
-function normalizeRecipeSearchText(value: string): string[] {
-  return value
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((token) => canonicalizeRecipeToken(token));
-}
-
-function canonicalizeRecipeToken(token: string): string {
-  if (token.length <= 3) {
-    return token;
-  }
-  if (token.endsWith("ies")) {
-    return token;
-  }
-  if (token.endsWith("s") && !token.endsWith("ss")) {
-    return token.slice(0, -1);
-  }
-  return token;
-}
-
-function extractRecipeLookupText(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("obsidian://")) {
-    return trimmed;
-  }
-
-  try {
-    const url = new URL(trimmed.split(/\s+/u, 1)[0] ?? trimmed);
-    const fileParam = url.searchParams.get("file");
-    if (!fileParam) {
-      return trimmed;
-    }
-    const decoded = decodeURIComponent(fileParam);
-    const filename = decoded.split("/").pop() ?? decoded;
-    return filename.replace(/\.md$/iu, "");
-  } catch {
-    return trimmed;
-  }
-}
-
-function buildRecipeSearchCorpus(title: string, content: string): Set<string> {
-  return new Set(normalizeRecipeSearchText(`${title}\n${content}`));
-}
-
-function scoreRecipeMatch(
-  queryWords: readonly string[],
-  titleWords: readonly string[],
-  corpusWords: ReadonlySet<string>,
-): number {
-  let score = 0;
-  for (const word of queryWords) {
-    if (titleWords.includes(word)) {
-      score += 3;
-      continue;
-    }
-    if (corpusWords.has(word)) {
-      score += 1;
-    }
-  }
-  return score;
 }
 
 async function runPythonScript(
@@ -821,163 +707,6 @@ SELECT (SELECT id FROM nw) AS workout_id,
 }
 
 // ---------------------------------------------------------------------------
-// Recipe tools
-// ---------------------------------------------------------------------------
-
-export interface RecipeReadMatch {
-  title: string;
-  content: string;
-}
-
-export function findRecipeMatchesByQuery(
-  query: string,
-  overrides?: WellnessToolPaths,
-): RecipeReadMatch[] {
-  const paths = resolveWellnessToolPaths(overrides);
-  const lookupText = extractRecipeLookupText(query);
-  const queryWords = normalizeRecipeSearchText(lookupText);
-  const files = fs.readdirSync(paths.recipesDir).filter((f) => f.endsWith(".md"));
-  const matches: Array<{ title: string; content: string; score: number }> = [];
-
-  for (const file of files) {
-    const title = file.replace(/\.md$/, "");
-    const content = fs.readFileSync(path.join(paths.recipesDir, file), "utf8");
-    const titleWords = normalizeRecipeSearchText(title);
-    const corpusWords = buildRecipeSearchCorpus(title, content);
-    if (!queryWords.every((w) => corpusWords.has(w))) continue;
-    matches.push({
-      title,
-      content,
-      score: scoreRecipeMatch(queryWords, titleWords, corpusWords),
-    });
-  }
-
-  return matches
-    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
-    .map(({ title, content }) => ({ title, content }));
-}
-
-export function createRecipeTools(overrides?: WellnessToolPaths): AgentTool[] {
-  const paths = resolveWellnessToolPaths(overrides);
-
-  return [
-
-    {
-      name: "atlas_sql",
-      description: [
-        "Run any SQL against the Atlas SQLite database — reads and writes.",
-        "Schema:",
-        "  ingredients (id INTEGER PK, name TEXT, brand TEXT, product TEXT, food_id INTEGER, serving_id INTEGER, serving_description TEXT, serving_size TEXT, grams_per_serving REAL, calories REAL, protein REAL, carbs REAL, fat REAL, fiber REAL, store TEXT, aliases TEXT JSON, tags TEXT JSON, notes TEXT, meta TEXT JSON, created_at TEXT, updated_at TEXT)",
-        "Indexes: name, food_id, brand, store.",
-        "aliases is a JSON array of strings — alternate names for the ingredient (e.g. '[\"vanilla yogurt\",\"light yogurt\"]').",
-        "Common patterns:",
-        "  Find ingredient: SELECT * FROM ingredients WHERE name LIKE '%chicken%' OR aliases LIKE '%chicken%';",
-        "  Get food_id for logging: SELECT food_id, serving_id, grams_per_serving, calories, protein FROM ingredients WHERE name LIKE '%yogurt%';",
-        "  Add ingredient: INSERT INTO ingredients (name, food_id, serving_id, grams_per_serving, calories, protein, carbs, fat, fiber, aliases) VALUES ('Greek Yogurt', 123, 456, 170, 100, 17, 6, 0.7, 0, '[\"greek yogurt\",\"plain yogurt\"]');",
-        "  Portion calc: target_grams / grams_per_serving = number_of_units for FatSecret logging.",
-        "Safety: DROP, ALTER, CREATE, and TRUNCATE are blocked.",
-      ].join("\n"),
-      inputSchema: {
-        type: "object",
-        properties: {
-          sql: { type: "string", description: "SQL query to run against the Atlas database" },
-        },
-        required: ["sql"],
-      },
-      handler: async (input) => {
-        const query = String(input.sql).trim();
-        if (/^\s*(DROP|ALTER|CREATE|TRUNCATE)/i.test(query)) {
-          return { error: "Schema modifications are not allowed." };
-        }
-        const stdout = await runShellCommand(paths.atlasCommand, ["sql", query]);
-        return { result: stdout };
-      },
-    },
-
-    {
-      name: "recipe_list",
-      description: "List all saved recipe files. Returns an array of recipe names (without .md extension).",
-      inputSchema: {
-        type: "object",
-        properties: {},
-      },
-      handler: async () => {
-        const files = fs.readdirSync(paths.recipesDir).filter((f) => f.endsWith(".md"));
-        return { recipes: files.map((f) => f.replace(/\.md$/, "")) };
-      },
-    },
-
-    {
-      name: "recipe_read",
-      description: [
-        "Read a saved recipe file by name. Returns the full markdown content including YAML frontmatter with macros, ingredient list with gram amounts, and instructions.",
-        "Recipe format:",
-        "  YAML frontmatter: calories, protein, carbs, fat, fiber, prep_minutes, meal, tags",
-        "  Sections: Macros table, Pillars, Ingredients (with gram amounts), Instructions, Notes",
-        "  Ingredient lines: '- 230g Canned Chicken Breast — 185 cal, 53g P'",
-      ].join("\n"),
-      inputSchema: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Recipe name (partial match supported, case-insensitive)" },
-        },
-        required: ["name"],
-      },
-      handler: async (input) => {
-        const matches = findRecipeMatchesByQuery(String(input.name), overrides);
-        if (matches.length === 0) return { found: false, matches: [] };
-        return {
-          found: true,
-          matches,
-        };
-      },
-    },
-
-    {
-      name: "recipe_write",
-      description: [
-        "Write or update a recipe file. Provide the full markdown content including YAML frontmatter.",
-        "Expected format:",
-        "---",
-        "source: [ai/watson]",
-        "date: 2026-01-28",
-        "created: 2026-01-28",
-        "types:",
-        "  - \"[[Recipes]]\"",
-        "areas:",
-        "  - \"[[Health]]\"",
-        "meal: [lunch]",
-        "calories: 430",
-        "protein: 46",
-        "carbs: 35",
-        "fat: 14",
-        "fiber: 12",
-        "prep_minutes: 3",
-        "---",
-        "# Recipe Name",
-        "## Macros",
-        "| Calories | Protein | Carbs | Fat | Fiber |",
-        "## Ingredients",
-        "- 230g Ingredient Name — cal, protein",
-        "## Instructions",
-        "## Notes",
-      ].join("\n"),
-      inputSchema: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Recipe file name (without .md extension)" },
-          content: { type: "string", description: "Full markdown content of the recipe" },
-        },
-        required: ["name", "content"],
-      },
-      handler: async (input) => {
-        return callRecipeWrite(String(input.name), String(input.content), overrides);
-      },
-    },
-  ];
-}
-
-// ---------------------------------------------------------------------------
 // Wellness bounded wellness file tool
 // ---------------------------------------------------------------------------
 
@@ -1236,7 +965,6 @@ export function createAllWellnessTools(overrides?: WellnessToolPaths): AgentTool
     ...createNutritionTools(overrides),
     ...createHealthTools(overrides),
     ...createWorkoutTools(overrides),
-    ...createRecipeTools(overrides),
     ...createJulesFilesTools(),
   ];
 }

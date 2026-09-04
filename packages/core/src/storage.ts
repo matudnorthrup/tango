@@ -3547,6 +3547,16 @@ const MIGRATIONS: Migration[] = [
         WHERE EXISTS (SELECT 1 FROM principals WHERE id = 'agent:malibu-ollama');
     `,
   },
+  {
+    // Retire legacy recipe-note and ingredient SQL access (TGO-861 Phase B).
+    version: 78,
+    sql: `
+      DELETE FROM permissions
+        WHERE tool_id IN ('atlas_sql', 'recipe_list', 'recipe_read', 'recipe_write');
+      DELETE FROM governance_tools
+        WHERE id IN ('atlas_sql', 'recipe_list', 'recipe_read', 'recipe_write');
+    `,
+  },
 ];
 
 export { resolveDatabasePath } from "./runtime-paths.js";
