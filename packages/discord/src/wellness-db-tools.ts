@@ -56,6 +56,8 @@ interface ProductRow {
   protein_g: number | null;
   carbs_g: number | null;
   fat_g: number | null;
+  fiber_g: number | null;
+  grams_per_serving: number | null;
   serving_size: string | null;
   serving_unit: string | null;
   discontinued_date: string | null;
@@ -88,6 +90,9 @@ interface RecipeSummaryRow {
   total_protein_g: number | null;
   total_carbs_g: number | null;
   total_fat_g: number | null;
+  total_fiber_g: number | null;
+  yield_g: number | null;
+  archived_at: string | null;
   instructions: string | null;
   notes: string | null;
 }
@@ -155,7 +160,7 @@ function findProduct(db: DatabaseSync, query: string, activeOnly = false): Produ
   const byShorthand = queryOne<ProductRow>(
     db,
     `SELECT id, name, shorthand, brand, category, calories, protein_g, carbs_g, fat_g,
-            serving_size, serving_unit, discontinued_date
+            fiber_g, grams_per_serving, serving_size, serving_unit, discontinued_date
      FROM products
      WHERE ${shorthandMatchSql("shorthand")}${activeClause}
      LIMIT 1`,
@@ -166,7 +171,7 @@ function findProduct(db: DatabaseSync, query: string, activeOnly = false): Produ
   return queryOne<ProductRow>(
     db,
     `SELECT id, name, shorthand, brand, category, calories, protein_g, carbs_g, fat_g,
-            serving_size, serving_unit, discontinued_date
+            fiber_g, grams_per_serving, serving_size, serving_unit, discontinued_date
      FROM products
      WHERE lower(name) LIKE ?${activeClause}
      LIMIT 1`,
@@ -180,7 +185,7 @@ function searchProducts(db: DatabaseSync, query: string, activeOnly = false): Pr
   return queryAll<ProductRow>(
     db,
     `SELECT id, name, shorthand, brand, category, calories, protein_g, carbs_g, fat_g,
-            serving_size, serving_unit, discontinued_date
+            fiber_g, grams_per_serving, serving_size, serving_unit, discontinued_date
      FROM products
      WHERE (${shorthandMatchSql("shorthand")} OR lower(name) LIKE ?)${activeClause}
      ORDER BY name
@@ -236,6 +241,9 @@ const RECIPE_SUMMARY_SELECT = `SELECT rs.*, r.yield_g, r.archived_at,
 
 function findRecipeSummary(db: DatabaseSync, query: string): RecipeSummaryRow | undefined {
   const term = normalizeSearchTerm(query);
+  if (/^\d+$/u.test(term)) {
+    return queryOne<RecipeSummaryRow>(db, `${RECIPE_SUMMARY_SELECT} WHERE rs.id = ?`, [Number(term)]);
+  }
   return queryOne<RecipeSummaryRow>(db, `${RECIPE_SUMMARY_SELECT}
     WHERE lower(rs.shorthand) = ? OR lower(rs.name) LIKE ?
       OR EXISTS (SELECT 1 FROM recipe_aliases ra WHERE ra.recipe_id = rs.id AND lower(ra.alias) = ?)
@@ -317,7 +325,150 @@ function scaleIntMacro(value: number | null | undefined, servings: number): numb
   return Math.round((value ?? 0) * servings);
 }
 
+/** "200 g" / "200g" / "200 grams" → 200; anything else → null. */
+function parseGramQuantity(quantity: string | null | undefined): number | null {
+  if (!quantity) return null;
+  const match = /^\s*(\d+(?:\.\d+)?)\s*(?:g|gram|grams)\s*$/iu.exec(String(quantity));
+  if (!match) return null;
+  const grams = Number(match[1]);
+  return Number.isFinite(grams) && grams > 0 ? grams : null;
+}
+
+type RecipeIngredientInput = {
+  product?: unknown;
+  sub_recipe?: unknown;
+  ingredient_name?: unknown;
+  quantity?: unknown;
+  quantity_g?: unknown;
+  servings?: unknown;
+};
+
+/**
+ * Replace a recipe's ingredient rows. Each item names either a `product` or a
+ * component `sub_recipe`. Grams (`quantity_g`, or a gram-style `quantity`
+ * string) are the canonical measure: when present they are stored as
+ * `quantity_g` and per-row macros are derived from the product's
+ * grams-per-serving or the component's batch yield. Without grams a product
+ * row falls back to the legacy `servings` multiplier and a component row is
+ * rejected, so nested recipes never lose the numbers the logger relies on.
+ */
+function replaceRecipeIngredientRows(
+  db: DatabaseSync,
+  recipeId: number,
+  ingredients: unknown[],
+): { error: string } | undefined {
+  type PreparedRow = {
+    productId: number | null;
+    subRecipeId: number | null;
+    ingredientName: string;
+    quantity: string | null;
+    quantityG: number | null;
+    calories: number | null;
+    protein: number | null;
+    carbs: number | null;
+    fat: number | null;
+    fiber: number | null;
+  };
+  const prepared: PreparedRow[] = [];
+  for (const raw of ingredients) {
+    const ingredient = (raw ?? {}) as RecipeIngredientInput;
+    const productQuery = String(ingredient.product ?? "").trim();
+    const subRecipeQuery = String(ingredient.sub_recipe ?? "").trim();
+    if (!productQuery && !subRecipeQuery) return { error: "Each ingredient requires product or sub_recipe" };
+    if (productQuery && subRecipeQuery) return { error: "An ingredient names either product or sub_recipe, not both" };
+    const quantity = ingredient.quantity ? String(ingredient.quantity) : null;
+    const explicitGrams = Number(ingredient.quantity_g);
+    const grams = Number.isFinite(explicitGrams) && explicitGrams > 0 ? explicitGrams : parseGramQuantity(quantity);
+    const label = ingredient.ingredient_name ? String(ingredient.ingredient_name) : null;
+
+    if (subRecipeQuery) {
+      const component = findRecipeSummary(db, subRecipeQuery);
+      if (!component) return { error: `Ingredient sub_recipe not found: ${subRecipeQuery}` };
+      if (component.id === recipeId) return { error: `A recipe cannot contain itself: ${component.name}` };
+      if (!(component.yield_g && component.yield_g > 0)) {
+        return { error: `Component recipe has no yield_g, so grams cannot be converted: ${component.name}` };
+      }
+      if (grams === null) {
+        return { error: `Component ingredient requires quantity_g (or a gram quantity): ${component.name}` };
+      }
+      const factor = grams / component.yield_g;
+      prepared.push({
+        productId: null,
+        subRecipeId: component.id,
+        ingredientName: label ?? component.name,
+        quantity: quantity ?? `${grams} g`,
+        quantityG: grams,
+        calories: scaleIntMacro(component.total_calories, factor),
+        protein: scaleMacro(component.total_protein_g, factor),
+        carbs: scaleMacro(component.total_carbs_g, factor),
+        fat: scaleMacro(component.total_fat_g, factor),
+        fiber: scaleMacro(component.total_fiber_g, factor),
+      });
+      continue;
+    }
+
+    const product = findProduct(db, productQuery, false);
+    if (!product) return { error: `Ingredient product not found: ${productQuery}` };
+    const servingsMultiplier = Number(ingredient.servings ?? 1) || 1;
+    const gramsPerServing = product.grams_per_serving && product.grams_per_serving > 0 ? product.grams_per_serving : null;
+    const factor = grams !== null && gramsPerServing ? grams / gramsPerServing : servingsMultiplier;
+    prepared.push({
+      productId: product.id,
+      subRecipeId: null,
+      ingredientName: label ?? product.name,
+      quantity,
+      quantityG: grams,
+      calories: scaleIntMacro(product.calories, factor),
+      protein: scaleMacro(product.protein_g, factor),
+      carbs: scaleMacro(product.carbs_g, factor),
+      fat: scaleMacro(product.fat_g, factor),
+      fiber: product.fiber_g == null ? null : scaleMacro(product.fiber_g, factor),
+    });
+  }
+
+  db.prepare("DELETE FROM recipe_ingredients WHERE recipe_id = ?").run(recipeId);
+  const insert = db.prepare(
+    `INSERT INTO recipe_ingredients (recipe_id, product_id, sub_recipe_id, ingredient_name, quantity, quantity_g,
+                                     calories, protein_g, carbs_g, fat_g, fiber_g)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const row of prepared) {
+    insert.run(
+      recipeId,
+      row.productId,
+      row.subRecipeId,
+      row.ingredientName,
+      row.quantity,
+      row.quantityG,
+      row.calories,
+      row.protein,
+      row.carbs,
+      row.fat,
+      row.fiber,
+    );
+  }
+  return undefined;
+}
+
+const RECIPE_INGREDIENT_INPUT_SCHEMA = {
+  type: "array",
+  items: {
+    type: "object",
+    properties: {
+      product: { type: "string", description: "Product shorthand or name (omit when sub_recipe is set)" },
+      sub_recipe: { type: "string", description: "Component recipe name/shorthand/alias (needs quantity_g)" },
+      ingredient_name: { type: "string", description: "Override ingredient label" },
+      quantity: { type: "string", description: "Display quantity, e.g. '200 g' or '1 cup'" },
+      quantity_g: { type: "number", description: "Canonical grams; macros derive from grams when set" },
+      servings: { type: "number", description: "Legacy multiplier against product macros when grams are unknown" },
+    },
+  },
+} as const;
+
 function recalculateRecipeTotals(db: DatabaseSync, recipeId: number): void {
+  // Stored per-row macros win; rows that only carry grams derive from the
+  // product's grams-per-serving or the component's batch yield, matching the
+  // read side (get_recipe_detail and the food UI).
   const totals = queryOne<{
     calories: number | null;
     protein_g: number | null;
@@ -327,13 +478,20 @@ function recalculateRecipeTotals(db: DatabaseSync, recipeId: number): void {
   }>(
     db,
     `SELECT
-       COALESCE(SUM(calories), 0) AS calories,
-       COALESCE(SUM(protein_g), 0) AS protein_g,
-       COALESCE(SUM(carbs_g), 0) AS carbs_g,
-       COALESCE(SUM(fat_g), 0) AS fat_g,
-       COALESCE(SUM(fiber_g), 0) AS fiber_g
-     FROM recipe_ingredients
-     WHERE recipe_id = ?`,
+       COALESCE(SUM(COALESCE(ri.calories, ri.quantity_g * p.calories * 1.0 / NULLIF(p.grams_per_serving, 0),
+         ri.quantity_g * sr.total_calories * 1.0 / NULLIF(sr.yield_g, 0))), 0) AS calories,
+       COALESCE(SUM(COALESCE(ri.protein_g, ri.quantity_g * p.protein_g * 1.0 / NULLIF(p.grams_per_serving, 0),
+         ri.quantity_g * sr.total_protein_g * 1.0 / NULLIF(sr.yield_g, 0))), 0) AS protein_g,
+       COALESCE(SUM(COALESCE(ri.carbs_g, ri.quantity_g * p.carbs_g * 1.0 / NULLIF(p.grams_per_serving, 0),
+         ri.quantity_g * sr.total_carbs_g * 1.0 / NULLIF(sr.yield_g, 0))), 0) AS carbs_g,
+       COALESCE(SUM(COALESCE(ri.fat_g, ri.quantity_g * p.fat_g * 1.0 / NULLIF(p.grams_per_serving, 0),
+         ri.quantity_g * sr.total_fat_g * 1.0 / NULLIF(sr.yield_g, 0))), 0) AS fat_g,
+       COALESCE(SUM(COALESCE(ri.fiber_g, ri.quantity_g * p.fiber_g * 1.0 / NULLIF(p.grams_per_serving, 0),
+         ri.quantity_g * sr.total_fiber_g * 1.0 / NULLIF(sr.yield_g, 0))), 0) AS fiber_g
+     FROM recipe_ingredients ri
+     LEFT JOIN products p ON p.id = ri.product_id
+     LEFT JOIN recipes sr ON sr.id = ri.sub_recipe_id
+     WHERE ri.recipe_id = ?`,
     [recipeId],
   );
   db.prepare(
@@ -1171,29 +1329,20 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
     },
     {
       name: "wellnessdb_add_recipe",
-      description: "Create a recipe with ingredients. Totals are calculated from ingredient macros.",
+      description:
+        "Create a recipe with ingredients (products by grams, or component recipes by grams). "
+        + "Totals are calculated from the ingredient rows. Set yield_g for a component recipe.",
       inputSchema: {
         type: "object",
         properties: {
           name: { type: "string" },
           shorthand: { type: "string" },
           servings: { type: "number" },
+          yield_g: { type: "number", description: "Cooked batch weight in grams for component recipes" },
           instructions: { type: "string" },
           notes: { type: "string" },
           aliases: { type: "array", items: { type: "string" } },
-          ingredients: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                product: { type: "string", description: "Product shorthand or name" },
-                ingredient_name: { type: "string", description: "Override ingredient label" },
-                quantity: { type: "string" },
-                servings: { type: "number", description: "Multiplier against product macros (default 1)" },
-              },
-              required: ["product"],
-            },
-          },
+          ingredients: RECIPE_INGREDIENT_INPUT_SCHEMA,
         },
         required: ["name", "ingredients"],
       },
@@ -1205,37 +1354,25 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
 
         const db = openDb(dbPath, false);
         const servings = Number(input.servings ?? 1) || 1;
+        const yieldG = Number(input.yield_g);
         const recipeResult = db.prepare(
-          `INSERT INTO recipes (name, shorthand, servings, instructions, notes)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO recipes (name, shorthand, servings, yield_g, instructions, notes)
+           VALUES (?, ?, ?, ?, ?, ?)`,
         ).run(
           name,
           input.shorthand ? String(input.shorthand) : null,
           servings,
+          Number.isFinite(yieldG) && yieldG > 0 ? yieldG : null,
           input.instructions ? String(input.instructions) : null,
           input.notes ? String(input.notes) : null,
         );
         const recipeId = Number(recipeResult.lastInsertRowid);
 
-        for (const ingredient of ingredients) {
-          const productQuery = String((ingredient as Record<string, unknown>).product ?? "").trim();
-          if (!productQuery) return { error: "Each ingredient requires product" };
-          const product = findProduct(db, productQuery, false);
-          if (!product) return { error: `Ingredient product not found: ${productQuery}` };
-          const ingredientServings = Number((ingredient as Record<string, unknown>).servings ?? 1) || 1;
-          db.prepare(
-            `INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity, calories, protein_g, carbs_g, fat_g)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          ).run(
-            recipeId,
-            product.id,
-            String((ingredient as Record<string, unknown>).ingredient_name ?? product.name),
-            (ingredient as Record<string, unknown>).quantity ? String((ingredient as Record<string, unknown>).quantity) : null,
-            scaleIntMacro(product.calories, ingredientServings),
-            scaleMacro(product.protein_g, ingredientServings),
-            scaleMacro(product.carbs_g, ingredientServings),
-            scaleMacro(product.fat_g, ingredientServings),
-          );
+        const failure = replaceRecipeIngredientRows(db, recipeId, ingredients);
+        if (failure) {
+          db.prepare("DELETE FROM recipe_ingredients WHERE recipe_id = ?").run(recipeId);
+          db.prepare("DELETE FROM recipes WHERE id = ?").run(recipeId);
+          return failure;
         }
 
         for (const alias of Array.isArray(input.aliases) ? input.aliases : []) {
@@ -1251,44 +1388,52 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
     },
     {
       name: "wellnessdb_update_recipe",
-      description: "Replace a recipe's ingredients and recalculate totals.",
+      description:
+        "Update a recipe. Omit `ingredients` to change only servings, yield_g, instructions, notes, or aliases "
+        + "(existing ingredient rows are kept as-is). Pass `ingredients` only to replace the FULL ingredient list — "
+        + "include every row from get_recipe_detail, products and sub_recipes alike, with quantity_g.",
       inputSchema: {
         type: "object",
         properties: {
           query: { type: "string", description: "Recipe id, shorthand, alias, or name" },
           servings: { type: "number" },
+          yield_g: { type: "number", description: "Cooked batch weight in grams for component recipes" },
           instructions: { type: "string" },
           notes: { type: "string" },
-          ingredients: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                product: { type: "string" },
-                ingredient_name: { type: "string" },
-                quantity: { type: "string" },
-                servings: { type: "number" },
-              },
-              required: ["product"],
-            },
-          },
+          aliases: { type: "array", items: { type: "string" }, description: "Aliases to add (existing ones stay)" },
+          ingredients: RECIPE_INGREDIENT_INPUT_SCHEMA,
         },
-        required: ["query", "ingredients"],
+        required: ["query"],
       },
       handler: async (input) => {
         const query = String(input.query ?? "").trim();
-        const ingredients = Array.isArray(input.ingredients) ? input.ingredients : [];
         if (!query) return { error: "query is required" };
-        if (ingredients.length === 0) return { error: "ingredients is required" };
+        const ingredients = Array.isArray(input.ingredients) ? input.ingredients : null;
+        if (ingredients && ingredients.length === 0) {
+          return { error: "ingredients must list every ingredient row; omit it to keep the current rows" };
+        }
+        const aliases = (Array.isArray(input.aliases) ? input.aliases : [])
+          .map((alias) => String(alias).trim())
+          .filter((alias) => alias.length > 0);
+        const yieldG = input.yield_g == null ? null : Number(input.yield_g);
+        const hasMetadataChange = input.servings != null || yieldG != null
+          || input.instructions != null || input.notes != null;
+        if (!ingredients && !hasMetadataChange && aliases.length === 0) {
+          return { error: "Nothing to update: pass servings, yield_g, instructions, notes, aliases, or ingredients" };
+        }
+        if (yieldG != null && !(Number.isFinite(yieldG) && yieldG > 0)) {
+          return { error: "yield_g must be a positive number of grams" };
+        }
 
         const db = openDb(dbPath, false);
-        const recipe = /^\d+$/.test(query)
-          ? findRecipeSummary(db, query)
-          : findRecipeSummary(db, query);
+        const recipe = findRecipeSummary(db, query);
         if (!recipe) return { error: `Recipe not found: ${query}` };
 
         if (input.servings != null) {
           db.prepare("UPDATE recipes SET servings = ? WHERE id = ?").run(Number(input.servings), recipe.id);
+        }
+        if (yieldG != null) {
+          db.prepare("UPDATE recipes SET yield_g = ? WHERE id = ?").run(yieldG, recipe.id);
         }
         if (input.instructions != null) {
           db.prepare("UPDATE recipes SET instructions = ? WHERE id = ?").run(String(input.instructions), recipe.id);
@@ -1296,31 +1441,22 @@ export function createWellnessDbTools(options?: WellnessDbToolOptions): AgentToo
         if (input.notes != null) {
           db.prepare("UPDATE recipes SET notes = ? WHERE id = ?").run(String(input.notes), recipe.id);
         }
-
-        db.prepare("DELETE FROM recipe_ingredients WHERE recipe_id = ?").run(recipe.id);
-        for (const ingredient of ingredients) {
-          const productQuery = String((ingredient as Record<string, unknown>).product ?? "").trim();
-          if (!productQuery) return { error: "Each ingredient requires product" };
-          const product = findProduct(db, productQuery, false);
-          if (!product) return { error: `Ingredient product not found: ${productQuery}` };
-          const ingredientServings = Number((ingredient as Record<string, unknown>).servings ?? 1) || 1;
-          db.prepare(
-            `INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity, calories, protein_g, carbs_g, fat_g)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          ).run(
-            recipe.id,
-            product.id,
-            String((ingredient as Record<string, unknown>).ingredient_name ?? product.name),
-            (ingredient as Record<string, unknown>).quantity ? String((ingredient as Record<string, unknown>).quantity) : null,
-            scaleIntMacro(product.calories, ingredientServings),
-            scaleMacro(product.protein_g, ingredientServings),
-            scaleMacro(product.carbs_g, ingredientServings),
-            scaleMacro(product.fat_g, ingredientServings),
-          );
+        for (const alias of aliases) {
+          db.prepare("INSERT OR IGNORE INTO recipe_aliases (recipe_id, alias) VALUES (?, ?)").run(recipe.id, alias);
         }
 
-        recalculateRecipeTotals(db, recipe.id);
-        return { id: recipe.id, recipe: findRecipeSummary(db, String(recipe.id)) };
+        if (ingredients) {
+          const failure = replaceRecipeIngredientRows(db, recipe.id, ingredients);
+          if (failure) return failure;
+          recalculateRecipeTotals(db, recipe.id);
+        } else if (hasMetadataChange) {
+          db.prepare("UPDATE recipes SET updated_at = datetime('now') WHERE id = ?").run(recipe.id);
+        }
+        return {
+          id: recipe.id,
+          ingredients_replaced: Boolean(ingredients),
+          recipe: findRecipeSummary(db, String(recipe.id)),
+        };
       },
     },
     {

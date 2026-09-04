@@ -308,4 +308,106 @@ describe("createWellnessDbTools", () => {
       }),
     ).resolves.toEqual({ error: "Product not found: nonexistent food" });
   });
+
+  it("updates recipe metadata and aliases without touching ingredient rows", async () => {
+    const db = new DatabaseSync(dbPath);
+    db.exec(`UPDATE products SET grams_per_serving = 100, fiber_g = 4 WHERE id = 1;
+      UPDATE recipe_ingredients SET quantity_g = 50 WHERE recipe_id = 1;
+      INSERT INTO recipes (id, name, yield_g, total_calories, total_protein_g, total_carbs_g, total_fat_g, total_fiber_g)
+        VALUES (2, 'Component Sauce', 50, 100, 10, 8, 3, 2);
+      INSERT INTO recipe_ingredients (recipe_id, ingredient_name, sub_recipe_id, quantity_g, calories, protein_g, carbs_g, fat_g, fiber_g)
+        VALUES (1, 'Sauce', 2, 25, 50, 5, 4, 1.5, 1);`);
+    db.close();
+
+    await expect(tools.get("wellnessdb_update_recipe")!({ query: "chili" }))
+      .resolves.toMatchObject({ error: expect.stringContaining("Nothing to update") });
+    await expect(tools.get("wellnessdb_update_recipe")!({ query: "chili", ingredients: [] }))
+      .resolves.toMatchObject({ error: expect.stringContaining("omit it to keep the current rows") });
+
+    const updated = await tools.get("wellnessdb_update_recipe")!({
+      query: "veggie chili",
+      notes: "baseline\nsmoke marker",
+      aliases: ["vc", " "],
+    });
+    expect(updated).toMatchObject({ id: 1, ingredients_replaced: false, recipe: { notes: "baseline\nsmoke marker" } });
+
+    const detail = (await tools.get("wellnessdb_get_recipe_detail")!({ query: "vc" })) as {
+      recipe: { total_calories: number };
+      ingredients: Array<Record<string, unknown>>;
+      aliases: string[];
+    };
+    expect(detail.ingredients).toHaveLength(2);
+    expect(detail.ingredients).toEqual(expect.arrayContaining([
+      expect.objectContaining({ product_id: 1, quantity_g: 50 }),
+      expect.objectContaining({ sub_recipe_id: 2, quantity_g: 25 }),
+    ]));
+    expect(detail.aliases).toEqual(expect.arrayContaining(["veggie chili", "vc"]));
+    // Totals were not recalculated (no ingredient change), so the seeded value stands.
+    expect(detail.recipe.total_calories).toBe(800);
+  });
+
+  it("writes gram quantities and component rows when replacing ingredients", async () => {
+    const db = new DatabaseSync(dbPath);
+    db.exec(`UPDATE products SET grams_per_serving = 100, fiber_g = 4 WHERE id = 1;
+      INSERT INTO recipes (id, name, shorthand, yield_g, total_calories, total_protein_g, total_carbs_g, total_fat_g, total_fiber_g)
+        VALUES (2, 'Component Sauce', 'sauce', 50, 100, 10, 8, 3, 2);`);
+    db.close();
+
+    // Component rows need grams; products without grams fall back to the servings multiplier.
+    await expect(tools.get("wellnessdb_update_recipe")!({
+      query: "chili",
+      ingredients: [{ sub_recipe: "sauce" }],
+    })).resolves.toMatchObject({ error: expect.stringContaining("requires quantity_g") });
+
+    const updated = await tools.get("wellnessdb_update_recipe")!({
+      query: "chili",
+      servings: 2,
+      ingredients: [
+        { product: "core power", quantity: "50 g" },
+        { product: "core power", ingredient_name: "Extra bottle", servings: 2 },
+        { sub_recipe: "sauce", quantity_g: 25 },
+      ],
+    });
+    // 50 g of a 100 g/170 cal product = 85; two servings = 340; half the 100 cal sauce = 50.
+    expect(updated).toMatchObject({
+      id: 1,
+      ingredients_replaced: true,
+      recipe: { servings: 2, total_calories: 475, total_protein_g: 70, total_fiber_g: 11 },
+    });
+    const detail = (await tools.get("wellnessdb_get_recipe_detail")!({ query: "1" })) as {
+      ingredients: Array<Record<string, unknown>>;
+    };
+    expect(detail.ingredients).toEqual([
+      expect.objectContaining({ product_id: 1, quantity_g: 50, calories: 85, protein_g: 13, fiber_g: 2 }),
+      expect.objectContaining({ product_id: 1, ingredient_name: "Extra bottle", quantity_g: null, calories: 340 }),
+      expect.objectContaining({ sub_recipe_id: 2, quantity_g: 25, calories: 50, protein_g: 5, fiber_g: 1 }),
+    ]);
+  });
+
+  it("creates component recipes with yield_g and rolls back on bad ingredients", async () => {
+    const db = new DatabaseSync(dbPath);
+    db.exec("UPDATE products SET grams_per_serving = 100, fiber_g = 4 WHERE id = 1;");
+    db.close();
+
+    await expect(tools.get("wellnessdb_add_recipe")!({
+      name: "Broken",
+      ingredients: [{ product: "no such product" }],
+    })).resolves.toMatchObject({ error: "Ingredient product not found: no such product" });
+    expect(await tools.get("wellnessdb_search_recipe")!({ query: "Broken" })).toMatchObject({ count: 0 });
+
+    const created = (await tools.get("wellnessdb_add_recipe")!({
+      name: "Crema",
+      shorthand: "crema",
+      yield_g: 200,
+      ingredients: [{ product: "core power", quantity_g: 200 }],
+    })) as { id: number; recipe: Record<string, unknown> };
+    expect(created.recipe).toMatchObject({ yield_g: 200, total_calories: 340, per_100g_cal: 170, per_100g_fiber: 4 });
+
+    const parent = await tools.get("wellnessdb_add_recipe")!({
+      name: "Bowl",
+      servings: 1,
+      ingredients: [{ sub_recipe: "crema", quantity: "50 g" }],
+    });
+    expect(parent).toMatchObject({ recipe: { total_calories: 85, total_protein_g: 13, yield_g: null } });
+  });
 });
