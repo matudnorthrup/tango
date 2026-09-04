@@ -6,7 +6,11 @@ import { serve } from '@hono/node-server';
 import { api } from './api.js';
 import { dbPath } from './db.js';
 
-const PORT = Number(process.env.FOOD_UI_PORT ?? 9350);
+// 9360, not 9350: the tailnet-site series (9310/9320/9330/9340) would suggest
+// 9350, but that port is held by the machine-local agent-artifacts static
+// server (com.northrup.agent-artifacts LaunchAgent), which lives outside this
+// repo.
+const PORT = Number(process.env.FOOD_UI_PORT ?? 9360);
 // 127.0.0.1: tailnet access goes through `tailscale serve`, which proxies to
 // localhost — no reason to listen on other interfaces.
 const HOST = process.env.FOOD_UI_HOST ?? '127.0.0.1';
