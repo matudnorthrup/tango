@@ -74,13 +74,13 @@ function parseRecipe(file: string): ParsedRecipe | null {
       const item = line.match(/^\s*-\s+(.*)$/)?.[1]?.trim();
       if (!item) continue;
       const [desc, annotation = ""] = item.split(/\s+—\s+/);
-      const grams = desc.match(/^([\d.]+)\s*g\s+(.+)$/i);
+      const grams = desc.match(/^([\d,.]+)\s*g\s+(.+)$/i);
       const cal = annotation.match(/([\d.]+)\s*cal/i);
       const prot = annotation.match(/([\d.]+)\s*g\s*P\b/i);
       ingredients.push({
         name: (grams ? grams[2] : desc).replace(/\(.*?\)/g, "").trim(),
         quantity: desc,
-        quantity_g: grams ? Number(grams[1]) : null,
+        quantity_g: grams ? Number(grams[1].replace(/,/g, '')) : null,
         calories: cal ? Number(cal[1]) : null,
         protein_g: prot ? Number(prot[1]) : null,
       });

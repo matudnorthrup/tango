@@ -164,6 +164,20 @@ describe("ensureWellnessDb", () => {
     db.close();
   });
 
+  it("v3 accepts costco listings and preserves listing ids through the rebuild", () => {
+    const dbPath = tempDbPath();
+    ensureWellnessDb(dbPath);
+    const db = new DatabaseSync(dbPath);
+    db.prepare("INSERT INTO products (id, name) VALUES (1, 'Olive Oil')").run();
+    db.prepare("INSERT INTO product_listings (id, product_id, retailer, retailer_item_id) VALUES (7, 1, 'costco', 'kirkland-evoo')").run();
+    db.prepare("INSERT INTO price_history (listing_id, price) VALUES (7, 24.99)").run();
+    const row = db.prepare("SELECT retailer, price FROM product_price WHERE product_id = 1").get() as { retailer: string; price: number };
+    expect(row.retailer).toBe("costco");
+    expect(row.price).toBe(24.99);
+    expect(() => db.prepare("INSERT INTO product_listings (product_id, retailer) VALUES (1, 'target')").run()).toThrow();
+    db.close();
+  });
+
   it("recipe writes touch updated_at without error on a fresh DB", () => {
     // recalculateRecipeTotals writes recipes.updated_at, which the base v1
     // schema never created; v2 adds it. Guard against regression.
