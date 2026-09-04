@@ -70,7 +70,8 @@ export function Recipes({
 // per-serving figures; component recipes (batch yield) show per-100g figures.
 // ---------------------------------------------------------------------------
 
-type SortKey = 'name' | 'cal' | 'prot' | 'fat' | 'fiber' | 'cost' | 'ingredients' | 'servings';
+type SortKey = 'name' | 'cal' | 'prot' | 'ratio' | 'fat' | 'fiber' | 'cost' | 'ingredients';
+const SORT_KEYS: ReadonlySet<string> = new Set(['name', 'cal', 'prot', 'ratio', 'fat', 'fiber', 'cost', 'ingredients']);
 type Kind = 'all' | 'meals' | 'components';
 
 interface Filters {
@@ -78,6 +79,7 @@ interface Filters {
   kind: Kind;
   ingredient: string;
   minProt: string;
+  minRatio: string;
   maxCal: string;
   maxCost: string;
   pricedOnly: boolean;
@@ -89,6 +91,7 @@ const EMPTY_FILTERS: Filters = {
   kind: 'all',
   ingredient: '',
   minProt: '',
+  minRatio: '',
   maxCal: '',
   maxCost: '',
   pricedOnly: false,
@@ -102,7 +105,8 @@ type Sort = { key: SortKey; dir: 'asc' | 'desc' };
 function loadSort(): Sort {
   try {
     const raw = sessionStorage.getItem(SORT_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Sort) : { key: 'name', dir: 'asc' };
+    const parsed = raw ? (JSON.parse(raw) as Sort) : null;
+    return parsed && SORT_KEYS.has(parsed.key) ? parsed : { key: 'name', dir: 'asc' };
   } catch {
     return { key: 'name', dir: 'asc' };
   }
@@ -117,11 +121,18 @@ function loadFilters(): Filters {
   }
 }
 
-// Meals compare per serving, components per 100g. Same column, different basis —
-// the Type column and row pill say which.
-const metric = (r: RecipeRow, key: Exclude<SortKey, 'name' | 'ingredients' | 'servings'>): number | null => {
+// Every figure is per ONE serving (recipe totals ÷ servings), so a 10-serving
+// shepherd's pie compares directly with a 1-serving bowl. Components have no
+// servings; they show per 100g. The protein ratio (g protein per 100 kcal) is
+// basis-free, so it compares meals and components alike.
+const metric = (r: RecipeRow, key: Exclude<SortKey, 'name' | 'ingredients'>): number | null => {
   const component = Boolean(r.yield_g);
   switch (key) {
+    case 'ratio': {
+      const cal = metric(r, 'cal');
+      const prot = metric(r, 'prot');
+      return cal && cal > 0 && prot !== null ? Math.round((prot / cal) * 1000) / 10 : null;
+    }
     case 'cal':
       return component ? (r.per_100g_cal ?? null) : r.per_serving_cal;
     case 'prot':
@@ -148,7 +159,7 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
   const [sort, setSort] = useState<Sort>(loadSort);
   const [showFilters, setShowFilters] = useState(() => {
     const f = loadFilters();
-    return Boolean(f.ingredient || f.minProt || f.maxCal || f.maxCost || f.pricedOnly || f.kind !== 'all');
+    return Boolean(f.ingredient || f.minProt || f.minRatio || f.maxCal || f.maxCost || f.pricedOnly || f.kind !== 'all');
   });
 
   // Filters and sort survive the trip into a recipe page and back (session only).
@@ -179,6 +190,7 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
       .map((t) => t.trim().toLowerCase())
       .filter(Boolean);
     const minProt = num(filters.minProt);
+    const minRatio = num(filters.minRatio);
     const maxCal = num(filters.maxCal);
     const maxCost = num(filters.maxCost);
 
@@ -196,6 +208,8 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
       const cal = metric(r, 'cal');
       const cost = metric(r, 'cost');
       if (minProt !== null && (prot === null || prot < minProt)) return false;
+      const ratio = metric(r, 'ratio');
+      if (minRatio !== null && (ratio === null || ratio < minRatio)) return false;
       if (maxCal !== null && (cal === null || cal > maxCal)) return false;
       if (maxCost !== null && (cost === null || cost > maxCost)) return false;
       if (filters.pricedOnly && ((r.unpriced_ingredients ?? 0) > 0 || cost === null)) return false;
@@ -209,8 +223,6 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
           return r.name.toLowerCase();
         case 'ingredients':
           return r.ingredient_count;
-        case 'servings':
-          return r.servings;
         default:
           return metric(r, sort.key);
       }
@@ -238,6 +250,7 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
     (filters.kind !== 'all' ? 1 : 0) +
     (filters.ingredient.trim() ? 1 : 0) +
     (num(filters.minProt) !== null ? 1 : 0) +
+    (num(filters.minRatio) !== null ? 1 : 0) +
     (num(filters.maxCal) !== null ? 1 : 0) +
     (num(filters.maxCost) !== null ? 1 : 0) +
     (filters.pricedOnly ? 1 : 0);
@@ -261,8 +274,8 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
       <div className="bar">
         <h2>Recipes</h2>
         <span className="note">
-          {loaded ? `${rows.length} of ${recipes.length}` : '…'} · meals per serving, components per 100g · click a row
-          for the full page
+          {loaded ? `${rows.length} of ${recipes.length}` : '…'} · every figure is per single serving (components per
+          100g) · click a row for the full page
         </span>
       </div>
       <div className="toolbar">
@@ -315,6 +328,10 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
             <input className="short" inputMode="decimal" value={filters.minProt} onChange={(e) => set('minProt', e.target.value)} />
           </label>
           <label>
+            <span className="k">Protein / 100 cal ≥</span>
+            <input className="short" inputMode="decimal" value={filters.minRatio} onChange={(e) => set('minRatio', e.target.value)} />
+          </label>
+          <label>
             <span className="k">Calories ≤</span>
             <input className="short" inputMode="decimal" value={filters.maxCal} onChange={(e) => set('maxCal', e.target.value)} />
           </label>
@@ -334,9 +351,9 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
             <tr>
               <Th k="name" label="Recipe" />
               <th>Type</th>
-              <Th k="servings" label="Srv" right title="Servings per batch" />
               <Th k="cal" label="Cal" right />
               <Th k="prot" label="Protein" right />
+              <Th k="ratio" label="P / 100 cal" right title="Grams of protein per 100 calories — higher is leaner protein" />
               <Th k="fat" label="Fat" right />
               <Th k="fiber" label="Fiber" right />
               <Th k="cost" label="Cost" right />
@@ -363,9 +380,9 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
                       <span className="pill ok">meal</span>
                     )}
                   </td>
-                  <td className="r num">{component ? '—' : (r.servings ?? 1)}</td>
                   <td className="r num">{metric(r, 'cal') ?? '—'}</td>
                   <td className="r num">{grams(metric(r, 'prot'))}</td>
+                  <td className="r num ratio">{metric(r, 'ratio')?.toFixed(1) ?? '—'}</td>
                   <td className="r num">{grams(metric(r, 'fat'))}</td>
                   <td className="r num">{grams(metric(r, 'fiber'))}</td>
                   <td className="r num cost">
