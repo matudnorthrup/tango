@@ -51,6 +51,7 @@ interface PlannedProductLogEntry {
 interface UnresolvedNutritionLogItem {
   item: string;
   quantity: string;
+  grams?: number;
   reason: string;
   resolution?: string;
   wellnessdb_match?: {
@@ -114,19 +115,28 @@ export async function executeNutritionLogItems(
     const plannedEntries: PlannedProductLogEntry[] = [];
     const unresolved: UnresolvedNutritionLogItem[] = [];
 
-    const skipped: Array<{ item: string; reason: string }> = [];
-    const planProduct = (item: NutritionLogItemInput, row: ProductRow, recipeId?: number): void => {
+    const skipped: Array<{ item: string; grams?: number; reason: string }> = [];
+    let zeroCalorieSkips = 0;
+    const planProduct = (item: NutritionLogItemInput, row: ProductRow, recipeId?: number, grams?: number): void => {
       const foodId = stringifyId(row.fatsecret_food_id);
       const servingId = stringifyId(row.fatsecret_serving_id);
+      if (recipeId !== undefined && (row.calories == null || Number(row.calories) === 0)
+        && (!foodId || !servingId)) {
+        skipped.push({ item: item.name, grams,
+          reason: "zero-calorie product with no FatSecret mapping — nothing to log" });
+        zeroCalorieSkips += 1;
+        return;
+      }
+      const recipeGrams = grams === undefined ? {} : { grams };
       if (!foodId || !servingId || !deriveWellnessDbGramsPerServing(row)) {
-        unresolved.push({ item: item.name, quantity: item.quantity,
+        unresolved.push({ item: item.name, quantity: item.quantity, ...recipeGrams,
           reason: `Product ${row.name} is missing fatsecret_food_id, fatsecret_serving_id, or positive grams_per_serving. Use fatsecret_api food_get to repair the serving mapping.` });
         return;
       }
       const derived = deriveWellnessDbWriteUnits(item.quantity, row);
       if (!derived) {
         const match = buildWellnessDbMatchSummary(row, foodId, servingId);
-        unresolved.push({ item: item.name, quantity: item.quantity,
+        unresolved.push({ item: item.name, quantity: item.quantity, ...recipeGrams,
           resolution: formatWellnessDbResolutionSummary(match), wellnessdb_match: match,
           reason: buildWellnessDbUnitConversionFallbackReason(item.quantity, match) });
         return;
@@ -148,7 +158,7 @@ export async function executeNutritionLogItems(
             throw new Error(`Recipe ${recipe.name}: quantity requires positive servings, or grams with a positive yield_g.`);
           }
           expandRecipe(db, recipe, amount / divisor, [], (row, grams) => {
-            planProduct({ name: row.name ?? item.name, quantity: `${grams} g` }, row, recipe.id);
+            planProduct({ name: row.name ?? item.name, quantity: `${grams} g` }, row, recipe.id, grams);
           }, skipped);
         } catch (error) {
           // Never write an incomplete traversal after a cycle or depth failure.
@@ -164,7 +174,7 @@ export async function executeNutritionLogItems(
         reason: "No active wellness.db product or recipe match found. Use low-level FatSecret search for this item." });
     }
 
-    if (strict && (unresolved.length > 0 || skipped.length > 0)) {
+    if (strict && (unresolved.length > 0 || skipped.length > zeroCalorieSkips)) {
       return {
         action: "nutrition_log_items",
         status: "needs_clarification",

@@ -1059,6 +1059,65 @@ const recipeInput = (name: string, quantity: string, strict = false) => ({
 
 describe("wellness.db recipe expansion", () => {
   it.each([
+    [0, "fatsecret_food_id", false],
+    [0, "fatsecret_serving_id", true],
+    [null, "fatsecret_food_id", true],
+    [null, "fatsecret_serving_id", false],
+  ] as const)("skips a %s-calorie ingredient missing %s with strict=%s", async (calories, column, strict) => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath,
+      `UPDATE products SET calories = ${calories ?? "NULL"}, ${column} = NULL, grams_per_serving = NULL WHERE id = 2`);
+    const result = await executeNutritionLogItems(recipeInput("power salad", "2 servings", strict), deps);
+    expect(result).toMatchObject({ status: "partial_success", unresolved: [], link_warnings: [],
+      skipped: [{ item: "Lime", grams: 30,
+        reason: "zero-calorie product with no FatSecret mapping — nothing to log" }],
+      logged: [{ food_id: "101", number_of_units: 70 / 200, recipe_id: 10 }],
+    });
+    expect(result.logged).toHaveLength(1);
+    expect(deps.fatsecretCall.mock.calls.map(([method]) => method)).toEqual(["food_entry_create", "food_entries_get"]);
+    const db = new DatabaseSync(deps.wellnessDbPath, { readOnly: true });
+    try {
+      expect(db.prepare("SELECT recipe_id, food_entry_id FROM fatsecret_entry_links").all())
+        .toEqual([{ recipe_id: 10, food_entry_id: "1" }]);
+    } finally { db.close(); }
+  });
+
+  it.each([
+    ["fatsecret_food_id", undefined], ["fatsecret_serving_id", false], ["grams_per_serving", false],
+    ["fatsecret_food_id", true], ["fatsecret_serving_id", true], ["grams_per_serving", true],
+  ] as const)("reports recipe grams when %s is missing with strict=%s", async (column, strict) => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, `UPDATE products SET ${column} = NULL WHERE id = 1`);
+    const result = await executeNutritionLogItems({ ...recipeInput("power salad", "2 servings"), strict }, deps);
+    expect(result).toMatchObject({ status: strict ? "needs_clarification" : "partial_success", skipped: [],
+      unresolved: [{ item: "Yogurt", quantity: "70 g", grams: 70,
+        reason: expect.stringContaining("Use fatsecret_api food_get to repair the serving mapping.") }],
+    });
+    expect(result.logged).toHaveLength(strict ? 0 : 1);
+    if (strict) expect(deps.fatsecretCall).not.toHaveBeenCalled();
+    else {
+      expect(result.logged).toMatchObject([{ food_id: "102", number_of_units: 30, recipe_id: 10 }]);
+      expect(deps.fatsecretCall.mock.calls.map(([method]) => method)).toEqual(["food_entry_create", "food_entries_get"]);
+    }
+    const db = new DatabaseSync(deps.wellnessDbPath, { readOnly: true });
+    try {
+      expect(db.prepare("SELECT recipe_id, food_entry_id FROM fatsecret_entry_links").all())
+        .toEqual(strict ? [] : [{ recipe_id: 10, food_entry_id: "1" }]);
+    } finally { db.close(); }
+  });
+
+  it.each([0, null])("still leaves direct unmapped %s-calorie products unresolved", async (calories) => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath,
+      `UPDATE products SET calories = ${calories ?? "NULL"}, fatsecret_food_id = NULL WHERE id = 2`);
+    const result = await executeNutritionLogItems(recipeInput("Lime", "30g"), deps);
+    expect(result).toMatchObject({ status: "needs_clarification", logged: [], skipped: [] });
+    expect(result.unresolved).toEqual([{ item: "Lime", quantity: "30g",
+      reason: "Product Lime is missing fatsecret_food_id, fatsecret_serving_id, or positive grams_per_serving. Use fatsecret_api food_get to repair the serving mapping." }]);
+    expect(deps.fatsecretCall).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["Garden Tex-Mex Power Salad", "1", 35],
     ["GARDEN LUNCH", "2 servings", 70],
     ["POWER SALAD", "3 tacos", 105],

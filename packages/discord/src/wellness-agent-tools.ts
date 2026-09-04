@@ -422,6 +422,8 @@ export function createNutritionTools(overrides?: WellnessToolPaths): AgentTool[]
         "Pass recipe names with servings, component-recipe names with grams, or product names with quantities. Do NOT pre-expand recipes; this tool expands nested recipes itself.",
         "It resolves wellness.db matches, derives FatSecret units, writes the diary entries, and refreshes the day once.",
         "If an item is not in wellness.db or the quantity cannot be derived safely, the tool returns unresolved items instead of guessing.",
+        "Without strict mode, resolvable recipe ingredients still log; unresolved ingredients include their allocated grams and repair hint, and status is partial_success when some entries log.",
+        "Expanded zero-calorie (or NULL-calorie) products missing a FatSecret mapping appear in skipped with item, grams, and reason; these skips never block strict mode.",
         "",
         "Inputs:",
         "  items: [{ name, quantity }]",
