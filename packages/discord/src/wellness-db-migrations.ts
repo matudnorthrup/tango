@@ -14,6 +14,8 @@
  *       ingredients, product_listings / price_history / meal_plans /
  *       meal_plan_entries / fatsecret_entry_links, and cost-aware views.
  *   3 — product_listings.retailer accepts 'costco' and 'other' (table rebuild)
+ *   4 — recipes.archived_at: retire recipes without deleting (products use
+ *       discontinued_date for the same purpose)
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -21,7 +23,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createWellnessDbSchema, resolveWellnessDbPath } from "./wellness-db-tools.js";
 
-export const WELLNESS_DB_VERSION = 3;
+export const WELLNESS_DB_VERSION = 4;
 
 export interface EnsureWellnessDbReport {
   path: string;
@@ -348,6 +350,10 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
       if (version < 3) {
         applyRetailerMigration(db);
         version = 3;
+      }
+      if (version < 4) {
+        addColumnIfMissing(db, "recipes", "archived_at", "TEXT");
+        version = 4;
       }
       setUserVersion(db, version);
       const violations = db.prepare("PRAGMA foreign_key_check").all();

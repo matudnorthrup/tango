@@ -8,6 +8,7 @@ api.get('/health', (c) => c.json({ ok: true }));
 // ---------- products ----------
 
 api.get('/products', (c) => {
+  const showAll = c.req.query('all') === '1';
   const products = all(`
     SELECT p.id, p.name, p.brand, p.category, p.serving_size, p.grams_per_serving,
            p.calories, p.protein_g, p.carbs_g, p.fat_g, p.fiber_g,
@@ -16,6 +17,7 @@ api.get('/products', (c) => {
            (SELECT count(*) FROM product_listings pl WHERE pl.product_id = p.id AND pl.active = 1) AS listing_count
     FROM products p
     LEFT JOIN product_price pp ON pp.product_id = p.id
+    ${showAll ? '' : 'WHERE p.discontinued_date IS NULL'}
     ORDER BY p.name
   `);
   return c.json({ products });
@@ -79,20 +81,37 @@ api.post('/listings/:id/price', async (c) => {
 // ---------- recipes ----------
 
 api.get('/recipes', (c) => {
+  const showAll = c.req.query('all') === '1';
   const recipes = all(`
-    SELECT rs.*, r.yield_g,
+    SELECT rs.*, r.yield_g, r.archived_at,
            (SELECT count(*) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id) AS ingredient_count
     FROM recipe_summary rs
     JOIN recipes r ON r.id = rs.id
+    ${showAll ? '' : 'WHERE r.archived_at IS NULL'}
     ORDER BY rs.name
   `);
   return c.json({ recipes });
 });
 
+// Archive = retire without deleting; history, plans, and links stay intact.
+api.post('/recipes/:id/archive', async (c) => {
+  const id = Number(c.req.param('id'));
+  const body = await c.req.json<{ archived?: boolean }>().catch(() => ({ archived: true }));
+  run(body.archived === false ? 'UPDATE recipes SET archived_at = NULL WHERE id = ?' : "UPDATE recipes SET archived_at = datetime('now') WHERE id = ?", [id]);
+  return c.json({ ok: true });
+});
+
+api.post('/products/:id/archive', async (c) => {
+  const id = Number(c.req.param('id'));
+  const body = await c.req.json<{ archived?: boolean }>().catch(() => ({ archived: true }));
+  run(body.archived === false ? 'UPDATE products SET discontinued_date = NULL, discontinued_reason = NULL WHERE id = ?' : "UPDATE products SET discontinued_date = date('now'), discontinued_reason = 'archived from Tango Food' WHERE id = ?", [id]);
+  return c.json({ ok: true });
+});
+
 api.get('/recipes/:id', (c) => {
   const id = Number(c.req.param('id'));
   const recipe = one(
-    'SELECT rs.*, r.yield_g FROM recipe_summary rs JOIN recipes r ON r.id = rs.id WHERE rs.id = ?',
+    'SELECT rs.*, r.yield_g, r.archived_at FROM recipe_summary rs JOIN recipes r ON r.id = rs.id WHERE rs.id = ?',
     [id],
   );
   if (!recipe) return c.json({ error: 'not found' }, 404);

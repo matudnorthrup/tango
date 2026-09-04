@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Nav } from '../App';
-import { get, money, grams } from '../lib';
+import { get, post, money, grams } from '../lib';
 
 interface RecipeRow {
   id: number;
@@ -16,6 +16,7 @@ interface RecipeRow {
   yield_g: number | null;
   instructions: string | null;
   notes: string | null;
+  archived_at?: string | null;
 }
 
 interface IngredientRow {
@@ -50,15 +51,25 @@ export function Recipes({
   const [recipes, setRecipes] = useState<RecipeRow[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
 
-  useEffect(() => {
-    get<{ recipes: RecipeRow[] }>('/recipes')
+  const loadList = () =>
+    get<{ recipes: RecipeRow[] }>(showArchived ? '/recipes?all=1' : '/recipes')
       .then((r) => {
         setRecipes(r.recipes);
         if (recipeId === null && r.recipes[0]) onSelect(r.recipes[0].id);
       })
       .catch((e: Error) => setError(e.message));
-  }, []);
+  useEffect(() => {
+    void loadList();
+  }, [showArchived]);
+
+  const toggleArchive = async (id: number, archived: boolean) => {
+    await post(`/recipes/${id}/archive`, { archived });
+    await loadList();
+    setDetail(null);
+    get<Detail>(`/recipes/${id}`).then(setDetail).catch(() => {});
+  };
 
   useEffect(() => {
     if (recipeId === null) return;
@@ -74,12 +85,15 @@ export function Recipes({
       <div className="bar">
         <h2>Recipes</h2>
         <span className="note">macros roll up from gram quantities; cost from current prices</span>
+        <label className="right note" style={{ cursor: 'pointer' }}>
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> show archived
+        </label>
       </div>
       <div className="split">
         <div className="panel rlist">
           {recipes.map((rec) => (
             <button key={rec.id} className={rec.id === recipeId ? 'on' : ''} onClick={() => onSelect(rec.id)}>
-              {rec.name}
+              {rec.name} {rec.archived_at && <span className="pill none">archived</span>}
               <span className="sub num">
                 {rec.yield_g
                   ? `component · ${rec.yield_g}g batch`
@@ -92,7 +106,8 @@ export function Recipes({
           <div className="panel rdetail">
             <div>
               <h3>
-                {r.name} {r.yield_g && <span className="pill none">component recipe</span>}
+                {r.name} {r.yield_g && <span className="pill none">component recipe</span>}{' '}
+                {r.archived_at && <span className="pill none">archived</span>}
               </h3>
               <div className="meta">
                 {r.servings ?? 1} serving{(r.servings ?? 1) !== 1 ? 's' : ''}
@@ -189,6 +204,12 @@ export function Recipes({
                 </table>
               </div>
             )}
+            <div className="bar">
+              <button className="btn" onClick={() => void toggleArchive(r.id, !r.archived_at)}>
+                {r.archived_at ? 'Restore from archive' : 'Archive recipe'}
+              </button>
+              <span className="note">archived recipes keep their history, plans, and links — they just leave the list</span>
+            </div>
             {r.instructions && (
               <details>
                 <summary className="muted" style={{ cursor: 'pointer', fontSize: '.82rem' }}>

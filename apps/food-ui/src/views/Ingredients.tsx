@@ -86,6 +86,14 @@ function ProductDetail({ id, nav, onClose }: { id: number; nav: Nav; onClose: ()
         <a className="back" onClick={onClose}>
           ← Ingredients
         </a>
+        <span className="right">
+          <button
+            className="btn"
+            onClick={() => void post(`/products/${id}/archive`, { archived: !p.discontinued_date }).then(load)}
+          >
+            {p.discontinued_date ? 'Restore from archive' : 'Archive ingredient'}
+          </button>
+        </span>
       </div>
       <div className="bar">
         <h2>{p.name}</h2>
@@ -257,12 +265,13 @@ export function Ingredients({
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [filter, setFilter] = useState('');
   const [error, setError] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    get<{ products: ProductRow[] }>('/products')
+    get<{ products: ProductRow[] }>(showArchived ? '/products?all=1' : '/products')
       .then((r) => setProducts(r.products))
       .catch((e: Error) => setError(e.message));
-  }, [productId]);
+  }, [productId, showArchived]);
 
   if (productId !== null) return <ProductDetail id={productId} nav={nav} onClose={onClose} />;
   if (error) return <div className="error">{error}</div>;
@@ -278,6 +287,9 @@ export function Ingredients({
         <h2>Ingredients</h2>
         <span className="note">{products.length} products · nutrition verified against FatSecret</span>
         <span className="right">
+          <label className="note" style={{ cursor: 'pointer' }}>
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> show archived
+          </label>
           <input placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
         </span>
       </div>
@@ -302,7 +314,7 @@ export function Ingredients({
                   <a className="drill" onClick={() => nav.openProduct(p.id)}>
                     {p.name}
                   </a>
-                  <span className="sub">{[p.brand, p.retailer].filter(Boolean).join(' · ') || '—'}</span>
+                  <span className="sub">{[p.brand, p.retailer].filter(Boolean).join(' · ') || '—'}{p.discontinued_date && ' · archived'}</span>
                 </td>
                 <td>
                   {p.serving_size ?? '—'}
