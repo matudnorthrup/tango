@@ -103,10 +103,23 @@ ALTER TABLE products ADD COLUMN fatsecret_serving_id TEXT;
 ALTER TABLE products ADD COLUMN grams_per_serving REAL;
 
 ALTER TABLE recipes ADD COLUMN total_fiber_g REAL;
+ALTER TABLE recipes ADD COLUMN yield_g REAL;        -- batch output grams (component recipes)
 
 ALTER TABLE recipe_ingredients ADD COLUMN quantity_g REAL;  -- canonical grams
 ALTER TABLE recipe_ingredients ADD COLUMN fiber_g REAL;
+ALTER TABLE recipe_ingredients ADD COLUMN sub_recipe_id INTEGER REFERENCES recipes(id);
 ```
+
+**Nested (component) recipes.** A recipe that is really a reusable component
+— a lime crema, a spice blend, a dressing — sets `yield_g` (grams one batch
+produces) and is then usable *by the gram* inside other recipes via
+`recipe_ingredients.sub_recipe_id` (set instead of `product_id`). Per-gram
+macros and cost are batch totals ÷ `yield_g`, so repricing an ingredient of
+the component reprices every recipe that uses it. Rollups recurse in
+application code (`recalculateRecipeTotals` + UI), which rejects cycles at
+write time; nesting depth is unbounded in schema, practically 2–3 levels.
+FatSecret logging expansion recurses the same way — a component contributes
+its ingredients' FatSecret servings scaled by the grams used.
 
 `quantity_g` is the normalization Devin asked for: free-text `quantity` stays
 for display ("1 can"), `quantity_g` drives all math. For products with
@@ -144,7 +157,6 @@ CREATE INDEX idx_price_history_listing ON price_history(listing_id, observed_at)
 CREATE TABLE meal_plans (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  people REAL NOT NULL DEFAULT 1,
   start_date TEXT,                -- NULL = reusable template
   notes TEXT,
   created_at TEXT DEFAULT (datetime('now'))
@@ -157,8 +169,17 @@ CREATE TABLE meal_plan_entries (
   meal TEXT NOT NULL CHECK(meal IN ('breakfast','lunch','snack','dinner')),
   recipe_id INTEGER REFERENCES recipes(id),
   product_id INTEGER REFERENCES products(id),
-  servings REAL NOT NULL DEFAULT 1.0
+  servings REAL NOT NULL DEFAULT 1.0   -- total portions AT THIS MEAL (see below)
 );
+```
+
+**Per-meal servings, no people multiplier** (ratified 2026-09-03): who eats
+varies by meal, not by week — a school-day breakfast/lunch is ×1 while
+dinner is ×2 — so portion counts live on each `meal_plan_entries` row and
+plan totals are absolute sums. There is deliberately **no pantry model**:
+meals drive the shopping list (aggregate grams → containers, rounded up),
+nothing tracks what's already on the shelf.
+```sql
 
 -- Phase 4: attribution of FatSecret diary entries back to recipes
 CREATE TABLE fatsecret_entry_links (
@@ -179,11 +200,10 @@ CREATE TABLE fatsecret_entry_links (
 - `recipe_summary` (replaced) — adds `per_serving_fiber` and
   `per_serving_cost` (sum over ingredients of `quantity_g × price_per_gram`,
   falling back to serving-based pricing when `package_grams` is null).
-- `plan_summary` — per plan/day: total cost, cost per person, calories,
-  protein, fiber, fat.
-- `shopping_list` — per plan: aggregate `quantity_g × servings × people`
-  across all entries, divide by `package_grams`, round containers up, price
-  the result.
+- `plan_summary` — per plan/day: total portions, cost, calories, protein,
+  fiber, fat (absolute sums over per-meal servings).
+- `shopping_list` — per plan: aggregate `quantity_g × servings` across all
+  entries, divide by `package_grams`, round containers up, price the result.
 
 Rollup columns on `recipes` (`total_*`) remain and
 `recalculateRecipeTotals()` is extended to fiber and to prefer per-gram math
@@ -203,6 +223,15 @@ One-time script `scripts/migrate-atlas-ingredients.ts`:
   declaring done (reuse the audit's per-gram comparator).
 - `~/atlas/atlas.db` is then frozen: read-only for Malibu until Phase 4
   retargets `nutrition-log-executor.ts`'s Atlas lookup at `wellness.db`.
+
+**Recipe notes** (ratified 2026-09-03): the ~28 markdown recipe notes are
+imported once via `scripts/import-recipe-notes.ts` (frontmatter macros,
+gram-annotated ingredient lines → `recipes` + `recipe_ingredients` with
+`quantity_g`); wellness.db becomes the **canonical** recipe store. At the
+same deploy, flows that reference the markdown notes — `recipe_read`/
+`recipe_write`/`recipe_list` tools, `agents/skills/recipe-management.md`,
+`food-logging.md`, Malibu/Jules knowledge — are retargeted at the
+`wellnessdb_*` tools; the notes stay on disk as a frozen archive.
 
 Walmart item-ID backfill is interactive-ish work the agent does once: for each
 product, find the canonical `/ip/<slug>/<itemId>` URL (browser session already
@@ -254,20 +283,36 @@ appear, the fallback is the tango-state pattern (UI writes proxied through a
 thin bot-hosted HTTP API); the UI's data layer should be one module so that
 swap is cheap.
 
-Pages:
+Pages (shape validated via interactive mockup with Devin, 2026-09-03).
+Universal convention: **every ingredient or recipe name, anywhere in the app,
+is a link to that entity's page** — recipe ingredient rows, planner slots,
+shopping-list rows, trend movers, used-in lists. No dead entity names.
 
-1. **Ingredients** — products with macros/serving, grams/serving, current
-   price, price/serving, linked listing(s), price sparkline, FatSecret link
-   status, stale-price badge (>14 days since last observation).
+Pages (shape validated via interactive mockup with Devin, 2026-09-03):
+
+1. **Ingredients** — table of products with full macros/serving (calories,
+   protein, **fat**, fiber), grams/serving, current price, price/serving,
+   freshness badge (>14 days stale). Each row opens a **detail page**: full
+   macro panel (incl. carbs), FatSecret mapping + audit status, all listings
+   (preferred + alternates, $/container comparison), the item's price-history
+   chart, manual price entry for Amazon listings, used-in-recipes list with
+   per-recipe cost contribution, and a re-scan action. Item-level price
+   history lives here, not on a separate page.
 2. **Recipes** — ingredient rows (grams + display quantity), live per-serving
    macro/cost rollup while editing; flag ingredients with no price or no
-   FatSecret mapping.
+   FatSecret mapping (cost shown as a floor when any ingredient is unpriced).
 3. **Planner** — day grid of meal slots filled from recipes; per-day cost,
    cost/person, calories/protein/fiber/fat vs. simple targets.
 4. **Shopping list** — per plan: containers to buy with prices and total;
-   button to push items into Foxtrot's Walmart queue (Phase 4).
-5. **Prices** — price history table/chart per listing; manual price entry for
-   Amazon items; last-scan status.
+   button to push items into Foxtrot's Walmart queue (Phase 4);
+   pantry-exclusion for staples that haven't run out.
+5. **Trends** — the "is this working?" page (replaces the earlier flat
+   Prices page, which duplicated the ingredient list at item level):
+   weekly grocery spend vs. budget target, spend/person/day vs. planned
+   cost/person/day, average cost per meal by slot, protein/fiber
+   per-person-per-day weekly trends vs. targets, biggest price movers from
+   the last scan, and the scan status line (items read/skipped, store
+   verification). Sources: `price_history`, `meal_log`, `plan_summary`.
 
 Live refresh: v1 polls with TanStack Query staleness (SQLite has no
 `pg_notify`); SSE only if it earns its keep later.
@@ -282,6 +327,12 @@ into root `build`/`test` chains (kilo-style) so CI compiles it.
 
 ## 7. Agent integration
 
+- **Malibu gets first-class visibility** (ratified 2026-09-03): Malibu keeps
+  logging to FatSecret, but reads recipes/products from wellness.db — grant
+  the `wellnessdb_*` read tools (and recipe tools) to Malibu alongside the
+  existing Jules/cod-e grants, and keep `fatsecret_food_id`/`serving_id` on
+  every product so the DB, the diary, and the planner stay one tracked
+  system.
 - **Tools:** the 24 `wellnessdb_*` tools already cover product/recipe/meal
   CRUD. Add narrow tools (per `docs/guides/adding-tools.md`) for the new
   surfaces: `wellnessdb_price_status` (current price + staleness per
@@ -329,11 +380,21 @@ Goal: confidence that FatSecret logging matches planned recipes.
 5. **Validation & ship** — live end-to-end: real week planned, scanned,
    shopped, logged, verified.
 
-## 10. Open questions (non-blocking; defaults chosen)
+## 10. Decisions log
 
-1. Fixed home Walmart store assumed (prices are store-scoped). Default:
-   whatever the signed-in session's store is; scan asserts it.
-2. `people` on meal plans defaults to a per-plan multiplier, not named
-   people. Per-person macro targets can come later.
-3. Price staleness threshold defaulted to 14 days for the UI badge.
-4. Weekly scan time defaulted to Sunday 05:30 (quiet, pre-deep-work).
+Ratified by Devin 2026-09-03 (see TGO-851 for the full list with leans):
+ingredient rows are state-specific (cooked-as-prepared, e.g. shredded
+chicken with juices); per-meal servings, no people multiplier; **no pantry
+tracking — meals drive the shopping list**; planner never writes to
+FatSecret (Malibu logs; verification compares after the fact); recipe
+notes import once and wellness.db is canonical; Malibu gets wellnessdb
+read access.
+
+Remaining defaults (non-blocking):
+
+1. Fixed home Walmart store assumed (prices are store-scoped); scan asserts
+   the signed-in session's store.
+2. Price staleness threshold: 14 days for the UI badge.
+3. Weekly scan time: Sunday 05:30 (quiet, pre-deep-work).
+4. Named per-person macro targets (per household member) are the expected v2 of
+   the planner; per-meal servings keep the schema compatible.
