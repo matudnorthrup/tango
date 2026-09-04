@@ -68,9 +68,25 @@ function parseRecipe(file: string): ParsedRecipe | null {
   const mealMatch = fm.match(/^meal:\n\s*-\s*(\S+)/m) || fm.match(/^meal:\s*(\S+)\s*$/m);
 
   const ingredients: ParsedIngredient[] = [];
-  const ingSection = body.match(/^##\s+Ingredients\s*$([\s\S]*?)(?=^##\s|\n*$(?![\s\S]))/m);
+  const ingSection = body.match(/^##\s+Ingredients\b[^\n]*$([\s\S]*?)(?=^##\s|\n*$(?![\s\S]))/m);
   if (ingSection) {
     for (const line of ingSection[1].split("\n")) {
+      // Table rows: | Ingredient | Amount | Cal | Protein |
+      const cells = line.trim().startsWith("|") ? line.split("|").map((c) => c.trim()).filter(Boolean) : null;
+      if (cells && cells.length >= 2 && !/^-+$/.test(cells[0] ?? "") && !/^ingredient$/i.test(cells[0] ?? "") && !/total/i.test(cells[0] ?? "")) {
+        const amount = cells[1] ?? "";
+        const gramsInAmount = amount.match(/([\d,.]+)\s*g\b/i);
+        const cal = cells[2]?.match(/[\d.]+/);
+        const prot = cells[3]?.match(/[\d.]+/);
+        ingredients.push({
+          name: (cells[0] ?? "").replace(/\*/g, "").trim(),
+          quantity: amount,
+          quantity_g: gramsInAmount ? Number(gramsInAmount[1].replace(/,/g, "")) : null,
+          calories: cal ? Number(cal[0]) : null,
+          protein_g: prot ? Number(prot[0]) : null,
+        });
+        continue;
+      }
       const item = line.match(/^\s*-\s+(.*)$/)?.[1]?.trim();
       if (!item) continue;
       const [desc, annotation = ""] = item.split(/\s+—\s+/);

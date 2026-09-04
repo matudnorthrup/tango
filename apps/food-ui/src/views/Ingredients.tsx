@@ -18,6 +18,7 @@ interface ProductRow {
   price_per_serving: number | null;
   listing_count: number;
   discontinued_date: string | null;
+  category: string | null;
 }
 
 interface Listing {
@@ -40,7 +41,16 @@ interface Detail {
   usedIn: Array<{ recipe_id: number; name: string; quantity: string | null; quantity_g: number | null }>;
 }
 
-function PricePill({ observedAt, hasListing }: { observedAt: string | null; hasListing: boolean }) {
+function PricePill({
+  observedAt,
+  hasListing,
+  category,
+}: {
+  observedAt: string | null;
+  hasListing: boolean;
+  category?: string | null;
+}) {
+  if (category === 'restaurant') return <span className="pill none">restaurant · nutrition only</span>;
   if (!hasListing) return <span className="pill none">no listing</span>;
   const age = priceAge(observedAt);
   if (age === 'none') return <span className="pill stale">no price yet</span>;
@@ -304,7 +314,7 @@ export function Ingredients({
                 <td className="r num">{grams(p.fiber_g)}</td>
                 <td className="r num cost">{money(p.price_per_serving)}</td>
                 <td>
-                  <PricePill observedAt={p.observed_at} hasListing={p.listing_count > 0} />
+                  <PricePill observedAt={p.observed_at} hasListing={p.listing_count > 0} category={p.category} />
                 </td>
               </tr>
             ))}
