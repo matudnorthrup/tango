@@ -21,10 +21,22 @@ import {
   resolveTangoProfileDir,
   type AgentTool,
 } from "@tango/core";
-import {
-  executeNutritionLogItems,
-  resolveAtlasDbPath,
-} from "./nutrition-log-executor.js";
+import { executeNutritionLogItems } from "./nutrition-log-executor.js";
+import { resolveWellnessDbPath } from "./wellness-db-tools.js";
+
+// Legacy tool paths remain until the Phase B retirement.
+function resolveAtlasDbPath(atlasCommand: string): string {
+  const resolvedCommand = resolveRealPath(atlasCommand);
+  return path.join(path.dirname(resolvedCommand), "atlas.db");
+}
+
+function resolveRealPath(value: string): string {
+  try {
+    return fs.realpathSync(value);
+  } catch {
+    return value;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Command runner (shared by all tool handlers)
@@ -406,10 +418,10 @@ export function createNutritionTools(overrides?: WellnessToolPaths): AgentTool[]
     {
       name: "nutrition_log_items",
       description: [
-        "Fast Atlas-backed nutrition diary logger for common meal entries.",
-        "Use this as the primary write path when the food items are likely to exist in the Atlas ingredient catalog.",
-        "It resolves Atlas matches, derives FatSecret units, writes the diary entries, and refreshes the day once.",
-        "If an item is not in Atlas or the quantity cannot be derived safely, the tool returns unresolved items instead of guessing.",
+        "Wellness DB nutrition diary logger for products and recipes.",
+        "Pass recipe names with servings, component-recipe names with grams, or product names with quantities. Do NOT pre-expand recipes; this tool expands nested recipes itself.",
+        "It resolves wellness.db matches, derives FatSecret units, writes the diary entries, and refreshes the day once.",
+        "If an item is not in wellness.db or the quantity cannot be derived safely, the tool returns unresolved items instead of guessing.",
         "",
         "Inputs:",
         "  items: [{ name, quantity }]",
@@ -453,7 +465,7 @@ export function createNutritionTools(overrides?: WellnessToolPaths): AgentTool[]
             strict: typeof input.strict === "boolean" ? input.strict : undefined,
           },
           {
-            atlasDbPath: paths.atlasDbPath,
+            wellnessDbPath: resolveWellnessDbPath(),
             fatsecretCall: (method, params) =>
               callFatsecretApi(method, params, {
                 fatsecretApiScript: paths.fatsecretApiScript,

@@ -1,8 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHealthTools, createNutritionTools, createRecipeTools, createWorkoutTools } from "../src/wellness-agent-tools.js";
+
+import { ensureWellnessDb } from "../src/wellness-db-migrations.js";
 
 const tempDirs: string[] = [];
 
@@ -25,6 +27,7 @@ function makeRecipesDir(files: Record<string, string>): string {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (dir) {
@@ -112,6 +115,21 @@ describe("createRecipeTools", () => {
 });
 
 describe("createNutritionTools", () => {
+  it.each(["JULES_WELLNESS_DB_PATH", "WELLNESS_DB_PATH"])("logs against %s instead of the legacy path", async (env) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-nutrition-path-"));
+    tempDirs.push(dir);
+    const dbPath = path.join(dir, "wellness.db");
+    ensureWellnessDb(dbPath);
+    vi.stubEnv("JULES_WELLNESS_DB_PATH", "");
+    vi.stubEnv("WELLNESS_DB_PATH", "");
+    vi.stubEnv(env, dbPath);
+    const tool = createNutritionTools({ atlasDbPath: path.join(dir, "does-not-exist.db") })
+      .find((entry) => entry.name === "nutrition_log_items")!;
+    expect(await tool.handler({ items: [{ name: "Unknown", quantity: "1" }], meal: "lunch" }))
+      .toMatchObject({ status: "needs_clarification", logged: [] });
+    expect(tool.description).toContain("Do NOT pre-expand recipes");
+  });
+
   it("fails fast when a FatSecret method is called without required params", async () => {
     const scriptPath = makeScript("#!/usr/bin/env bash\necho 'should not run'\n");
     const fatsecretTool = createNutritionTools({ fatsecretApiScript: scriptPath })

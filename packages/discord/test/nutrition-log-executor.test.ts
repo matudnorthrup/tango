@@ -5,8 +5,9 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   executeNutritionLogItems,
-  resolveAtlasDbPath,
 } from "../src/nutrition-log-executor.js";
+
+import { ensureWellnessDb } from "../src/wellness-db-migrations.js";
 
 const tempDirs: string[] = [];
 const originalTangoTimeZone = process.env.TANGO_TIME_ZONE;
@@ -32,100 +33,47 @@ afterEach(() => {
   }
 });
 
-function createAtlasDb(rows: Array<Record<string, unknown>>): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-atlas-db-"));
+function createWellnessDb(rows: Array<Record<string, unknown>>): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-wellness-db-"));
   tempDirs.push(dir);
-  const dbPath = path.join(dir, "atlas.db");
+  const dbPath = path.join(dir, "wellness.db");
+  ensureWellnessDb(dbPath);
   const db = new DatabaseSync(dbPath);
-  db.exec(`
-    CREATE TABLE ingredients (
-      name TEXT,
-      brand TEXT,
-      product TEXT,
-      food_id TEXT,
-      serving_id TEXT,
-      serving_description TEXT,
-      serving_size TEXT,
-      grams_per_serving REAL,
-      calories REAL,
-      protein REAL,
-      carbs REAL,
-      fat REAL,
-      fiber REAL,
-      aliases TEXT
-    );
-  `);
-  const statement = db.prepare(`
-    INSERT INTO ingredients (
-      name, brand, product, food_id, serving_id, serving_description, serving_size,
-      grams_per_serving, calories, protein, carbs, fat, fiber, aliases
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
   for (const row of rows) {
-    statement.run(
-      row.name ?? null,
-      row.brand ?? null,
-      row.product ?? null,
-      row.food_id ?? null,
-      row.serving_id ?? null,
-      row.serving_description ?? null,
-      row.serving_size ?? null,
-      row.grams_per_serving ?? null,
-      row.calories ?? null,
-      row.protein ?? null,
-      row.carbs ?? null,
-      row.fat ?? null,
-      row.fiber ?? null,
-      row.aliases ?? null,
-    );
+    const keys = Object.keys(row);
+    db.prepare(`INSERT INTO products (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`)
+      .run(...keys.map((key) => row[key] as string | number | null));
   }
   db.close();
   return dbPath;
 }
 
 describe("executeNutritionLogItems", () => {
-  it("resolves atlas.db relative to the real atlas binary path when the command is a symlink", () => {
-    const realDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-atlas-real-"));
-    const linkDir = fs.mkdtempSync(path.join(os.tmpdir(), "tango-atlas-link-"));
-    tempDirs.push(realDir, linkDir);
-    const realCommand = path.join(realDir, "atlas.js");
-    const linkCommand = path.join(linkDir, "atlas");
-    fs.writeFileSync(realCommand, "console.log('atlas')\n", "utf8");
-    fs.symlinkSync(realCommand, linkCommand);
-
-    expect(fs.realpathSync(path.dirname(resolveAtlasDbPath(linkCommand)))).toBe(
-      fs.realpathSync(realDir),
-    );
-    expect(path.basename(resolveAtlasDbPath(linkCommand))).toBe("atlas.db");
-  });
-
-  it("logs Atlas-backed items in one transaction and refreshes the diary once", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("logs Wellness DB-backed items and refreshes the diary once", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Light Vanilla Greek Yogurt",
-        food_id: "1001",
-        serving_id: "2001",
-        serving_description: "100 g",
+        fatsecret_food_id: "1001",
+        fatsecret_serving_id: "2001",
         serving_size: "100 g",
         grams_per_serving: 100,
         calories: 60,
-        protein: 10,
-        carbs: 5,
-        fat: 0,
-        aliases: JSON.stringify(["light vanilla greek yogurt", "greek yogurt"]),
+        protein_g: 10,
+        carbs_g: 5,
+        fat_g: 0,
+        shorthand: ["light vanilla greek yogurt", "greek yogurt"].join(","),
       },
       {
         name: "PB Powder",
-        food_id: "1002",
-        serving_id: "2002",
-        serving_description: "1 tbsp",
+        fatsecret_food_id: "1002",
+        fatsecret_serving_id: "2002",
         serving_size: "1 tbsp",
         grams_per_serving: 6,
         calories: 25,
-        protein: 3,
-        carbs: 2,
-        fat: 1,
-        aliases: JSON.stringify(["pb powder", "peanut butter powder"]),
+        protein_g: 3,
+        carbs_g: 2,
+        fat_g: 1,
+        shorthand: ["pb powder", "peanut butter powder"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -153,7 +101,7 @@ describe("executeNutritionLogItems", () => {
         date: "2026-04-09",
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
       },
     );
@@ -194,19 +142,18 @@ describe("executeNutritionLogItems", () => {
     process.env.TANGO_TIME_ZONE = "America/Los_Angeles";
     process.env.TZ = "UTC";
 
-    const atlasDbPath = createAtlasDb([
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Light Vanilla Greek Yogurt",
-        food_id: "1001",
-        serving_id: "2001",
-        serving_description: "100 g",
+        fatsecret_food_id: "1001",
+        fatsecret_serving_id: "2001",
         serving_size: "100 g",
         grams_per_serving: 100,
         calories: 60,
-        protein: 10,
-        carbs: 5,
-        fat: 0,
-        aliases: JSON.stringify(["light vanilla greek yogurt"]),
+        protein_g: 10,
+        carbs_g: 5,
+        fat_g: 0,
+        shorthand: ["light vanilla greek yogurt"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -230,7 +177,7 @@ describe("executeNutritionLogItems", () => {
         meal: "breakfast",
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
       },
     );
@@ -248,20 +195,19 @@ describe("executeNutritionLogItems", () => {
     expect(fatsecretCall.mock.calls[1]?.[1]).toEqual({ date: "2026-06-02" });
   });
 
-  it("uses raw grams for Atlas servings whose unit is just grams", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("uses raw grams for Wellness DB servings whose unit is just grams", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Custom Protein Powder",
-        food_id: "9001",
-        serving_id: "9101",
-        serving_description: "g",
+        fatsecret_food_id: "9001",
+        fatsecret_serving_id: "9101",
         serving_size: "g",
         grams_per_serving: 1,
         calories: 4,
-        protein: 0.8,
-        carbs: 0.1,
-        fat: 0.05,
-        aliases: JSON.stringify(["custom protein powder"]),
+        protein_g: 0.8,
+        carbs_g: 0.1,
+        fat_g: 0.05,
+        shorthand: ["custom protein powder"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -286,7 +232,7 @@ describe("executeNutritionLogItems", () => {
         date: "2026-04-09",
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
       },
     );
@@ -311,22 +257,21 @@ describe("executeNutritionLogItems", () => {
   // serving 59350 has measurement_description "g" / metric_serving_amount 100,
   // so it interprets number_of_units as RAW GRAMS. Logging 140 g must send 140,
   // not 140/100 = 1.4 (which FatSecret reads as 1.4 g → ~1 cal). The gram unit
-  // is detected from serving_description "100g".
+  // is detected from serving_size "100g".
   it("sends raw grams for a numeric gram serving (sweet potato 140g)", async () => {
-    const atlasDbPath = createAtlasDb([
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Sweet Potato",
-        food_id: "36619",
-        serving_id: "59350",
-        serving_description: "100g",
-        serving_size: null,
+        fatsecret_food_id: "36619",
+        fatsecret_serving_id: "59350",
+        serving_size: "100g",
         grams_per_serving: 100,
         calories: 76,
-        protein: 1.37,
-        carbs: 17.72,
-        fat: 0.14,
-        fiber: 2.5,
-        aliases: JSON.stringify(["sweet potato"]),
+        protein_g: 1.37,
+        carbs_g: 17.72,
+        fat_g: 0.14,
+        fiber_g: 2.5,
+        shorthand: ["sweet potato"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -345,7 +290,7 @@ describe("executeNutritionLogItems", () => {
         meal: "dinner",
         date: "2026-04-09",
       },
-      { atlasDbPath, fatsecretCall },
+      { wellnessDbPath, fatsecretCall },
     );
 
     expect(result).toMatchObject({
@@ -366,21 +311,20 @@ describe("executeNutritionLogItems", () => {
 
   // Guard against over-triggering the raw-grams rule: a "1 cup" serving that
   // merely WEIGHS 227g must log as serving-count (1), not 227 raw grams. The
-  // unit lives in serving_description; serving_size is only the gram weight.
+  // unit lives in serving_size; grams_per_serving is only the gram weight.
   it("does not treat a cup serving's gram weight as raw grams", async () => {
-    const atlasDbPath = createAtlasDb([
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Whole Milk Greek Yogurt",
-        food_id: "23761706",
-        serving_id: "22170245",
-        serving_description: "1 cup",
-        serving_size: "227g",
+        fatsecret_food_id: "23761706",
+        fatsecret_serving_id: "22170245",
+        serving_size: "1 cup",
         grams_per_serving: 227,
         calories: 230,
-        protein: 22,
-        carbs: 9,
-        fat: 11,
-        aliases: JSON.stringify(["whole milk greek yogurt", "greek yogurt"]),
+        protein_g: 22,
+        carbs_g: 9,
+        fat_g: 11,
+        shorthand: ["whole milk greek yogurt", "greek yogurt"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -399,7 +343,7 @@ describe("executeNutritionLogItems", () => {
         meal: "breakfast",
         date: "2026-04-09",
       },
-      { atlasDbPath, fatsecretCall },
+      { wellnessDbPath, fatsecretCall },
     );
 
     expect(result).toMatchObject({
@@ -420,23 +364,22 @@ describe("executeNutritionLogItems", () => {
 
   // Regression: the 28,600-calorie chicken thighs mislog. FatSecret serving
   // 1601782 is "4 oz" (a serving-count unit) whose gram WEIGHT is 112 g, and
-  // the Atlas row carries that weight in serving_size with no
-  // serving_description. Reading serving_size as a gram UNIT sent 220 g as 220
+  // the Wellness DB row carries that weight in grams_per_serving with no
+  // serving_size. Reading serving_size as a gram UNIT sent 220 g as 220
   // servings. With the unit unknown, the serving-count path must win.
-  it("does not treat serving_size grams as a gram unit when the description is missing", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("assumes serving-count units when serving_size is missing", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Chicken Thighs",
-        food_id: "1624102",
-        serving_id: "1601782",
-        serving_description: null,
-        serving_size: "112g",
+        fatsecret_food_id: "1624102",
+        fatsecret_serving_id: "1601782",
+        serving_size: null,
         grams_per_serving: 112,
         calories: 130,
-        protein: 22,
-        carbs: 0,
-        fat: 4.5,
-        aliases: JSON.stringify(["chicken thighs"]),
+        protein_g: 22,
+        carbs_g: 0,
+        fat_g: 4.5,
+        shorthand: ["chicken thighs"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -455,7 +398,7 @@ describe("executeNutritionLogItems", () => {
         meal: "lunch",
         date: "2026-08-05",
       },
-      { atlasDbPath, fatsecretCall },
+      { wellnessDbPath, fatsecretCall },
     );
 
     const units = (fatsecretCall.mock.calls[0]?.[1] as { number_of_units: number }).number_of_units;
@@ -463,24 +406,23 @@ describe("executeNutritionLogItems", () => {
     expect(units).not.toBe(220);
   });
 
-  // Atlas rows drift from the FatSecret food they point at: Atlas carried
+  // Wellness DB rows drift from the FatSecret food they point at: Wellness DB carried
   // 180 cal per 112 g serving for chicken thighs while FatSecret's serving is
-  // 130. Reporting the Atlas estimate told the user 354 cal for 220 g when the
+  // 130. Reporting the Wellness DB estimate told the user 354 cal for 220 g when the
   // diary actually held 255. The refreshed diary is authoritative.
-  it("reports the diary's macros rather than the Atlas estimate", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("reports the diary's macros rather than the Wellness DB estimate", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Chicken Thighs",
-        food_id: "1624102",
-        serving_id: "1601782",
-        serving_description: "4 oz",
-        serving_size: "112g",
+        fatsecret_food_id: "1624102",
+        fatsecret_serving_id: "1601782",
+        serving_size: "4 oz",
         grams_per_serving: 112,
         calories: 180,
-        protein: 24,
-        carbs: 0,
-        fat: 9,
-        aliases: JSON.stringify(["chicken thighs"]),
+        protein_g: 24,
+        carbs_g: 0,
+        fat_g: 9,
+        shorthand: ["chicken thighs"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string) => {
@@ -508,13 +450,13 @@ describe("executeNutritionLogItems", () => {
         meal: "lunch",
         date: "2026-08-05",
       },
-      { atlasDbPath, fatsecretCall },
+      { wellnessDbPath, fatsecretCall },
     ) as {
       totals: Record<string, number | string>;
       logged: Array<Record<string, unknown>>;
     };
 
-    // Atlas would have claimed 180 * (220/112) = 354 cal.
+    // Wellness DB would have claimed 180 * (220/112) = 354 cal.
     expect(result.totals.calories).toBe(255);
     expect(result.totals.protein).toBe(43.2);
     expect(result.totals.totals_source).toBe("fatsecret");
@@ -523,20 +465,19 @@ describe("executeNutritionLogItems", () => {
 
   // A write the diary refresh cannot confirm still reports a number, but it is
   // labelled as the estimate it is rather than passed off as verified.
-  it("falls back to the Atlas estimate when the diary cannot confirm the entry", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("falls back to the Wellness DB estimate when the diary cannot confirm the entry", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Chicken Thighs",
-        food_id: "1624102",
-        serving_id: "1601782",
-        serving_description: "4 oz",
-        serving_size: "112g",
+        fatsecret_food_id: "1624102",
+        fatsecret_serving_id: "1601782",
+        serving_size: "4 oz",
         grams_per_serving: 112,
         calories: 180,
-        protein: 24,
-        carbs: 0,
-        fat: 9,
-        aliases: JSON.stringify(["chicken thighs"]),
+        protein_g: 24,
+        carbs_g: 0,
+        fat_g: 9,
+        shorthand: ["chicken thighs"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string) => {
@@ -555,40 +496,38 @@ describe("executeNutritionLogItems", () => {
         meal: "lunch",
         date: "2026-08-05",
       },
-      { atlasDbPath, fatsecretCall },
+      { wellnessDbPath, fatsecretCall },
     ) as { totals: Record<string, number | string> };
 
     expect(result.totals.calories).toBe(354);
-    expect(result.totals.totals_source).toBe("atlas_estimate");
+    expect(result.totals.totals_source).toBe("wellnessdb_estimate");
   });
 
   it("uses the FatSecret batch path when available", async () => {
-    const atlasDbPath = createAtlasDb([
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Light Vanilla Greek Yogurt",
-        food_id: "1001",
-        serving_id: "2001",
-        serving_description: "100 g",
+        fatsecret_food_id: "1001",
+        fatsecret_serving_id: "2001",
         serving_size: "100 g",
         grams_per_serving: 100,
         calories: 60,
-        protein: 10,
-        carbs: 5,
-        fat: 0,
-        aliases: JSON.stringify(["light vanilla greek yogurt", "greek yogurt"]),
+        protein_g: 10,
+        carbs_g: 5,
+        fat_g: 0,
+        shorthand: ["light vanilla greek yogurt", "greek yogurt"].join(","),
       },
       {
         name: "PB Powder",
-        food_id: "1002",
-        serving_id: "2002",
-        serving_description: "1 tbsp",
+        fatsecret_food_id: "1002",
+        fatsecret_serving_id: "2002",
         serving_size: "1 tbsp",
         grams_per_serving: 6,
         calories: 25,
-        protein: 3,
-        carbs: 2,
-        fat: 1,
-        aliases: JSON.stringify(["pb powder", "peanut butter powder"]),
+        protein_g: 3,
+        carbs_g: 2,
+        fat_g: 1,
+        shorthand: ["pb powder", "peanut butter powder"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn();
@@ -636,7 +575,7 @@ describe("executeNutritionLogItems", () => {
         date: "2026-04-09",
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
         fatsecretBatchCall,
       },
@@ -652,19 +591,18 @@ describe("executeNutritionLogItems", () => {
   });
 
   it("falls back to individual FatSecret calls when the batch path fails", async () => {
-    const atlasDbPath = createAtlasDb([
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Light Vanilla Greek Yogurt",
-        food_id: "1001",
-        serving_id: "2001",
-        serving_description: "100 g",
+        fatsecret_food_id: "1001",
+        fatsecret_serving_id: "2001",
         serving_size: "100 g",
         grams_per_serving: 100,
         calories: 60,
-        protein: 10,
-        carbs: 5,
-        fat: 0,
-        aliases: JSON.stringify(["light vanilla greek yogurt", "greek yogurt"]),
+        protein_g: 10,
+        carbs_g: 5,
+        fat_g: 0,
+        shorthand: ["light vanilla greek yogurt", "greek yogurt"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -692,7 +630,7 @@ describe("executeNutritionLogItems", () => {
         date: "2026-04-09",
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
         fatsecretBatchCall,
       },
@@ -710,16 +648,15 @@ describe("executeNutritionLogItems", () => {
     ]);
   });
 
-  it("returns needs_clarification without writing when strict mode hits an Atlas miss", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("returns needs_clarification without writing when strict mode hits a Wellness DB miss", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Light Vanilla Greek Yogurt",
-        food_id: "1001",
-        serving_id: "2001",
-        serving_description: "100 g",
+        fatsecret_food_id: "1001",
+        fatsecret_serving_id: "2001",
         serving_size: "100 g",
         grams_per_serving: 100,
-        aliases: JSON.stringify(["light vanilla greek yogurt"]),
+        shorthand: ["light vanilla greek yogurt"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn();
@@ -735,7 +672,7 @@ describe("executeNutritionLogItems", () => {
         strict: true,
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
       },
     );
@@ -749,26 +686,25 @@ describe("executeNutritionLogItems", () => {
       {
         item: "mystery protein bar",
         quantity: "1 bar",
-        reason: "No Atlas ingredient match found. Use low-level FatSecret search for this item.",
+        reason: "No active wellness.db product or recipe match found. Use low-level FatSecret search for this item.",
       },
     ]);
     expect(fatsecretCall).not.toHaveBeenCalled();
   });
 
-  it("logs resolved items when strict is omitted and another item misses Atlas", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("logs resolved items when strict is omitted and another item misses Wellness DB", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Light Vanilla Greek Yogurt",
-        food_id: "1001",
-        serving_id: "2001",
-        serving_description: "100 g",
+        fatsecret_food_id: "1001",
+        fatsecret_serving_id: "2001",
         serving_size: "100 g",
         grams_per_serving: 100,
         calories: 60,
-        protein: 10,
-        carbs: 5,
-        fat: 0,
-        aliases: JSON.stringify(["light vanilla greek yogurt"]),
+        protein_g: 10,
+        carbs_g: 5,
+        fat_g: 0,
+        shorthand: ["light vanilla greek yogurt"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -796,7 +732,7 @@ describe("executeNutritionLogItems", () => {
         date: "2026-04-09",
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
       },
     );
@@ -810,7 +746,7 @@ describe("executeNutritionLogItems", () => {
         {
           item: "mystery protein bar",
           quantity: "1 bar",
-          reason: "No Atlas ingredient match found. Use low-level FatSecret search for this item.",
+          reason: "No active wellness.db product or recipe match found. Use low-level FatSecret search for this item.",
         },
       ],
       totals: {
@@ -835,22 +771,21 @@ describe("executeNutritionLogItems", () => {
     ]);
   });
 
-  it("treats branded package quantities as one serving when Atlas only exposes gram serving metadata", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("treats branded package quantities as one serving when Wellness DB only exposes gram serving metadata", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Freeze-Dried Apple Crisps",
         brand: "Great Value",
-        food_id: "25856420",
-        serving_id: "23931789",
-        serving_description: "",
-        serving_size: "10g",
+        fatsecret_food_id: "25856420",
+        fatsecret_serving_id: "23931789",
+        serving_size: "",
         grams_per_serving: 10,
         calories: 40,
-        protein: 0,
-        carbs: 10,
-        fat: 0,
-        fiber: 1,
-        aliases: JSON.stringify(["freeze dried apples", "apple crisps"]),
+        protein_g: 0,
+        carbs_g: 10,
+        fat_g: 0,
+        fiber_g: 1,
+        shorthand: ["freeze dried apples", "apple crisps"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -875,7 +810,7 @@ describe("executeNutritionLogItems", () => {
         date: "2026-04-22",
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
       },
     );
@@ -908,49 +843,46 @@ describe("executeNutritionLogItems", () => {
     });
   });
 
-  it("preserves Atlas match details when unit conversion needs FatSecret serving repair", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("preserves Wellness DB match details when unit conversion needs FatSecret serving repair", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "White Rice",
-        food_id: "64",
-        serving_id: "6401",
-        serving_description: "100 g",
+        fatsecret_food_id: "64",
+        fatsecret_serving_id: "6401",
         serving_size: "100 g",
         grams_per_serving: 100,
         calories: 130,
-        protein: 2.4,
-        carbs: 28,
-        fat: 0.3,
-        aliases: JSON.stringify(["white rice"]),
+        protein_g: 2.4,
+        carbs_g: 28,
+        fat_g: 0.3,
+        shorthand: ["white rice"].join(","),
       },
       {
         name: "Freeze-Dried Apple Crisps",
         brand: "Great Value",
-        food_id: "25856420",
-        serving_id: "23931789",
-        serving_description: "",
-        serving_size: "10g",
+        fatsecret_food_id: "25856420",
+        fatsecret_serving_id: "23931789",
+        serving_size: "",
         grams_per_serving: 10,
         calories: 40,
-        protein: 0,
-        carbs: 10,
-        fat: 0,
-        fiber: 1,
-        aliases: JSON.stringify(["freeze dried apples", "apple crisps"]),
+        protein_g: 0,
+        carbs_g: 10,
+        fat_g: 0,
+        fiber_g: 1,
+        shorthand: ["freeze dried apples", "apple crisps"].join(","),
       },
       {
         name: "Black Beans",
-        food_id: "11748",
-        serving_id: "9911",
-        serving_description: "130 g",
+        fatsecret_food_id: "11748",
+        fatsecret_serving_id: "9911",
         serving_size: "130 g",
         grams_per_serving: 130,
         calories: 132,
-        protein: 8.9,
-        carbs: 23.7,
-        fat: 0.5,
-        fiber: 8.7,
-        aliases: JSON.stringify(["black beans"]),
+        protein_g: 8.9,
+        carbs_g: 23.7,
+        fat_g: 0.5,
+        fiber_g: 8.7,
+        shorthand: ["black beans"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -980,7 +912,7 @@ describe("executeNutritionLogItems", () => {
         strict: false,
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
       },
     );
@@ -1009,8 +941,8 @@ describe("executeNutritionLogItems", () => {
       {
         item: "white rice",
         quantity: "2 tablespoons",
-        resolution: "Atlas match found: White Rice (food_id 64, serving_id 6401, grams_per_serving 100)",
-        atlas_match: {
+        resolution: "Wellness DB match found: White Rice (food_id 64, serving_id 6401, grams_per_serving 100)",
+        wellnessdb_match: {
           name: "White Rice",
           food_id: "64",
           serving_id: "6401",
@@ -1021,8 +953,8 @@ describe("executeNutritionLogItems", () => {
       {
         item: "black beans",
         quantity: "1 cup",
-        resolution: "Atlas match found: Black Beans (food_id 11748, serving_id 9911, grams_per_serving 130)",
-        atlas_match: {
+        resolution: "Wellness DB match found: Black Beans (food_id 11748, serving_id 9911, grams_per_serving 130)",
+        wellnessdb_match: {
           name: "Black Beans",
           food_id: "11748",
           serving_id: "9911",
@@ -1035,13 +967,13 @@ describe("executeNutritionLogItems", () => {
       reason: expect.stringContaining("Use fatsecret_api food_get with food_id 64"),
     });
     expect(result.unresolved[0]).toMatchObject({
-      reason: expect.stringContaining("Atlas matched White Rice (food_id 64). Atlas calories are 130 per Atlas serving."),
+      reason: expect.stringContaining("Wellness DB matched White Rice (food_id 64). Wellness DB calories are 130 per product serving."),
     });
     expect(result.unresolved[1]).toMatchObject({
       reason: expect.stringContaining("Use fatsecret_api food_get with food_id 11748"),
     });
     expect(result.unresolved[1]).toMatchObject({
-      reason: expect.stringContaining("Atlas matched Black Beans (food_id 11748). Atlas calories are 132 per Atlas serving."),
+      reason: expect.stringContaining("Wellness DB matched Black Beans (food_id 11748). Wellness DB calories are 132 per product serving."),
     });
     expect(fatsecretCall.mock.calls.map(([method]) => method)).toEqual([
       "food_entry_create",
@@ -1049,16 +981,15 @@ describe("executeNutritionLogItems", () => {
     ]);
   });
 
-  it("rejects weak Atlas token overlap instead of writing the wrong ingredient", async () => {
-    const atlasDbPath = createAtlasDb([
+  it("rejects weak Wellness DB token overlap instead of writing the wrong ingredient", async () => {
+    const wellnessDbPath = createWellnessDb([
       {
         name: "Frozen Mixed Fruit",
-        food_id: "1001",
-        serving_id: "2001",
-        serving_description: "140 g",
+        fatsecret_food_id: "1001",
+        fatsecret_serving_id: "2001",
         serving_size: "140 g",
         grams_per_serving: 140,
-        aliases: JSON.stringify(["mixed fruit"]),
+        shorthand: ["mixed fruit"].join(","),
       },
     ]);
     const fatsecretCall = vi.fn();
@@ -1070,7 +1001,7 @@ describe("executeNutritionLogItems", () => {
         date: "2026-04-09",
       },
       {
-        atlasDbPath,
+        wellnessDbPath,
         fatsecretCall,
       },
     );
@@ -1083,10 +1014,208 @@ describe("executeNutritionLogItems", () => {
         {
           item: "garden lettuce (mixed varieties)",
           quantity: "100g",
-          reason: "No Atlas ingredient match found. Use low-level FatSecret search for this item.",
+          reason: "No active wellness.db product or recipe match found. Use low-level FatSecret search for this item.",
         },
       ],
     });
     expect(fatsecretCall).not.toHaveBeenCalled();
+  });
+});
+
+function recipeFixture() {
+  const wellnessDbPath = createWellnessDb([
+    { id: 1, name: "Yogurt", shorthand: "plain cultured yogurt, tangy base", serving_size: "1 cup",
+      grams_per_serving: 200, fatsecret_food_id: "101", fatsecret_serving_id: "201",
+      calories: 120, protein_g: 20, carbs_g: 8, fat_g: 1, fiber_g: 0 },
+    { id: 2, name: "Lime", serving_size: "100g", grams_per_serving: 100,
+      fatsecret_food_id: "102", fatsecret_serving_id: "202", calories: 30, fiber_g: 2 },
+  ]);
+  const db = new DatabaseSync(wellnessDbPath);
+  db.exec(`
+    INSERT INTO recipes (id, name, shorthand, servings, yield_g) VALUES
+      (10, 'Garden Tex-Mex Power Salad', 'power salad', 2, NULL),
+      (11, 'Lime Yogurt Crema', 'crema', 1, 50);
+    INSERT INTO recipe_aliases (recipe_id, alias) VALUES (10, 'garden lunch');
+    INSERT INTO recipe_ingredients (recipe_id, ingredient_name, product_id, sub_recipe_id, quantity_g) VALUES
+      (10, 'Lime Yogurt Crema', NULL, 11, 100),
+      (11, 'Yogurt', 1, NULL, 35),
+      (11, 'Lime', 2, NULL, 15);
+  `);
+  db.close();
+  let id = 0;
+  const fatsecretCall = vi.fn(async (method: string, _params: Record<string, unknown>) =>
+    method === "food_entry_create" ? { success: true, food_entry_id: String(++id) } : []);
+  return { wellnessDbPath, fatsecretCall };
+}
+
+function mutateFixture(dbPath: string, sql: string) {
+  const db = new DatabaseSync(dbPath);
+  try { db.exec(sql); } finally { db.close(); }
+}
+
+const recipeInput = (name: string, quantity: string, strict = false) => ({
+  items: [{ name, quantity }], meal: "lunch", date: "2026-09-04", strict,
+});
+
+describe("wellness.db recipe expansion", () => {
+  it.each([
+    ["Garden Tex-Mex Power Salad", "1", 35],
+    ["GARDEN LUNCH", "2 servings", 70],
+    ["POWER SALAD", "3 tacos", 105],
+    ["power salad", "half", 17.5],
+  ])("expands %s / %s by servings and nested component yield", async (name, quantity, grams) => {
+    const deps = recipeFixture();
+    const result = await executeNutritionLogItems(recipeInput(name, quantity), deps);
+    expect(result).toMatchObject({ status: "confirmed", unresolved: [], skipped: [],
+      logged: [
+        { food_id: "101", number_of_units: grams / 200, recipe_id: 10, source: "wellnessdb",
+          estimated_macros: { calories: Math.round(120 * grams / 200) } },
+        { food_id: "102", number_of_units: 15 * grams / 35, recipe_id: 10 },
+      ], totals: { totals_source: "wellnessdb_estimate" } });
+    const db = new DatabaseSync(deps.wellnessDbPath);
+    expect(db.prepare("SELECT date, meal, recipe_id, food_entry_id FROM fatsecret_entry_links ORDER BY id").all())
+      .toEqual([
+        { date: "2026-09-04", meal: "lunch", recipe_id: 10, food_entry_id: "1" },
+        { date: "2026-09-04", meal: "lunch", recipe_id: 10, food_entry_id: "2" },
+      ]);
+    db.close();
+  });
+
+  it.each(["150g", "150 g"])("scales a component recipe by %s", async (quantity) => {
+    const deps = recipeFixture();
+    const result = await executeNutritionLogItems(recipeInput("LIME YOGURT CREMA", quantity), deps);
+    expect(result).toMatchObject({ status: "confirmed", logged: [
+      { number_of_units: 105 / 200, recipe_id: 11 }, { number_of_units: 45, recipe_id: 11 },
+    ] });
+  });
+
+  it("expands a direct product row using recipe servings", async () => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, "UPDATE recipe_ingredients SET product_id = 1, sub_recipe_id = NULL WHERE recipe_id = 10");
+    const result = await executeNutritionLogItems(recipeInput("power salad", "1 serving"), deps);
+    expect(result).toMatchObject({ logged: [{ number_of_units: 50 / 200, recipe_id: 10 }] });
+  });
+
+  it("rejects gram quantities on a recipe without yield_g", async () => {
+    const deps = recipeFixture();
+    const result = await executeNutritionLogItems(recipeInput("power salad", "150g"), deps);
+    expect(result).toMatchObject({ status: "needs_clarification", logged: [],
+      unresolved: [{ item: "power salad", reason: expect.stringContaining("yield_g") }] });
+    expect(deps.fatsecretCall).not.toHaveBeenCalled();
+  });
+
+  it("rejects cycles without writing earlier expanded products", async () => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, `UPDATE recipes SET yield_g = 100 WHERE id = 10;
+      INSERT INTO recipe_ingredients (recipe_id, ingredient_name, sub_recipe_id, quantity_g)
+      VALUES (11, 'Cycle', 10, 20)`);
+    const result = await executeNutritionLogItems(recipeInput("power salad", "1"), deps);
+    expect(result).toMatchObject({ status: "needs_clarification", logged: [],
+      unresolved: [{ item: "power salad", reason: expect.stringContaining("cycle") }] });
+    expect(deps.fatsecretCall).not.toHaveBeenCalled();
+  });
+
+  it("enforces depth 6 and permits a six-recipe chain", async () => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, `DELETE FROM recipe_ingredients;
+      INSERT INTO recipes (id, name, servings, yield_g) VALUES
+        (12, 'Layer 3', 1, 50), (13, 'Layer 4', 1, 50), (14, 'Layer 5', 1, 50),
+        (15, 'Layer 6', 1, 50), (16, 'Layer 7', 1, 50);
+      INSERT INTO recipe_ingredients (recipe_id, ingredient_name, sub_recipe_id, quantity_g) VALUES
+        (10, 'Layer 2', 11, 50), (11, 'Layer 3', 12, 50), (12, 'Layer 4', 13, 50),
+        (13, 'Layer 5', 14, 50), (14, 'Layer 6', 15, 50);
+      INSERT INTO recipe_ingredients (recipe_id, ingredient_name, product_id, quantity_g) VALUES (15, 'Yogurt', 1, 35);`);
+    expect(await executeNutritionLogItems(recipeInput("power salad", "1"), deps)).toMatchObject({ status: "confirmed" });
+    deps.fatsecretCall.mockClear();
+    mutateFixture(deps.wellnessDbPath, `UPDATE recipe_ingredients SET product_id = NULL, sub_recipe_id = 16 WHERE recipe_id = 15;
+      INSERT INTO recipe_ingredients (recipe_id, ingredient_name, product_id, quantity_g) VALUES (16, 'Yogurt', 1, 35)`);
+    expect(await executeNutritionLogItems(recipeInput("power salad", "1"), deps)).toMatchObject({
+      logged: [], unresolved: [{ reason: expect.stringContaining("depth limit 6") }],
+    });
+    expect(deps.fatsecretCall).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("reports skipped rows and respects strict=%s", async (strict) => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, `INSERT INTO recipe_ingredients (recipe_id, ingredient_name, product_id, quantity_g)
+      VALUES (10, 'Unmeasured yogurt', 1, NULL), (10, 'Unmapped spice', NULL, 5)`);
+    const result = await executeNutritionLogItems(recipeInput("power salad", "1", strict), deps);
+    expect(result).toMatchObject({ status: strict ? "needs_clarification" : "partial_success", skipped: [
+      { item: "Unmeasured yogurt", reason: expect.stringContaining("quantity_g") },
+      { item: "Unmapped spice", reason: expect.stringContaining("product_id") },
+    ] });
+    expect(result.logged).toHaveLength(strict ? 0 : 2);
+  });
+
+  it("keeps successful diary writes when linking fails", async () => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, "DROP TABLE fatsecret_entry_links");
+    const result = await executeNutritionLogItems(recipeInput("power salad", "1"), deps);
+    expect(result).toMatchObject({ status: "confirmed", errors: [], link_warnings: [expect.stringContaining("recipe links failed")] });
+    expect(result.logged).toHaveLength(2);
+  });
+
+  it("links only successful batch entries to the top-level recipe", async () => {
+    const deps = recipeFixture();
+    const fatsecretBatchCall = vi.fn(async () => [
+      { ok: true, result: { success: true, food_entry_id: "batch-yogurt" } },
+      { ok: false, error: "write failed" }, { ok: true, result: [] },
+    ]);
+    const result = await executeNutritionLogItems(recipeInput("power salad", "1"), { ...deps, fatsecretBatchCall });
+    expect(result).toMatchObject({ status: "partial_success" });
+    const db = new DatabaseSync(deps.wellnessDbPath);
+    expect(db.prepare("SELECT recipe_id, food_entry_id FROM fatsecret_entry_links").all()).toEqual([
+      { recipe_id: 10, food_entry_id: "batch-yogurt" },
+    ]);
+    db.close();
+    expect(deps.fatsecretCall).not.toHaveBeenCalled();
+  });
+
+  it("matches comma-separated product shorthand and excludes discontinued products", async () => {
+    const deps = recipeFixture();
+    expect(await executeNutritionLogItems(recipeInput("TANGY BASE", "35g"), deps)).toMatchObject({
+      status: "confirmed", logged: [{ food_id: "101", number_of_units: 35 / 200 }],
+    });
+    mutateFixture(deps.wellnessDbPath, "UPDATE products SET discontinued_date = '2026-01-01' WHERE id = 1");
+    deps.fatsecretCall.mockClear();
+    expect(await executeNutritionLogItems(recipeInput("tangy base", "35g"), deps)).toMatchObject({ logged: [], status: "needs_clarification" });
+    expect(deps.fatsecretCall).not.toHaveBeenCalled();
+    expect(await executeNutritionLogItems(recipeInput("power salad", "1"), deps)).toMatchObject({
+      logged: [], unresolved: [{ reason: expect.stringContaining("discontinued") }],
+    });
+  });
+
+  it("excludes archived recipes by name, shorthand and alias", async () => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, "UPDATE recipes SET archived_at = '2026-01-01' WHERE id = 10");
+    for (const name of ["Garden Tex-Mex Power Salad", "power salad", "garden lunch"]) {
+      expect(await executeNutritionLogItems(recipeInput(name, "1"), deps)).toMatchObject({ logged: [], status: "needs_clarification" });
+    }
+    expect(deps.fatsecretCall).not.toHaveBeenCalled();
+  });
+
+  it.each(["fatsecret_food_id", "fatsecret_serving_id", "grams_per_serving"])("names the product when %s is missing", async (column) => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, `UPDATE products SET ${column} = NULL WHERE id = 1`);
+    const result = await executeNutritionLogItems(recipeInput("tangy base", "35g"), deps);
+    expect(result).toMatchObject({ logged: [], unresolved: [{ reason: expect.stringContaining("Product Yogurt") }] });
+    expect(deps.fatsecretCall).not.toHaveBeenCalled();
+  });
+
+  it("uses safe serving counts for unparseable serving_size", async () => {
+    const deps = recipeFixture();
+    mutateFixture(deps.wellnessDbPath, "UPDATE products SET serving_size = 'unknown' WHERE id = 1");
+    expect(await executeNutritionLogItems(recipeInput("Yogurt", "35g"), deps)).toMatchObject({
+      logged: [{ number_of_units: 35 / 200 }],
+    });
+  });
+
+  it("reports mixed totals when the diary confirms only one expanded entry", async () => {
+    const deps = recipeFixture();
+    deps.fatsecretCall.mockImplementation(async (method) => method === "food_entry_create"
+      ? { success: true, food_entry_id: String(deps.fatsecretCall.mock.calls.length) }
+      : [{ food_entry_id: "1", calories: "90", protein: "10", carbohydrate: "5", fat: "2", fiber: "0" }]);
+    const result = await executeNutritionLogItems(recipeInput("power salad", "1"), deps);
+    expect(result).toMatchObject({ totals: { calories: 95, totals_source: "mixed" } });
   });
 });

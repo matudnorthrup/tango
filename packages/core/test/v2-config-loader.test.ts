@@ -70,9 +70,22 @@ describe("loadV2AgentConfig", () => {
       args: ["packages/atlas-memory/dist/index.js"],
     });
     expect(config.mcp).toEqual({
-      defaultServers: ["memory", "wellness", "fatsecret"],
+      defaultServers: ["memory", "wellness", "wellness-db", "fatsecret"],
       availableServers: undefined,
     });
+  });
+
+  it.each(["malibu", "malibu-ollama"])("exposes exactly the Phase A wellness DB tools to %s", (agent) => {
+    const config = loadV2AgentConfig(path.join(repoRoot, "config", "v2", "agents", `${agent}.yaml`));
+    const server = config.mcpServers.find((entry) => entry.name === "wellness-db");
+    expect(server).toMatchObject({ command: "node", args: ["packages/core/dist/mcp-proxy.js", "wellness-db"] });
+    expect(server?.env?.ALLOWED_TOOL_IDS.split(",").sort()).toEqual([
+      "wellnessdb_active_products", "wellnessdb_add_recipe", "wellnessdb_day_range", "wellnessdb_day_summary",
+      "wellnessdb_get_recipe_detail", "wellnessdb_recent_meals", "wellnessdb_search_product",
+      "wellnessdb_search_recipe", "wellnessdb_update_recipe",
+    ]);
+    expect(config.mcp?.defaultServers).toContain("wellness-db");
+    expect(config.mcpServers.map((entry) => entry.name)).toEqual(expect.arrayContaining(["atlas", "wellness", "fatsecret"]));
   });
 
   it("loads Victor as an operations agent with Linear and Obsidian access but no dev MCP surface", () => {
