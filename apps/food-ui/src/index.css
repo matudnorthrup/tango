@@ -267,3 +267,6 @@ tr.done td { opacity: 0.45; text-decoration: line-through; }
 .phasebar { gap: 0.5rem; }
 .phasebar select { max-width: 220px; }
 .phases .phaserow { display: inline-flex; align-items: center; gap: 0.5rem; }
+
+.ct.clickable { cursor: text; text-decoration: underline dotted; text-underline-offset: 3px; }
+input.ctedit { width: 3.6rem; text-align: center; padding: 0.15rem 0.3rem; }

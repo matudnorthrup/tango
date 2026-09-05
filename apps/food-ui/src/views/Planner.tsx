@@ -56,6 +56,8 @@ export function usePlans(planId: number | null, onSelectPlan: (id: number) => vo
   return { plans, setPlans };
 }
 
+const formatServings = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
+
 export function Planner({
   nav,
   planId,
@@ -113,10 +115,21 @@ export function Planner({
     load();
   };
 
-  const bump = async (entry: Entry, delta: number) => {
-    const next = Math.max(0, Math.min(24, entry.servings + delta));
+  // Servings are fractional: half a yogurt cup or a quarter shake are real
+  // portions. Arrows step by ½; clicking the count lets you type any amount.
+  const setServings = async (entry: Entry, value: number) => {
+    const next = Math.round(Math.max(0, Math.min(24, value)) * 100) / 100;
+    if (next === entry.servings) return;
     await patch(`/entries/${entry.id}`, { servings: next });
     load();
+  };
+  const bump = (entry: Entry, delta: number) => setServings(entry, entry.servings + delta);
+  const [editingEntry, setEditingEntry] = useState<{ id: number; value: string } | null>(null);
+  const commitEdit = async (entry: Entry) => {
+    if (!editingEntry || editingEntry.id !== entry.id) return;
+    const value = Number(editingEntry.value);
+    setEditingEntry(null);
+    if (Number.isFinite(value)) await setServings(entry, value);
   };
 
   const remove = async (entry: Entry) => {
@@ -207,11 +220,33 @@ export function Planner({
                             e.name
                           )}
                           <span className="m">
-                            <button className="mini" onClick={() => void bump(e, -1)}>
+                            <button className="mini" onClick={() => void bump(e, -0.5)} aria-label="half serving less">
                               −
                             </button>{' '}
-                            ×<span className="ct">{e.servings}</span>{' '}
-                            <button className="mini" onClick={() => void bump(e, 1)}>
+                            ×
+                            {editingEntry?.id === e.id ? (
+                              <input
+                                className="short ctedit"
+                                inputMode="decimal"
+                                autoFocus
+                                value={editingEntry.value}
+                                onChange={(ev) => setEditingEntry({ id: e.id, value: ev.target.value })}
+                                onBlur={() => void commitEdit(e)}
+                                onKeyDown={(ev) => {
+                                  if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur();
+                                  if (ev.key === 'Escape') setEditingEntry(null);
+                                }}
+                              />
+                            ) : (
+                              <span
+                                className="ct clickable"
+                                title="Click to type a serving count (¼, ½, 1.5…)"
+                                onClick={() => setEditingEntry({ id: e.id, value: String(e.servings) })}
+                              >
+                                {formatServings(e.servings)}
+                              </span>
+                            )}{' '}
+                            <button className="mini" onClick={() => void bump(e, 0.5)} aria-label="half serving more">
                               +
                             </button>{' '}
                             · {e.per_serving_cal ?? '—'} cal/srv · {money((e.per_serving_cost ?? 0) * e.servings || null)}
@@ -248,7 +283,8 @@ export function Planner({
               </select>
               <input
                 className="short"
-                inputMode="numeric"
+                inputMode="decimal"
+                title="Servings — fractions are fine (0.5, 0.25)"
                 value={add.servings}
                 onChange={(e) => setAdd({ ...add, servings: e.target.value })}
                 aria-label="servings"
