@@ -270,7 +270,7 @@ describe("ensureWellnessDb", () => {
     it("fresh DB is at v6 with the three seeded phases and weight_loss current", () => {
       const dbPath = tempDbPath();
       const report = ensureWellnessDb(dbPath);
-      expect(report.toVersion).toBe(7);
+      expect(report.toVersion).toBe(8);
       const db = new DatabaseSync(dbPath);
       const phases = db
         .prepare("SELECT key, name, multiplier, is_current, sort_order FROM goal_phases ORDER BY sort_order")
@@ -302,7 +302,7 @@ describe("ensureWellnessDb", () => {
       const report = ensureWellnessDb(dbPath);
       expect(report.created).toBe(false);
       expect(report.fromVersion).toBe(5);
-      expect(report.toVersion).toBe(7);
+      expect(report.toVersion).toBe(8);
 
       const db = new DatabaseSync(dbPath);
       const locks = db
@@ -389,8 +389,8 @@ describe("ensureWellnessDb", () => {
       db.prepare("UPDATE goal_phases SET multiplier = 1.35 WHERE key = 'maintenance'").run();
       db.close();
       const second = ensureWellnessDb(dbPath);
-      expect(second.fromVersion).toBe(7);
-      expect(second.toVersion).toBe(7);
+      expect(second.fromVersion).toBe(8);
+      expect(second.toVersion).toBe(8);
       const check = new DatabaseSync(dbPath);
       const m = check.prepare("SELECT multiplier FROM goal_phases WHERE key = 'maintenance'").get() as { multiplier: number };
       expect(m.multiplier).toBe(1.35); // INSERT OR IGNORE did not clobber it
@@ -407,7 +407,7 @@ describe("ensureWellnessDb", () => {
       db.exec(`INSERT INTO recipes (id, name, yield_g, scale_step_g, scale_step_label) VALUES (5, 'Taco Base', 98.8, 98.8, '1 taco');
                ALTER TABLE recipes DROP COLUMN batch_units; PRAGMA user_version = 6;`);
       db.close();
-      expect(ensureWellnessDb(dbPath)).toMatchObject({ fromVersion: 6, toVersion: 7 });
+      expect(ensureWellnessDb(dbPath)).toMatchObject({ fromVersion: 6, toVersion: 8 });
       const check = new DatabaseSync(dbPath);
       expect(check.prepare("SELECT batch_units FROM recipes WHERE id = 5").get()).toEqual({ batch_units: 1 });
       check.close();
@@ -421,4 +421,44 @@ describe("ensureWellnessDb", () => {
       expect(recipeCols).toEqual(expect.arrayContaining(["scale_step_g", "scale_step_label"]));
       check.close();
     });
+
+  describe("v8 recursive views", () => {
+    it("costs and shops through two levels of components", () => {
+      const dbPath = tempDbPath();
+      ensureWellnessDb(dbPath);
+      const db = new DatabaseSync(dbPath);
+      db.exec(`
+        INSERT INTO products (id, name, grams_per_serving, calories) VALUES (1, 'Raw Thighs', 100, 200), (2, 'Chili', 100, 100);
+        INSERT INTO product_listings (id, product_id, retailer, retailer_item_id, package_grams, servings_per_container)
+          VALUES (1, 1, 'walmart', 'a', 1000, 10), (2, 2, 'walmart', 'b', 400, 4);
+        INSERT INTO price_history (listing_id, observed_at, price) VALUES (1, '2026-09-01T00:00:00', 10.0), (2, '2026-09-01T00:00:00', 2.0);
+        -- shredded chicken: 1000 g raw → 700 g cooked
+        INSERT INTO recipes (id, name, servings, yield_g) VALUES (10, 'Shredded Chicken', 1, 700);
+        INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity_g) VALUES (10, 1, 'Raw Thighs', 1000);
+        -- chili base: 350 g chicken + 400 g chili → 750 g
+        INSERT INTO recipes (id, name, servings, yield_g) VALUES (11, 'Chili Base', 1, 750);
+        INSERT INTO recipe_ingredients (recipe_id, sub_recipe_id, ingredient_name, quantity_g) VALUES (11, 10, 'Shredded Chicken', 350);
+        INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity_g) VALUES (11, 2, 'Chili', 400);
+        -- bowl: 375 g of base per serving, 2 servings
+        INSERT INTO recipes (id, name, servings) VALUES (12, 'Chili Bowl', 2);
+        INSERT INTO recipe_ingredients (recipe_id, sub_recipe_id, ingredient_name, quantity_g) VALUES (12, 11, 'Chili Base', 750);
+        INSERT INTO meal_plans (id, name) VALUES (1, 'wk');
+        INSERT INTO meal_plan_entries (plan_id, day_index, meal, recipe_id, servings) VALUES (1, 0, 'dinner', 12, 1);
+      `);
+      // chicken batch = $10 for 700 g → $5 for 350 g; chili 400 g = $2; base = $7 per 750 g
+      const base = db.prepare("SELECT total_cost FROM recipe_cost WHERE recipe_id = 11").get() as { total_cost: number };
+      expect(base.total_cost).toBeCloseTo(7, 2);
+      // bowl uses a whole base batch across 2 servings: $7 total, $3.50 per serving
+      const bowl = db.prepare("SELECT total_cost, cost_per_serving, unpriced_ingredients FROM recipe_cost WHERE recipe_id = 12").get() as {
+        total_cost: number; cost_per_serving: number; unpriced_ingredients: number;
+      };
+      expect(bowl.total_cost).toBeCloseTo(7, 2);
+      expect(bowl.cost_per_serving).toBeCloseTo(3.5, 2);
+      expect(bowl.unpriced_ingredients).toBe(0);
+      // one planned serving of the bowl → 375 g base → 175 g chicken → 250 g raw thighs, plus 200 g chili
+      const rows = db.prepare("SELECT product_id, grams_needed FROM shopping_list WHERE plan_id = 1 ORDER BY product_id").all() as Array<{ product_id: number; grams_needed: number }>;
+      expect(rows).toEqual([{ product_id: 1, grams_needed: 250 }, { product_id: 2, grams_needed: 200 }]);
+      db.close();
+    });
+  });
 });
