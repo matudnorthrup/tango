@@ -568,8 +568,11 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
     setEditing(true);
   };
 
-  const saveHeader = async () => {
-    if (!form || !detail) return;
+  const headerDirty = () => Boolean(form && detail && JSON.stringify(form) !== JSON.stringify(formFrom(detail)));
+
+  const saveHeader = async (): Promise<boolean> => {
+    if (!form || !detail) return true;
+    if (!headerDirty()) return true;
     setSaving(true);
     setError('');
     try {
@@ -582,11 +585,24 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
         aliases: form.aliases.split(',').map((a) => a.trim()).filter(Boolean),
       };
       apply(await patch<Detail>(`/recipes/${recipeId}`, body));
+      return true;
     } catch (e) {
       fail(e);
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+
+  // One button saves the header fields and leaves edit mode. Ingredient rows
+  // have already saved themselves, so Cancel only discards header edits.
+  const saveAndClose = async () => {
+    if (await saveHeader()) setEditing(false);
+  };
+  const cancelEdit = async () => {
+    if (detail) apply(detail);
+    setForm(null);
+    setEditing(false);
   };
 
   const saveRow = async (row: IngredientRow) => {
@@ -667,9 +683,14 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
         </a>
         <span className="right">
           {editing ? (
-            <button className="btn primary" onClick={() => setEditing(false)}>
-              Done editing
-            </button>
+            <>
+              <button className="btn" disabled={saving} onClick={() => void cancelEdit()}>
+                Cancel
+              </button>
+              <button className="btn primary" disabled={saving || !form?.name.trim()} onClick={() => void saveAndClose()}>
+                {saving ? 'Saving…' : 'Save & done'}
+              </button>
+            </>
           ) : (
             <>
               <button className="btn" onClick={() => void duplicate()}>
@@ -710,11 +731,9 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
               <span className="k">Instructions</span>
               <textarea rows={4} value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} />
             </label>
-            <div className="full bar">
-              <button className="btn primary" disabled={saving || !form.name.trim()} onClick={() => void saveHeader()}>
-                {saving ? 'Saving…' : 'Save details'}
-              </button>
-              <span className="note">a batch yield turns a recipe into a component that other recipes can use by grams</span>
+            <div className="full note">
+              Name and details save with <b>Save &amp; done</b> above. Ingredient rows save as you change them. A batch
+              yield turns a recipe into a component that other recipes can use by grams.
             </div>
           </div>
         ) : (
