@@ -11,6 +11,8 @@ The scheduler reuses the interactive memory assembler with a bounded stateless
 budget. It supplies the entire task for retrieval, pinned facts and relevant
 agent memory, the delivery channel/thread's conversation history and summary,
 and open tasks whose latest source message belongs to that surface and agent.
+Open-task lookup spans prior sessions directly, including tasks older than the
+supplemental message window, so changing between aliases does not hide pending work.
 Approved canonical/clone aliases share context. Supplemental history includes up
 to 80 stored surface messages across earlier sessions, without the interactive
 15-minute freshness restriction. Token budgets can still omit older messages;

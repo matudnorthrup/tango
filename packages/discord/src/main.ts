@@ -5923,6 +5923,9 @@ async function buildWarmStartContext(input: {
       const sessionTasks = taskAgentIds.flatMap((agentId) => storage.listActiveTasks({
         sessionId: input.sessionId,
         agentId,
+        ...(input.scheduledReview && messageSurfaceChannelId
+          ? { sourceChannelId: messageSurfaceChannelId }
+          : {}),
       }));
       const openActiveTasks = input.scheduledReview
         ? selectScheduledActiveTasks(sessionTasks, messageSurfaceChannelId, (id) => storage.getMessage(id))

@@ -459,7 +459,10 @@ export interface ActiveTaskStatusUpdateInput {
 }
 
 export interface ListActiveTasksOptions {
+  /** Used unless sourceChannelId selects verified tasks across prior sessions. */
   sessionId: string;
+  /** Scope by the latest public source message, retaining the agent filter. */
+  sourceChannelId?: string;
   agentId: string;
   includeResolved?: boolean;
   limit?: number;
@@ -6037,6 +6040,16 @@ export class TangoStorage {
 
   listActiveTasks(options: ListActiveTasksOptions): ActiveTaskRecord[] {
     const resolvedLimit = Number.isFinite(options.limit) ? Math.max(options.limit ?? 20, 1) : 20;
+    const sourceChannelId = options.sourceChannelId?.trim() || null;
+    const scopeClause = sourceChannelId
+      ? `EXISTS (
+          SELECT 1 FROM messages AS source
+          WHERE source.id = COALESCE(active_tasks.updated_by_message_id, active_tasks.created_by_message_id)
+            AND source.discord_channel_id = ?
+            AND source.visibility = 'public'
+            AND source.agent_id = active_tasks.agent_id
+        )`
+      : "session_id = ?";
     const rows = this.db
       .prepare(
         `
@@ -6061,7 +6074,7 @@ export class TangoStorage {
             resolved_at AS resolvedAt,
             expires_at AS expiresAt
           FROM active_tasks
-          WHERE session_id = ?
+          WHERE ${scopeClause}
             AND agent_id = ?
             AND (
               ? = 1 OR status IN ('proposed', 'awaiting_user', 'ready', 'running', 'blocked')
@@ -6074,7 +6087,7 @@ export class TangoStorage {
         `,
       )
       .all(
-        options.sessionId,
+        sourceChannelId ?? options.sessionId,
         options.agentId,
         options.includeResolved ? 1 : 0,
         options.includeResolved ? 1 : 0,
