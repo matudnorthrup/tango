@@ -239,4 +239,173 @@ describe("ensureWellnessDb", () => {
     expect(ricols.map((c) => c.name)).toContain("sub_recipe_id");
     db.close();
   });
+
+  describe("v6 recipe scaling", () => {
+    /** Materialize at the current version, then strip the v6 bits and stamp v5. */
+    function seedV5Db(dbPath: string): void {
+      ensureWellnessDb(dbPath);
+      const db = new DatabaseSync(dbPath);
+      db.prepare("INSERT INTO products (id, name, calories, grams_per_serving) VALUES (1, 'Egg', 70, 50)").run();
+      db.prepare("INSERT INTO products (id, name, calories, grams_per_serving) VALUES (2, 'Frozen Veg', 30, 85)").run();
+      db.prepare("INSERT INTO recipes (id, name, servings) VALUES (1, 'Scramble', 2)").run();
+      db.prepare(
+        "INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity, quantity_g) VALUES (1, 1, 'Egg', '2 eggs', 100)",
+      ).run();
+      db.prepare(
+        "INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity, quantity_g) VALUES (1, 2, 'Frozen Veg', '½ bag', 140)",
+      ).run();
+      db.exec(`
+        DROP INDEX IF EXISTS goal_phases_current;
+        DROP TABLE IF EXISTS goal_phases;
+        ALTER TABLE products DROP COLUMN scale_step_g;
+        ALTER TABLE products DROP COLUMN scale_step_label;
+        ALTER TABLE recipe_ingredients DROP COLUMN scale_lock;
+        ALTER TABLE recipes DROP COLUMN scale_step_g;
+        ALTER TABLE recipes DROP COLUMN scale_step_label;
+        PRAGMA user_version = 5;
+      `);
+      db.close();
+    }
+
+    it("fresh DB is at v6 with the three seeded phases and weight_loss current", () => {
+      const dbPath = tempDbPath();
+      const report = ensureWellnessDb(dbPath);
+      expect(report.toVersion).toBe(6);
+      const db = new DatabaseSync(dbPath);
+      const phases = db
+        .prepare("SELECT key, name, multiplier, is_current, sort_order FROM goal_phases ORDER BY sort_order")
+        .all() as Array<{ key: string; name: string; multiplier: number; is_current: number; sort_order: number }>;
+      expect(phases).toEqual([
+        { key: "weight_loss", name: "Weight loss", multiplier: 1.0, is_current: 1, sort_order: 0 },
+        { key: "maintenance", name: "Maintenance", multiplier: 1.3, is_current: 0, sort_order: 1 },
+        { key: "bulk", name: "Bulk", multiplier: 1.6, is_current: 0, sort_order: 2 },
+      ]);
+      const cols = (db.prepare("PRAGMA table_info(products)").all() as Array<{ name: string }>).map((c) => c.name);
+      expect(cols).toContain("scale_step_g");
+      expect(cols).toContain("scale_step_label");
+      const ricols = (db.prepare("PRAGMA table_info(recipe_ingredients)").all() as Array<{ name: string; dflt_value: string | null; notnull: number }>);
+      const lock = ricols.find((c) => c.name === "scale_lock");
+      expect(lock?.notnull).toBe(1);
+      expect(lock?.dflt_value).toBe("'none'");
+      db.close();
+    });
+
+    it("upgrades a v5 DB in place: existing rows get scale_lock 'none', NULL step columns, data preserved", () => {
+      const dbPath = tempDbPath();
+      seedV5Db(dbPath);
+      // sanity: the fixture really is v5-shaped
+      const pre = new DatabaseSync(dbPath);
+      expect((pre.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(5);
+      expect(tableNames(pre)).not.toContain("goal_phases");
+      pre.close();
+
+      const report = ensureWellnessDb(dbPath);
+      expect(report.created).toBe(false);
+      expect(report.fromVersion).toBe(5);
+      expect(report.toVersion).toBe(6);
+
+      const db = new DatabaseSync(dbPath);
+      const locks = db
+        .prepare("SELECT scale_lock, COUNT(*) AS n FROM recipe_ingredients GROUP BY scale_lock")
+        .all() as Array<{ scale_lock: string; n: number }>;
+      expect(locks).toEqual([{ scale_lock: "none", n: 2 }]);
+      const ing = db
+        .prepare("SELECT ingredient_name, quantity, quantity_g FROM recipe_ingredients ORDER BY id")
+        .all() as Array<{ ingredient_name: string; quantity: string; quantity_g: number }>;
+      expect(ing).toEqual([
+        { ingredient_name: "Egg", quantity: "2 eggs", quantity_g: 100 },
+        { ingredient_name: "Frozen Veg", quantity: "½ bag", quantity_g: 140 },
+      ]);
+      const products = db
+        .prepare("SELECT name, calories, scale_step_g, scale_step_label FROM products ORDER BY id")
+        .all() as Array<{ name: string; calories: number; scale_step_g: number | null; scale_step_label: string | null }>;
+      expect(products).toEqual([
+        { name: "Egg", calories: 70, scale_step_g: null, scale_step_label: null },
+        { name: "Frozen Veg", calories: 30, scale_step_g: null, scale_step_label: null },
+      ]);
+      const current = db.prepare("SELECT key FROM goal_phases WHERE is_current = 1").all() as Array<{ key: string }>;
+      expect(current).toEqual([{ key: "weight_loss" }]);
+      // the new columns are writable with real values
+      db.prepare("UPDATE products SET scale_step_g = 50, scale_step_label = '1 egg' WHERE id = 1").run();
+      db.prepare("UPDATE recipe_ingredients SET scale_lock = 'batch' WHERE product_id = 2").run();
+      const updated = db
+        .prepare("SELECT scale_lock FROM recipe_ingredients WHERE product_id = 2")
+        .get() as { scale_lock: string };
+      expect(updated.scale_lock).toBe("batch");
+      db.close();
+    });
+
+    it("rejects invalid scale_lock values on insert and update", () => {
+      const dbPath = tempDbPath();
+      ensureWellnessDb(dbPath);
+      const db = new DatabaseSync(dbPath);
+      db.prepare("INSERT INTO products (id, name) VALUES (1, 'Egg')").run();
+      db.prepare("INSERT INTO recipes (id, name, servings) VALUES (1, 'Scramble', 2)").run();
+      for (const ok of ["none", "serving", "batch"]) {
+        db.prepare(
+          "INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity_g, scale_lock) VALUES (1, 1, 'Egg', 50, ?)",
+        ).run(ok);
+      }
+      expect(() =>
+        db
+          .prepare(
+            "INSERT INTO recipe_ingredients (recipe_id, product_id, ingredient_name, quantity_g, scale_lock) VALUES (1, 1, 'Egg', 50, 'people')",
+          )
+          .run(),
+      ).toThrow(/CHECK constraint failed/);
+      expect(() => db.prepare("UPDATE recipe_ingredients SET scale_lock = 'locked'").run()).toThrow(/CHECK constraint failed/);
+      expect(() => db.prepare("UPDATE recipe_ingredients SET scale_lock = NULL").run()).toThrow(/NOT NULL constraint failed/);
+      const n = db.prepare("SELECT COUNT(*) AS n FROM recipe_ingredients").get() as { n: number };
+      expect(n.n).toBe(3);
+      db.close();
+    });
+
+    it("allows at most one current goal phase", () => {
+      const dbPath = tempDbPath();
+      ensureWellnessDb(dbPath);
+      const db = new DatabaseSync(dbPath);
+      expect(() =>
+        db.prepare("INSERT INTO goal_phases (key, name, multiplier, is_current, sort_order) VALUES ('cut', 'Cut', 0.9, 1, 3)").run(),
+      ).toThrow(/UNIQUE constraint failed/);
+      expect(() => db.prepare("UPDATE goal_phases SET is_current = 1 WHERE key = 'bulk'").run()).toThrow(
+        /UNIQUE constraint failed/,
+      );
+      expect(() => db.prepare("UPDATE goal_phases SET multiplier = 0 WHERE key = 'bulk'").run()).toThrow(
+        /CHECK constraint failed/,
+      );
+      // switching phases works when done as a single statement (no transient second 1)
+      db.prepare("UPDATE goal_phases SET is_current = CASE WHEN key = 'bulk' THEN 1 ELSE 0 END").run();
+      const current = db.prepare("SELECT key FROM goal_phases WHERE is_current = 1").all() as Array<{ key: string }>;
+      expect(current).toEqual([{ key: "bulk" }]);
+      // any number of non-current rows is fine
+      db.prepare("INSERT INTO goal_phases (key, name, multiplier, is_current, sort_order) VALUES ('cut', 'Cut', 0.9, 0, 3)").run();
+      db.close();
+    });
+
+    it("re-running on a v6 DB is a no-op that stays at v6 and keeps user edits to goal_phases", () => {
+      const dbPath = tempDbPath();
+      ensureWellnessDb(dbPath);
+      const db = new DatabaseSync(dbPath);
+      db.prepare("UPDATE goal_phases SET multiplier = 1.35 WHERE key = 'maintenance'").run();
+      db.close();
+      const second = ensureWellnessDb(dbPath);
+      expect(second.fromVersion).toBe(6);
+      expect(second.toVersion).toBe(6);
+      const check = new DatabaseSync(dbPath);
+      const m = check.prepare("SELECT multiplier FROM goal_phases WHERE key = 'maintenance'").get() as { multiplier: number };
+      expect(m.multiplier).toBe(1.35); // INSERT OR IGNORE did not clobber it
+      const n = check.prepare("SELECT COUNT(*) AS n FROM goal_phases").get() as { n: number };
+      expect(n.n).toBe(3);
+      check.close();
+    });
+  });
+
+    it("gives component recipes a unit step (scale_step_g / scale_step_label)", () => {
+      const dbPath = tempDbPath();
+      ensureWellnessDb(dbPath);
+      const check = new DatabaseSync(dbPath);
+      const recipeCols = (check.prepare("PRAGMA table_info(recipes)").all() as Array<{ name: string }>).map((c) => c.name);
+      expect(recipeCols).toEqual(expect.arrayContaining(["scale_step_g", "scale_step_label"]));
+      check.close();
+    });
 });

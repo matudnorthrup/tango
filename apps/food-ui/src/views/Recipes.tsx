@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Nav } from '../App';
 import { get, post, patch, del, money, grams } from '../lib';
+import { formatMultiplier, isAdjusted, isIdentity, scaleFactor, scaledGrams, type Scale, type ScaleLock } from '../scaling';
 
 interface RecipeRow {
   id: number;
@@ -27,6 +28,21 @@ interface RecipeRow {
   instructions: string | null;
   notes: string | null;
   archived_at?: string | null;
+  scaling_cal?: number | null;
+  scaling_prot?: number | null;
+  scaling_fat?: number | null;
+  scaling_fiber?: number | null;
+  scaling_cost?: number | null;
+  scale_step_g?: number | null;
+  scale_step_label?: string | null;
+}
+
+export interface Phase {
+  key: string;
+  name: string;
+  multiplier: number;
+  is_current: boolean;
+  sort_order: number;
 }
 
 interface IngredientRow {
@@ -41,6 +57,11 @@ interface IngredientRow {
   product_name: string | null;
   sub_recipe_name: string | null;
   cost: number | null;
+  fat_g?: number | null;
+  fiber_g?: number | null;
+  scale_lock?: ScaleLock | null;
+  scale_step_g?: number | null;
+  scale_step_label?: string | null;
 }
 
 interface Detail {
@@ -158,6 +179,15 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
   const [loaded, setLoaded] = useState(false);
   const [filters, setFilters] = useState<Filters>(loadFilters);
   const [sort, setSort] = useState<Sort>(loadSort);
+  const [phases, setPhases] = useState<Phase[]>([]);
+  const [tablePhase, setTablePhase] = useState<string>(() => sessionStorage.getItem('tango-food.recipes.phase') ?? '');
+  const [showPhases, setShowPhases] = useState(false);
+  useEffect(() => {
+    get<{ phases: Phase[] }>('/phases').then((r) => setPhases(r.phases)).catch(() => {});
+  }, []);
+  useEffect(() => {
+    sessionStorage.setItem('tango-food.recipes.phase', tablePhase);
+  }, [tablePhase]);
   const [showFilters, setShowFilters] = useState(() => {
     const f = loadFilters();
     return Boolean(f.ingredient || f.minProt || f.minRatio || f.maxCal || f.maxCost || f.pricedOnly || f.kind !== 'all');
@@ -183,6 +213,40 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
 
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => setFilters((f) => ({ ...f, [key]: value }));
 
+  // Phase preview for the table: rows locked per serving/batch hold still, the
+  // rest scale by the multiplier. Product step sizes are NOT applied here (the
+  // recipe page does that), so treat these as approximate.
+  const current = phases.find((p) => p.is_current);
+  const previewPhase = phases.find((p) => p.key === tablePhase) ?? current;
+  const previewMult = previewPhase && current && previewPhase.key !== current.key ? previewPhase.multiplier / current.multiplier : 1;
+  const previewed = useMemo(() => {
+    if (previewMult === 1) return recipes;
+    const bump = (per: number | null | undefined, scaling: number | null | undefined, divisor: number) =>
+      per === null || per === undefined ? null : Math.round((per + ((scaling ?? 0) * (previewMult - 1)) / divisor) * 10) / 10;
+    return recipes.map((r) => {
+      const srv = r.servings && r.servings > 0 ? r.servings : 1;
+      if (r.yield_g) {
+        const per100 = r.yield_g / 100;
+        return {
+          ...r,
+          per_100g_cal: bump(r.per_100g_cal, r.scaling_cal, per100),
+          per_100g_prot: bump(r.per_100g_prot, r.scaling_prot, per100),
+          per_100g_fat: bump(r.per_100g_fat, r.scaling_fat, per100),
+          per_100g_fiber: bump(r.per_100g_fiber, r.scaling_fiber, per100),
+          per_100g_cost: bump(r.per_100g_cost, r.scaling_cost, per100),
+        };
+      }
+      return {
+        ...r,
+        per_serving_cal: bump(r.per_serving_cal, r.scaling_cal, srv),
+        per_serving_prot: bump(r.per_serving_prot, r.scaling_prot, srv),
+        per_serving_fat: bump(r.per_serving_fat, r.scaling_fat, srv),
+        per_serving_fiber: bump(r.per_serving_fiber, r.scaling_fiber, srv),
+        per_serving_cost: bump(r.per_serving_cost, r.scaling_cost, srv),
+      };
+    });
+  }, [recipes, previewMult]);
+
   const rows = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     // "chicken, lime" = every term must appear somewhere in the ingredient list
@@ -195,7 +259,7 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
     const maxCal = num(filters.maxCal);
     const maxCost = num(filters.maxCost);
 
-    const out = recipes.filter((r) => {
+    const out = previewed.filter((r) => {
       const component = Boolean(r.yield_g);
       if (filters.kind === 'meals' && component) return false;
       if (filters.kind === 'components' && !component) return false;
@@ -238,7 +302,7 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
       return a.name.localeCompare(b.name);
     });
     return out;
-  }, [recipes, filters, sort]);
+  }, [previewed, filters, sort]);
 
   const toggleSort = (key: SortKey) =>
     setSort((s) =>
@@ -276,9 +340,27 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
         <h2>Recipes</h2>
         <span className="note">
           {loaded ? `${rows.length} of ${recipes.length}` : '…'} · every figure is per single serving (components per
-          100g) · click a row for the full page
+          100g){previewMult !== 1 ? ` · previewing ${previewPhase?.name} (${formatMultiplier(previewPhase?.multiplier ?? 1)}, steps not applied)` : ''} · click a row for the full page
         </span>
+        {phases.length > 0 && (
+          <span className="right phasebar">
+            <label className="note">
+              Phase{' '}
+              <select value={previewPhase?.key ?? ''} onChange={(e) => setTablePhase(e.target.value)}>
+                {phases.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.name} {formatMultiplier(p.multiplier)}{p.is_current ? ' · current' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn" onClick={() => setShowPhases((v) => !v)}>
+              Phases…
+            </button>
+          </span>
+        )}
       </div>
+      {showPhases && <PhaseEditor phases={phases} onChange={setPhases} onClose={() => setShowPhases(false)} />}
       <div className="toolbar">
         <input
           type="search"
@@ -420,6 +502,66 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
 }
 
 // ---------------------------------------------------------------------------
+// Phases: goal multipliers. Weight loss is the base (1.0); the current phase is
+// what Malibu and the planner will default to.
+// ---------------------------------------------------------------------------
+
+function PhaseEditor({ phases, onChange, onClose }: { phases: Phase[]; onChange: (p: Phase[]) => void; onClose: () => void }) {
+  const [drafts, setDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(phases.map((p) => [p.key, String(p.multiplier)])),
+  );
+  const [error, setError] = useState('');
+  const save = async (key: string, body: Record<string, unknown>) => {
+    try {
+      const r = await patch<{ phases: Phase[] }>(`/phases/${key}`, body);
+      onChange(r.phases);
+      setError('');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <div className="panel filters phases">
+      {phases.map((p) => (
+        <label key={p.key}>
+          <span className="k">{p.name}</span>
+          <span className="phaserow">
+            <span className="num">×</span>
+            <input
+              className="short"
+              inputMode="decimal"
+              value={drafts[p.key] ?? ''}
+              onChange={(e) => setDrafts({ ...drafts, [p.key]: e.target.value })}
+              onBlur={() => {
+                const m = Number(drafts[p.key]);
+                if (m > 0 && m !== p.multiplier) void save(p.key, { multiplier: m });
+              }}
+            />
+            <label className="check" style={{ padding: 0 }}>
+              <input type="radio" name="current-phase" checked={p.is_current} onChange={() => void save(p.key, { is_current: true })} />
+              <span className="k">current</span>
+            </label>
+          </span>
+        </label>
+      ))}
+      <span className="note" style={{ alignSelf: 'center' }}>
+        multipliers apply to rows that scale; locked rows hold still. The current phase is the default for logging and planning.
+      </span>
+      {error && <span className="error">{error}</span>}
+      <button className="btn" onClick={onClose} style={{ alignSelf: 'center' }}>
+        Close
+      </button>
+    </div>
+  );
+}
+
+const LOCK_LABELS: Record<ScaleLock, string> = {
+  none: 'Scales',
+  serving: 'Locked / serving',
+  batch: 'Locked / batch',
+};
+
+// ---------------------------------------------------------------------------
 // New recipe: a one-field inline form on the table; the page opens in edit mode.
 // ---------------------------------------------------------------------------
 
@@ -495,6 +637,8 @@ interface HeaderForm {
   name: string;
   servings: string;
   yield_g: string;
+  step_g: string;
+  step_label: string;
   aliases: string;
   notes: string;
   instructions: string;
@@ -505,6 +649,8 @@ function formFrom(d: Detail): HeaderForm {
     name: d.recipe.name,
     servings: String(d.recipe.servings ?? 1),
     yield_g: d.recipe.yield_g ? String(d.recipe.yield_g) : '',
+    step_g: d.recipe.scale_step_g ? String(d.recipe.scale_step_g) : '',
+    step_label: d.recipe.scale_step_label ?? '',
     aliases: (d.aliases ?? []).join(', '),
     notes: d.recipe.notes ?? '',
     instructions: d.recipe.instructions ?? '',
@@ -526,6 +672,12 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
   const [addGrams, setAddGrams] = useState('');
   const [busy, setBusy] = useState(false);
   const pickBox = useRef<HTMLDivElement>(null);
+  // scaling (view only; the base recipe is never changed by these)
+  const [phases, setPhases] = useState<Phase[]>([]);
+  const [phaseKey, setPhaseKey] = useState<string>('');
+  const [people, setPeople] = useState<string>('');
+  const [cook, setCook] = useState(false);
+  const [checked, setChecked] = useState<Record<number, boolean>>({});
 
   const apply = (d: Detail) => {
     setDetail(d);
@@ -543,13 +695,24 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
     const startEditing = editNext === String(recipeId);
     if (startEditing) sessionStorage.removeItem(EDIT_NEXT_KEY);
     setEditing(startEditing);
+    setCook(false);
+    setChecked({});
+    const savedScale = sessionStorage.getItem(`tango-food.scale.${recipeId}`);
+    const parsedScale = savedScale ? (JSON.parse(savedScale) as { people: string; phaseKey: string }) : null;
+    setPeople(parsedScale?.people ?? '');
+    setPhaseKey(parsedScale?.phaseKey ?? '');
     get<Detail>(`/recipes/${recipeId}`)
       .then((d) => {
         apply(d);
         if (startEditing) setForm(formFrom(d));
       })
       .catch((e: Error) => setError(e.message));
+    get<{ phases: Phase[] }>('/phases').then((r) => setPhases(r.phases)).catch(() => {});
   }, [recipeId]);
+
+  useEffect(() => {
+    sessionStorage.setItem(`tango-food.scale.${recipeId}`, JSON.stringify({ people, phaseKey }));
+  }, [recipeId, people, phaseKey]);
 
   // picker search, debounced
   useEffect(() => {
@@ -580,6 +743,8 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
         name: form.name.trim(),
         servings: Number(form.servings) || 1,
         yield_g: form.yield_g.trim() ? Number(form.yield_g) : null,
+        scale_step_g: form.step_g.trim() ? Number(form.step_g) : null,
+        scale_step_label: form.step_g.trim() ? form.step_label.trim() || null : null,
         notes: form.notes,
         instructions: form.instructions,
         aliases: form.aliases.split(',').map((a) => a.trim()).filter(Boolean),
@@ -610,6 +775,15 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
     if (!(value > 0) || value === row.quantity_g) return;
     try {
       const r = await patch<{ recipe: Detail }>(`/recipes/${recipeId}/ingredients/${row.id}`, { quantity_g: value });
+      apply(r.recipe);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const saveLock = async (row: IngredientRow, lock: ScaleLock) => {
+    try {
+      const r = await patch<{ recipe: Detail }>(`/recipes/${recipeId}/ingredients/${row.id}`, { scale_lock: lock });
       apply(r.recipe);
     } catch (e) {
       fail(e);
@@ -675,6 +849,47 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
 
   const r = detail.recipe;
   const isComponent = Boolean(r.yield_g);
+
+  // --- scale in effect on this page ---
+  const currentPhase = phases.find((p) => p.is_current);
+  const selectedPhase = phases.find((p) => p.key === phaseKey) ?? currentPhase;
+  const phaseMult = selectedPhase && currentPhase ? selectedPhase.multiplier / currentPhase.multiplier : 1;
+  const baseCount = isComponent ? 1 : (r.servings && r.servings > 0 ? r.servings : 1);
+  const wantCount = people.trim() !== '' && Number(people) > 0 ? Number(people) : baseCount;
+  const scale: Scale = { people: wantCount / baseCount, phase: phaseMult };
+  const scaling = !isIdentity(scale);
+  const scaledRows = detail.ingredients.map((ing) => {
+    const g = scaledGrams(ing, scale);
+    const f = scaleFactor(ing, scale);
+    const mul = (v: number | null | undefined) => (v === null || v === undefined ? null : Math.round(v * f * 10) / 10);
+    return { ing, g, f, cal: ing.calories === null ? null : Math.round(ing.calories * f), prot: mul(ing.protein_g), fat: mul(ing.fat_g), fiber: mul(ing.fiber_g), cost: mul(ing.cost), adjusted: isAdjusted(ing, scale) };
+  });
+  const sum = (k: 'cal' | 'prot' | 'fat' | 'fiber' | 'cost') => scaledRows.reduce((acc, x) => acc + (x[k] ?? 0), 0);
+  const baseInputG = detail.ingredients.reduce((a, i) => a + (i.quantity_g ?? 0), 0);
+  const scaledInputG = scaledRows.reduce((a, x) => a + (x.g ?? 0), 0);
+  // component yield scales with the input mass (estimate; a locked starter does not add weight in proportion)
+  const scaledYield = isComponent && r.yield_g ? Math.round(r.yield_g * (baseInputG > 0 ? scaledInputG / baseInputG : scale.people)) : null;
+  const perDivisor = isComponent ? (scaledYield ?? 1) / 100 : wantCount;
+  const per = (k: 'cal' | 'prot' | 'fat' | 'fiber' | 'cost', digits = 1) => Math.round((sum(k) / perDivisor) * 10 ** digits) / 10 ** digits;
+  const unpricedNow = scaledRows.filter((x) => x.cost === null && (x.ing.product_id || x.ing.sub_recipe_id)).length + detail.ingredients.filter((i) => !i.product_id && !i.sub_recipe_id).length;
+
+  const rewrite = async () => {
+    if (!scaling) return;
+    const what = isComponent ? `a ${scaledYield}g batch` : `${wantCount} serving${wantCount === 1 ? '' : 's'}`;
+    if (!window.confirm(`Rewrite the base recipe as ${what} at ${selectedPhase?.name ?? 'this phase'}? Every row's grams become the scaled amounts. Per-serving numbers stay consistent; this only changes what one batch means.`)) return;
+    try {
+      const body = {
+        ...(isComponent ? { yield_g: scaledYield } : { servings: wantCount }),
+        rows: scaledRows.filter((x) => x.g !== null && x.ing.quantity_g !== null).map((x) => ({ id: x.ing.id, quantity_g: x.g })),
+      };
+      apply(await post<Detail>(`/recipes/${recipeId}/rewrite`, body));
+      setPeople('');
+      setPhaseKey(currentPhase?.key ?? '');
+    } catch (e) {
+      fail(e);
+    }
+  };
+
   return (
     <>
       <div className="bar">
@@ -693,6 +908,9 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
             </>
           ) : (
             <>
+              <button className={`btn${cook ? ' primary' : ''}`} onClick={() => setCook((v) => !v)}>
+                {cook ? 'Exit cook view' : 'Cook view'}
+              </button>
               <button className="btn" onClick={() => void duplicate()}>
                 Duplicate
               </button>
@@ -719,6 +937,18 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
               <span className="k">Batch yield g</span>
               <input className="short" inputMode="decimal" placeholder="—" value={form.yield_g} onChange={(e) => setForm({ ...form, yield_g: e.target.value })} />
             </label>
+            {form.yield_g.trim() !== '' && (
+              <>
+                <label>
+                  <span className="k">Unit step g</span>
+                  <input className="short" inputMode="decimal" placeholder="continuous" value={form.step_g} onChange={(e) => setForm({ ...form, step_g: e.target.value })} />
+                </label>
+                <label>
+                  <span className="k">Step label</span>
+                  <input placeholder="1 taco" value={form.step_label} disabled={form.step_g.trim() === ''} onChange={(e) => setForm({ ...form, step_label: e.target.value })} />
+                </label>
+              </>
+            )}
             <label className="wide">
               <span className="k">Aliases (comma separated)</span>
               <input value={form.aliases} onChange={(e) => setForm({ ...form, aliases: e.target.value })} />
@@ -744,59 +974,98 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
             </h3>
             <div className="meta">
               {r.servings ?? 1} serving{(r.servings ?? 1) !== 1 ? 's' : ''}
-              {r.yield_g ? ` · ${r.yield_g}g batch yield` : ''} · {detail.ingredients.length} ingredients
+              {r.yield_g ? ` · ${r.yield_g}g batch yield` : ''}{r.scale_step_g ? ` · used in steps of ${r.scale_step_label ?? `${r.scale_step_g}g`}` : ''} · {detail.ingredients.length} ingredients
               {detail.aliases && detail.aliases.length > 0 ? ` · also: ${detail.aliases.join(', ')}` : ''}
             </div>
+          </div>
+        )}
+        {!editing && (
+          <div className="scalebar">
+            <label>
+              <span className="k">{isComponent ? 'Batches' : 'Make servings'}</span>
+              <span className="scalein">
+                <button className="mini" onClick={() => setPeople(String(Math.max(isComponent ? 0.25 : 1, wantCount - (isComponent ? 0.5 : 1))))} aria-label="fewer">−</button>
+                <input className="short" inputMode="decimal" value={people === '' ? String(baseCount) : people} onChange={(e) => setPeople(e.target.value)} />
+                <button className="mini" onClick={() => setPeople(String(wantCount + (isComponent ? 0.5 : 1)))} aria-label="more">+</button>
+              </span>
+            </label>
+            {phases.length > 0 && (
+              <label>
+                <span className="k">Phase</span>
+                <select value={selectedPhase?.key ?? ''} onChange={(e) => setPhaseKey(e.target.value)}>
+                  {phases.map((p) => (
+                    <option key={p.key} value={p.key}>
+                      {p.name} {formatMultiplier(p.multiplier)}{p.is_current ? ' · current' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <span className="note">
+              {scaling
+                ? `${isComponent ? `${scaledYield}g batch (est.)` : `${wantCount} serving${wantCount === 1 ? '' : 's'}`} · ${sum('cal')} cal · ${money(sum('cost'))} for the batch${scaledRows.some((x) => x.adjusted) ? ' · rows marked ≈ snapped to a step or held by a lock' : ''}`
+                : `base recipe: ${isComponent ? `${r.yield_g}g batch` : `${baseCount} serving${baseCount === 1 ? '' : 's'}`} · ${sum('cal')} cal · ${money(sum('cost'))}`}
+            </span>
+            {scaling && (
+              <span className="right">
+                <button className="btn" onClick={() => { setPeople(''); setPhaseKey(currentPhase?.key ?? ''); }}>
+                  Reset
+                </button>
+                <button className="btn" onClick={() => void rewrite()} title="Make these grams the stored base recipe">
+                  Rewrite at this size
+                </button>
+              </span>
+            )}
           </div>
         )}
         {isComponent ? (
           <div className="tiles">
             <div className="tile">
-              <div className="k">Batch yield</div>
-              <div className="v">{r.yield_g}<small>g</small></div>
+              <div className="k">Batch yield{scaling ? ' (est.)' : ''}</div>
+              <div className="v">{scaling ? scaledYield : r.yield_g}<small>g</small></div>
             </div>
             <div className="tile">
               <div className="k">Cal / 100g</div>
-              <div className="v">{r.per_100g_cal ?? '—'}</div>
+              <div className="v">{scaling ? per('cal', 0) : (r.per_100g_cal ?? '—')}</div>
             </div>
             <div className="tile">
               <div className="k">Protein / 100g</div>
-              <div className="v">{grams(r.per_100g_prot)}</div>
+              <div className="v">{grams(scaling ? per('prot') : r.per_100g_prot)}</div>
             </div>
             <div className="tile">
               <div className="k">Fat / 100g</div>
-              <div className="v">{grams(r.per_100g_fat)}</div>
+              <div className="v">{grams(scaling ? per('fat') : r.per_100g_fat)}</div>
             </div>
             <div className="tile">
               <div className="k">Fiber / 100g</div>
-              <div className="v">{grams(r.per_100g_fiber)}</div>
+              <div className="v">{grams(scaling ? per('fiber') : r.per_100g_fiber)}</div>
             </div>
             <div className="tile">
               <div className="k">Cost / 100g</div>
-              <div className="v cost">{money(r.per_100g_cost)}</div>
+              <div className="v cost">{money(scaling ? per('cost', 2) : r.per_100g_cost)}</div>
             </div>
           </div>
         ) : (
           <div className="tiles">
             <div className="tile">
-              <div className="k">Cal / srv</div>
-              <div className="v">{r.per_serving_cal ?? '—'}</div>
+              <div className="k">Cal / srv{scaling ? ` · ${selectedPhase?.name ?? ''}` : ''}</div>
+              <div className="v">{scaling ? per('cal', 0) : (r.per_serving_cal ?? '—')}</div>
             </div>
             <div className="tile">
               <div className="k">Protein</div>
-              <div className="v">{grams(r.per_serving_prot)}</div>
+              <div className="v">{grams(scaling ? per('prot') : r.per_serving_prot)}</div>
             </div>
             <div className="tile">
               <div className="k">Fat</div>
-              <div className="v">{grams(r.per_serving_fat)}</div>
+              <div className="v">{grams(scaling ? per('fat') : r.per_serving_fat)}</div>
             </div>
             <div className="tile">
               <div className="k">Fiber</div>
-              <div className="v">{grams(r.per_serving_fiber)}</div>
+              <div className="v">{grams(scaling ? per('fiber') : r.per_serving_fiber)}</div>
             </div>
             <div className="tile">
               <div className="k">Cost / srv</div>
-              <div className="v cost">{money(r.per_serving_cost)}</div>
+              <div className="v cost">{money(scaling ? per('cost', 2) : r.per_serving_cost)}</div>
             </div>
           </div>
         )}
@@ -813,17 +1082,24 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
           <table>
             <thead>
               <tr>
+                {cook && <th />}
                 <th>Ingredient</th>
-                <th className="r">Quantity</th>
+                <th className="r">{scaling ? 'Grams (scaled)' : 'Quantity'}</th>
                 <th className="r">Cal</th>
                 <th className="r">Protein</th>
                 <th className="r">Cost</th>
+                {editing && <th>Scaling</th>}
                 {editing && <th />}
               </tr>
             </thead>
             <tbody>
-              {detail.ingredients.map((ing) => (
-                <tr key={ing.id}>
+              {scaledRows.map(({ ing, g, cal, prot, cost, adjusted }) => (
+                <tr key={ing.id} className={cook && checked[ing.id] ? 'done' : ''}>
+                  {cook && (
+                    <td>
+                      <input type="checkbox" checked={Boolean(checked[ing.id])} onChange={(e) => setChecked({ ...checked, [ing.id]: e.target.checked })} />
+                    </td>
+                  )}
                   <td>
                     {ing.sub_recipe_id ? (
                       <>
@@ -839,6 +1115,12 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
                     ) : (
                       <>
                         {ing.ingredient_name} <span className="pill none">unmatched</span>
+                      </>
+                    )}
+                    {!editing && ing.scale_lock && ing.scale_lock !== 'none' && (
+                      <>
+                        {' '}
+                        <span className="pill none" title="Held still when the phase changes">{LOCK_LABELS[ing.scale_lock]}</span>
                       </>
                     )}
                   </td>
@@ -857,15 +1139,35 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
                         />
                         g
                       </span>
-                    ) : ing.quantity_g ? (
-                      `${ing.quantity_g}g`
+                    ) : g !== null ? (
+                      <span className={cook ? 'cookg' : ''} title={adjusted ? `base ${ing.quantity_g}g` : undefined}>
+                        {adjusted && <span className="approx">≈ </span>}
+                        {g}g
+                        {ing.scale_step_g && (
+                          <span className="sub">
+                            {Math.round((g / ing.scale_step_g) * 100) / 100}× {ing.scale_step_label ?? `${ing.scale_step_g}g`}
+                          </span>
+                        )}
+                      </span>
                     ) : (
                       ing.quantity ?? '—'
                     )}
                   </td>
-                  <td className="r num">{ing.calories ?? '—'}</td>
-                  <td className="r num">{grams(ing.protein_g)}</td>
-                  <td className="r num cost">{money(ing.cost)}</td>
+                  <td className="r num">{cal ?? '—'}</td>
+                  <td className="r num">{grams(prot)}</td>
+                  <td className="r num cost">{money(cost)}</td>
+                  {editing && (
+                    <td>
+                      {ing.product_id || ing.sub_recipe_id ? (
+                        <select value={ing.scale_lock ?? 'none'} onChange={(e) => void saveLock(ing, e.target.value as ScaleLock)}>
+                          {(Object.keys(LOCK_LABELS) as ScaleLock[]).map((k) => (
+                            <option key={k} value={k}>{LOCK_LABELS[k]}</option>
+                          ))}
+                        </select>
+                      ) : null}
+                      {ing.scale_step_g ? <span className="sub">steps of {ing.scale_step_label ?? `${ing.scale_step_g}g`}</span> : null}
+                    </td>
+                  )}
                   {editing && (
                     <td className="r">
                       <button className="mini x" title="Remove ingredient" onClick={() => void removeRow(ing)}>
@@ -968,7 +1270,13 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
           </button>
           <span className="note">archived recipes keep their history, plans, and links — they just leave the list</span>
         </div>
-        {!editing && (r.instructions || r.notes) && (
+        {cook && r.instructions && (
+          <div className="cookinstr">
+            <div className="ptitle" style={{ paddingLeft: 0 }}>Instructions</div>
+            <pre style={{ whiteSpace: 'pre-wrap', font: 'inherit', fontSize: '.95rem', lineHeight: 1.5 }}>{r.instructions}</pre>
+          </div>
+        )}
+        {!editing && !cook && (r.instructions || r.notes) && (
           <details>
             <summary className="muted" style={{ cursor: 'pointer', fontSize: '.82rem' }}>
               Notes & instructions

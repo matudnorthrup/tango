@@ -18,6 +18,11 @@
  *       discontinued_date for the same purpose)
  *   5 — recipe_cost rolls one level of sub-recipe cost into the parent
  *       (component batch cost ÷ yield_g × grams used)
+ *   6 — recipe scaling: products.scale_step_g / scale_step_label (an
+ *       ingredient's natural increment), recipe_ingredients.scale_lock
+ *       ('none' | 'serving' | 'batch'), and the goal_phases table (per-phase
+ *       multipliers, exactly one current). Views unchanged — per-serving and
+ *       per-100g math is scale-invariant; scaling is computed at read time.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -25,7 +30,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createWellnessDbSchema, resolveWellnessDbPath } from "./wellness-db-tools.js";
 
-export const WELLNESS_DB_VERSION = 5;
+export const WELLNESS_DB_VERSION = 6;
 
 export interface EnsureWellnessDbReport {
   path: string;
@@ -333,6 +338,48 @@ function applyRetailerMigration(db: DatabaseSync): void {
   createFoodTrackerViews(db);
 }
 
+function applyRecipeScalingMigration(db: DatabaseSync): void {
+  // Two-dimension scaling model (docs/specs/food-tracker.md §3, "v6 — scaling"):
+  // the ingredient's natural increment lives on the product, the scaling rule
+  // lives on the recipe row, and goal phases are multipliers applied to rows
+  // whose lock is 'none'. Views need no change — per-serving and per-100g
+  // figures are scale-invariant, so grams for N people at phase P are computed
+  // at read time (UI now, logger later).
+  addColumnIfMissing(db, "products", "scale_step_g", "REAL");
+  addColumnIfMissing(db, "products", "scale_step_label", "TEXT");
+  // Component recipes come apart in units too ("one taco base per taco"), so
+  // the same step lives on recipes; a parent row snaps to whichever it links.
+  addColumnIfMissing(db, "recipes", "scale_step_g", "REAL");
+  addColumnIfMissing(db, "recipes", "scale_step_label", "TEXT");
+  // SQLite accepts a CHECK constraint on ADD COLUMN (only PRIMARY KEY/UNIQUE
+  // are disallowed, and NOT NULL needs a non-NULL default, which we have), and
+  // the default satisfies the constraint for every existing row — so this is a
+  // plain column add rather than a trigger pair. Verified on node:sqlite 3.53.
+  addColumnIfMissing(
+    db,
+    "recipe_ingredients",
+    "scale_lock",
+    "TEXT NOT NULL DEFAULT 'none' CHECK (scale_lock IN ('none','serving','batch'))",
+  );
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS goal_phases (
+      key TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      multiplier REAL NOT NULL CHECK (multiplier > 0),
+      is_current INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+    -- At most one current phase: the partial index only covers is_current = 1
+    -- rows, so any number of rows may be 0.
+    CREATE UNIQUE INDEX IF NOT EXISTS goal_phases_current
+      ON goal_phases(is_current) WHERE is_current = 1;
+    INSERT OR IGNORE INTO goal_phases (key, name, multiplier, is_current, sort_order) VALUES
+      ('weight_loss', 'Weight loss', 1.0, 1, 0),
+      ('maintenance', 'Maintenance', 1.3, 0, 1),
+      ('bulk', 'Bulk', 1.6, 0, 2);
+  `);
+}
+
 /**
  * Materialize the wellness DB if absent and bring it to WELLNESS_DB_VERSION.
  * Safe to call from multiple processes (bot startup, food-ui server, scripts):
@@ -377,6 +424,10 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
       if (version < 5) {
         createFoodTrackerViews(db);
         version = 5;
+      }
+      if (version < 6) {
+        applyRecipeScalingMigration(db);
+        version = 6;
       }
       setUserVersion(db, version);
       const violations = db.prepare("PRAGMA foreign_key_check").all();
