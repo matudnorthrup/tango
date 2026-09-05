@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Nav } from '../App';
 import { get, post, patch, del, money, grams } from '../lib';
-import { formatMultiplier, isAdjusted, isIdentity, scaleFactor, scaledGrams, type Scale, type ScaleLock } from '../scaling';
+import { formatMultiplier, formatUnits, isAdjusted, isIdentity, scaleFactor, scaledGrams, type Scale, type ScaleLock } from '../scaling';
 
 interface RecipeRow {
   id: number;
@@ -33,7 +33,7 @@ interface RecipeRow {
   scaling_fat?: number | null;
   scaling_fiber?: number | null;
   scaling_cost?: number | null;
-  scale_step_g?: number | null;
+  batch_units?: number | null;
   scale_step_label?: string | null;
 }
 
@@ -556,9 +556,14 @@ function PhaseEditor({ phases, onChange, onClose }: { phases: Phase[]; onChange:
 }
 
 const LOCK_LABELS: Record<ScaleLock, string> = {
-  none: 'Scales',
-  serving: 'Locked / serving',
-  batch: 'Locked / batch',
+  none: 'Scales with the recipe',
+  serving: 'Fixed per serving',
+  batch: 'Fixed per batch',
+};
+const LOCK_HELP: Record<ScaleLock, string> = {
+  none: 'Normal. Grows with more servings and with a bigger phase.',
+  serving: 'Same amount every serving no matter the phase (bulk like cabbage). Still multiplies by servings.',
+  batch: 'Same amount per batch no matter how many servings (salt, starter culture).',
 };
 
 // ---------------------------------------------------------------------------
@@ -637,8 +642,8 @@ interface HeaderForm {
   name: string;
   servings: string;
   yield_g: string;
-  step_g: string;
-  step_label: string;
+  batch_units: string;
+  unit_label: string;
   aliases: string;
   notes: string;
   instructions: string;
@@ -649,8 +654,8 @@ function formFrom(d: Detail): HeaderForm {
     name: d.recipe.name,
     servings: String(d.recipe.servings ?? 1),
     yield_g: d.recipe.yield_g ? String(d.recipe.yield_g) : '',
-    step_g: d.recipe.scale_step_g ? String(d.recipe.scale_step_g) : '',
-    step_label: d.recipe.scale_step_label ?? '',
+    batch_units: d.recipe.batch_units ? String(d.recipe.batch_units) : '',
+    unit_label: d.recipe.scale_step_label ?? '',
     aliases: (d.aliases ?? []).join(', '),
     notes: d.recipe.notes ?? '',
     instructions: d.recipe.instructions ?? '',
@@ -743,8 +748,8 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
         name: form.name.trim(),
         servings: Number(form.servings) || 1,
         yield_g: form.yield_g.trim() ? Number(form.yield_g) : null,
-        scale_step_g: form.step_g.trim() ? Number(form.step_g) : null,
-        scale_step_label: form.step_g.trim() ? form.step_label.trim() || null : null,
+        batch_units: form.batch_units.trim() ? Number(form.batch_units) : null,
+        scale_step_label: form.batch_units.trim() ? form.unit_label.trim() || null : null,
         notes: form.notes,
         instructions: form.instructions,
         aliases: form.aliases.split(',').map((a) => a.trim()).filter(Boolean),
@@ -930,22 +935,22 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </label>
             <label>
-              <span className="k">Servings</span>
+              <span className="k">Batch makes (servings)</span>
               <input className="short" inputMode="decimal" value={form.servings} onChange={(e) => setForm({ ...form, servings: e.target.value })} />
             </label>
             <label>
-              <span className="k">Batch yield g</span>
+              <span className="k">Batch weight g (components)</span>
               <input className="short" inputMode="decimal" placeholder="—" value={form.yield_g} onChange={(e) => setForm({ ...form, yield_g: e.target.value })} />
             </label>
             {form.yield_g.trim() !== '' && (
               <>
                 <label>
-                  <span className="k">Unit step g</span>
-                  <input className="short" inputMode="decimal" placeholder="continuous" value={form.step_g} onChange={(e) => setForm({ ...form, step_g: e.target.value })} />
+                  <span className="k">Batch makes (units)</span>
+                  <input className="short" inputMode="decimal" placeholder="by weight" value={form.batch_units} onChange={(e) => setForm({ ...form, batch_units: e.target.value })} />
                 </label>
                 <label>
-                  <span className="k">Step label</span>
-                  <input placeholder="1 taco" value={form.step_label} disabled={form.step_g.trim() === ''} onChange={(e) => setForm({ ...form, step_label: e.target.value })} />
+                  <span className="k">Unit name</span>
+                  <input placeholder="taco" value={form.unit_label} disabled={form.batch_units.trim() === ''} onChange={(e) => setForm({ ...form, unit_label: e.target.value })} />
                 </label>
               </>
             )}
@@ -963,7 +968,9 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
             </label>
             <div className="full note">
               Name and details save with <b>Save &amp; done</b> above. Ingredient rows save as you change them. A batch
-              yield turns a recipe into a component that other recipes can use by grams.
+              weight turns a recipe into a component that other recipes can use by grams; "batch makes N units" lets
+              those recipes count it in whole units instead. To cook a bigger or smaller batch, finish editing and use
+              the scale bar.
             </div>
           </div>
         ) : (
@@ -974,7 +981,7 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
             </h3>
             <div className="meta">
               {r.servings ?? 1} serving{(r.servings ?? 1) !== 1 ? 's' : ''}
-              {r.yield_g ? ` · ${r.yield_g}g batch yield` : ''}{r.scale_step_g ? ` · used in steps of ${r.scale_step_label ?? `${r.scale_step_g}g`}` : ''} · {detail.ingredients.length} ingredients
+              {r.yield_g ? ` · ${r.yield_g}g batch` : ''}{r.yield_g && r.batch_units ? ` = ${r.batch_units} ${r.scale_step_label ?? 'unit'}${r.batch_units === 1 ? '' : 's'}` : ''} · {detail.ingredients.length} ingredients
               {detail.aliases && detail.aliases.length > 0 ? ` · also: ${detail.aliases.join(', ')}` : ''}
             </div>
           </div>
@@ -982,7 +989,7 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
         {!editing && (
           <div className="scalebar">
             <label>
-              <span className="k">{isComponent ? 'Batches' : 'Make servings'}</span>
+              <span className="k">{isComponent ? 'Cook batches' : 'Cook for (servings)'}</span>
               <span className="scalein">
                 <button className="mini" onClick={() => setPeople(String(Math.max(isComponent ? 0.25 : 1, wantCount - (isComponent ? 0.5 : 1))))} aria-label="fewer">−</button>
                 <input className="short" inputMode="decimal" value={people === '' ? String(baseCount) : people} onChange={(e) => setPeople(e.target.value)} />
@@ -1088,7 +1095,7 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
                 <th className="r">Cal</th>
                 <th className="r">Protein</th>
                 <th className="r">Cost</th>
-                {editing && <th>Scaling</th>}
+                {editing && <th title="How this row behaves when the recipe is scaled">When scaling</th>}
                 {editing && <th />}
               </tr>
             </thead>
@@ -1144,9 +1151,7 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
                         {adjusted && <span className="approx">≈ </span>}
                         {g}g
                         {ing.scale_step_g && (
-                          <span className="sub">
-                            {Math.round((g / ing.scale_step_g) * 100) / 100}× {ing.scale_step_label ?? `${ing.scale_step_g}g`}
-                          </span>
+                          <span className="sub">= {formatUnits(g, ing.scale_step_g, ing.scale_step_label)}</span>
                         )}
                       </span>
                     ) : (
@@ -1159,13 +1164,17 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
                   {editing && (
                     <td>
                       {ing.product_id || ing.sub_recipe_id ? (
-                        <select value={ing.scale_lock ?? 'none'} onChange={(e) => void saveLock(ing, e.target.value as ScaleLock)}>
+                        <select
+                          value={ing.scale_lock ?? 'none'}
+                          title={LOCK_HELP[ing.scale_lock ?? 'none']}
+                          onChange={(e) => void saveLock(ing, e.target.value as ScaleLock)}
+                        >
                           {(Object.keys(LOCK_LABELS) as ScaleLock[]).map((k) => (
-                            <option key={k} value={k}>{LOCK_LABELS[k]}</option>
+                            <option key={k} value={k} title={LOCK_HELP[k]}>{LOCK_LABELS[k]}</option>
                           ))}
                         </select>
                       ) : null}
-                      {ing.scale_step_g ? <span className="sub">steps of {ing.scale_step_label ?? `${ing.scale_step_g}g`}</span> : null}
+                      {ing.scale_step_g ? <span className="sub">counts in {ing.scale_step_label ?? `${ing.scale_step_g}g`} units</span> : null}
                     </td>
                   )}
                   {editing && (
@@ -1182,6 +1191,11 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
         </div>
         {editing && (
           <div className="addwrap">
+            <div className="note">
+              <b>When scaling</b>: most rows scale with the recipe. Mark a row <b>fixed per serving</b> when you always want
+              the same amount no matter the phase (bulk like cabbage), or <b>fixed per batch</b> when it never changes
+              (salt, starter). Whole-unit ingredients (bags, eggs, taco bases) are set on their own page.
+            </div>
             <div className="ptitle" style={{ paddingLeft: 0 }}>Add ingredient</div>
 
                 <div className="addline" ref={pickBox}>

@@ -364,7 +364,7 @@ function ingredientRows(recipeId: number, rowId?: number) {
            ${ROW_COST_SQL} AS cost,
            ri.scale_lock,
            -- scale step comes from the linked product; NULL for component rows
-           COALESCE(p.scale_step_g, sr.scale_step_g) AS scale_step_g,
+           COALESCE(p.scale_step_g, CASE WHEN sr.batch_units > 0 AND sr.yield_g > 0 THEN ROUND(sr.yield_g * 1.0 / sr.batch_units, 2) END) AS scale_step_g,
            COALESCE(p.scale_step_label, sr.scale_step_label) AS scale_step_label
     ${ROW_JOINS_SQL}
     WHERE ri.recipe_id = ? ${rowId != null ? 'AND ri.id = ?' : ''}
@@ -388,7 +388,7 @@ function recipeAliases(recipeId: number): string[] {
 // can replace its state without a second round trip.
 function recipeDetail(id: number) {
   const recipe = one(
-    `SELECT rs.*, r.yield_g, r.archived_at, r.scale_step_g, r.scale_step_label,
+    `SELECT rs.*, r.yield_g, r.archived_at, r.batch_units, r.scale_step_label,
             CASE WHEN r.yield_g > 0 THEN ROUND(r.total_calories * 100.0 / r.yield_g) END AS per_100g_cal,
             CASE WHEN r.yield_g > 0 THEN ROUND(r.total_protein_g * 100.0 / r.yield_g, 1) END AS per_100g_prot,
             CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fat_g * 100.0 / r.yield_g, 1) END AS per_100g_fat,
@@ -577,6 +577,12 @@ api.patch('/recipes/:id', async (c) => {
     if (yieldG === 'invalid') return c.json({ error: 'yield_g must be positive or null' }, 400);
     sets.push('yield_g = ?');
     params.push(yieldG);
+  }
+  if ('batch_units' in body) {
+    const units = positiveOrNull((body as { batch_units?: number | null }).batch_units);
+    if (units === 'invalid') return c.json({ error: 'batch_units must be positive or null' }, 400);
+    sets.push('batch_units = ?');
+    params.push(units);
   }
   if ('scale_step_g' in body) {
     const step = positiveOrNull((body as { scale_step_g?: number | null }).scale_step_g);

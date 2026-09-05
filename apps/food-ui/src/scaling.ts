@@ -35,6 +35,9 @@ export function scaledGrams(row: ScalableRow, scale: Scale): number | null {
   let g = base;
   if (lock === 'serving') g = base * scale.people;
   else if (lock === 'none') g = base * scale.people * scale.phase;
+  // At the row's own base amount there is nothing to snap: the stored grams
+  // are what the recipe says, even if they are not a whole step.
+  if (Math.abs(g - base) < 1e-9) return base;
   const step = row.scale_step_g;
   if (step && step > 0) g = Math.max(step, Math.round(g / step) * step);
   return Math.round(g * 10) / 10;
@@ -58,6 +61,15 @@ export function isAdjusted(row: ScalableRow, scale: Scale): boolean {
 
 export function isIdentity(scale: Scale): boolean {
   return Math.abs(scale.people - 1) < 1e-9 && Math.abs(scale.phase - 1) < 1e-9;
+}
+
+/** "3 tacos", "2 eggs", "3 × ½ bag" — how many units a gram amount is. */
+export function formatUnits(grams: number, step: number, label: string | null | undefined): string {
+  const n = Math.round((grams / step) * 100) / 100;
+  const text = (label ?? `${step}g`).trim();
+  const unit = /^1\s+/u.test(text) ? text.replace(/^1\s+/u, '') : null;
+  if (unit) return `${n} ${n === 1 ? unit : unit.endsWith('s') ? unit : `${unit}s`}`;
+  return `${n} × ${text}`;
 }
 
 export function formatMultiplier(m: number): string {
