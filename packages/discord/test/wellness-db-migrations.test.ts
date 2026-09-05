@@ -270,7 +270,7 @@ describe("ensureWellnessDb", () => {
     it("fresh DB is at v6 with the three seeded phases and weight_loss current", () => {
       const dbPath = tempDbPath();
       const report = ensureWellnessDb(dbPath);
-      expect(report.toVersion).toBe(6);
+      expect(report.toVersion).toBe(7);
       const db = new DatabaseSync(dbPath);
       const phases = db
         .prepare("SELECT key, name, multiplier, is_current, sort_order FROM goal_phases ORDER BY sort_order")
@@ -302,7 +302,7 @@ describe("ensureWellnessDb", () => {
       const report = ensureWellnessDb(dbPath);
       expect(report.created).toBe(false);
       expect(report.fromVersion).toBe(5);
-      expect(report.toVersion).toBe(6);
+      expect(report.toVersion).toBe(7);
 
       const db = new DatabaseSync(dbPath);
       const locks = db
@@ -389,8 +389,8 @@ describe("ensureWellnessDb", () => {
       db.prepare("UPDATE goal_phases SET multiplier = 1.35 WHERE key = 'maintenance'").run();
       db.close();
       const second = ensureWellnessDb(dbPath);
-      expect(second.fromVersion).toBe(6);
-      expect(second.toVersion).toBe(6);
+      expect(second.fromVersion).toBe(7);
+      expect(second.toVersion).toBe(7);
       const check = new DatabaseSync(dbPath);
       const m = check.prepare("SELECT multiplier FROM goal_phases WHERE key = 'maintenance'").get() as { multiplier: number };
       expect(m.multiplier).toBe(1.35); // INSERT OR IGNORE did not clobber it
@@ -399,6 +399,19 @@ describe("ensureWellnessDb", () => {
       check.close();
     });
   });
+
+    it("v7 converts a component's gram step into batch_units", () => {
+      const dbPath = tempDbPath();
+      ensureWellnessDb(dbPath);
+      const db = new DatabaseSync(dbPath);
+      db.exec(`INSERT INTO recipes (id, name, yield_g, scale_step_g, scale_step_label) VALUES (5, 'Taco Base', 98.8, 98.8, '1 taco');
+               ALTER TABLE recipes DROP COLUMN batch_units; PRAGMA user_version = 6;`);
+      db.close();
+      expect(ensureWellnessDb(dbPath)).toMatchObject({ fromVersion: 6, toVersion: 7 });
+      const check = new DatabaseSync(dbPath);
+      expect(check.prepare("SELECT batch_units FROM recipes WHERE id = 5").get()).toEqual({ batch_units: 1 });
+      check.close();
+    });
 
     it("gives component recipes a unit step (scale_step_g / scale_step_label)", () => {
       const dbPath = tempDbPath();

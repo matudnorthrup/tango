@@ -19,6 +19,8 @@
  *   5 — recipe_cost rolls one level of sub-recipe cost into the parent
  *       (component batch cost ÷ yield_g × grams used)
  *   6 — recipe scaling: products.scale_step_g / scale_step_label (an
+ *   7 — recipes.batch_units: a component batch makes N units (Taco Base = 1 taco);
+ *       the per-unit weight is yield_g / batch_units, so it follows the recipe.
  *       ingredient's natural increment), recipe_ingredients.scale_lock
  *       ('none' | 'serving' | 'batch'), and the goal_phases table (per-phase
  *       multipliers, exactly one current). Views unchanged — per-serving and
@@ -30,7 +32,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createWellnessDbSchema, resolveWellnessDbPath } from "./wellness-db-tools.js";
 
-export const WELLNESS_DB_VERSION = 6;
+export const WELLNESS_DB_VERSION = 7;
 
 export interface EnsureWellnessDbReport {
   path: string;
@@ -381,6 +383,22 @@ function applyRecipeScalingMigration(db: DatabaseSync): void {
 }
 
 /**
+ * v7 — component recipes count in units, not a frozen gram step. A component's
+ * "step" used to be a stored gram figure (v6 `recipes.scale_step_g`) that
+ * drifted whenever the recipe changed; now a batch declares how many units it
+ * makes and the unit weight is derived (`yield_g / batch_units`). Existing
+ * gram steps are converted; the old column is left in place, unused.
+ */
+function applyBatchUnitsMigration(db: DatabaseSync): void {
+  addColumnIfMissing(db, "recipes", "batch_units", "REAL");
+  db.exec(`
+    UPDATE recipes
+       SET batch_units = ROUND(yield_g * 1.0 / scale_step_g, 2)
+     WHERE batch_units IS NULL AND scale_step_g > 0 AND yield_g > 0;
+  `);
+}
+
+/**
  * Materialize the wellness DB if absent and bring it to WELLNESS_DB_VERSION.
  * Safe to call from multiple processes (bot startup, food-ui server, scripts):
  * WAL + busy_timeout + a version check inside the write transaction make the
@@ -428,6 +446,10 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
       if (version < 6) {
         applyRecipeScalingMigration(db);
         version = 6;
+      }
+      if (version < 7) {
+        applyBatchUnitsMigration(db);
+        version = 7;
       }
       setUserVersion(db, version);
       const violations = db.prepare("PRAGMA foreign_key_check").all();
