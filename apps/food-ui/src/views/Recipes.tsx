@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Nav } from '../App';
-import { get, post, money, grams } from '../lib';
+import { get, post, patch, del, money, grams } from '../lib';
 
 interface RecipeRow {
   id: number;
@@ -45,6 +45,7 @@ interface IngredientRow {
 
 interface Detail {
   recipe: RecipeRow;
+  aliases?: string[];
   ingredients: IngredientRow[];
   usedIn: Array<{ recipe_id: number; name: string; quantity_g: number | null }>;
 }
@@ -308,10 +309,13 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
             Clear
           </button>
         )}
-        <label className="right note" style={{ cursor: 'pointer' }}>
-          <input type="checkbox" checked={filters.archived} onChange={(e) => set('archived', e.target.checked)} /> show
-          archived
-        </label>
+        <span className="right">
+          <NewRecipeButton onCreated={onOpen} />
+          <label className="note" style={{ cursor: 'pointer' }}>
+            <input type="checkbox" checked={filters.archived} onChange={(e) => set('archived', e.target.checked)} /> show
+            archived
+          </label>
+        </span>
       </div>
       {showFilters && (
         <div className="panel filters">
@@ -416,50 +420,317 @@ function RecipeTable({ onOpen }: { onOpen: (id: number) => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Detail: a recipe's own page.
+// New recipe: a one-field inline form on the table; the page opens in edit mode.
 // ---------------------------------------------------------------------------
+
+const EDIT_NEXT_KEY = 'tango-food.recipes.editNext';
+
+function NewRecipeButton({ onCreated }: { onCreated: (id: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const create = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const { id } = await post<{ id: number }>('/recipes', { name: name.trim(), servings: 1 });
+      sessionStorage.setItem(EDIT_NEXT_KEY, String(id));
+      setOpen(false);
+      setName('');
+      onCreated(id);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button className="btn primary" onClick={() => setOpen(true)}>
+        New recipe
+      </button>
+    );
+  }
+  return (
+    <span className="newrecipe">
+      <input
+        autoFocus
+        placeholder="Recipe name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void create();
+          if (e.key === 'Escape') setOpen(false);
+        }}
+      />
+      <button className="btn primary" disabled={!name.trim() || busy} onClick={() => void create()}>
+        Create
+      </button>
+      <button className="btn" onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+      {error && <span className="error">{error}</span>}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Detail: a recipe's own page, with an edit mode for the header fields and the
+// ingredient rows. Grams are the only editable quantity — they are what the
+// logger, the cost views, and the macros all run on.
+// ---------------------------------------------------------------------------
+
+interface PickResult {
+  products: Array<{ id: number; name: string; brand: string | null; grams_per_serving: number | null; calories: number | null; protein_g: number | null }>;
+  components: Array<{ id: number; name: string; yield_g: number | null; per_100g_cal: number | null; per_100g_prot: number | null }>;
+}
+
+type Pick = { kind: 'product' | 'component'; id: number; name: string };
+
+interface HeaderForm {
+  name: string;
+  servings: string;
+  yield_g: string;
+  aliases: string;
+  notes: string;
+  instructions: string;
+}
+
+function formFrom(d: Detail): HeaderForm {
+  return {
+    name: d.recipe.name,
+    servings: String(d.recipe.servings ?? 1),
+    yield_g: d.recipe.yield_g ? String(d.recipe.yield_g) : '',
+    aliases: (d.aliases ?? []).join(', '),
+    notes: d.recipe.notes ?? '',
+    instructions: d.recipe.instructions ?? '',
+  };
+}
 
 function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; onBack: () => void }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<HeaderForm | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [rowGrams, setRowGrams] = useState<Record<number, string>>({});
+  const [undo, setUndo] = useState<{ label: string; payload: Record<string, unknown> } | null>(null);
+  // add-ingredient picker
+  const [pickQ, setPickQ] = useState('');
+  const [pickResults, setPickResults] = useState<PickResult | null>(null);
+  const [pick, setPick] = useState<Pick | null>(null);
+  const [addGrams, setAddGrams] = useState('');
+  const [busy, setBusy] = useState(false);
+  const pickBox = useRef<HTMLDivElement>(null);
 
-  const load = () => get<Detail>(`/recipes/${recipeId}`).then(setDetail).catch((e: Error) => setError(e.message));
+  const apply = (d: Detail) => {
+    setDetail(d);
+    setRowGrams(Object.fromEntries(d.ingredients.map((i) => [i.id, i.quantity_g === null ? '' : String(i.quantity_g)])));
+  };
+  const load = () => get<Detail>(`/recipes/${recipeId}`).then(apply).catch((e: Error) => setError(e.message));
 
   useEffect(() => {
     setDetail(null);
     setError('');
-    void load();
+    setUndo(null);
+    setPick(null);
+    setPickQ('');
+    const editNext = sessionStorage.getItem(EDIT_NEXT_KEY);
+    const startEditing = editNext === String(recipeId);
+    if (startEditing) sessionStorage.removeItem(EDIT_NEXT_KEY);
+    setEditing(startEditing);
+    get<Detail>(`/recipes/${recipeId}`)
+      .then((d) => {
+        apply(d);
+        if (startEditing) setForm(formFrom(d));
+      })
+      .catch((e: Error) => setError(e.message));
   }, [recipeId]);
+
+  // picker search, debounced
+  useEffect(() => {
+    if (!editing) return;
+    const t = setTimeout(() => {
+      get<PickResult>(`/recipes/pick?q=${encodeURIComponent(pickQ.trim())}`).then(setPickResults).catch(() => setPickResults(null));
+    }, 180);
+    return () => clearTimeout(t);
+  }, [pickQ, editing]);
+
+  const fail = (e: unknown) => setError((e as Error).message);
+
+  const startEdit = () => {
+    if (!detail) return;
+    setForm(formFrom(detail));
+    setEditing(true);
+  };
+
+  const saveHeader = async () => {
+    if (!form || !detail) return;
+    setSaving(true);
+    setError('');
+    try {
+      const body: Record<string, unknown> = {
+        name: form.name.trim(),
+        servings: Number(form.servings) || 1,
+        yield_g: form.yield_g.trim() ? Number(form.yield_g) : null,
+        notes: form.notes,
+        instructions: form.instructions,
+        aliases: form.aliases.split(',').map((a) => a.trim()).filter(Boolean),
+      };
+      apply(await patch<Detail>(`/recipes/${recipeId}`, body));
+    } catch (e) {
+      fail(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveRow = async (row: IngredientRow) => {
+    const value = Number(rowGrams[row.id]);
+    if (!(value > 0) || value === row.quantity_g) return;
+    try {
+      const r = await patch<{ recipe: Detail }>(`/recipes/${recipeId}/ingredients/${row.id}`, { quantity_g: value });
+      apply(r.recipe);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const removeRow = async (row: IngredientRow) => {
+    try {
+      const r = await del<{ deleted: Record<string, unknown>; recipe: Detail }>(`/recipes/${recipeId}/ingredients/${row.id}`);
+      apply(r.recipe);
+      setUndo({ label: row.ingredient_name, payload: r.deleted });
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const undoRemove = async () => {
+    if (!undo) return;
+    try {
+      const r = await post<{ recipe: Detail }>(`/recipes/${recipeId}/ingredients`, undo.payload);
+      apply(r.recipe);
+      setUndo(null);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const addRow = async () => {
+    const g = Number(addGrams);
+    if (!pick || !(g > 0) || busy) return;
+    setBusy(true);
+    try {
+      const body = pick.kind === 'product' ? { product_id: pick.id, quantity_g: g } : { sub_recipe_id: pick.id, quantity_g: g };
+      const r = await post<{ recipe: Detail }>(`/recipes/${recipeId}/ingredients`, body);
+      apply(r.recipe);
+      setPick(null);
+      setPickQ('');
+      setAddGrams('');
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const duplicate = async () => {
+    try {
+      const { id } = await post<{ id: number }>(`/recipes/${recipeId}/duplicate`, {});
+      sessionStorage.setItem(EDIT_NEXT_KEY, String(id));
+      nav.openRecipe(id);
+    } catch (e) {
+      fail(e);
+    }
+  };
 
   const toggleArchive = async (id: number, archived: boolean) => {
     await post(`/recipes/${id}/archive`, { archived });
     await load();
   };
 
-  if (error) return <div className="error">{error}</div>;
+  if (error && !detail) return <div className="error">{error}</div>;
   if (!detail) return <div className="empty">Loading…</div>;
 
   const r = detail.recipe;
+  const isComponent = Boolean(r.yield_g);
   return (
     <>
       <div className="bar">
         <a className="back" onClick={onBack}>
           ← All recipes
         </a>
+        <span className="right">
+          {editing ? (
+            <button className="btn primary" onClick={() => setEditing(false)}>
+              Done editing
+            </button>
+          ) : (
+            <>
+              <button className="btn" onClick={() => void duplicate()}>
+                Duplicate
+              </button>
+              <button className="btn primary" onClick={startEdit}>
+                Edit
+              </button>
+            </>
+          )}
+        </span>
       </div>
+      {error && <div className="error">{error}</div>}
       <div className="panel rdetail">
-        <div>
-          <h3>
-            {r.name} {r.yield_g && <span className="pill none">component recipe</span>}{' '}
-            {r.archived_at && <span className="pill none">archived</span>}
-          </h3>
-          <div className="meta">
-            {r.servings ?? 1} serving{(r.servings ?? 1) !== 1 ? 's' : ''}
-            {r.yield_g ? ` · ${r.yield_g}g batch yield` : ''} · {detail.ingredients.length} ingredients
-            {r.aliases ? ` · also: ${r.aliases}` : ''}
+        {editing && form ? (
+          <div className="editform">
+            <label className="wide">
+              <span className="k">Name</span>
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </label>
+            <label>
+              <span className="k">Servings</span>
+              <input className="short" inputMode="decimal" value={form.servings} onChange={(e) => setForm({ ...form, servings: e.target.value })} />
+            </label>
+            <label>
+              <span className="k">Batch yield g</span>
+              <input className="short" inputMode="decimal" placeholder="—" value={form.yield_g} onChange={(e) => setForm({ ...form, yield_g: e.target.value })} />
+            </label>
+            <label className="wide">
+              <span className="k">Aliases (comma separated)</span>
+              <input value={form.aliases} onChange={(e) => setForm({ ...form, aliases: e.target.value })} />
+            </label>
+            <label className="full">
+              <span className="k">Notes</span>
+              <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            </label>
+            <label className="full">
+              <span className="k">Instructions</span>
+              <textarea rows={4} value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} />
+            </label>
+            <div className="full bar">
+              <button className="btn primary" disabled={saving || !form.name.trim()} onClick={() => void saveHeader()}>
+                {saving ? 'Saving…' : 'Save details'}
+              </button>
+              <span className="note">a batch yield turns a recipe into a component that other recipes can use by grams</span>
+            </div>
           </div>
-        </div>
-        {r.yield_g ? (
+        ) : (
+          <div>
+            <h3>
+              {r.name} {isComponent && <span className="pill none">component recipe</span>}{' '}
+              {r.archived_at && <span className="pill none">archived</span>}
+            </h3>
+            <div className="meta">
+              {r.servings ?? 1} serving{(r.servings ?? 1) !== 1 ? 's' : ''}
+              {r.yield_g ? ` · ${r.yield_g}g batch yield` : ''} · {detail.ingredients.length} ingredients
+              {detail.aliases && detail.aliases.length > 0 ? ` · also: ${detail.aliases.join(', ')}` : ''}
+            </div>
+          </div>
+        )}
+        {isComponent ? (
           <div className="tiles">
             <div className="tile">
               <div className="k">Batch yield</div>
@@ -510,6 +781,15 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
             </div>
           </div>
         )}
+        {undo && (
+          <div className="undo">
+            Removed {undo.label}.{' '}
+            <a className="drill" onClick={() => void undoRemove()}>
+              Undo
+            </a>
+            <button className="mini x" onClick={() => setUndo(null)} aria-label="dismiss">×</button>
+          </div>
+        )}
         <div className="scroll">
           <table>
             <thead>
@@ -519,6 +799,7 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
                 <th className="r">Cal</th>
                 <th className="r">Protein</th>
                 <th className="r">Cost</th>
+                {editing && <th />}
               </tr>
             </thead>
             <tbody>
@@ -542,15 +823,99 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
                       </>
                     )}
                   </td>
-                  <td className="r num">{ing.quantity_g ? `${ing.quantity_g}g` : (ing.quantity ?? '—')}</td>
+                  <td className="r num">
+                    {editing && (ing.product_id || ing.sub_recipe_id) ? (
+                      <span className="gramsedit">
+                        <input
+                          className="short"
+                          inputMode="decimal"
+                          value={rowGrams[ing.id] ?? ''}
+                          onChange={(e) => setRowGrams({ ...rowGrams, [ing.id]: e.target.value })}
+                          onBlur={() => void saveRow(ing)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                          }}
+                        />
+                        g
+                      </span>
+                    ) : ing.quantity_g ? (
+                      `${ing.quantity_g}g`
+                    ) : (
+                      ing.quantity ?? '—'
+                    )}
+                  </td>
                   <td className="r num">{ing.calories ?? '—'}</td>
                   <td className="r num">{grams(ing.protein_g)}</td>
                   <td className="r num cost">{money(ing.cost)}</td>
+                  {editing && (
+                    <td className="r">
+                      <button className="mini x" title="Remove ingredient" onClick={() => void removeRow(ing)}>
+                        ×
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {editing && (
+          <div className="addwrap">
+            <div className="ptitle" style={{ paddingLeft: 0 }}>Add ingredient</div>
+
+                <div className="addline" ref={pickBox}>
+                  <div className="pickwrap">
+                    {pick ? (
+                      <span className="picked">
+                        {pick.name} <span className="pill none">{pick.kind}</span>
+                        <button className="mini x" onClick={() => setPick(null)} aria-label="clear">×</button>
+                      </span>
+                    ) : (
+                      <input
+                        placeholder="Search products and component recipes…"
+                        value={pickQ}
+                        onChange={(e) => setPickQ(e.target.value)}
+                      />
+                    )}
+                    {!pick && pickResults && pickQ.trim() !== '' && (
+                      <div className="picklist">
+                        {pickResults.components.filter((c) => c.id !== recipeId).map((c) => (
+                          <button key={`c${c.id}`} onClick={() => setPick({ kind: 'component', id: c.id, name: c.name })}>
+                            {c.name} <span className="pill none">component</span>
+                            <span className="sub">{c.per_100g_cal ?? '—'} cal · {grams(c.per_100g_prot)} P per 100g</span>
+                          </button>
+                        ))}
+                        {pickResults.products.map((p) => (
+                          <button key={`p${p.id}`} onClick={() => setPick({ kind: 'product', id: p.id, name: p.name })}>
+                            {p.name}
+                            <span className="sub">
+                              {p.brand ? `${p.brand} · ` : ''}{p.calories ?? '—'} cal · {grams(p.protein_g)} P per {p.grams_per_serving ?? '?'}g
+                            </span>
+                          </button>
+                        ))}
+                        {pickResults.components.length === 0 && pickResults.products.length === 0 && (
+                          <div className="sub" style={{ padding: '.5rem .7rem' }}>No matches. Add the product on the Ingredients tab first.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    className="short"
+                    inputMode="decimal"
+                    placeholder="grams"
+                    value={addGrams}
+                    onChange={(e) => setAddGrams(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void addRow();
+                    }}
+                  />
+                  <button className="btn primary" disabled={!pick || !(Number(addGrams) > 0) || busy} onClick={() => void addRow()}>
+                    Add
+                  </button>
+                </div>
+              
+          </div>
+        )}
         {(r.unpriced_ingredients ?? 0) > 0 && (
           <div className="warnrow">
             ⚠ {r.unpriced_ingredients} ingredient{(r.unpriced_ingredients ?? 0) !== 1 ? 's' : ''} without a
@@ -584,12 +949,13 @@ function RecipeDetail({ nav, recipeId, onBack }: { nav: Nav; recipeId: number; o
           </button>
           <span className="note">archived recipes keep their history, plans, and links — they just leave the list</span>
         </div>
-        {r.instructions && (
+        {!editing && (r.instructions || r.notes) && (
           <details>
             <summary className="muted" style={{ cursor: 'pointer', fontSize: '.82rem' }}>
               Notes & instructions
             </summary>
-            <pre style={{ whiteSpace: 'pre-wrap', font: 'inherit', fontSize: '.82rem' }}>{r.instructions}</pre>
+            {r.notes && <pre style={{ whiteSpace: 'pre-wrap', font: 'inherit', fontSize: '.82rem' }}>{r.notes}</pre>}
+            {r.instructions && <pre style={{ whiteSpace: 'pre-wrap', font: 'inherit', fontSize: '.82rem' }}>{r.instructions}</pre>}
           </details>
         )}
       </div>
