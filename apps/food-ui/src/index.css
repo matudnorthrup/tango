@@ -251,3 +251,19 @@ table.recipes td.ratio { color: var(--accent-ink); font-weight: 600; }
 .picklist button:last-child { border-bottom: 0; }
 .picklist button:hover, .picklist button:focus-visible { background: var(--accent-soft); color: var(--accent-ink); outline: 0; }
 .picklist button .sub { display: block; font-size: 0.72rem; color: var(--muted); }
+
+/* Scaling */
+.scalebar { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; align-items: flex-end; padding: 0.7rem 0.9rem; background: var(--surface-2); border-radius: 8px; }
+.scalebar label { display: flex; flex-direction: column; gap: 0.25rem; }
+.scalebar .k { font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.scalebar .note { align-self: center; }
+.scalein { display: inline-flex; align-items: center; gap: 0.3rem; }
+.scalein input.short { width: 4rem; text-align: center; }
+.approx { color: var(--muted); }
+td .sub { display: block; }
+tr.done td { opacity: 0.45; text-decoration: line-through; }
+.cookg { font-size: 1.15rem; font-weight: 700; }
+.cookinstr { padding-top: 0.5rem; }
+.phasebar { gap: 0.5rem; }
+.phasebar select { max-width: 220px; }
+.phases .phaserow { display: inline-flex; align-items: center; gap: 0.5rem; }

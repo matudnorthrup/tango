@@ -209,6 +209,32 @@ Rollup columns on `recipes` (`total_*`) remain and
 `recalculateRecipeTotals()` is extended to fiber and to prefer per-gram math
 via `quantity_g`.
 
+### 3.4 v6 — scaling
+
+Scaling a recipe has two independent dimensions, stored on different rows:
+
+- **Ingredient step size lives on the product.** `products.scale_step_g REAL`
+  is the ingredient's natural increment in grams (half a frozen bag = 140, one
+  egg = 50) and `products.scale_step_label TEXT` is the display label for one
+  step ("½ bag", "1 egg"). NULL = continuous (scale freely).
+- **Scale lock lives on the recipe row.** `recipe_ingredients.scale_lock TEXT
+  NOT NULL DEFAULT 'none' CHECK (scale_lock IN ('none','serving','batch'))`:
+  `none` scales with both people-count and goal phase; `serving` is fixed per
+  serving (ignores phase, still multiplies by people); `batch` is fixed per
+  batch (ignores both — a tablespoon of oil for the pan is the same at any
+  scale).
+- **Goal phases are multipliers on rows with lock `none`.** `goal_phases(key,
+  name, multiplier > 0, is_current, sort_order)`, seeded `weight_loss` 1.0
+  (current), `maintenance` 1.3, `bulk` 1.6; a partial unique index on
+  `is_current WHERE is_current = 1` guarantees exactly one current phase.
+
+Grams for an unlocked row = base × people × phase-multiplier, then snapped to
+the product's step (`round(grams / scale_step_g) × scale_step_g`, min one
+step) when a step is set; `serving` rows are base × people; `batch` rows are
+base. Views are unchanged — per-serving and per-100g figures are
+scale-invariant — and the computation happens at read time in the UI (and
+later the logger), never persisted back onto the recipe.
+
 ## 4. Data migration
 
 One-time script `scripts/migrate-atlas-ingredients.ts`:

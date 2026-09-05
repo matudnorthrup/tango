@@ -23,11 +23,8 @@ api.get('/products', (c) => {
   return c.json({ products });
 });
 
-api.get('/products/:id', (c) => {
-  const id = Number(c.req.param('id'));
-  const product = one('SELECT * FROM products WHERE id = ?', [id]);
-  if (!product) return c.json({ error: 'not found' }, 404);
-  const listings = all(
+function productListings(id: number) {
+  return all(
     `
     SELECT pl.id, pl.retailer, pl.retailer_item_id, pl.url, pl.package_description,
            pl.package_grams, pl.servings_per_container, pl.active, pl.preferred,
@@ -39,7 +36,10 @@ api.get('/products/:id', (c) => {
   `,
     [id],
   );
-  const history = all(
+}
+
+function productHistory(id: number) {
+  return all(
     `
     SELECT ph.listing_id, ph.observed_at, ph.price, ph.in_stock, ph.source
     FROM price_history ph
@@ -50,7 +50,10 @@ api.get('/products/:id', (c) => {
   `,
     [id],
   );
-  const usedIn = all(
+}
+
+function productUsedIn(id: number) {
+  return all(
     `
     SELECT r.id AS recipe_id, r.name, ri.quantity, ri.quantity_g, r.servings,
            rs.per_serving_cost
@@ -62,7 +65,49 @@ api.get('/products/:id', (c) => {
   `,
     [id],
   );
-  return c.json({ product, listings, history, usedIn });
+}
+
+// `SELECT *` on products: includes scale_step_g / scale_step_label (schema v6).
+api.get('/products/:id', (c) => {
+  const id = Number(c.req.param('id'));
+  const detail = productDetail(id);
+  if (!detail) return c.json({ error: 'not found' }, 404);
+  return c.json(detail);
+});
+
+// Same payload as GET /products/:id so the client can replace its state.
+function productDetail(id: number) {
+  const product = one('SELECT * FROM products WHERE id = ?', [id]);
+  if (!product) return null;
+  return {
+    product,
+    listings: productListings(id),
+    history: productHistory(id),
+    usedIn: productUsedIn(id),
+  };
+}
+
+// Scale-step editing only. Nutrition and FatSecret fields are owned by the
+// bot's product sync and are deliberately not writable here.
+api.patch('/products/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!one('SELECT id FROM products WHERE id = ?', [id])) return c.json({ error: 'not found' }, 404);
+  const body = await c.req.json<{ scale_step_g?: number | null; scale_step_label?: string | null }>();
+  const sets: string[] = [];
+  const params: Array<string | number | null> = [];
+  if ('scale_step_g' in body) {
+    const step = positiveOrNull(body.scale_step_g);
+    if (step === 'invalid') return c.json({ error: 'scale_step_g must be positive or null' }, 400);
+    sets.push('scale_step_g = ?');
+    params.push(step);
+  }
+  if ('scale_step_label' in body) {
+    const label = body.scale_step_label == null ? '' : String(body.scale_step_label).trim();
+    sets.push('scale_step_label = ?');
+    params.push(label || null);
+  }
+  if (sets.length) run(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
+  return c.json(productDetail(id));
 });
 
 api.post('/listings/:id/price', async (c) => {
@@ -79,6 +124,49 @@ api.post('/listings/:id/price', async (c) => {
 });
 
 // ---------- recipes ----------
+
+// Per-row macro and cost expressions shared by the recipe detail rows and the
+// recipes-list scaling sums. Stored per-row macros win, rows carrying only
+// grams derive from the product (per grams_per_serving) or the component
+// (per yield_g). Requires aliases: ri, p, sr, src (recipe_cost of the
+// component), pp (product_price of the product).
+const ROW_CAL_SQL = `COALESCE(ri.calories, ROUND(ri.quantity_g * p.calories * 1.0 / NULLIF(p.grams_per_serving, 0)),
+                    ROUND(ri.quantity_g * sr.total_calories * 1.0 / NULLIF(sr.yield_g, 0)))`;
+const ROW_PROT_SQL = `COALESCE(ri.protein_g, ROUND(ri.quantity_g * p.protein_g / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_protein_g / NULLIF(sr.yield_g, 0), 1))`;
+const ROW_FAT_SQL = `COALESCE(ri.fat_g, ROUND(ri.quantity_g * p.fat_g / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_fat_g / NULLIF(sr.yield_g, 0), 1))`;
+const ROW_FIBER_SQL = `COALESCE(ri.fiber_g, ROUND(ri.quantity_g * p.fiber_g / NULLIF(p.grams_per_serving, 0), 1),
+                    ROUND(ri.quantity_g * sr.total_fiber_g / NULLIF(sr.yield_g, 0), 1))`;
+const ROW_COST_SQL = `CASE WHEN ri.quantity_g IS NOT NULL AND pp.price_per_gram IS NOT NULL
+                THEN ROUND(ri.quantity_g * pp.price_per_gram, 2)
+                WHEN ri.quantity_g IS NOT NULL AND src.total_cost IS NOT NULL AND sr.yield_g > 0
+                THEN ROUND(ri.quantity_g * src.total_cost / sr.yield_g, 2) END`;
+const ROW_JOINS_SQL = `
+    FROM recipe_ingredients ri
+    LEFT JOIN products p ON p.id = ri.product_id
+    LEFT JOIN recipes sr ON sr.id = ri.sub_recipe_id
+    LEFT JOIN recipe_cost src ON src.recipe_id = ri.sub_recipe_id
+    LEFT JOIN product_price pp ON pp.product_id = ri.product_id`;
+
+// Per-recipe sums over the rows that scale with the phase multiplier.
+const SCALING_SUMS_SQL = `
+    SELECT ri.recipe_id,
+           ROUND(SUM(${ROW_CAL_SQL})) AS scaling_cal,
+           ROUND(SUM(${ROW_PROT_SQL}), 1) AS scaling_prot,
+           ROUND(SUM(${ROW_FAT_SQL}), 1) AS scaling_fat,
+           ROUND(SUM(${ROW_FIBER_SQL}), 1) AS scaling_fiber,
+           ROUND(SUM(${ROW_COST_SQL}), 2) AS scaling_cost
+    ${ROW_JOINS_SQL}
+    WHERE ri.scale_lock = 'none'
+    GROUP BY ri.recipe_id`;
+
+const SCALE_LOCKS = ['none', 'serving', 'batch'] as const;
+type ScaleLock = (typeof SCALE_LOCKS)[number];
+
+function parseScaleLock(value: unknown): ScaleLock | null {
+  return typeof value === 'string' && (SCALE_LOCKS as readonly string[]).includes(value) ? (value as ScaleLock) : null;
+}
 
 api.get('/recipes', (c) => {
   const showAll = c.req.query('all') === '1';
@@ -99,10 +187,18 @@ api.get('/recipes', (c) => {
              WHERE ri.recipe_id = rs.id) AS ingredient_names,
            (SELECT group_concat(DISTINCT ri.ingredient_name) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id) AS ingredient_labels,
            (SELECT group_concat(alias, ', ') FROM recipe_aliases ra WHERE ra.recipe_id = rs.id) AS aliases,
-           (SELECT count(*) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id AND ri.sub_recipe_id IS NOT NULL) AS component_count
+           (SELECT count(*) FROM recipe_ingredients ri WHERE ri.recipe_id = rs.id AND ri.sub_recipe_id IS NOT NULL) AS component_count,
+           -- sums over rows that scale with the phase multiplier (scale_lock = 'none');
+           -- locked sums are total − scaling on the client
+           COALESCE(sc.scaling_cal, 0) AS scaling_cal,
+           COALESCE(sc.scaling_prot, 0) AS scaling_prot,
+           COALESCE(sc.scaling_fat, 0) AS scaling_fat,
+           COALESCE(sc.scaling_fiber, 0) AS scaling_fiber,
+           COALESCE(sc.scaling_cost, 0) AS scaling_cost
     FROM recipe_summary rs
     JOIN recipes r ON r.id = rs.id
     LEFT JOIN recipe_cost rc ON rc.recipe_id = rs.id
+    LEFT JOIN (${SCALING_SUMS_SQL}) sc ON sc.recipe_id = rs.id
     ${showAll ? '' : 'WHERE r.archived_at IS NULL'}
     ORDER BY rs.name
   `);
@@ -259,24 +355,18 @@ function ingredientRows(recipeId: number, rowId?: number) {
     `
     SELECT ri.id, ri.ingredient_name, ri.quantity, ri.quantity_g,
            -- sub-recipe rows: macros derive from the component's batch totals ÷ yield × grams used
-           COALESCE(ri.calories, ROUND(ri.quantity_g * p.calories * 1.0 / NULLIF(p.grams_per_serving, 0)),
-                    ROUND(ri.quantity_g * sr.total_calories * 1.0 / NULLIF(sr.yield_g, 0))) AS calories,
-           COALESCE(ri.protein_g, ROUND(ri.quantity_g * p.protein_g / NULLIF(p.grams_per_serving, 0), 1),
-                    ROUND(ri.quantity_g * sr.total_protein_g / NULLIF(sr.yield_g, 0), 1)) AS protein_g,
-           COALESCE(ri.fiber_g, ROUND(ri.quantity_g * p.fiber_g / NULLIF(p.grams_per_serving, 0), 1),
-                    ROUND(ri.quantity_g * sr.total_fiber_g / NULLIF(sr.yield_g, 0), 1)) AS fiber_g,
+           ${ROW_CAL_SQL} AS calories,
+           ${ROW_PROT_SQL} AS protein_g,
+           ${ROW_FIBER_SQL} AS fiber_g,
            ri.product_id, ri.sub_recipe_id,
            p.name AS product_name,
            sr.name AS sub_recipe_name,
-           CASE WHEN ri.quantity_g IS NOT NULL AND pp.price_per_gram IS NOT NULL
-                THEN ROUND(ri.quantity_g * pp.price_per_gram, 2)
-                WHEN ri.quantity_g IS NOT NULL AND src.total_cost IS NOT NULL AND sr.yield_g > 0
-                THEN ROUND(ri.quantity_g * src.total_cost / sr.yield_g, 2) END AS cost
-    FROM recipe_ingredients ri
-    LEFT JOIN products p ON p.id = ri.product_id
-    LEFT JOIN recipes sr ON sr.id = ri.sub_recipe_id
-    LEFT JOIN recipe_cost src ON src.recipe_id = ri.sub_recipe_id
-    LEFT JOIN product_price pp ON pp.product_id = ri.product_id
+           ${ROW_COST_SQL} AS cost,
+           ri.scale_lock,
+           -- scale step comes from the linked product; NULL for component rows
+           COALESCE(p.scale_step_g, sr.scale_step_g) AS scale_step_g,
+           COALESCE(p.scale_step_label, sr.scale_step_label) AS scale_step_label
+    ${ROW_JOINS_SQL}
     WHERE ri.recipe_id = ? ${rowId != null ? 'AND ri.id = ?' : ''}
     ORDER BY 5 DESC
   `,
@@ -298,7 +388,7 @@ function recipeAliases(recipeId: number): string[] {
 // can replace its state without a second round trip.
 function recipeDetail(id: number) {
   const recipe = one(
-    `SELECT rs.*, r.yield_g, r.archived_at,
+    `SELECT rs.*, r.yield_g, r.archived_at, r.scale_step_g, r.scale_step_label,
             CASE WHEN r.yield_g > 0 THEN ROUND(r.total_calories * 100.0 / r.yield_g) END AS per_100g_cal,
             CASE WHEN r.yield_g > 0 THEN ROUND(r.total_protein_g * 100.0 / r.yield_g, 1) END AS per_100g_prot,
             CASE WHEN r.yield_g > 0 THEN ROUND(r.total_fat_g * 100.0 / r.yield_g, 1) END AS per_100g_fat,
@@ -442,9 +532,9 @@ api.post('/recipes/:id/duplicate', async (c) => {
     );
     run(
       `INSERT INTO recipe_ingredients (recipe_id, product_id, sub_recipe_id, ingredient_name, quantity, quantity_g,
-                                       calories, protein_g, carbs_g, fat_g, fiber_g)
+                                       calories, protein_g, carbs_g, fat_g, fiber_g, scale_lock)
        SELECT ?, product_id, sub_recipe_id, ingredient_name, quantity, quantity_g,
-              calories, protein_g, carbs_g, fat_g, fiber_g
+              calories, protein_g, carbs_g, fat_g, fiber_g, scale_lock
        FROM recipe_ingredients WHERE recipe_id = ? ORDER BY id`,
       [copyId, id],
     );
@@ -488,6 +578,18 @@ api.patch('/recipes/:id', async (c) => {
     sets.push('yield_g = ?');
     params.push(yieldG);
   }
+  if ('scale_step_g' in body) {
+    const step = positiveOrNull((body as { scale_step_g?: number | null }).scale_step_g);
+    if (step === 'invalid') return c.json({ error: 'scale_step_g must be positive or null' }, 400);
+    sets.push('scale_step_g = ?');
+    params.push(step);
+  }
+  if ('scale_step_label' in body) {
+    const label = (body as { scale_step_label?: string | null }).scale_step_label;
+    const trimmed = label == null ? '' : String(label).trim();
+    sets.push('scale_step_label = ?');
+    params.push(trimmed || null);
+  }
   if ('notes' in body) {
     sets.push('notes = ?');
     params.push(body.notes == null || String(body.notes).trim() === '' ? null : String(body.notes));
@@ -519,7 +621,10 @@ api.post('/recipes/:id/ingredients', async (c) => {
     sub_recipe_id?: number | null;
     quantity_g?: number;
     ingredient_name?: string;
+    scale_lock?: string;
   }>();
+  const scaleLock = body.scale_lock == null ? 'none' : parseScaleLock(body.scale_lock);
+  if (scaleLock == null) return c.json({ error: `scale_lock must be one of ${SCALE_LOCKS.join('|')}` }, 400);
   const productId = body.product_id == null ? null : Number(body.product_id);
   const subRecipeId = body.sub_recipe_id == null ? null : Number(body.sub_recipe_id);
   if ((productId == null) === (subRecipeId == null)) {
@@ -548,9 +653,9 @@ api.post('/recipes/:id/ingredients', async (c) => {
 
   const rowId = transaction(() => {
     const newRowId = run(
-      `INSERT INTO recipe_ingredients (recipe_id, product_id, sub_recipe_id, ingredient_name, quantity, quantity_g)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, productId, subRecipeId, ingredientName, gramsLabel(quantityG), quantityG],
+      `INSERT INTO recipe_ingredients (recipe_id, product_id, sub_recipe_id, ingredient_name, quantity, quantity_g, scale_lock)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, productId, subRecipeId, ingredientName, gramsLabel(quantityG), quantityG, scaleLock],
     );
     refreshRowMacros(newRowId);
     afterRecipeChange(id);
@@ -565,15 +670,90 @@ api.patch('/recipes/:id/ingredients/:rowId', async (c) => {
   if (!one('SELECT id FROM recipe_ingredients WHERE id = ? AND recipe_id = ?', [rowId, id])) {
     return c.json({ error: 'ingredient row not found' }, 404);
   }
-  const body = await c.req.json<{ quantity_g?: number }>();
-  const quantityG = Number(body.quantity_g);
-  if (!Number.isFinite(quantityG) || quantityG <= 0) return c.json({ error: 'quantity_g must be positive' }, 400);
+  const body = await c.req.json<{ quantity_g?: number; scale_lock?: string }>();
+  let quantityG: number | null = null;
+  if ('quantity_g' in body) {
+    quantityG = Number(body.quantity_g);
+    if (!Number.isFinite(quantityG) || quantityG <= 0) return c.json({ error: 'quantity_g must be positive' }, 400);
+  }
+  let scaleLock: ScaleLock | null = null;
+  if ('scale_lock' in body) {
+    scaleLock = parseScaleLock(body.scale_lock);
+    if (scaleLock == null) return c.json({ error: `scale_lock must be one of ${SCALE_LOCKS.join('|')}` }, 400);
+  }
+  if (quantityG == null && scaleLock == null) return c.json({ error: 'quantity_g or scale_lock required' }, 400);
   transaction(() => {
-    run('UPDATE recipe_ingredients SET quantity_g = ?, quantity = ? WHERE id = ?', [quantityG, gramsLabel(quantityG), rowId]);
-    refreshRowMacros(rowId);
-    afterRecipeChange(id);
+    if (scaleLock != null) run('UPDATE recipe_ingredients SET scale_lock = ? WHERE id = ?', [scaleLock, rowId]);
+    if (quantityG != null) {
+      run('UPDATE recipe_ingredients SET quantity_g = ?, quantity = ? WHERE id = ?', [quantityG, gramsLabel(quantityG), rowId]);
+      refreshRowMacros(rowId);
+      afterRecipeChange(id);
+    }
   });
   return c.json({ row: ingredientRow(id, rowId), recipe: recipeDetail(id) });
+});
+
+// "Rewrite the base recipe at this size": every listed row gets new grams,
+// optionally with new servings / yield, in one transaction. Row macros are
+// refreshed, totals recalculated, and component users cascaded, exactly as a
+// series of single-row edits would — but atomically, so the recipe never
+// reads as half-scaled.
+api.post('/recipes/:id/rewrite', async (c) => {
+  const id = Number(c.req.param('id'));
+  const existing = one<RecipeRow>('SELECT * FROM recipes WHERE id = ?', [id]);
+  if (!existing) return c.json({ error: 'not found' }, 404);
+  const body = await c.req.json<{
+    servings?: number;
+    yield_g?: number | null;
+    rows?: Array<{ id?: number; quantity_g?: number }>;
+  }>();
+  if (!Array.isArray(body.rows)) return c.json({ error: 'rows must be an array' }, 400);
+
+  let servings: number | null = null;
+  if ('servings' in body && body.servings != null) {
+    servings = Number(body.servings);
+    if (!Number.isFinite(servings) || servings <= 0) return c.json({ error: 'servings must be positive' }, 400);
+  }
+  let yieldG: number | null | undefined;
+  if ('yield_g' in body) {
+    const parsed = positiveOrNull(body.yield_g);
+    if (parsed === 'invalid') return c.json({ error: 'yield_g must be positive or null' }, 400);
+    yieldG = parsed;
+  }
+
+  const known = new Set(
+    all<{ id: number }>('SELECT id FROM recipe_ingredients WHERE recipe_id = ?', [id]).map((r) => r.id),
+  );
+  const updates: Array<{ id: number; quantity_g: number }> = [];
+  for (const row of body.rows) {
+    const rowId = Number(row?.id);
+    if (!Number.isInteger(rowId) || !known.has(rowId)) return c.json({ error: `row ${row?.id} is not in this recipe` }, 400);
+    const grams = Number(row?.quantity_g);
+    if (!Number.isFinite(grams) || grams <= 0) return c.json({ error: `row ${rowId}: quantity_g must be positive` }, 400);
+    updates.push({ id: rowId, quantity_g: grams });
+  }
+
+  transaction(() => {
+    for (const u of updates) {
+      run('UPDATE recipe_ingredients SET quantity_g = ?, quantity = ? WHERE id = ?', [u.quantity_g, gramsLabel(u.quantity_g), u.id]);
+      refreshRowMacros(u.id);
+    }
+    const sets: string[] = [];
+    const params: Array<number | null> = [];
+    if (servings != null) {
+      sets.push('servings = ?');
+      params.push(servings);
+    }
+    if (yieldG !== undefined) {
+      sets.push('yield_g = ?');
+      params.push(yieldG);
+    }
+    if (sets.length) run(`UPDATE recipes SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
+    recalculateRecipeTotals(id);
+    const wasComponent = existing.yield_g != null && existing.yield_g > 0;
+    if (wasComponent || isComponent(id)) cascadeComponentChange(id);
+  });
+  return c.json(recipeDetail(id));
 });
 
 api.delete('/recipes/:id/ingredients/:rowId', (c) => {
@@ -589,6 +769,51 @@ api.delete('/recipes/:id/ingredients/:rowId', (c) => {
     afterRecipeChange(id);
   });
   return c.json({ deleted: row, recipe: recipeDetail(id) });
+});
+
+// ---------- goal phases ----------
+
+type PhaseRow = { key: string; name: string; multiplier: number; is_current: number; sort_order: number };
+
+function phaseList() {
+  return all<PhaseRow>('SELECT key, name, multiplier, is_current, sort_order FROM goal_phases ORDER BY sort_order, key').map(
+    (p) => ({ ...p, is_current: p.is_current === 1 }),
+  );
+}
+
+api.get('/phases', (c) => c.json({ phases: phaseList() }));
+
+api.patch('/phases/:key', async (c) => {
+  const key = c.req.param('key');
+  if (!one('SELECT key FROM goal_phases WHERE key = ?', [key])) return c.json({ error: 'phase not found' }, 404);
+  const body = await c.req.json<{ multiplier?: number; is_current?: boolean; name?: string }>();
+  const sets: string[] = [];
+  const params: Array<string | number> = [];
+  if ('multiplier' in body) {
+    const multiplier = Number(body.multiplier);
+    if (!Number.isFinite(multiplier) || multiplier <= 0) return c.json({ error: 'multiplier must be positive' }, 400);
+    sets.push('multiplier = ?');
+    params.push(multiplier);
+  }
+  if ('name' in body) {
+    const name = String(body.name ?? '').trim();
+    if (!name) return c.json({ error: 'name required' }, 400);
+    sets.push('name = ?');
+    params.push(name);
+  }
+  // There is always exactly one current phase; you switch by naming the new
+  // one, never by un-setting the old one.
+  if ('is_current' in body && body.is_current !== true) return c.json({ error: 'is_current may only be set to true' }, 400);
+  const makeCurrent = body.is_current === true;
+  transaction(() => {
+    if (makeCurrent) {
+      // Clear first so the partial unique index on is_current = 1 never trips.
+      run('UPDATE goal_phases SET is_current = 0 WHERE is_current = 1 AND key != ?', [key]);
+      sets.push('is_current = 1');
+    }
+    if (sets.length) run(`UPDATE goal_phases SET ${sets.join(', ')} WHERE key = ?`, [...params, key]);
+  });
+  return c.json({ phases: phaseList() });
 });
 
 // ---------- plans ----------

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Nav } from '../App';
-import { get, post, money, grams, priceAge } from '../lib';
+import { get, post, money, grams, priceAge, patch } from '../lib';
 
 interface ProductRow {
   id: number;
@@ -18,6 +18,8 @@ interface ProductRow {
   price_per_serving: number | null;
   listing_count: number;
   discontinued_date: string | null;
+  scale_step_g?: number | null;
+  scale_step_label?: string | null;
   category: string | null;
 }
 
@@ -62,9 +64,30 @@ function ProductDetail({ id, nav, onClose }: { id: number; nav: Nav; onClose: ()
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState('');
   const [priceInputs, setPriceInputs] = useState<Record<number, string>>({});
+  const [stepG, setStepG] = useState('');
+  const [stepLabel, setStepLabel] = useState('');
+  const [stepMsg, setStepMsg] = useState('');
 
   const load = () => {
-    get<Detail>(`/products/${id}`).then(setDetail).catch((e: Error) => setError(e.message));
+    get<Detail>(`/products/${id}`)
+      .then((d) => {
+        setDetail(d);
+        setStepG(d.product.scale_step_g ? String(d.product.scale_step_g) : '');
+        setStepLabel(d.product.scale_step_label ?? '');
+      })
+      .catch((e: Error) => setError(e.message));
+  };
+
+  const saveStep = async () => {
+    const g = stepG.trim() === '' ? null : Number(stepG);
+    if (g !== null && !(g > 0)) return;
+    try {
+      await patch(`/products/${id}`, { scale_step_g: g, scale_step_label: g === null ? null : stepLabel.trim() || null });
+      setStepMsg(g === null ? 'continuous' : `steps of ${g}g saved`);
+      load();
+    } catch (e) {
+      setStepMsg((e as Error).message);
+    }
   };
   useEffect(load, [id]);
 
@@ -141,6 +164,22 @@ function ProductDetail({ id, nav, onClose }: { id: number; nav: Nav; onClose: ()
           <div className="k">$ / serving</div>
           <div className="v cost">{money(detail.listings.find((l) => l.preferred)?.price_per_serving ?? detail.listings[0]?.price_per_serving)}</div>
         </div>
+      </div>
+      <div className="panel filters scalingform">
+        <label>
+          <span className="k">Scaling step (g)</span>
+          <input className="short" inputMode="decimal" placeholder="continuous" value={stepG} onChange={(e) => setStepG(e.target.value)} />
+        </label>
+        <label>
+          <span className="k">Step label</span>
+          <input placeholder="½ bag, 1 egg" value={stepLabel} onChange={(e) => setStepLabel(e.target.value)} disabled={stepG.trim() === ''} />
+        </label>
+        <button className="btn" onClick={() => void saveStep()} style={{ alignSelf: 'flex-end' }}>
+          Save scaling
+        </button>
+        <span className="note" style={{ alignSelf: 'center' }}>
+          {stepMsg || (p.scale_step_g ? `scaled recipes snap this ingredient to ${p.scale_step_label ?? `${p.scale_step_g}g`} increments` : 'how this ingredient comes apart: leave blank if any gram amount works; set a step for bags, eggs, cans')}
+        </span>
       </div>
 
       <div className="panel scroll">
