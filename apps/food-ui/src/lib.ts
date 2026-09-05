@@ -1,4 +1,7 @@
-const base = 'api';
+// Absolute, derived from Vite's base ('/tango-food/'), so the API resolves the
+// same whether the page URL carries a trailing slash or not. A relative 'api'
+// from '/tango-food' (no slash) resolved to the site root and 404ed.
+const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${base}${path}`, {
