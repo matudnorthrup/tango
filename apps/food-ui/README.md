@@ -12,6 +12,11 @@ trends. Spec: [`docs/specs/food-tracker.md`](../../docs/specs/food-tracker.md).
   used-in recipes).
 - **Recipes** — per-serving macro + cost rollups from gram quantities;
   component recipes (batch `yield_g`) usable by the gram in other recipes.
+  The table searches name/alias/ingredient, filters by ingredient, protein, protein per
+  100 cal, calories, cost; each recipe page has an edit mode (grams inline, add/remove rows
+  via a product + component picker with undo, header fields, aliases), plus New and
+  Duplicate. Grams are the only editable quantity; totals recompute server-side and
+  cascade one level into recipes that use an edited component.
 - **Planner** — weekly plans with **per-meal servings** (a school-day lunch is
   ×1 while dinner is ×2); create plans, add meals, adjust portions inline.
 - **Shopping list** — plan servings × grams, rounded up to whole containers,
