@@ -54,6 +54,8 @@ export interface ScheduleExecutionConfig {
   task?: string;
   /** Task template with {{interpolation}} for conditional-agent mode */
   taskTemplate?: string;
+  /** Job status to include as review evidence; does not gate the whole run. */
+  contextDependencies?: string[];
   /** Per-execution timeout in seconds */
   timeoutSeconds?: number;
   /**

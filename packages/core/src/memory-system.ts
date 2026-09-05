@@ -102,6 +102,8 @@ export interface RetrievedMemoryRecord extends StoredMemoryRecord {
 }
 
 export interface AssembleSessionMemoryPromptInput {
+  /** Approved aliases whose conversation turns belong to this agent. */
+  messageAgentIds?: string[];
   sessionId: string;
   agentId: string;
   /**
@@ -485,7 +487,9 @@ export function assembleSessionMemoryPrompt(
   const allowFullHistoryBypass = input.allowFullHistoryBypass ?? true;
   const excludeIds = new Set(input.excludeMessageIds ?? []);
   const recentMessages = input.messages
-    .filter((message) => message.agentId === input.agentId)
+    .filter((message) => input.messageAgentIds
+      ? input.messageAgentIds.includes(message.agentId ?? "")
+      : message.agentId === input.agentId)
     .filter((message) => message.direction === "inbound" || message.direction === "outbound")
     .filter((message) => !excludeIds.has(message.id));
 

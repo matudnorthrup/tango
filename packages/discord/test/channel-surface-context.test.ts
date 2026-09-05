@@ -350,3 +350,30 @@ describe("selectWarmStartMessages", () => {
     expect(result.messages.length).toBe(11);
   });
 });
+
+
+describe("scheduled history selection", () => {
+  it("recovers overnight answers from prior sessions and aliases without other surfaces or agents", () => {
+    const message = (id: number, agentId: string, channel: string, visibility = "public") => makeMessage({
+      id, sessionId: "old-session", agentId, discordChannelId: channel,
+      direction: "inbound", source: "discord", visibility: visibility as "public",
+      content: `Prior decision ${id}`, createdAt: minutesAgo(60 * 48),
+    });
+    const result = selectWarmStartMessages({
+      sessionMessages: [message(1, "foxtrot", "thread"), message(2, "victor", "thread"), message(3, "foxtrot", "parent"), message(4, "foxtrot", "thread", "internal")],
+      recentChannelMessages: [message(5, "foxtrot-ollama", "thread"), message(6, "foxtrot", "thread"), message(7, "watson", "thread")],
+      agentId: "foxtrot", channelId: "thread", scheduledAgentIds: ["foxtrot", "foxtrot-ollama"],
+    });
+    expect(result.messages.map((row) => row.id)).toEqual([1, 5, 6]);
+  });
+
+  it("caps supplemental history and preserves repeated short answers in different turns", () => {
+    const rows = Array.from({ length: 100 }, (_, id) => makeMessage({
+      id, sessionId: "old", agentId: "foxtrot", discordChannelId: "thread",
+      direction: "inbound", source: "discord", visibility: "public",
+      content: "Yes", createdAt: minutesAgo(60 * 48),
+    }));
+    const result = selectWarmStartMessages({ sessionMessages: [], recentChannelMessages: rows, agentId: "foxtrot", channelId: "thread", scheduledAgentIds: ["foxtrot"] });
+    expect(result.messages).toHaveLength(80);
+  });
+});

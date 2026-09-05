@@ -10,6 +10,8 @@ schedule:
   timezone: America/Los_Angeles
 
 execution:
+  context_dependencies:
+    - receipt-cataloger
   mode: conditional-agent
   pre_check:
     handler: foxtrot-unreviewed-transactions
@@ -48,18 +50,21 @@ execution:
     5. Follow the transaction_categorization skill to apply rules,
        handle splits, and flag ambiguous vendors for review.
     6. Apply categories via the Lunch Money API (PUT with category_id
-       and status: "cleared").
+       and status: "cleared") only for verified categorizations. Leave
+       unresolved or receipt-dependent items uncleared.
     7. Return a concise summary for the finance thread:
        "Categorized N transactions tonight — here's what I did.
        Reply to correct anything."
        Then list each transaction: payee, amount, applied category.
-       If any were ambiguous or need review, list those separately.
+       List waiting-for-cataloging items separately from new questions that
+       genuinely need user input. Reuse prior answers and avoid repeat questions.
 
     Rate limit: wait 0.3s between Lunch Money API calls.
   timeout_seconds: 420
 
 provider:
   model: claude-sonnet-4-6
+  reasoning_effort: high
 
 delivery:
   channel_id: "100000000000001001"

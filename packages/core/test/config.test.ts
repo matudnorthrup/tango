@@ -1181,3 +1181,30 @@ describe("loadIntentContractConfigs", () => {
     });
   });
 });
+
+
+describe("scheduled review configuration", () => {
+  it("loads context dependencies and reasoning effort through the normal config loader", () => {
+    isolateProfileHome();
+    const dir = createTempConfigDir();
+    fs.writeFileSync(path.join(dir, "schedules", "review.yaml"), `
+id: review
+description: Review pending items
+enabled: false
+runtime: v2
+schedule:
+  cron: "0 23 * * *"
+execution:
+  mode: agent
+  worker_id: finance
+  task: Review items
+  context_dependencies: [receipts]
+provider:
+  model: claude-sonnet-4-6
+  reasoning_effort: high
+`);
+    const schedule = loadScheduleConfigs(dir).find((item) => item.id === "review");
+    expect(schedule?.execution.contextDependencies).toEqual(["receipts"]);
+    expect(schedule?.provider?.reasoningEffort).toBe("high");
+  });
+});

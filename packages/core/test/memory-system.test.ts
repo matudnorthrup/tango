@@ -928,3 +928,21 @@ describe("pre-decoded embedding support (atlas adapter records)", () => {
     expect(results[0]?.semanticScore ?? 0).toBeGreaterThan(0.9);
   });
 });
+
+
+describe("scheduled conversation alias ranking", () => {
+  it("retains approved clone history while excluding unrelated agent messages", () => {
+    const input = {
+      sessionId: "review", agentId: "foxtrot", allowFullHistoryBypass: false,
+      messages: [
+        message({ id: 1, agentId: "foxtrot-ollama", direction: "inbound", content: "Confirmed refund category is Motorcycle Gear." }),
+        message({ id: 2, agentId: "victor", direction: "inbound", content: "Unrelated confidential note." }),
+      ],
+      summaries: [], memories: [], pinnedFacts: [],
+    };
+    expect(assembleSessionMemoryPrompt(input).prompt).not.toContain("Confirmed refund");
+    const prompt = assembleSessionMemoryPrompt({ ...input, messageAgentIds: ["foxtrot", "foxtrot-ollama"] }).prompt;
+    expect(prompt).toContain("Confirmed refund category is Motorcycle Gear");
+    expect(prompt).not.toContain("Unrelated confidential");
+  });
+});
