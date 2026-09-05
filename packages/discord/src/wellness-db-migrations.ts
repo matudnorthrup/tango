@@ -25,6 +25,8 @@
  *       ('none' | 'serving' | 'batch'), and the goal_phases table (per-phase
  *       multipliers, exactly one current). Views unchanged — per-serving and
  *       per-100g math is scale-invariant; scaling is computed at read time.
+ *   8 — recipe_cost and shopping_list walk the full component tree (depth ≤ 6),
+ *       not one level: a base built on another component costs and shops fully.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -32,7 +34,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createWellnessDbSchema, resolveWellnessDbPath } from "./wellness-db-tools.js";
 
-export const WELLNESS_DB_VERSION = 7;
+export const WELLNESS_DB_VERSION = 8;
 
 export interface EnsureWellnessDbReport {
   path: string;
@@ -201,7 +203,7 @@ function createFoodTrackerViews(db: DatabaseSync): void {
       r.servings,
       r.yield_g,
       SUM(ri.quantity_g * pp.price_per_gram) AS product_cost,
-      SUM(CASE WHEN ri.sub_recipe_id IS NULL AND (ri.quantity_g IS NULL OR pp.price_per_gram IS NULL)
+      SUM(CASE WHEN ri.id IS NOT NULL AND ri.sub_recipe_id IS NULL AND (ri.quantity_g IS NULL OR pp.price_per_gram IS NULL)
                THEN 1 ELSE 0 END) AS unpriced_products
     FROM recipes r
     LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id AND ri.sub_recipe_id IS NULL
@@ -210,20 +212,31 @@ function createFoodTrackerViews(db: DatabaseSync): void {
 
     DROP VIEW IF EXISTS recipe_cost;
     CREATE VIEW recipe_cost AS
-    -- One level of nesting: a component recipe's batch cost ÷ its yield_g
-    -- gives a per-gram cost, applied to the grams the parent uses.
+    -- Full nesting (v8): walk each recipe's component tree (depth ≤ 6) and
+    -- apply every component's product cost scaled by grams used ÷ its
+    -- yield_g at each hop, so a base built on another component still costs.
+    WITH RECURSIVE contrib(root_id, recipe_id, factor, depth) AS (
+      SELECT id, id, 1.0, 0 FROM recipes
+      UNION ALL
+      SELECT c.root_id, ri.sub_recipe_id,
+             c.factor * ri.quantity_g / NULLIF(sr.yield_g, 0),
+             c.depth + 1
+      FROM contrib c
+      JOIN recipe_ingredients ri ON ri.recipe_id = c.recipe_id AND ri.sub_recipe_id IS NOT NULL
+      JOIN recipes sr ON sr.id = ri.sub_recipe_id
+      WHERE c.depth < 6
+    )
     SELECT
-      b.recipe_id,
-      COALESCE(b.product_cost, 0) + COALESCE(SUM(sri.quantity_g * sb.product_cost / NULLIF(sb.yield_g, 0)), 0) AS total_cost,
-      CASE WHEN b.servings > 0
-           THEN (COALESCE(b.product_cost, 0) + COALESCE(SUM(sri.quantity_g * sb.product_cost / NULLIF(sb.yield_g, 0)), 0)) / b.servings END AS cost_per_serving,
-      COALESCE(b.unpriced_products, 0)
-        + COALESCE(SUM(CASE WHEN sri.id IS NOT NULL AND (sri.quantity_g IS NULL OR sb.product_cost IS NULL OR sb.yield_g IS NULL OR sb.yield_g = 0)
-                            THEN 1 ELSE 0 END), 0) AS unpriced_ingredients
-    FROM recipe_base_cost b
-    LEFT JOIN recipe_ingredients sri ON sri.recipe_id = b.recipe_id AND sri.sub_recipe_id IS NOT NULL
-    LEFT JOIN recipe_base_cost sb ON sb.recipe_id = sri.sub_recipe_id
-    GROUP BY b.recipe_id;
+      r.id AS recipe_id,
+      SUM(CASE WHEN c.factor IS NOT NULL THEN c.factor * COALESCE(b.product_cost, 0) ELSE 0 END) AS total_cost,
+      CASE WHEN r.servings > 0
+           THEN SUM(CASE WHEN c.factor IS NOT NULL THEN c.factor * COALESCE(b.product_cost, 0) ELSE 0 END) / r.servings END AS cost_per_serving,
+      SUM(CASE WHEN c.factor IS NOT NULL THEN COALESCE(b.unpriced_products, 0) ELSE 0 END)
+        + SUM(CASE WHEN c.depth > 0 AND c.factor IS NULL THEN 1 ELSE 0 END) AS unpriced_ingredients
+    FROM recipes r
+    JOIN contrib c ON c.root_id = r.id
+    LEFT JOIN recipe_base_cost b ON b.recipe_id = c.recipe_id
+    GROUP BY r.id;
 
     DROP VIEW IF EXISTS recipe_summary;
     CREATE VIEW recipe_summary AS
@@ -270,13 +283,26 @@ function createFoodTrackerViews(db: DatabaseSync): void {
 
     DROP VIEW IF EXISTS shopping_list;
     CREATE VIEW shopping_list AS
-    WITH needs AS (
-      SELECT e.plan_id, ri.product_id,
-             (ri.quantity_g / NULLIF(r.servings, 0)) * e.servings AS grams
+    WITH RECURSIVE expand(plan_id, recipe_id, factor, depth) AS (
+      -- v8: planned recipes expand through their components (depth ≤ 6) so a
+      -- bowl built on shredded chicken puts raw thighs on the list.
+      SELECT e.plan_id, e.recipe_id, e.servings * 1.0 / NULLIF(r.servings, 0), 0
       FROM meal_plan_entries e
       JOIN recipes r ON r.id = e.recipe_id
-      JOIN recipe_ingredients ri ON ri.recipe_id = r.id
-      WHERE ri.product_id IS NOT NULL
+      WHERE e.recipe_id IS NOT NULL
+      UNION ALL
+      SELECT x.plan_id, ri.sub_recipe_id,
+             x.factor * ri.quantity_g / NULLIF(sr.yield_g, 0),
+             x.depth + 1
+      FROM expand x
+      JOIN recipe_ingredients ri ON ri.recipe_id = x.recipe_id AND ri.sub_recipe_id IS NOT NULL
+      JOIN recipes sr ON sr.id = ri.sub_recipe_id
+      WHERE x.depth < 6
+    ),
+    needs AS (
+      SELECT x.plan_id, ri.product_id, ri.quantity_g * x.factor AS grams
+      FROM expand x
+      JOIN recipe_ingredients ri ON ri.recipe_id = x.recipe_id AND ri.product_id IS NOT NULL
       UNION ALL
       SELECT e.plan_id, e.product_id,
              p.grams_per_serving * e.servings AS grams
@@ -450,6 +476,11 @@ export function ensureWellnessDb(dbPathOverride?: string): EnsureWellnessDbRepor
       if (version < 7) {
         applyBatchUnitsMigration(db);
         version = 7;
+      }
+      if (version < 8) {
+        // Views only: recursive component cost + recursive shopping expansion.
+        createFoodTrackerViews(db);
+        version = 8;
       }
       setUserVersion(db, version);
       const violations = db.prepare("PRAGMA foreign_key_check").all();
