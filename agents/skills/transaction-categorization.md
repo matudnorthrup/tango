@@ -26,6 +26,25 @@ category from a Lunch Money rule; still verify it against the finance rules.
 }
 ```
 
+## Reconcile context before categorizing or asking questions
+
+For each item, check the supplied conversation and prior decisions, then retrieve
+matching memory and live records using its transaction ID, merchant, date, and
+amount. A broad nightly-review search is not enough to conclude it is unknown.
+A prior explicit correction for the same purchase takes precedence over an old
+merchant heuristic; verify the current category list and transaction first.
+
+For refunds, find the original purchase and its confirmed category or split.
+Use order/transaction links, amount, dates, and receipt evidence to establish the
+match. A merchant name alone is insufficient, especially for partial refunds or
+multiple purchases. Apply the original category only to a verified matching
+refund; resolve partial-return item details before reversing a split.
+
+For reimbursement-related charges, retrieve the prior discussion and linked
+reimbursement records before flagging them again. Distinguish a planned,
+submitted, and actually paid reimbursement; memory of a plan does not prove
+payment, and a matching amount alone does not establish a link.
+
 ## Step 2: Apply automatic rules
 
 For background jobs, the deterministic pre-check reads
@@ -82,14 +101,29 @@ installation-specific. The `0` above is a placeholder.
 
 ## Step 3: Handle excluded vendors
 
-These vendors span multiple categories and ALWAYS need human review:
+These vendors span multiple categories and require item-level evidence before
+categorization. They do not automatically require another question to the user:
 - **Amazon** — groceries, electronics, kids, home, business
 - **Walmart / WMT Scan-n-go** — groceries, home, kids, auto
 - **Costco** — groceries, auto, home
 - **Fred Meyer** (non-fuel) — groceries, home, pharmacy
 - **Subway / Chipotle / Similar restaurants** — could be personal or work reimbursement
 
-For Amazon and Walmart: use the `amazon_orders` or `walmart_orders` skill to look up what was in the order via browser. Then use `receipt_logging` to create an Obsidian receipt. The receipt tells you whether to categorize directly or split.
+For Amazon and Walmart, first query `receipt_registry lookup_receipts`. Use a
+matched itemized receipt to categorize or split. During scheduled reviews, when
+no receipt matches, check the supplied receipt-cataloger dependency status and
+`state_query` for the `automation-job` before asking about the purchase. If
+cataloging is pending or running, leave the transaction uncleared and report it
+as waiting for receipt cataloging, with a next check after cataloging completes.
+Do not ask the user what an Amazon purchase was while that workflow is pending.
+If the job failed, is disabled, or its next expected run is overdue, surface that
+specific blocker and next action. A successful job does not prove this particular
+receipt exists; verify it in the registry. Avoid repeating the same blocker or
+question from the supplied history without a material change.
+
+For interactive receipt lookup, or when the scheduled task explicitly assigns
+cataloging to this run, use the `amazon_orders` or `walmart_orders` skill to look
+up the order via browser, then `receipt_logging` to create the receipt.
 If a receipt note already exists, use `receipt_registry lookup_receipts` before
 opening the retailer site. Matched receipts return `lunchMoneyNote`; copy that
 value into the Lunch Money note so item details are visible in Lunch Money and
@@ -103,7 +137,9 @@ For Costco: use the browser to look up the order on costco.com (order history). 
 
 For Venmo: use `gog_email` to search Gmail for the Venmo payment confirmation email matching the amount and approximate date. The email contains the recipient and payment note — use those to determine the category. Create a receipt via `receipt_logging` at `Records/Finance/Receipts/Venmo/`.
 
-For restaurants (Subway, Chipotle, etc.): ask the user whether it was personal or a work lunch.
+For restaurants (Subway, Chipotle, etc.), check prior decisions and reimbursement
+evidence first. Ask whether it was personal or a work lunch only if still unresolved
+and the same question is not already awaiting an answer.
 
 ## Lunch Money note policy
 
@@ -161,6 +197,7 @@ Report to the orchestrator:
 - How many transactions were auto-categorized (with rule matches)
 - How many were split (with details)
 - How many need user input (with the question for each)
+- How many await another automation, its blocker if any, and when to revisit
 - How many remain unresolved
 
 ## Lunch Money category mapping

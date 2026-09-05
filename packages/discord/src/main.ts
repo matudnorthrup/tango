@@ -221,6 +221,7 @@ import {
   shouldPreferReferentSession,
   type MessageReferent,
 } from "./message-referents.js";
+import { buildScheduledReviewContext, selectScheduledActiveTasks, selectScheduledAgent, SCHEDULED_REVIEW_GUIDANCE } from "./scheduled-review-context.js";
 import { selectWarmStartMessages } from "./channel-surface-context.js";
 import {
   buildReceiptCatalogDateWindow,
@@ -286,8 +287,6 @@ import {
   buildStateMcpServerConfig,
   createAtlasColdStartContextBuilder,
   createV2PostTurnHook,
-  formatMemories,
-  formatPinnedFacts,
   isOllamaBackedAgent,
   resolveV2RuntimeTimeoutMs,
   routeV2MessageIfEnabled,
@@ -2082,19 +2081,14 @@ startPersistentMcpServer().then(async (port) => {
   // Initialize and start the scheduler once MCP is ready
   if (scheduleConfigs.length > 0) {
     const executeV2TurnForScheduler: V2ScheduledTurnExecuteFn = async (input) => {
-      // Background migration: when enabled (default true, off via
-      // TANGO_SCHEDULER_USE_OLLAMA=false), run agent-mode schedules on the agent's
-      // Ollama clone (DeepSeek) instead of the Claude base agent, so scheduled/
-      // proactive traffic gets the same off-Anthropic treatment as interactive turns.
-      // Falls back to the base agent if no clone exists, and keeps SCHEDULER_OLLAMA_EXCLUDE
-      // schedules (e.g. the heavy finance reviews DeepSeek can't finish in time) on Claude.
       const baseScheduleId = input.config.id.replace(/^manual-test-/, "");
-      const scheduleExcluded =
-        SCHEDULER_OLLAMA_EXCLUDE.has(input.config.id) || SCHEDULER_OLLAMA_EXCLUDE.has(baseScheduleId);
-      const scheduledAgentId =
-        SCHEDULER_USE_OLLAMA && !scheduleExcluded && !input.agentId.endsWith("-ollama") && v2Configs.has(`${input.agentId}-ollama`)
-          ? `${input.agentId}-ollama`
-          : input.agentId;
+      const scheduledAgentId = selectScheduledAgent({
+        agentId: input.agentId,
+        config: input.config,
+        useOllama: SCHEDULER_USE_OLLAMA,
+        excluded: SCHEDULER_OLLAMA_EXCLUDE.has(input.config.id) || SCHEDULER_OLLAMA_EXCLUDE.has(baseScheduleId),
+        cloneExists: v2Configs.has(`${input.agentId}-ollama`),
+      });
       const v2Entry = v2Configs.get(scheduledAgentId);
       if (!v2Entry) {
         throw new Error(
@@ -2114,7 +2108,7 @@ startPersistentMcpServer().then(async (port) => {
       const runtimeConfig: AgentRuntimeConfig = {
         agentId: scheduledAgentId,
         backend: isOllamaBackedAgent(v2Entry) ? "ollama" : "claude-code",
-        systemPrompt,
+        systemPrompt: `${systemPrompt}\n\n${SCHEDULED_REVIEW_GUIDANCE}`,
         mcpServers: [
           ...v2Entry.mcpServers,
           ...(v2Entry.mcpServers.some((server) => server.name === "state") ? [] : [buildStateMcpServerConfig()]),
@@ -2144,31 +2138,41 @@ startPersistentMcpServer().then(async (port) => {
         },
       };
 
-      let coldStartContext = "";
-      try {
-        const memoryScope = resolveV2MemoryScope(input.agentId, v2Configs.get(input.agentId));
-        const [pinnedFacts, agentFacts, relevantMemories] = await Promise.all([
-          atlasMemoryClient.pinnedFactGet({ scope: "global" }),
-          Promise.all(
-            memoryScope.aliasAgentIds.map((memoryAgentId) =>
-              atlasMemoryClient.pinnedFactGet({ scope: "agent", scope_id: memoryAgentId }),
-            ),
-          ),
-          atlasMemoryClient.memorySearch({
-            query: input.task.slice(0, 200),
-            agent_id: memoryScope.canonicalAgentId,
-            agent_ids: memoryScope.aliasAgentIds,
-            limit: 5,
-          }),
-        ]);
-        const facts = formatPinnedFacts([...pinnedFacts, ...agentFacts.flat()]);
-        const memories = formatMemories(relevantMemories);
-        if (facts) coldStartContext += `Pinned facts:\n${facts}\n\n`;
-        if (memories) coldStartContext += `Relevant memories:\n${memories}\n\n`;
-      } catch (err) {
-        console.warn(`[scheduler-v2] cold-start context failed for ${input.config.id}:`, err);
-      }
-      runtimeConfig.coldStartContext = coldStartContext || undefined;
+      const reviewContext = await buildScheduledReviewContext({
+        config: input.config,
+        agentId: scheduledMemoryScope.canonicalAgentId,
+        agentIds: scheduledMemoryScope.aliasAgentIds,
+        task: input.task,
+      }, {
+        resolveConversation: async (channelId) => {
+          const channel = await client.channels.fetch(channelId);
+          if (!channel) return undefined;
+          const thread = channel.isThread() ? channel : undefined;
+          const routingChannelId = thread?.parentId ?? channelId;
+          const route = sessionManager.route(`discord:${routingChannelId}`);
+          const threadSession = thread ? storage.getThreadSession(channelId) : null;
+          if (!route && !threadSession?.agentId) return undefined;
+          return {
+            sessionId: thread
+              ? threadSession?.sessionId ?? `scheduled-thread:${channelId}`
+              : route!.sessionId,
+            agentId: threadSession?.agentId ?? route!.agentId,
+            channelId: routingChannelId,
+            ...(thread ? { threadId: channelId } : {}),
+          };
+        },
+        buildWarmStart: buildWarmStartContext,
+        getDependency: (id) => {
+          const config = scheduleConfigs.find((candidate) => candidate.id === id);
+          if (!config) return undefined;
+          const run = scheduler?.getStore().getRecentRuns(id, 1)[0];
+          return {
+            config,
+            latestRun: run ? { id: run.id, status: run.status, startedAt: run.startedAt, finishedAt: run.finishedAt } : undefined,
+          };
+        },
+      });
+      runtimeConfig.coldStartContext = reviewContext.prompt;
 
       // Backend-aware adapter selection (mirrors RuntimePool): scheduled/proactive
       // turns for -ollama agents run on DeepSeek instead of wrongly spawning the
@@ -2237,6 +2241,8 @@ startPersistentMcpServer().then(async (port) => {
             runtimeSignal: metadataString(runtimeMetadata, "signal") ?? null,
             runtimeStderr: metadataString(runtimeMetadata, "stderr") ?? null,
             coldStartContextChars: runtimeConfig.coldStartContext?.length ?? 0,
+            reviewContext: reviewContext.diagnostics,
+            reasoningEffort: runtimeConfig.runtimePreferences.reasoningEffort ?? null,
           },
           rawResponse:
             captureProviderRaw && rawRuntimeResponse
@@ -2252,6 +2258,7 @@ startPersistentMcpServer().then(async (port) => {
             ...(response.metadata ?? {}),
             runtime: "v2",
             sessionId: providerSessionId,
+            reviewContext: reviewContext.diagnostics,
           },
         };
       } finally {
@@ -5850,6 +5857,8 @@ function savePersistedProviderSession(input: {
 }
 
 async function buildWarmStartContext(input: {
+  scheduledReview?: boolean;
+  scheduledAgentIds?: string[];
   sessionId: string;
   agentId: string;
   currentUserPrompt?: string;
@@ -5859,6 +5868,9 @@ async function buildWarmStartContext(input: {
   discordThreadId?: string | null;
 }): Promise<WarmStartContextResult> {
   try {
+    const memoryScope = input.scheduledReview && input.scheduledAgentIds
+      ? { canonicalAgentId: input.agentId, aliasAgentIds: input.scheduledAgentIds }
+      : resolveV2MemoryScope(input.agentId, v2Configs.get(input.agentId));
     const allMessages = storage.listMessagesForSession(input.sessionId, 5000);
     // Messages persist with discord_channel_id = the surface they arrived on
     // (the thread id for thread/forum-post messages), while discordChannelId
@@ -5879,6 +5891,9 @@ async function buildWarmStartContext(input: {
       recentChannelMessages,
       channelId: messageSurfaceChannelId,
       agentId: input.agentId,
+      ...(input.scheduledReview ? {
+        scheduledAgentIds: memoryScope.aliasAgentIds,
+      } : {}),
     });
     const attachmentContext = buildAttachmentDirectoryContext({
       store: attachmentStore,
@@ -5902,10 +5917,19 @@ async function buildWarmStartContext(input: {
     let activeTasksBlock: string | undefined;
     let activeTasksOpenCount = 0;
     try {
-      const openActiveTasks = storage.listActiveTasks({
+      const taskAgentIds = input.scheduledReview
+        ? memoryScope.aliasAgentIds
+        : [input.agentId];
+      const sessionTasks = taskAgentIds.flatMap((agentId) => storage.listActiveTasks({
         sessionId: input.sessionId,
-        agentId: input.agentId,
-      });
+        agentId,
+        ...(input.scheduledReview && messageSurfaceChannelId
+          ? { sourceChannelId: messageSurfaceChannelId }
+          : {}),
+      }));
+      const openActiveTasks = input.scheduledReview
+        ? selectScheduledActiveTasks(sessionTasks, messageSurfaceChannelId, (id) => storage.getMessage(id))
+        : sessionTasks;
       activeTasksOpenCount = openActiveTasks.length;
       activeTasksBlock = renderActiveTasksWarmStartBlock(openActiveTasks);
     } catch (error) {
@@ -5926,7 +5950,6 @@ async function buildWarmStartContext(input: {
     // the Atlas substrate — where extraction, reflections, and the obsidian
     // mirror all write — with per-call fallback to the legacy core tables.
     // TANGO_WARM_START_MEMORY_SOURCE=core flips back without a deploy.
-    const memoryScope = resolveV2MemoryScope(input.agentId, v2Configs.get(input.agentId));
     const memoryQuery = {
       sessionId: input.sessionId,
       agentId: input.agentId,
@@ -5960,6 +5983,7 @@ async function buildWarmStartContext(input: {
         ? await maybeEmbedText(input.currentUserPrompt, "query", "warm-start query")
         : null;
     const memoryPrompt = assembleSessionMemoryPrompt({
+      messageAgentIds: input.scheduledReview ? memoryScope.aliasAgentIds : undefined,
       sessionId: input.sessionId,
       agentId: input.agentId,
       memoryAgentId: memoryScope.aliasAgentIds.length === 1 ? memoryScope.canonicalAgentId : null,
@@ -5968,9 +5992,13 @@ async function buildWarmStartContext(input: {
       allowFullHistoryBypass: orchestratorContinuityMode !== "stateless",
       memoryConfig,
       messages,
-      summaries: memoryBundle.summaries,
+      // Legacy summaries and session pins carry no surface provenance. Scheduled
+      // reviews must not borrow another channel's context during Atlas fallback.
+      summaries: input.scheduledReview && memoryBundle.substrate === "core" ? [] : memoryBundle.summaries,
       memories,
-      pinnedFacts: memoryBundle.pinnedFacts,
+      pinnedFacts: input.scheduledReview && memoryBundle.substrate === "core"
+        ? memoryBundle.pinnedFacts.filter((fact) => fact.scope !== "session")
+        : memoryBundle.pinnedFacts,
       excludeMessageIds: input.excludeMessageIds,
     });
 
@@ -6005,6 +6033,11 @@ async function buildWarmStartContext(input: {
           },
         },
       };
+    }
+
+    if (input.scheduledReview) {
+      // Session-level tool outcomes/compactions do not carry channel provenance.
+      return { prompt, diagnostics: { strategy: "none", orchestratorContinuityMode, activeTasks: activeTasksDiagnostics } };
     }
 
     const modelRuns = storage.listModelRunsForSession(input.sessionId, 5000);

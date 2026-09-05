@@ -813,6 +813,7 @@ const scheduleExecutionSchema = z.object({
   task: z.string().min(1).optional(),
   task_template: z.string().min(1).optional(),
   timeout_seconds: z.number().positive().optional(),
+  context_dependencies: z.array(z.string().min(1)).max(20).optional(),
   drain_batches: z.boolean().optional(),
   drain_max_batches: z.number().int().positive().optional()
 });
@@ -912,6 +913,7 @@ export function loadScheduleConfigs(configDir: string): ScheduleConfig[] {
         task: parsed.execution.task,
         taskTemplate: parsed.execution.task_template,
         timeoutSeconds: parsed.execution.timeout_seconds,
+        contextDependencies: parsed.execution.context_dependencies,
         drainBatches: parsed.execution.drain_batches,
         drainMaxBatches: parsed.execution.drain_max_batches,
       },

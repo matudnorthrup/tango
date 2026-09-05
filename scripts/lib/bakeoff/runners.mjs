@@ -158,6 +158,7 @@ export async function runClaudeOnce({ model, fixture, claudeCommand = "claude", 
   // Prompt goes IMMEDIATELY after -p: --allowedTools/--disallowedTools are
   // variadic and would swallow a trailing positional prompt word-by-word.
   const args = ["-p", fixture.prompt, "--model", cliModel, "--output-format", "stream-json", "--verbose", "--max-turns", String(maxTurns)];
+  if (fixture.reasoningEffort) args.push("--effort", fixture.reasoningEffort);
   if (fixture.system) args.push("--system-prompt", fixture.system);
   if (fixture.tools) {
     const mcpConfigPath = join(workdir, "mcp.json");
@@ -180,6 +181,9 @@ export async function runClaudeOnce({ model, fixture, claudeCommand = "claude", 
       // Parity with Ollama candidates: MCP tools only — no shell, no web, no files.
       "--disallowedTools", "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task,TodoWrite,Read,Grep,Glob",
     );
+  } else {
+    // A no-tools fixture must not inherit user MCP servers or built-in file tools.
+    args.push("--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}');
   }
 
   const startedAt = Date.now();

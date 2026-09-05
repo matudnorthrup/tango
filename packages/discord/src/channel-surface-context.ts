@@ -10,13 +10,19 @@ export function selectWarmStartMessages(input: {
   recentChannelMessages: StoredMessageRecord[];
   channelId?: string | null;
   agentId: string;
+  /** Scheduled reviews need bounded history across prior runs, not just 15 minutes. */
+  scheduledAgentIds?: string[];
 }): ChannelSurfaceSelection {
   const channelId = input.channelId?.trim() || null;
+  const scopedSessionMessages = input.scheduledAgentIds
+    ? input.sessionMessages.filter((message) => input.scheduledAgentIds!.includes(message.agentId ?? "")
+      && message.visibility === "public" && message.discordChannelId === channelId)
+    : input.sessionMessages;
   const sessionMessages = channelId
-    ? input.sessionMessages.filter(
+    ? scopedSessionMessages.filter(
         (message) => isSessionMessageInChannelScope(message, channelId)
       )
-    : input.sessionMessages;
+    : scopedSessionMessages;
 
   if (!channelId) {
     return {
@@ -36,7 +42,7 @@ export function selectWarmStartMessages(input: {
   }
 
   let supplementalMessageCount = 0;
-  const MAX_SUPPLEMENTAL = 10;
+  const MAX_SUPPLEMENTAL = input.scheduledAgentIds ? 80 : 10;
   const RECENCY_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
   const now = Date.now();
 
@@ -44,18 +50,20 @@ export function selectWarmStartMessages(input: {
     if (supplementalMessageCount >= MAX_SUPPLEMENTAL) break;
     if (message.discordChannelId !== channelId) continue;
     if (message.visibility !== "public") continue;
-    if (message.agentId !== input.agentId) continue;
+    if (input.scheduledAgentIds
+      ? !input.scheduledAgentIds.includes(message.agentId ?? "")
+      : message.agentId !== input.agentId) continue;
     if (message.direction !== "inbound" && message.direction !== "outbound") continue;
     if (byId.has(message.id)) continue;
 
     // Skip supplemental messages whose content duplicates an existing session message
-    if (message.content && message.direction === "inbound" && existingContent.has(message.content.trim())) {
+    if (!input.scheduledAgentIds && message.content && message.direction === "inbound" && existingContent.has(message.content.trim())) {
       continue;
     }
 
     // Skip supplemental messages older than the recency window
     const messageTime = parseStoredTimestampMs(message.createdAt);
-    if (messageTime > 0 && now - messageTime > RECENCY_WINDOW_MS) {
+    if (!input.scheduledAgentIds && messageTime > 0 && now - messageTime > RECENCY_WINDOW_MS) {
       continue;
     }
 

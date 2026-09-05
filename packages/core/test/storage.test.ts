@@ -2090,6 +2090,39 @@ describe("TangoStorage", () => {
     storage.close();
   });
 
+  it("finds open tasks from prior alias sessions using verified source-channel provenance", () => {
+    const { storage } = createStorage();
+    storage.bootstrapSessions([
+      { id: "finance-old", type: "persistent", agent: "foxtrot-ollama", channels: [] },
+      { id: "finance-current", type: "persistent", agent: "foxtrot", channels: [] },
+      { id: "other-agent", type: "persistent", agent: "watson", channels: [] },
+    ]);
+    const source = (channel: string, agentId = "foxtrot-ollama", visibility: "public" | "internal" = "public") => storage.insertMessage({
+      sessionId: agentId === "watson" ? "other-agent" : "finance-old",
+      agentId, discordChannelId: channel, visibility, direction: "outbound", source: "tango",
+      content: "Waiting for the existing receipt workflow; do not ask again.",
+    });
+    const task = (sourceId: number, overrides: Record<string, unknown> = {}) => storage.upsertActiveTask({
+      sessionId: "finance-old", agentId: "foxtrot-ollama", status: "awaiting_user",
+      title: "Review unresolved receipt", objective: "Wait for receipt evidence", createdByMessageId: sourceId,
+      ...overrides,
+    });
+    const priorTask = task(source("finance-thread"));
+    task(source("other-thread"));
+    task(source("finance-thread", "foxtrot-ollama", "internal"));
+    task(source("finance-thread", "watson"));
+    task(source("finance-thread"), { updatedByMessageId: source("other-thread") });
+    task(source("finance-thread"), { status: "completed" });
+    task(source("finance-thread"), { expiresAt: "2000-01-01T00:00:00.000Z" });
+    task(source("finance-thread", "watson"), { agentId: "watson", sessionId: "other-agent" });
+
+    expect(storage.listActiveTasks({ sessionId: "finance-current", agentId: "foxtrot-ollama" })).toEqual([]);
+    const tasks = storage.listActiveTasks({ sessionId: "finance-current", agentId: "foxtrot-ollama", sourceChannelId: "finance-thread" });
+    expect(tasks.map((row) => row.id)).toEqual([priorTask]);
+    expect(tasks[0].sessionId).toBe("finance-old");
+    storage.close();
+  });
+
   it("updates and expires active tasks without listing resolved tasks by default", () => {
     const { storage } = createStorage();
     storage.bootstrapSessions([
